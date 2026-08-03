@@ -870,9 +870,13 @@ export function toSvg(d: Dungeon, size = 760): string {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}"><rect width="${size}" height="${size}" fill="#faf9f5"/>\n${lines}\n${nodes}\n</svg>`;
 }
 
-// ---------------------------------------------------------------- demo
+// ---------------------------------------------------------------- diagnostics
 
-function batch(chunks: number, trials: number) {
+/**
+ * Validity and shape statistics over `trials` seeds at a given chunk count.
+ * A dev tool, not part of generation — call it from dev/, never at import time.
+ */
+export function batch(chunks: number, trials: number) {
   let valid = 0, totalAttempts = 0;
   const agg = { dead: 0, corr: 0, junc: 0, mu: 0, ev: 0, maxDeg: 0 };
   for (let i = 0; i < trials; i++) {
@@ -894,9 +898,6 @@ function batch(chunks: number, trials: number) {
   );
 }
 
-if (process.argv[1] && process.argv[1].includes("dungeon-phase-a")) {
-  const { dungeon } = generateValid("fractured-temple", { chunks: 4 });
-  console.log(summarize(dungeon));
-  console.log("\n--- distributions over 200 seeds per size ---");
-  for (const c of [1, 2, 3, 4, 5, 6, 8]) batch(c, 200);
-}
+// The module-load demo block that used to live here touched `process` and so
+// threw in a browser bundle. `batch()` above is still exported for dev use;
+// call it from dev/ rather than at import time.

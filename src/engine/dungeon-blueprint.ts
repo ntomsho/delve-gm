@@ -888,14 +888,5 @@ export function rollSheet(bp: DungeonBlueprintSeed): string {
   return L.join("\n");
 }
 
-// ---------------------------------------------------------------------------
-// DEMO
-// ---------------------------------------------------------------------------
-
-if (process.argv[1] && process.argv[1].includes("dungeon-blueprint")) {
-  const a = generateBlueprintSeed(1, 1005);
-  const b = generateBlueprintSeed(2, 1004);
-  console.log(rollSheet(a));
-  console.log("\n\n" + "=".repeat(72) + "\n\n");
-  console.log(rollSheet(b));
-}
+// The module-load demo block that used to live here touched `process` and so
+// threw in a browser bundle. Its job belongs to `dev/cli-generate.ts --dry`.

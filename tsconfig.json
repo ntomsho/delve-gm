@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "resolveJsonModule": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+
+    "strict": true,
+    // Left OFF deliberately: the engine indexes Maps and arrays with `!` in a
+    // lot of places where the invariant is real but not expressible. Turning
+    // this on would mean editing engine files to satisfy the checker rather
+    // than to fix a bug.
+    "noUncheckedIndexedAccess": false,
+    "noUnusedLocals": true,
+    // Left OFF deliberately: several engine functions carry an `rng` parameter
+    // they no longer use but which keeps their signatures parallel with their
+    // siblings. Revisit as a batch rather than one at a time.
+    "noUnusedParameters": false,
+
+    "skipLibCheck": true,
+    "types": ["vite/client", "node"]
+  },
+  "include": ["src", "vite.config.ts"]
+}

@@ -176,10 +176,10 @@ function isTwoHanded(item: IItem | undefined): boolean {
 
 /** Whether an item is the right kind of thing for a slot (ignores conflicts). */
 function slotAcceptsItem(slot: EquipSlot, item: IItem): boolean {
-  const armorType: ArmorType | undefined = item.armor?.type;
+  const armorType: ArmorType | undefined = item.armor?.armorType;
   switch (slot) {
     case "weapon": return !!item.weapon;
-    case "armor": return armorType === "armor";
+    case "armor": return armorType === "body";
     case "helmet": return armorType === "helmet";
     case "shield": return armorType === "shield";
   }

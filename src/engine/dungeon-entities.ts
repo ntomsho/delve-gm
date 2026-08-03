@@ -35,6 +35,13 @@ export type EntityType =
   | "MobileEffect"
   | "Hazard";
 
+/**
+ * Which equipment slot a piece of armor belongs in. `body` — not `armor` — so
+ * the KIND of thing and the SLOT it goes in never share a word: the slot is
+ * called `armor` and holds a `body` piece, plus a helmet and a shield at +1 each.
+ */
+export type ArmorType = "body" | "helmet" | "shield";
+
 export interface IEntity {
   id: string;
   name: string;
@@ -49,6 +56,18 @@ export interface IEntity {
   state?: string;
   /** Derived cache of base + state. Display only. */
   composed?: string;
+  /**
+   * `state` has moved since `composed` was written, so the description is out
+   * of date and must be regenerated the next time the player encounters this.
+   *
+   * This is deliberately NOT "clear `composed`". State changes on things the
+   * player is nowhere near — a creature that flees two rooms away and bleeds
+   * out there — and there is no reason to spend a call describing a room nobody
+   * is standing in, nor to throw away a perfectly good description in the
+   * meantime. It also keeps `composed === undefined` meaning exactly one thing:
+   * never encountered, which is what fog of war reads.
+   */
+  needUpdate?: boolean;
   /**
    * The procgen rolls behind this entity's base, keyed by the table each was
    * rolled from (e.g. { "Trait": "Fungal", "Feature": "Claws" }). Written by
@@ -200,8 +219,13 @@ export interface IItem extends IEntity {
   /** count or measurement WITH its unit, e.g. "300 feet", "6 doses" */
   amount?: string;
   weapon?: { damage: string; hands?: 1 | 2; ranged?: boolean };
-  /** armor bonus is derived: defense - 10 */
-  armor?: { defense: number };
+  /**
+   * Armor bonus is derived: defense - 10. Only `body` pieces carry a meaningful
+   * defense (Gambeson 12 through Full Plate 16); a helmet and a shield each
+   * contribute a flat +1, so they store `defense: 1` and nothing reads it as a
+   * total. Unarmored is 11.
+   */
+  armor?: { armorType: ArmorType; defense: number };
 }
 
 /** Fires, gas, weather: self-mobile and may span several rooms at once. */
@@ -291,8 +315,25 @@ export function hasBeenEncountered(e: IEntity): boolean {
 /**
  * `composed` is a cache. Anything that mutates state must mark it stale so the
  * render pass knows to regenerate; nothing should read `composed` to decide.
+ *
+ * The old description is left in place until it is actually rewritten — see the
+ * note on `needUpdate`.
  */
 export function setState(e: IEntity, state: string): void {
   e.state = state;
-  e.composed = undefined;
+  e.needUpdate = true;
+}
+
+/** The description has been rewritten from the current base + state. */
+export function setComposed(e: IEntity, composed: string): void {
+  e.composed = composed;
+  e.needUpdate = false;
+}
+
+/**
+ * Whether this needs a fresh description the next time it is encountered:
+ * either it has never been described, or its state has moved since it was.
+ */
+export function needsComposition(e: IEntity): boolean {
+  return e.composed === undefined || e.needUpdate === true;
 }

@@ -46,10 +46,8 @@
 import {
   Rng,
   genMonster,
-  genNpc,
   genMonsterGroup,
   genPeopleGroup,
-  TIER_COMPLEXITY,
   BUILDING_ROOMS,
   DUNGEON_ENTRANCES,
   DUNGEON_HAZARDS,
@@ -69,7 +67,6 @@ import {
   type NpcSeed,
   type Rolled,
   type Size,
-  type Complexity,
   type Tier,
 } from "./dungeon-blueprint.ts";
 
@@ -913,9 +910,21 @@ function resolveClueTargets(
 // MAIN
 // ---------------------------------------------------------------------------
 
+/**
+ * Mobile ids are derived from the stocking seed and a counter that resets at
+ * the top of every stockDungeon() call, so stocking the same seed twice in one
+ * process yields the same ids. A bare module-level counter did not: the second
+ * run continued from wherever the first stopped, which quietly broke
+ * same-seed-twice assertions and any snapshot of a payload carrying mob refs.
+ */
+let mobilePrefix = "mob";
 let mobileCounter = 0;
+function resetMobileIds(seed: number): void {
+  mobilePrefix = `mob_${(seed >>> 0).toString(36)}`;
+  mobileCounter = 0;
+}
 function mobileId(): string {
-  return `mob_${(++mobileCounter).toString(36)}`;
+  return `${mobilePrefix}_${(++mobileCounter).toString(36)}`;
 }
 
 export function stockDungeon(
@@ -926,6 +935,7 @@ export function stockDungeon(
   const level = opts.level ?? blueprint.level ?? 1;
   const seed = opts.seed ?? blueprint.seed + 7919;
   const rng = new Rng(seed);
+  resetMobileIds(seed);
 
   // ---- 0. structural pre-pass ----
   // Per-dungeon cohesion: how much of the creature budget ties back to the
@@ -1514,366 +1524,5 @@ export function stockSheet(sd: StockedDungeon, bp: DungeonBlueprintSeed): string
     );
   }
 
-  return L.join("\n");
-}
-
-// ---------------------------------------------------------------------------
-// ROOMS PASS SERIALISATION
-// ---------------------------------------------------------------------------
-// Turns one chunk into the payload for a single Rooms Pass call.
-//
-// A chunk is six contiguous rooms, which is why it is the batch unit: the
-// things that must agree with each other -- a clue telegraphing its neighbour,
-// a gated way facing two rooms -- are all local. Chunks do no content work
-// beyond this; they are a batching convenience and nothing else.
-//
-// Border rooms (adjacent, but in another chunk) travel as one-line summaries.
-// They are READ ONLY. The model needs to know what it is writing next to, not
-// to write it.
-
-export type DepthBand = "threshold" | "shallow" | "middle" | "deep" | "furthest";
-export type TensionBand = "calm" | "uneasy" | "dangerous" | "lethal";
-
-export interface CreatureBrief {
-  id: string;
-  what: string;
-  affiliation: string;
-  disposition: Disposition;
-  activity: string;
-  /** young / thrall / ecology / hirelings, when this is a group's minions */
-  minion?: string;
-  detail: string;
-}
-
-export interface RoomBrief {
-  roomId: string;
-  ref: string;
-  role: RoomRole;
-  identity: string;
-  /** the raw table keyword -- often more generative than the resolved phrase */
-  detail?: string;
-  depth: DepthBand;
-  tension: TensionBand;
-  isDeadEnd: boolean;
-  headline: Headline;
-  stacked?: Headline;
-  entranceFeature?: string;
-  creatures: CreatureBrief[];
-  special?: string;
-  clue?: string;
-  reward?: string;
-  goalDirective?: string;
-  /** ways out that demand something of the player */
-  gatedExits: string[];
-  openExitsTo: string[];
-}
-
-export interface BorderBrief {
-  ref: string;
-  identity: string;
-  headline: Headline;
-  summary: string;
-  connectsTo: string[];
-}
-
-export interface RoomsPassPayload {
-  chunk: number;
-  /** established by the Dungeon Pass; identical in every call */
-  dungeonContext: string;
-  rooms: RoomBrief[];
-  borders: BorderBrief[];
-  instructions: string;
-  responseSchema: string;
-}
-
-function depthBand(depth: number, maxDepth: number): DepthBand {
-  if (depth === 0) return "threshold";
-  if (!maxDepth) return "shallow";
-  const n = depth / maxDepth;
-  if (n >= 0.99) return "furthest";
-  if (n > 0.66) return "deep";
-  if (n > 0.33) return "middle";
-  return "shallow";
-}
-
-function tensionBand(danger: number): TensionBand {
-  if (danger >= 0.75) return "lethal";
-  if (danger >= 0.5) return "dangerous";
-  if (danger >= 0.25) return "uneasy";
-  return "calm";
-}
-
-function describeMonster(m: MonsterSeed): string {
-  const bits: string[] = [];
-  if (m.silhouette === "beastlike" && m.animals?.length) {
-    bits.push(`beastlike, drawn from ${m.animals.join(" and ")}`);
-  } else if (m.humanoidSeed) {
-    bits.push(`humanoid, ${m.humanoidSeed.table.toLowerCase()}: ${m.humanoidSeed.result}`);
-  }
-  for (const ta of m.traitsAndAbilities) bits.push(`${ta.table.toLowerCase()}: ${ta.result}`);
-  for (const fm of m.featuresAndMutations) bits.push(`${fm.table.toLowerCase()}: ${fm.result}`);
-  bits.push(`tactic: ${m.tactic}`);
-  bits.push(`personality: ${m.personality}`);
-  if (m.weaknesses.length) bits.push(`weakness: ${m.weaknesses.map((w) => w).join(", ")}`);
-  return bits.join("; ");
-}
-
-function describeNpc(n: NpcSeed): string {
-  return [
-    `${n.name} (${n.presentingGender})`,
-    `${n.origin.kind}: ${n.origin.result}`,
-    `asset: ${n.asset}`,
-    `liability: ${n.liability}`,
-    `appearance: ${n.appearance}`,
-    `personality: ${n.personality}`,
-    `goal: ${n.goal}`,
-  ].join("; ");
-}
-
-function describeSpecial(sp: SpecialContent): string {
-  if (sp.kind === "hazard") {
-    if (sp.hazard) return `HAZARD -- ${sp.hazard}`;
-    return `TRAP -- triggered by: ${sp.trapTrigger}; effect: ${sp.trapEffect}`;
-  }
-  return `OBSTACLE -- ${sp.subject} that ${sp.behaviour?.toLowerCase()} (${sp.behaviourSource})`;
-}
-
-const ROOMS_PASS_INSTRUCTIONS = `You are writing room descriptions for one region of a dungeon.
-
-WHAT YOU ARE GIVEN
-Each room below carries content that has already been decided. Your job is to
-realise it in prose, not to choose it.
-
-HARD RULES
-1. Every listed element must appear in the room you write. Do not drop a hazard,
-   a creature, a reward, or a clue because it is awkward. Do not add a second
-   hazard or creature that was not listed.
-2. Keywords are seeds, not labels. A room whose keyword is "Quicksand" should
-   not contain a sentence announcing quicksand -- it should contain quicksand
-   made specific to this dungeon's fiction. Realise, do not gloss.
-3. Do not contradict the dungeon context. Materials, history, and the state of
-   the ruin are already settled.
-4. Depth and tension bands are tone guidance and must not override content. A
-   "calm" room holding a lethal creature is still holding it.
-5. Where a room lists a clue, the clue must point at what it says it points at.
-   Write it as something noticed, not as narration explaining itself.
-6. Gated exits demand something of the player -- finding, unlocking, or
-   otherwise earning the way through. Say what the obstruction looks like from
-   this side. Do not invent the key or specify what opens it.
-
-MAKE THEM DISTINCT
-These rooms sit next to each other and will be read in sequence. Give every one
-of them something the others do not have -- a different dominant sense, a
-different shape, a different reason to linger or hurry. If two rooms in this set
-would read the same way, change one of them. Resist settling into a rhythm where
-each room is described in the same order or at the same length.
-
-BORDER ROOMS
-Rooms marked BORDER are not yours to write. They exist so you know what lies
-beyond the exits. Refer to them only as much as a person standing in your room
-could perceive.
-
-FOR EACH ROOM, RETURN
-- name: a short, concrete name for this room as it now is, not as it was built.
-- base: the room's standing description. Immutable, so write only what is true
-  of the place itself -- not what a party is doing in it, not what has already
-  happened to them, and not anything that changes when its contents change.
-- elements: one line per listed element, saying how that element manifests HERE.
-  These seed a later pass that writes each element up on its own, so be concrete
-  and do not contradict what you wrote in base.`;
-
-const ROOMS_PASS_SCHEMA = `Return JSON only, no prose outside it:
-
-{
-  "rooms": [
-    {
-      "ref": "<the room's ref, exactly as given>",
-      "name": "<short room name>",
-      "base": "<the room's standing description>",
-      "elements": [
-        { "ref": "<element ref as given>", "manifestation": "<how it appears here>" }
-      ]
-    }
-  ],
-  "additions": [
-    { "roomRef": "<ref>", "what": "<anything you had to invent to make a room cohere>" }
-  ]
-}
-
-Every room given to you must appear exactly once. Every element listed under a
-room must appear exactly once in that room's elements. Leave "additions" empty
-unless a room genuinely could not be written without something extra.`;
-
-/**
- * Build the payload for one chunk. `dungeonContext` is the Dungeon Pass output
- * and should be byte-identical across every call -- that shared brief is what
- * actually produces cohesion, far more than showing each batch its neighbours'
- * finished prose.
- */
-export function buildRoomsPassPayload(
-  sd: StockedDungeon,
-  chunk: number,
-  dungeonContext: string
-): RoomsPassPayload {
-  const byId = new Map(sd.rooms.map((r) => [r.roomId, r]));
-  const mobById = new Map(sd.mobiles.map((m) => [m.id, m]));
-  const ref = (r: RoomStock) => `room_${r.index}`;
-
-  const inChunk = sd.rooms.filter((r) => r.chunk === chunk);
-  const inChunkIds = new Set(inChunk.map((r) => r.roomId));
-
-  // adjacency via connectors
-  const linksOf = (roomId: string) =>
-    sd.connectors
-      .filter((c) => c.a === roomId || c.b === roomId)
-      .map((c) => ({
-        other: byId.get(c.a === roomId ? c.b : c.a)!,
-        gated: c.gated,
-      }));
-
-  const rooms: RoomBrief[] = inChunk.map((r) => {
-    const links = linksOf(r.roomId);
-
-    const creatures: CreatureBrief[] = r.occupants.map((id) => {
-      const m = mobById.get(id)!;
-      return {
-        id: m.id,
-        what: m.monster
-          ? `${m.monster.complexity} ${m.monster.silhouette} creature`
-          : m.npc
-          ? "person"
-          : "creatures",
-        affiliation:
-          m.groupIndex !== undefined
-            ? `${m.isBase ? "base of" : "detachment from"} group ${m.groupIndex + 1}`
-            : "unaffiliated",
-        disposition: m.disposition ?? "hostile",
-        activity: m.activity ?? "unspecified",
-        minion: m.minion,
-        detail: m.monster
-          ? describeMonster(m.monster)
-          : m.npc
-          ? describeNpc(m.npc)
-          : m.notes ?? "",
-      };
-    });
-
-    return {
-      roomId: r.roomId,
-      ref: ref(r),
-      role: r.role,
-      identity: r.identity,
-      detail: r.detail,
-      depth: depthBand(r.depth, sd.maxDepth),
-      tension: tensionBand(r.danger),
-      isDeadEnd: r.isDeadEnd,
-      headline: r.headline,
-      stacked: r.stacked,
-      entranceFeature: r.entranceFeature,
-      creatures,
-      special: r.special ? describeSpecial(r.special) : undefined,
-      clue: r.clue
-        ? `${r.clue.keyword} -- indicating ${r.clue.about}` +
-          (r.clue.targetRoomId ? ` (${ref(byId.get(r.clue.targetRoomId)!)})` : "")
-        : undefined,
-      reward: r.reward
-        ? `${r.reward.grade} ${r.reward.type}: ${r.reward.content}` +
-          (r.reward.aboutMobileId
-            ? ` -- concerning ${mobById.get(r.reward.aboutMobileId)?.name}`
-            : "")
-        : undefined,
-      goalDirective: r.goalDirective
-        ? `${r.goalDirective.instruction} Reward: ${r.goalDirective.reward}. ` +
-          `Mission: ${r.goalDirective.mission}.`
-        : undefined,
-      gatedExits: links
-        .filter((l) => l.gated)
-        .map((l) => ref(l.other)),
-      openExitsTo: links.filter((l) => !l.gated).map((l) => ref(l.other)),
-    };
-  });
-
-  // Borders: rooms outside the chunk that something in it connects to.
-  const borderIds = new Set<string>();
-  for (const r of inChunk) {
-    for (const l of linksOf(r.roomId)) {
-      if (!inChunkIds.has(l.other.roomId)) borderIds.add(l.other.roomId);
-    }
-  }
-
-  const borders: BorderBrief[] = [...borderIds].map((id) => {
-    const b = byId.get(id)!;
-    const occ = b.occupants.map((oid) => mobById.get(oid)!);
-    const parts: string[] = [];
-    if (occ.length) parts.push(`holds ${occ.length} creature group(s)`);
-    if (b.special) parts.push(b.special.kind === "hazard" ? "hazardous" : "has an obstacle");
-    if (b.role === "goal") parts.push("the objective is here");
-    if (b.role === "entrance") parts.push("the way in");
-    return {
-      ref: ref(b),
-      identity: b.identity,
-      headline: b.headline,
-      summary: parts.length ? parts.join("; ") : "quiet",
-      connectsTo: linksOf(b.roomId)
-        .filter((l) => inChunkIds.has(l.other.roomId))
-        .map((l) => ref(l.other)),
-    };
-  });
-
-  return {
-    chunk,
-    dungeonContext,
-    rooms,
-    borders,
-    instructions: ROOMS_PASS_INSTRUCTIONS,
-    responseSchema: ROOMS_PASS_SCHEMA,
-  };
-}
-
-/** Render a payload as the text actually sent. */
-export function renderRoomsPassPrompt(p: RoomsPassPayload): string {
-  const L: string[] = [];
-  L.push(p.instructions, "");
-  L.push("=== DUNGEON CONTEXT ===", p.dungeonContext, "");
-  L.push(`=== ROOMS TO WRITE (${p.rooms.length}) ===`, "");
-
-  for (const r of p.rooms) {
-    L.push(`--- ${r.ref} ---`);
-    L.push(`identity: ${r.identity}`);
-    if (r.role !== "normal") L.push(`role: ${r.role}`);
-    L.push(
-      `depth: ${r.depth}   tension: ${r.tension}${r.isDeadEnd ? "   dead end" : ""}`
-    );
-    L.push(`headline: ${r.headline}${r.stacked ? ` + ${r.stacked}` : ""}`);
-    if (r.detail) L.push(`element [detail]: ${r.detail}`);
-    if (r.entranceFeature) L.push(`element [entrance]: ${r.entranceFeature}`);
-    for (const c of r.creatures) {
-      L.push(
-        `element [creature ${c.id}]: ${c.what}, ${c.affiliation}, currently ${c.activity}, ` +
-          `disposition ${c.disposition}${c.minion ? `, ${c.minion} of the group's leader` : ""}`
-      );
-      L.push(`    ${c.detail}`);
-    }
-    if (r.special) L.push(`element [special]: ${r.special}`);
-    if (r.clue) L.push(`element [clue]: ${r.clue}`);
-    if (r.reward) L.push(`element [reward]: ${r.reward}`);
-    if (r.goalDirective) L.push(`element [goal]: ${r.goalDirective}`);
-    if (r.gatedExits.length) L.push(`gated exits: ${r.gatedExits.join(", ")}`);
-    if (r.openExitsTo.length) L.push(`open exits: ${r.openExitsTo.join(", ")}`);
-    L.push("");
-  }
-
-  if (p.borders.length) {
-    L.push(`=== BORDER ROOMS -- context only, do not write ===`, "");
-    for (const b of p.borders) {
-      L.push(
-        `${b.ref}: ${b.identity} (${b.headline}) -- ${b.summary}; ` +
-          `connects to ${b.connectsTo.join(", ")}`
-      );
-    }
-    L.push("");
-  }
-
-  L.push("=== RESPONSE FORMAT ===", p.responseSchema);
   return L.join("\n");
 }
