@@ -40,7 +40,7 @@ import type {
   RewardParcel,
   RoomStock,
   StockedDungeon,
-} from "./dungeon-rooms-loop";
+} from "./dungeon-rooms-loop.ts";
 import type {
   Complexity,
   DungeonBlueprintSeed,
@@ -48,8 +48,8 @@ import type {
   MonsterSeed,
   NpcSeed,
   Tier,
-} from "./dungeon-blueprint";
-import { Rng, TIER_COMPLEXITY, makeId } from "./dungeon-blueprint";
+} from "./dungeon-blueprint.ts";
+import { Rng, TIER_COMPLEXITY, makeId } from "./dungeon-blueprint.ts";
 import type {
   CreatureStats,
   CreatureTemplate,
@@ -62,7 +62,7 @@ import type {
   IRoomConnector,
   IRoomFeature,
   TemplateRegistry,
-} from "./dungeon-entities";
+} from "./dungeon-entities.ts";
 
 // ---------------------------------------------------------------------------
 // OUTPUT
@@ -334,7 +334,7 @@ export function runEntitiesPass(
   bp: DungeonBlueprintSeed,
   rng: Rng = new Rng(sd.seed)
 ): EntityPassResult {
-  const registry: TemplateRegistry = { creatures: {}, hazards: {} };
+  const registry: TemplateRegistry = { creatures: {}, hazards: {}, groups: {} };
   const rooms: IRoom[] = [];
   const connectors: IRoomConnector[] = [];
   const creatures: ICreature[] = [];
@@ -473,6 +473,9 @@ export function runEntitiesPass(
     // requirement text has not been written yet still must not read as open --
     // see OPEN #5.
     if (c.gated) conn.conditional = c.requirement ?? PENDING_CONDITION;
+    // Concealment is settled by the seeded roll in gateConnectors, not by the
+    // writing pass -- a way through is topology, and the map hangs off it.
+    if (c.hidden) conn.isHidden = true;
     connectors.push(conn);
     bind(conn.id, c.a, "connector", []);
   }

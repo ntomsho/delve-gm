@@ -284,10 +284,13 @@ export function resolveBase(e: IEntity, reg: TemplateRegistry): string | undefin
 - else, for a creature: `reg.groups[bid]?.base ?? reg.creatures[bid]?.base`
 - else, for a hazard: `reg.hazards[bid]?.base`
 
-Group ids (`<dungeonId>:g<i>`) and template ids (UUIDs) cannot collide, so the two
-lookups could be one map — but keeping them separate preserves the distinction
-between "a rolled population" and "a one-off template", which is worth more than the
-line it saves.
+Both id spaces are UUIDs — `genMonsterGroup` (`dungeon-blueprint.ts:752`) and
+`genPeopleGroup` (`:715`) mint theirs from `makeId()`, notwithstanding the
+`<dungeonId>:g<i>` doc comment on `MonsterGroup`/`PeopleGroup`, which is stale. So
+the two lookups could be one map without risk of collision — but keeping them
+separate preserves the distinction between "a rolled population" and "a one-off
+template", which is worth more than the line it saves. **The stale comment should be
+corrected** so nobody builds on the format it advertises.
 
 **G2. Rooms have no occupant list — and don't get one. SETTLED.**
 BUILD-PLAN §4.3 requires that writing `roomId` on a creature "must also pull it from
@@ -802,10 +805,36 @@ one-token call through the proxy and prints the response.
 
 ---
 
-### Phase 1 — Headless generation
+### Phase 1 — Headless generation ⚠️ **BUILT, LIVE PATH UNVERIFIED**
 
-**Goal:** `npx tsx src/dev/cli-generate.ts --seed 1005 --size 3` runs the full
-pipeline and writes a JSON file containing a completely written dungeon. No UI.
+**Goal:** `npm run generate -- --seed 1005 --size 3` runs the full pipeline and writes
+a JSON file containing a completely written dungeon. No UI.
+
+**Status.** Everything is built and the offline half is tested: 58 tests green,
+including a full pipeline driven by fake model responses that produces zero
+`validateWritten` problems across three seeds. `--dry` renders every prompt the run
+would send.
+
+**What has NOT happened: a real generation.** There is no `.env.local` in the repo, so
+no call has ever been made through this code path. The Phase 1 exit criterion — three
+consecutive seeds reliably producing a fully-written dungeon — is unmet and cannot be
+met without a key. Expect prompt iteration when it first runs; that is what this phase
+is for, and the tests only prove the plumbing, never the prose.
+
+**Notes on what differed from the plan:**
+
+- Runs under plain `node` (Node 24 strips types natively), so no `tsx` dependency. The
+  cost is that constructor **parameter properties** are unsupported — strip-only mode
+  cannot compile them — so `LlmError` and `ResponseFormatError` declare their fields
+  explicitly. Worth knowing before adding a third error class.
+- Node ESM needs explicit extensions. The engine's imports were mixed; all relative
+  imports in `src/` now carry `.ts`.
+- `applyContentPass` no longer takes or returns a `groupBases` map. It writes into
+  `ep.registry.groups` with the same write-once guard, so the base cannot be dropped by
+  a caller forgetting to keep a return value — which was the original bug.
+- `configureTransport` added to the client: the browser keeps the relative
+  `/api/anthropic` path through the proxy; the CLI points at the API directly, because
+  it runs in Node where there is no proxy and a key is supposed to live.
 
 This is the expensive, high-uncertainty phase and it deliberately happens where
 iteration is a shell command.
@@ -964,8 +993,10 @@ proxy isn't involved — document that clearly so nobody concludes the key rule 
 - After a full run, `resolveBase` returns a non-empty string for **every** creature
   and hazard — this is the assertion that catches the whole class of "base went
   missing" bugs, and it belongs in `validateWritten`.
-- Snapshot the rendered content-pass prompt for one fixed seed (BUILD-PLAN §8).
-- Snapshot the rendered dungeon-pass prompt.
+- Snapshot the rendered content-pass and dungeon-pass prompts for one fixed seed
+  (BUILD-PLAN §8). **Redact UUIDs first** — ids are unseeded (G5) and appear in both
+  prompts (entity refs; group ids), so an un-redacted snapshot passes on the run that
+  writes it and fails on every run after. Run the suite twice when adding a snapshot.
 
 **Exit:** three consecutive seeds produce a fully-written dungeon with no empty
 `base` on any room, connector, creature, feature, item, or hazard. Add a
@@ -977,10 +1008,41 @@ for prompt iteration, not just wiring.
 
 ---
 
-### Phase 2 — State and rules
+### Phase 2 — State and rules ✅ **DONE**
 
 **Goal:** a `GameState` that round-trips through IndexedDB, a dice module, and a diff
 applier that refuses everything it should. Still no UI.
+
+**Outcome.** 172 tests green, build clean. Everything runs headless — no jsdom, no
+fake-indexeddb — because persistence sits behind a `KeyValueStore` interface with a
+memory implementation for tests and Node and an IndexedDB one for the browser.
+
+Three decisions that differed from the plan as written:
+
+- **The applier is atomic by *construction*, not by dry-run validation.** It applies
+  to a `structuredClone` of the world and adopts the clone only if every diff
+  succeeded. Pre-validating against the starting state cannot handle a batch whose
+  later diffs depend on its earlier ones — unequip the shield, then take up the
+  two-hander — and would refuse the second for a conflict the first had already
+  resolved. There is a test for exactly that.
+- **Intra-commit references are `ref`-based.** `children[]` accepts an optional `ref`
+  and later diffs *in the same commit* may use it as an `entityId`. The referee cannot
+  know an id the applier is about to mint, and this is the only window where that
+  matters. Refs do not survive the commit that created them.
+- **Creature creation via `children[]` is refused**, with a message saying so.
+  A creature needs hit dice, a stat block and a template to resolve its base through;
+  a diff cannot supply those well, and a fabricated stat block is worse than a
+  refusal. Items and features create fine. Revisit if the referee turns out to need it.
+
+**`dungeon-rolls`** ships `saveRoll` / `attackRoll` / `stuntRoll` / `moraleRoll` /
+`rollDamage`, with `dcFromDefense` holding the only `+1` in the codebase. Tests pin
+the thresholds in both directions: 16 succeeds and 15 fails an ordinary save; a total
+exactly equal to a target's defense **misses**.
+
+**The run RNG resumes mid-stream.** `CountingRng` wraps `Rng` and counts draws;
+`{ runSeed, rngDraws }` is persisted and replayed on load. A wrapper rather than a
+subclass because `Rng`'s methods reach for its private generator directly, so
+overriding `next()` would not catch them.
 
 **2a. `src/engine/dungeon-rolls.ts`**
 
@@ -1315,6 +1377,34 @@ reasoning in a comment — they are the two knobs that will get tuned first.
 check: `rollRequest` present iff `nextStage === "roll_offered"`. BUILD-PLAN §4.1 calls
 this out as a cheap correctness check and it should be a zod error, not a UI
 surprise.
+
+#### Narration is buffered until the commit lands. SETTLED.
+
+BUILD-PLAN §4.2 has narration streaming as ordinary assistant text "so the turn feels
+alive", with `commit_state` arriving after it. That is unsafe against an atomic
+applier: if any diff in the batch is refused, the whole batch is refused — but the
+player has already read prose describing things that did not happen. The retry then
+either repeats itself or contradicts what they just read.
+
+**So: generate the whole turn, validate the commit, apply it, and only then show the
+narration.** Prose the player has read is always true of the game state, with no
+window in which it isn't.
+
+What this costs and what it buys:
+
+- The player waits for the full turn instead of watching it arrive. On Haiku a turn is
+  a few seconds. The wait is honest and can be filled — the stage already tells the
+  interface what the game is doing, and `resolving` is a legitimate thing to show.
+- Streaming is still worth keeping *internally* to avoid HTTP timeouts on long
+  resolutions; what changes is that deltas accumulate into a buffer rather than
+  rendering as they arrive.
+- A retry becomes invisible. The player never sees the rejected attempt, so the
+  applier's atomicity stops being something they can observe at all.
+
+This is a deliberate departure from BUILD-PLAN §4.2 and the reason is worth keeping in
+view: the alternative is prose that can be wrong, and the whole point of routing every
+change through one validating chokepoint is that the fiction and the state never
+disagree.
 
 **Tests:** a scripted playthrough — enter room, act, get asked to justify, answer, get
 offered a roll, argue for advantage, get re-offered, roll, resolve, take damage, die.

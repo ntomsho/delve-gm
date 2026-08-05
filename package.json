@@ -10,7 +10,9 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "generate": "node src/dev/cli-generate.ts",
+    "generate:dry": "node src/dev/cli-generate.ts --dry"
   },
   "repository": {
     "type": "git",

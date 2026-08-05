@@ -295,6 +295,12 @@ export interface StockedConnector {
    * lands in `requirement` -> the entity's `conditional` field.
    */
   gated: boolean;
+  /**
+   * Concealed: the player does not know this way exists until they find it.
+   * Rolled here rather than decided by the writing pass — see gateConnectors.
+   * Independent of `gated`; a way can be hidden, blocked, or both.
+   */
+  hidden: boolean;
   /** filled by the composition pass; becomes IRoomConnector.conditional */
   requirement?: string;
 }
@@ -488,11 +494,42 @@ function gateConnectors(
     placed++;
   }
 
+  // Concealment, decided here rather than by the writing pass.
+  //
+  // Every other kind of hidden thing is settled when it is first described, by
+  // whoever is looking at the prose. A way through is different: it is
+  // topology, and the map, the exit list and the player's whole sense of what
+  // is reachable hang off it. That wants a seeded roll that replays identically
+  // and cannot drift, not a judgement made afresh each run.
+  //
+  // Drawn only from connectors that were already going to be special, so the
+  // count of ordinary open ways is untouched — a gated way becomes a concealed
+  // one 25% of the time, and is concealed AND blocked another 10%. Secret
+  // passages are meant to be an occasional pleasure; make them common and they
+  // stop being a discovery and start being a progression tax.
+  //
+  // Progression is safe by construction: `canGate` above keeps at least one
+  // ungated edge on every room bar the deliberate secret one, and concealment
+  // only ever draws from the gated set. No room can have all its ways hidden.
+  const hidden: boolean[] = d.edges.map(() => false);
+  const stillGated = [...gated];
+  for (let i = 0; i < E; i++) {
+    if (!gated[i]) continue;
+    const roll = rng.next();
+    if (roll < 0.25) {
+      hidden[i] = true;
+      stillGated[i] = false; // concealed instead of blocked
+    } else if (roll < 0.35) {
+      hidden[i] = true; // concealed AND blocked
+    }
+  }
+
   return d.edges.map((e, i) => ({
     id: e.entityId,
     a: d.rooms[e.a].entityId,
     b: d.rooms[e.b].entityId,
-    gated: gated[i],
+    gated: stillGated[i],
+    hidden: hidden[i],
   }));
 }
 

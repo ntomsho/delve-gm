@@ -20,7 +20,7 @@
  *             decision. Regenerate whenever base or state changes.
  */
 
-import type { MonsterSeed, NpcSeed } from "./dungeon-blueprint";
+import type { MonsterSeed, NpcSeed } from "./dungeon-blueprint.ts";
 
 // ---------------------------------------------------------------------------
 // BASE
@@ -69,6 +69,29 @@ export interface IEntity {
    */
   needUpdate?: boolean;
   /**
+   * The player is not aware of this yet: a false-backed drawer, a thing waiting
+   * in the dark. Absent or false means visible.
+   *
+   * Hiding something clears `needUpdate` and revealing it sets it, because
+   * `composed` is prose for the player and a concealed thing owes them none.
+   * See `setIsHidden`.
+   *
+   * DECIDED AT FIRST COMPOSITION, not at generation. When an entity is composed
+   * for the first time — `composed === undefined` — the referee reads the
+   * fiction and asks whether someone standing in the room would notice it. That
+   * is a judgement about what has just been written, not something a procgen
+   * roll can make, so it is made where the prose is.
+   *
+   * Set back to false when the player finds it. Hidden things are still
+   * described and still exist; `isHidden` governs whether the player is shown
+   * them, and nothing else.
+   *
+   * Always false for a Room. A room the player is standing in is not concealed
+   * from them, and the map reads `composed !== undefined` as "has been here" —
+   * which only holds if rooms are never hidden.
+   */
+  isHidden?: boolean;
+  /**
    * The procgen rolls behind this entity's base, keyed by the table each was
    * rolled from (e.g. { "Trait": "Fungal", "Feature": "Claws" }). Written by
    * the content pass and carried as context into any later pass that revisits
@@ -109,13 +132,37 @@ export interface CreatureTemplate {
 }
 
 /**
- * Templates that are NOT the rolled inhabitant population -- one-offs created
- * during room generation or mid-game. The rolled population stays in
- * DungeonBlueprintSeed.inhabitants and is addressed by group id.
+ * The shared identity of a whole rolled group -- what these things ARE anywhere
+ * in the dungeon, not what any one of them is doing in any one room. Every
+ * creature instanced from the group resolves its base through here, which is
+ * what stops twelve skeletons drifting apart.
+ *
+ * Inhabitant groups are written by the Dungeon Pass, before any room exists:
+ * who lives here is part of the dungeon's fiction, not a per-room detail.
+ * Wanderer groups are rolled during stocking as filler and are written by the
+ * content pass, in the single chunk each of them appears in.
+ */
+export interface GroupTemplate {
+  /** the InhabitantGroup id: `<dungeonId>:g<i>` */
+  id: string;
+  name?: string;
+  base?: string;
+}
+
+/**
+ * Every shared prose identity in the dungeon, keyed by the `blueprintId` the
+ * entities point at.
+ *
+ * `creatures` and `hazards` are one-offs minted during generation or mid-game.
+ * `groups` is the rolled population -- addressed by InhabitantGroup id, and the
+ * reason a group's base cannot go missing: the registry is part of
+ * EntityPassResult and is persisted with it, so nothing has to remember to
+ * carry a loose map around.
  */
 export interface TemplateRegistry {
   creatures: Record<string, CreatureTemplate>;
   hazards: Record<string, HazardSeed>;
+  groups: Record<string, GroupTemplate>;
 }
 
 // ---------------------------------------------------------------------------
@@ -201,8 +248,6 @@ export interface IHazard extends IEntity, ITemplated {
 export interface IRoomFeature extends IEntity {
   type: "RoomFeature";
   roomId: string;
-  /** requires a search to find */
-  hidden?: boolean;
   hazardId?: string;
 }
 
@@ -312,6 +357,43 @@ export function hasBeenEncountered(e: IEntity): boolean {
   return e.state !== undefined;
 }
 
+// ---------------------------------------------------------------------------
+// BASE RESOLUTION
+// ---------------------------------------------------------------------------
+
+/**
+ * An entity's standing prose identity, wherever it happens to live.
+ *
+ * Three storage sites, because three kinds of thing share identity differently:
+ *
+ *   inline `base`          a one-off -- a room, a connector, a named person who
+ *                          is nobody but themselves
+ *   registry.groups[id]    one of a rolled population; every instance shares it
+ *   registry.creatures[id] a one-off creature template -- an elite, a loose
+ *   registry.hazards[id]   seed, the goal creature; a hazard's shared effect
+ *
+ * Inline wins, so a named member of a people group keeps their own identity
+ * rather than the group's. Returns undefined only when generation left the
+ * entity unwritten, which `validateWritten` treats as a hard failure.
+ */
+export function resolveBase(e: IEntity, reg: TemplateRegistry): string | undefined {
+  if (e.base !== undefined) return e.base;
+
+  const blueprintId = (e as Partial<ICreature>).narrative?.blueprintId
+    ?? (e as Partial<ITemplated>).blueprintId;
+  if (blueprintId === undefined) return undefined;
+
+  if (e.type === "Hazard") return reg.hazards[blueprintId]?.base;
+  return reg.groups[blueprintId]?.base ?? reg.creatures[blueprintId]?.base;
+}
+
+/** The display name for a creature that takes its identity from a group. */
+export function resolveName(e: IEntity, reg: TemplateRegistry): string {
+  if (e.name) return e.name;
+  const blueprintId = (e as Partial<ICreature>).narrative?.blueprintId;
+  return (blueprintId ? reg.groups[blueprintId]?.name : undefined) ?? "";
+}
+
 /**
  * `composed` is a cache. Anything that mutates state must mark it stale so the
  * render pass knows to regenerate; nothing should read `composed` to decide.
@@ -331,9 +413,25 @@ export function setComposed(e: IEntity, composed: string): void {
 }
 
 /**
- * Whether this needs a fresh description the next time it is encountered:
- * either it has never been described, or its state has moved since it was.
+ * Conceal or reveal, settling what that means for the description.
+ *
+ * `composed` is prose for the player. A concealed thing owes them none, so
+ * hiding something settles its description debt; revealing it opens one, and
+ * the next composition pass picks it up. That is why a hidden thing can sit
+ * with `state` written and `composed` empty without looking perpetually stale.
+ */
+export function setIsHidden(e: IEntity, hidden: boolean): void {
+  e.isHidden = hidden;
+  e.needUpdate = !hidden;
+}
+
+/**
+ * Whether this owes the player fresh prose.
+ *
+ * `undefined` means never described, and so yes. `false` is a settled state,
+ * reached either by writing a description or by concealing the thing. `true`
+ * means the description is out of date.
  */
 export function needsComposition(e: IEntity): boolean {
-  return e.composed === undefined || e.needUpdate === true;
+  return e.needUpdate !== false;
 }

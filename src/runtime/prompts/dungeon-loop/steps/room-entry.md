@@ -53,23 +53,54 @@ stair, a crawl, a rotted door. Where one is blocked, say what blocks it as it ap
 from this side. Exits are the player's only means of planning, and a way out they were
 never told about does not exist to them.
 
-## What stays hidden
+## What the player is not aware of
 
-**A hidden feature is never revealed on arrival.** No exception, and it is not a
-judgement call.
+**You decide this, and here is where it is decided.** Every entity carries
+`isHidden`. It starts false, and the first time you compose something — the first
+time it has a description at all — you settle whether someone standing in this room
+would actually notice it. Nothing before you has made that judgement, because nothing
+before you knew what the room reads like.
 
-If it is worth noticing at all, it appears in the room's description as a *clue* —
-something slightly wrong that a careful player might pull at. Draught from a wall with
-nothing behind it. A flagstone worn smoother than its neighbours. Shelving that stands
-a hand's width off the wall. Never name the thing itself, never say that something is
-concealed, and never write a sentence whose only function is to flag that there is a
-secret here.
+Set `isHidden` to true when the fiction has just made the thing unnoticeable:
+
+- it is inside something closed, buried, or behind something else
+- the room's own description accounts for why it goes unseen — the dark, the depth of
+  the water, the heap of fallen masonry
+- it is a thing whose whole point is being missed: a false back, a seam in the
+  masonry, a loose flagstone, a creature that has not moved yet
+
+Leave it false for everything a person in the room would simply see. Most things are
+not hidden. A room where nothing is visible is not mysterious, it is empty.
+
+**A hidden thing gets a `state` and NO `composed`.** Write what is true of it —
+you are the one who knows, and nobody will ask you again — but do not write its
+description. `composed` is what the player reads, and the player cannot read this
+yet. It gets described when it is found, by whoever narrates the finding.
+
+**Never let the room's description name it.** If it is worth finding, the room may
+carry a *clue* — something slightly wrong that a careful player might pull at. A
+draught from a wall with nothing behind it. A flagstone worn smoother than its
+neighbours. Shelving that stands a hand's width off the wall. Never name the thing
+itself, never say that something is concealed, and never write a sentence whose only
+function is to announce that there is a secret here.
 
 The clue is the front half of a rule whose back half lives in the information step: a
 player who looks in the right place, in the right way, turns the clue into the thing.
-Reveal it here and searching this dungeon stops meaning anything.
+Give it away here and searching this dungeon stops meaning anything.
 
-Leave `hidden` as it is. Finding it is not your business; describing the room is.
+**Two things you do not decide.**
+
+*Ways out.* Whether a passage is concealed was settled when the dungeon was laid out,
+because the map and the reachable shape of the place hang off it. A connector already
+marked hidden stays hidden and stays out of your description; one that is not, is
+not. Do not set `isHidden` on a connector.
+
+*Rooms.* Never hidden, ever. The map reads a room's description as "the player has
+been here", so leave rooms alone.
+
+Finding is the other half: when the player does discover something, set `isHidden`
+back to false and rewrite its `state` — that is the resolution step's business, not
+yours.
 
 ## What entry never does
 

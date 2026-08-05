@@ -17,7 +17,7 @@
  * slot helpers below.
  */
 
-import type { IItem, ArmorType } from "./dungeon-entities";
+import type { IItem, ArmorType } from "./dungeon-entities.ts";
 
 export interface CharacterAbilities {
   str: number;
@@ -211,6 +211,61 @@ export function equip(pc: PlayerCharacter, slot: EquipSlot, itemId: string): Equ
   const check = canEquip(pc, slot, itemId);
   if (check.ok) pc.equipped[slot] = itemId;
   return check;
+}
+
+// ---------------------------------------------------------------------------
+// KNOCK-ON EFFECTS
+// ---------------------------------------------------------------------------
+
+/**
+ * Which filled slots CANNOT stay filled if `itemId` goes into `slot`.
+ *
+ * Only one rule in Knave: a shield and a two-handed weapon need three hands
+ * between them. It is symmetric — taking up the halberd puts the shield away,
+ * and taking up the shield puts the halberd away — because both are the same
+ * physical fact stated from opposite ends.
+ */
+export function conflictingSlots(pc: PlayerCharacter, slot: EquipSlot, itemId: string): EquipSlot[] {
+  const item = heldItem(pc, itemId);
+  if (!item) return [];
+
+  if (slot === "weapon" && isTwoHanded(item) && pc.equipped.shield) return ["shield"];
+  if (slot === "shield" && isTwoHanded(heldItem(pc, pc.equipped.weapon))) return ["weapon"];
+  return [];
+}
+
+export interface EquipOutcome extends EquipCheck {
+  /** slots emptied to make the new arrangement possible */
+  displaced: EquipSlot[];
+}
+
+/**
+ * Equip, clearing whatever the new arrangement contradicts.
+ *
+ * This is what the diff applier calls. A diff states the destination — "the
+ * halberd is now in their hands" — and it is this function's job to work out
+ * everything that has to be true for that, rather than the referee's job to
+ * remember to put the shield away first and lose a round trip when it forgets.
+ *
+ * `canEquip` stays strict and is still the right question for a UI asking
+ * "is this legal right now"; the failures it reports that this cannot resolve
+ * — an item not carried, the wrong kind of thing for the slot — remain
+ * failures here.
+ */
+export function equipResolving(pc: PlayerCharacter, slot: EquipSlot, itemId: string): EquipOutcome {
+  const displaced = conflictingSlots(pc, slot, itemId);
+  const before = displaced.map((s) => [s, pc.equipped[s]] as const);
+  for (const s of displaced) unequip(pc, s);
+
+  const check = canEquip(pc, slot, itemId);
+  if (!check.ok) {
+    // Put back what we moved: a refusal must change nothing.
+    for (const [s, id] of before) if (id !== undefined) pc.equipped[s] = id;
+    return { ...check, displaced: [] };
+  }
+
+  pc.equipped[slot] = itemId;
+  return { ok: true, displaced };
 }
 
 /** Clear an equipment slot. */

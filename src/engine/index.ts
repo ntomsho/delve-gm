@@ -58,6 +58,14 @@ export * from "./dungeon-entities-pass.ts";
 // went with the superseded Rooms Pass.
 export * from "./dungeon-content-pass.ts";
 
+// --- the dungeon pass ------------------------------------------------------
+export * from "./dungeon-pass.ts";
+
+// --- dice ------------------------------------------------------------------
+// `Edge` here is advantage/disadvantage. Phase A's `Edge` (a graph connection)
+// is re-exported above as `GraphEdge`.
+export * from "./dungeon-rolls.ts";
+
 // --- the player character --------------------------------------------------
 // `armorDefense` is declared in both dungeon-entities (for CreatureStats) and
 // dungeon-character (for a PlayerCharacter). Both are wanted; the PC one is
@@ -75,6 +83,8 @@ export {
   heldItem,
   canEquip,
   equip,
+  equipResolving,
+  conflictingSlots,
   unequip,
   validateEquipment,
   meleeAttackBonus,
@@ -90,5 +100,6 @@ export type {
   EquippedSlots,
   EquipSlot,
   EquipCheck,
+  EquipOutcome,
   SlotReport,
 } from "./dungeon-character.ts";

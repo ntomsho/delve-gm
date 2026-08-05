@@ -26,14 +26,14 @@ import {
   type MonsterSeed,
   type NpcSeed,
   type Tier,
-} from "./dungeon-blueprint";
+} from "./dungeon-blueprint.ts";
 import {
   createCreatureFromGroup,
   createCreatureFromSeed,
   promoteDetail,
   PENDING_CONDITION,
   type EntityPassResult,
-} from "./dungeon-entities-pass";
+} from "./dungeon-entities-pass.ts";
 import type {
   MobileEntity,
   RewardParcel,
@@ -41,14 +41,14 @@ import type {
   SpecialContent,
   StockedConnector,
   StockedDungeon,
-} from "./dungeon-rooms-loop";
+} from "./dungeon-rooms-loop.ts";
 import type {
   CreatureStats,
   ICreature,
   IItem,
   IRoom,
   IRoomFeature,
-} from "./dungeon-entities";
+} from "./dungeon-entities.ts";
 
 type KW = Record<string, string>;
 
@@ -80,6 +80,13 @@ export interface ConnectorBrief {
   ref: string;
   toRef: string;
   gated: boolean;
+  /**
+   * Concealed, decided by the seeded roll in gateConnectors. The model still
+   * writes what it physically is -- that description is what the player reads
+   * on finding it -- but a secret way wants writing as the thing you would miss,
+   * not as a door.
+   */
+  hidden: boolean;
 }
 
 /** One consolidated body of rank-and-file, count rolled in code. */
@@ -438,7 +445,7 @@ export function buildContentPassPayload(
           if (r.reward) keywords = itemKeywords(r.reward);
           break;
       }
-      entities.push({ ref: b.entityId, kind: b.element, entity, keywords, note, hidden: featureById.get(b.entityId)?.hidden });
+      entities.push({ ref: b.entityId, kind: b.element, entity, keywords, note, hidden: featureById.get(b.entityId)?.isHidden });
     }
 
     // --- detail candidates ---
@@ -449,7 +456,7 @@ export function buildContentPassPayload(
     // --- ALL connectors this room owns ---
     const connectors: ConnectorBrief[] = links
       .filter((l) => ownsConnector(l.conn, r))
-      .map((l) => ({ ref: l.conn.id, toRef: ref(l.other), gated: l.conn.gated }));
+      .map((l) => ({ ref: l.conn.id, toRef: ref(l.other), gated: l.conn.gated, hidden: l.conn.hidden }));
 
     // --- encounters (consolidated) ---
     const encounters: EncounterBrief[] = r.occupants.map((mid) => {
@@ -567,7 +574,14 @@ export function renderContentPassPrompt(p: ContentPassPayload): string {
       L.push(`promotable detail [${kwLine(d.keywords)}] -- make it an entity only if a player would act on it`);
     }
     for (const c of r.connectors) {
-      L.push(`connector [${c.ref}] to ${c.toRef}${c.gated ? " GATED" : ""} -- say what it physically is; ${c.gated ? "and what blocks it, from here" : "no barrier"}`);
+      const flags = `${c.gated ? " GATED" : ""}${c.hidden ? " CONCEALED" : ""}`;
+      const asks = [
+        c.hidden
+          ? "write it as the thing a person would walk past -- a seam, a draught, a panel that rings hollow -- not as a door"
+          : "say what it physically is",
+        c.gated ? "and what blocks it, from here" : "no barrier",
+      ].join("; ");
+      L.push(`connector [${c.ref}] to ${c.toRef}${flags} -- ${asks}`);
     }
     for (const en of r.encounters) {
       L.push(`encounter [${en.ref}] ${en.tier}, ${en.affiliation}, currently ${en.activity}, disposition ${en.disposition}`);
@@ -689,7 +703,6 @@ room. Leave "stats" out for an average creature.`;
 // ===========================================================================
 
 export interface ContentApplyResult {
-  groupBases: Record<string, string>;
   goalEntity?: IRoom | IRoomFeature | IItem | ICreature;
   createdCreatures: ICreature[];
 }
@@ -702,8 +715,7 @@ export function applyContentPass(
   ep: EntityPassResult,
   bp: DungeonBlueprintSeed,
   sd: StockedDungeon,
-  rng: Rng,
-  groupBases: Record<string, string> = {}
+  rng: Rng
 ): ContentApplyResult {
   const roomById = new Map(ep.rooms.map((r) => [r.id, r]));
   const roomByRef = new Map(sd.rooms.map((r) => [`room_${r.index}`, r.roomId]));
@@ -765,7 +777,7 @@ export function applyContentPass(
       f.name = pr.name;
       (f as { base?: string }).base = pr.base;
       f.keywords = { "Room Detail": pr.text };
-      if (pr.hidden) f.hidden = true;
+      if (pr.hidden) f.isHidden = true;
     }
 
     // connectors -- physical form for all, requirement for gated
@@ -800,8 +812,16 @@ export function applyContentPass(
         c.activity = er.group.activity;
         c.keywords = en.group.keywords;
         if (er.group.stats) mergeStats(c.stats, er.group.stats);
-        if (group) { if (groupBases[group.id] === undefined) groupBases[group.id] = er.group.base; }
-        else (c as { base?: string }).base = er.group.base;
+        // A group's base is written exactly ONCE. Inhabitant groups already
+        // have theirs from the Dungeon Pass, so this guard is what stops a
+        // chunk overwriting the dungeon's own fiction; the live path here is
+        // wanderer groups, which are minted per-mobile during stocking and so
+        // only ever appear in the one chunk that holds them.
+        if (group) {
+          const tpl = (ep.registry.groups[group.id] ??= { id: group.id });
+          tpl.base ??= er.group.base;
+          tpl.name ??= er.group.name;
+        } else (c as { base?: string }).base = er.group.base;
         created.push(c);
       }
 
@@ -823,7 +843,7 @@ export function applyContentPass(
   ep.creatures = ep.creatures.filter((c) => !writtenRoomIds.has(c.roomId));
   ep.creatures.push(...created);
 
-  return { groupBases, goalEntity, createdCreatures: created };
+  return { goalEntity, createdCreatures: created };
 }
 
 function mintDistinct(

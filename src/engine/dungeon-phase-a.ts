@@ -14,7 +14,7 @@
 
 // ---------------------------------------------------------------- entity types
 
-import type { IEntity, IRoom, IRoomConnector } from "./dungeon-entities";
+import type { IEntity, IRoom, IRoomConnector } from "./dungeon-entities.ts";
 
 export type { IEntity, IRoom, IRoomConnector };
 

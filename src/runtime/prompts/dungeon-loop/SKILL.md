@@ -168,7 +168,7 @@ From that moment it is an ordinary part of the world: it can be taken, broken, d
 | `roomId` | a creature or feature | where it is |
 | `roomIds` | a spreading effect | every room it now reaches |
 | `conditional` | a connector | what blocks the way; null means it is open |
-| `hidden` | a feature | false once it has been found |
+| `isHidden` | anything but a room | whether the player is aware of it; set when you first describe it, false once found |
 | `sprung` / `active` | a hazard | whether it has gone off, and whether it is still going |
 | `children[]` | anything | a new entity belonging to it |
 

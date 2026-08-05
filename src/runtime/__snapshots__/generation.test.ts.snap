@@ -1,0 +1,270 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`prompt snapshots > content pass, chunk 0 1`] = `
+"You are writing one region of a dungeon: six rooms and everything in them.
+
+WHAT YOU ARE GIVEN
+Every room, entity, connector, and creature has already been decided by procgen.
+Counts and hit dice are already rolled. Your job is to realise it in prose and
+settle the few things procgen leaves to you -- not to choose what is there. Each
+line lists the rolled keywords behind it as table=value; those are seeds to
+realise, not text to echo.
+
+PER ROOM
+- name + base: the room's standing description. base is IMMUTABLE -- only what is
+  true of the place itself, not what a party is doing in it, nothing that changes
+  when its contents change.
+- Each listed entity's name + base, written the same way: fixed identity, concrete
+  to this fiction.
+- Each connector: name + what it physically IS -- a door, a stair, a corridor, a
+  crawl, a short drop, a collapsed arch, whatever separates the two rooms, even if
+  mundane. For a GATED connector also write what blocks it, seen from this room;
+  do not invent the key.
+- Promotable details: a detail is always part of the room's description. Make it
+  its own entity ONLY if a player would act on it. Most stay as description.
+
+CREATURES -- CONSOLIDATE
+The count is already rolled. A mass of one creature type is ONE entity with a
+single stat block; do NOT split it into individuals. "5 x rank-and-file" is one
+entity you name in the plural ("Fen-seals") and write once. Only a specimen
+marked "distinct" -- an elite, a named person -- becomes its own entity alongside
+the mass. Write the group's shared base once (the mass); write each distinct
+specimen its own base. Give the mass and each distinct one a one-line current
+activity fitting the encounter. Stats: you are given the hit-dice spine; return
+only DEVIATIONS the keywords imply (a heavier die for claws, armour, a morale or
+ability shift). Leave stats out for an average body.
+
+THE GOAL
+One room is marked GOAL. Create exactly one entity that embodies the objective. Read the fiction and decide what type it needs to be -- an Item, a RoomFeature, or a Creature -- so that a party acting on it plausibly satisfies the mission. Then name and write it.
+
+HARD RULES
+1. Every listed entity, connector, and encounter must appear exactly once. Do not
+   add a creature, hazard, or connector that was not listed.
+2. Keywords are seeds, not labels. Realise them into the place; do not gloss.
+3. Do not contradict the fiction. Material, history, and the state of the ruin are
+   settled.
+4. Depth and tension are tone, never content. A calm room holding a lethal thing
+   still holds it.
+5. A clue must point at what it is said to point at, written as something noticed.
+
+MAKE THEM DISTINCT
+These rooms are read in sequence. Give each one something the others lack. If two
+would read the same, change one.
+
+=== DUNGEON FICTION (shared context) ===
+[dungeon context]
+
+=== ROOMS TO WRITE (6) ===
+
+--- room_0 ---
+identity: Well
+role: goal
+depth: furthest   tension: lethal
+headline: special
+room keywords: Room=Well
+entity [<id>] reward (Item): Valuable Material=Signet ring
+connector [<id>] to room_1 CONCEALED -- write it as the thing a person would walk past -- a seam, a draught, a panel that rings hollow -- not as a door; no barrier
+connector [<id>] to room_4 -- say what it physically is; no barrier
+GOAL HERE: reward "Jewels" + mission "Deface".
+  Create exactly one entity that embodies the objective. Read the fiction and decide what type it needs to be -- an Item, a RoomFeature, or a Creature -- so that a party acting on it plausibly satisfies the mission. Then name and write it.
+open exits: room_1, room_4
+
+--- room_1 ---
+identity: Storeroom
+depth: furthest   tension: lethal
+headline: creature
+room keywords: Room=Storeroom  |  Room Detail=Unusual smell
+entity [<id>] reward (Item): Valuable Material=Buried cache
+promotable detail [Room Detail=Unusual smell] -- make it an entity only if a player would act on it
+connector [<id>] to room_2 -- say what it physically is; no barrier
+encounter [mob_6vw_2] Solo, unaffiliated, currently Question, disposition hostile
+    distinct named [<id>] (leader) -> its own entity  [background=Alchemist  |  Asset=Powerful spouse  |  Liability=Jealous  |  Method=Alchemy  |  Appearance=Sinewy  |  Personality=Serene  |  Goal=Revenge  |  Reputations=Proper  |  Mannerisms=Flowery speech  |  Hobbies=Archaeology]
+      PEOPLE GROUP, tier Solo
+        faction: Hired killers
+        traits: Pious; Cowardly
+        - [LEADER] Odette (female) [<id>]; background: Alchemist; asset: Powerful spouse; liability: Jealous; method: Alchemy; appearance: Sinewy; personality: Serene; goal: Revenge; Reputations: Proper; Mannerisms: Flowery speech; Hobbies: Archaeology
+open exits: room_0, room_2
+
+--- room_2 ---
+identity: Courtyard
+depth: deep   tension: uneasy
+headline: quiet
+room keywords: Room=Courtyard  |  Room Detail=Furniture
+entity [<id>] clue (RoomFeature): Clue=Moisture -- points at creatures in an adjoining room (room_1)
+promotable detail [Room Detail=Furniture] -- make it an entity only if a player would act on it
+connector [<id>] to room_3 -- say what it physically is; no barrier
+open exits: room_1, room_3
+
+--- room_3 ---
+identity: Gate house
+depth: middle   tension: dangerous
+headline: creature
+room keywords: Room=Gate house
+connector [<id>] to room_4 -- say what it physically is; no barrier
+connector [<id>] to room_5 -- say what it physically is; no barrier
+encounter [mob_6vw_1] Solo, base of group 1, currently Negotiate, disposition hostile
+    mass: 1 x rank-and-file -> ONE consolidated entity, one stat block  [Complexity=major  |  Silhouette=humanoid  |  Trait=Ethereal  |  Ability=Camouflaging; Gaze weapon; Teleporting  |  Feature=Fur  |  Mutation=Extra eyes  |  Tactic=Demand duel  |  Personality=Bored  |  Weakness=Phylactery, Flowers]
+      MONSTER GROUP, tier Solo
+        base: major humanoid; trait: Ethereal; ability: Camouflaging; ability: Gaze weapon; ability: Teleporting; feature: Fur; mutation: Extra eyes; tactic: Demand duel; personality: Bored; weakness: Phylactery, Flowers
+open exits: room_2, room_4, room_5
+
+--- room_4 ---
+identity: Oubliette
+depth: deep   tension: uneasy
+headline: special
+room keywords: Room=Oubliette
+entity [<id>] obstacle (RoomFeature): Obstacle=Bridge  |  Cairn Feature=Repels
+entity [<id>] reward (RoomFeature): Knowledge=Instructions
+open exits: room_3, room_0
+
+--- room_5 ---
+identity: Chasm
+role: entrance
+depth: threshold   tension: calm
+headline: none
+room keywords: Room=Chasm
+entity [<id>] entrance (RoomFeature): Entrance=Tree roots
+open exits: room_3
+
+=== RESPONSE FORMAT ===
+Return JSON only, no prose outside it:
+
+{
+  "rooms": [
+    {
+      "ref": "<room ref, exactly as given>",
+      "name": "<short room name>",
+      "base": "<the room's standing description>",
+      "entities": [ { "ref": "<entity ref>", "name": "<name>", "base": "<identity>" } ],
+      "promotions": [ { "text": "<detail text as given>", "name": "<name>", "base": "<identity>", "hidden": false } ],
+      "connectors": [ { "ref": "<connector ref>", "name": "<name>", "form": "<what it physically is>", "requirement": "<gated only: what blocks it>" } ],
+      "encounters": [
+        {
+          "ref": "<encounter ref>",
+          "group": { "name": "<plural name>", "base": "<shared identity>", "activity": "<one line>", "stats": { "damage": "1d8" } },
+          "distinct": [
+            { "kind": "elite|named", "member": "<named: person id>", "name": "<name>", "base": "<identity>", "isLeader": false, "activity": "<one line>", "stats": { "armorDefense": 14 } }
+          ]
+        }
+      ],
+      "goal": { "entityType": "Item|RoomFeature|Creature", "name": "<name>", "base": "<identity>" }
+    }
+  ]
+}
+
+Include each key only when the room has it; "group" only when a mass is listed;
+"distinct" only for specimens marked distinct; omit "goal" except in the GOAL
+room. Leave "stats" out for an average creature."
+`;
+
+exports[`prompt snapshots > dungeon pass 1`] = `
+"You are establishing a dungeon's standing fiction, before any of its rooms are
+written. Everything below has already been rolled. Your job is to make one
+coherent place out of it -- not to choose what is there, and not to describe any
+individual room.
+
+Whatever you write here is read by every later pass and cannot be contradicted
+afterwards. Commit to it.
+
+WHAT TO WRITE
+
+name        What this place is called. Short. It may be what its builders called
+            it, or what people call it now -- pick whichever the fiction earns.
+
+theme       The sensory register, in a few sentences: what it is built from,
+            what the light is like, what it sounds like, what it smells of, what
+            the air does. Concrete nouns. This is the palette every room draws
+            from, so make it specific enough to constrain and broad enough to
+            furnish twenty rooms.
+
+history     What the place was for, what happened to it, and how it came to hold
+            what it holds now. Tie the ruination cause to the inhabitants: the
+            best dungeons are one story, not a building plus some monsters that
+            wandered in. A few short paragraphs.
+
+goal        You are given a Dungeon Reward and a Mission. Resolve them into ONE
+            objective -- take one, discard the other, or fuse them, whichever
+            reads best. Then write it twice:
+              summary: one line the player is told before they go in.
+              spec:    what actually counts as achieving it, for the referee.
+                       Concrete enough to adjudicate: what must be found, done,
+                       taken, or ended. This decides when the run is won, so do
+                       not leave it to taste.
+
+opening     What the player reads standing at the threshold, before the first
+            room. Second person. The approach, the way in, and the first thing
+            the place does to them. A short paragraph -- it sets the register
+            for everything after it.
+
+groups      For each listed group id, a plural name and a standing base.
+            The base is what these things ARE, permanently and everywhere in
+            this dungeon: their form, their nature, how they behave, what they
+            want. Realise the rolled keywords into a creature or a faction; do
+            not list the keywords back.
+            Write nothing that a single encounter could change. No "currently",
+            no "at the moment", no room, no posture, no wound. Twelve instances
+            of this group in eight rooms all share this one description, so
+            anything true of only one of them does not belong in it.
+            A group's LEADER and any named people get their own descriptions
+            later -- write the group here, not its individuals.
+
+HARD RULES
+1. Do not contradict the rolls. Form, ruination, inhabitants and goal seed are
+   settled; you are realising them, not revising them.
+2. Do not write rooms. No room names, no floor plan, no "in the eastern wing".
+   Rooms are written later, by a pass that has the layout in front of it.
+3. Return a base for every listed group id and for no other id.
+4. Keywords are seeds, not vocabulary. "Fungal" means work out what the fungus
+   has done to them; it does not mean using the word "fungal".
+5. Write prose, not notes. This is read as fiction by everything downstream.
+
+=== DUNGEON BLUEPRINT SEED ===
+id: dungeon_rx   seed: 1005   size: 1   level: 1
+
+PURPOSE
+  Form (original purpose): Hotel
+  Built by: Heretical Monks
+
+RUINATION
+  Ruined: YES
+  Condition: Overpopulated   (also seeds initial dungeon state)
+  Cause: Natural Erosion   (seeds history)
+
+INHABITANTS (1 group)
+  --- Group 1: MONSTERS / Tier: Solo  [<id>] ---
+    Complexity: major
+    Silhouette: humanoid
+    Humanoid seed (Trait): Ethereal
+    Traits/Abilities: Ability: Camouflaging; Ability: Gaze weapon; Ability: Teleporting
+    Features/Mutations: Feature: Fur; Mutation: Extra eyes
+    Tactic: Demand duel
+    Weakness: Phylactery; Flowers
+    Personality: Bored  (discard if not intelligent enough)
+
+PLAYER GOAL SEED
+  Dungeon Reward: Jewels
+  Mission: Deface
+  (pick one, discard the other, or combine -- whichever reads best)
+
+=== GROUPS YOU MUST WRITE (1) ===
+One name + base for each id below, exactly these ids and no others. They are
+the groups printed above; the id is in brackets on each group's header line.
+  <id>
+
+=== RESPONSE FORMAT ===
+Return JSON only, no prose outside it:
+
+{
+  "name": "<the dungeon's name>",
+  "theme": "<sensory register: material, light, sound, smell, air>",
+  "history": "<what it was, what happened, who is here now>",
+  "goal": {
+    "summary": "<one line, told to the player>",
+    "spec": "<what counts as achieving it, for the referee>"
+  },
+  "openingProse": "<second person, at the threshold, before the first room>",
+  "groups": [
+    { "id": "<exactly as listed>", "name": "<plural name>", "base": "<standing identity>" }
+  ]
+}"
+`;
