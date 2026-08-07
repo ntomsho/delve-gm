@@ -61,6 +61,9 @@ const WRITABLE: Record<EntityKind, readonly string[]> = {
     "equipped.armor",
     "equipped.helmet",
     "equipped.shield",
+    // Where they are standing. The one way the player moves, and so the only
+    // route to a room entry during play — the turn machine watches for it.
+    "roomId",
   ],
 };
 

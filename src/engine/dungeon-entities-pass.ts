@@ -356,17 +356,8 @@ export function runEntitiesPass(
   for (const r of sd.rooms) {
     const room: IRoom = { id: r.roomId, name: "", type: "Room" };
 
-    // entrance dressing
-    if (r.entranceFeature) {
-      const f: IRoomFeature = {
-        id: makeId(),
-        name: "",
-        type: "RoomFeature",
-        roomId: r.roomId,
-      };
-      features.push(f);
-      bind(f.id, r.roomId, "entrance", kw(r.entranceFeature));
-    }
+    // The entrance is NOT dressing and is not emitted here. It is the way out
+    // of the dungeon, and it becomes a connector below.
 
     // A detail is always described; whether it is ALSO an entity is the
     // writing pass's call.
@@ -478,6 +469,27 @@ export function runEntitiesPass(
     if (c.hidden) conn.isHidden = true;
     connectors.push(conn);
     bind(conn.id, c.a, "connector", []);
+  }
+
+  // --- the way out of the dungeon ---
+  //
+  // The entrance was rolled as a feature of its room -- a collapsed stair, a
+  // crack in the cliff -- because until connectors could end at nothing there
+  // was no way to say what it actually is: a way THROUGH, and the only one that
+  // leads out. It is emitted as a connector with a null far end and the rolled
+  // keyword carried across, so the writing pass describes it once, as an exit,
+  // rather than twice as a feature and a hole.
+  const entranceRoom = sd.rooms.find((r) => r.roomId === sd.entranceRoomId);
+  if (entranceRoom) {
+    const way: IRoomConnector = {
+      id: makeId(),
+      name: "",
+      type: "RoomConnector",
+      endpointA: entranceRoom.roomId,
+      endpointB: null,
+    };
+    connectors.push(way);
+    bind(way.id, entranceRoom.roomId, "connector", kw(entranceRoom.entranceFeature));
   }
 
   const goalRoom = sd.rooms.find((r) => r.goalDirective) as RoomStock;

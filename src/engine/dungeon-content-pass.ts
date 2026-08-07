@@ -78,7 +78,20 @@ export interface DetailBrief {
 /** Every connector out of a room the room owns -- gated or not. */
 export interface ConnectorBrief {
   ref: string;
-  toRef: string;
+  /** null on a way out of the dungeon: there is no room on the other side */
+  toRef: string | null;
+  /**
+   * What is on the other side, as context only. A connector's NAME must not
+   * mention either room -- it is named for what it physically is, and the room
+   * it leads to is appended at read time, from whichever side is being read.
+   * See CONNECTOR_NAMING. Absent on a way out of the dungeon.
+   */
+  toIdentity?: string;
+  /**
+   * The way out of the dungeon. Carries the rolled entrance keyword, which is
+   * how the party got in and therefore what the exit physically is.
+   */
+  surface?: KW;
   gated: boolean;
   /**
    * Concealed, decided by the seeded roll in gateConnectors. The model still
@@ -456,7 +469,33 @@ export function buildContentPassPayload(
     // --- ALL connectors this room owns ---
     const connectors: ConnectorBrief[] = links
       .filter((l) => ownsConnector(l.conn, r))
-      .map((l) => ({ ref: l.conn.id, toRef: ref(l.other), gated: l.conn.gated, hidden: l.conn.hidden }));
+      .slice()
+      .map((l) => ({
+        ref: l.conn.id,
+        toRef: ref(l.other),
+        toIdentity: l.other.identity,
+        gated: l.conn.gated,
+        hidden: l.conn.hidden,
+      }));
+
+    // The way out of the dungeon belongs to the entrance room. It is not in
+    // `sd.connectors` -- the topology pass only knows about ways between rooms
+    // -- so it is picked up from the emitted entities, where it exists with a
+    // null far end.
+    if (r.roomId === sd.entranceRoomId) {
+      const surface = ep.connectors.find(
+        (c) => c.endpointB === null && c.endpointA === r.roomId
+      );
+      if (surface) {
+        connectors.push({
+          ref: surface.id,
+          toRef: null,
+          surface: r.entranceFeature ? { Entrance: r.entranceFeature } : {},
+          gated: false,
+          hidden: false,
+        });
+      }
+    }
 
     // --- encounters (consolidated) ---
     const encounters: EncounterBrief[] = r.occupants.map((mid) => {
@@ -574,6 +613,14 @@ export function renderContentPassPrompt(p: ContentPassPayload): string {
       L.push(`promotable detail [${kwLine(d.keywords)}] -- make it an entity only if a player would act on it`);
     }
     for (const c of r.connectors) {
+      if (c.surface) {
+        L.push(
+          `connector [${c.ref}] OUT OF THE DUNGEON -- the way the party came in and the ` +
+            `only way back to daylight; realise it from [${kwLine(c.surface)}] and say what ` +
+            `it physically is. Name it as a thing, not as an exit.`
+        );
+        continue;
+      }
       const flags = `${c.gated ? " GATED" : ""}${c.hidden ? " CONCEALED" : ""}`;
       const asks = [
         c.hidden
@@ -581,7 +628,10 @@ export function renderContentPassPrompt(p: ContentPassPayload): string {
           : "say what it physically is",
         c.gated ? "and what blocks it, from here" : "no barrier",
       ].join("; ");
-      L.push(`connector [${c.ref}] to ${c.toRef}${flags} -- ${asks}`);
+      // The far side is named so the form can suit it -- a kennel wants a gate,
+      // a vault wants a door -- and for no other reason. It must not reach the
+      // connector's name; see CONNECTOR_NAMING.
+      L.push(`connector [${c.ref}] to ${c.toRef} (${c.toIdentity})${flags} -- ${asks}`);
     }
     for (const en of r.encounters) {
       L.push(`encounter [${en.ref}] ${en.tier}, ${en.affiliation}, currently ${en.activity}, disposition ${en.disposition}`);
@@ -614,6 +664,23 @@ export function renderContentPassPrompt(p: ContentPassPayload): string {
 // INSTRUCTIONS + SCHEMA
 // ===========================================================================
 
+/**
+ * A connector is read from both ends, and it is one entity with one name.
+ *
+ * Name it "Corridor to the Kennel" and the player standing IN the Kennel reads
+ * "Corridor to the Kennel" on the way out — pointing at where they already are.
+ * A referee asked to route "go back to the Laboratory" then has two exits both
+ * claiming to lead to the Kennel and picks by coin toss. So the name carries the
+ * nature of the crossing and nothing else, and `renderRoom` appends the room on
+ * the far side, correct from whichever end is being read.
+ */
+const CONNECTOR_NAMING = `Its NAME is what the thing physically is and
+  NOTHING else -- "Iron door", "Low archway", "Spiral stair", "Flooded crawl",
+  "Rope bridge". Name NEITHER room it joins: no "to the", no "from the", no room
+  name, no direction. One connector is walked both ways and read from both ends,
+  so a name that points is wrong from one of them. Where it leads is appended
+  when it is read, and is not yours to write.`;
+
 const GOAL_INSTRUCTION =
   "Create exactly one entity that embodies the objective. Read the fiction and " +
   "decide what type it needs to be -- an Item, a RoomFeature, or a Creature -- so " +
@@ -636,10 +703,26 @@ PER ROOM
   to this fiction.
 - Each connector: name + what it physically IS -- a door, a stair, a corridor, a
   crawl, a short drop, a collapsed arch, whatever separates the two rooms, even if
-  mundane. For a GATED connector also write what blocks it, seen from this room;
-  do not invent the key.
+  mundane. ${CONNECTOR_NAMING}
+  For a GATED connector also write what blocks it, seen from this room; do not
+  invent the key.
 - Promotable details: a detail is always part of the room's description. Make it
   its own entity ONLY if a player would act on it. Most stay as description.
+
+A WAY THROUGH IS NEVER A FEATURE
+If something you are about to write reads as a way to somewhere else -- a stair,
+a shaft, a hole in the wall, a rent in the floor, a tunnel, a door -- it is a
+CONNECTOR, not a RoomFeature and not a promoted detail. Spend the idea on one of
+the connectors this room already has: each is listed with the room it leads to,
+so pick the one whose far side suits it and write it as that connector's name
+and form. The rooms are joined the way they are joined; you are describing those
+joins, not adding to them.
+
+A player will try to walk through anything that looks like a passage. Written as
+a feature it leads nowhere, and they find that out by trying.
+
+The ONE exception is the connector marked OUT OF THE DUNGEON, which is a real
+way through to no room at all. It is already in your list. Do not invent others.
 
 CREATURES -- CONSOLIDATE
 The count is already rolled. A mass of one creature type is ONE entity with a
@@ -679,7 +762,7 @@ const CONTENT_PASS_SCHEMA = `Return JSON only, no prose outside it:
       "base": "<the room's standing description>",
       "entities": [ { "ref": "<entity ref>", "name": "<name>", "base": "<identity>" } ],
       "promotions": [ { "text": "<detail text as given>", "name": "<name>", "base": "<identity>", "hidden": false } ],
-      "connectors": [ { "ref": "<connector ref>", "name": "<name>", "form": "<what it physically is>", "requirement": "<gated only: what blocks it>" } ],
+      "connectors": [ { "ref": "<connector ref>", "name": "<what it is, naming neither room>", "form": "<what it physically is>", "requirement": "<gated only: what blocks it>" } ],
       "encounters": [
         {
           "ref": "<encounter ref>",

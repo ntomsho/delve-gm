@@ -29,6 +29,19 @@ For anything the player has never encountered, both are new. For something they 
 seen before whose state has since changed, the state may already be written and only
 the description needs catching up — read what is there before you overwrite it.
 
+## Describe what is there. Do not invent what is not.
+
+This is the rule that matters most, because **what you write here becomes a promise.** The player reads this paragraph and acts on it, and everything in it has to still be true next turn.
+
+**Atmosphere is free. Affordances are not.**
+
+- *Atmosphere* — the cold, the smell, the quality of the light, the sound of water somewhere below, how old the stonework looks. Write as much as you like. Nobody can act on it and nothing depends on it later.
+- *An affordance* is anything a player could reach for: a ledge they could climb, a gap they could squeeze through, a beam they could pull down, a rope, a shelf, a body, a door. **Every affordance in your description must already exist in a `base` or a `state` you were handed, or be something you create in this same commit.**
+
+If you want the ledge, you may have it — but then it is a fact, and facts live where facts live. Put it in the room's `state`, or create it as a `RoomFeature` in `children[]`. What you may not do is put it *only* in the paragraph, because the paragraph is not something you are allowed to reason from next turn, and the player will act on it and be told it was never there.
+
+**Never describe a way out that is not a connector.** You are handed every exit this room has. A "passage continuing north", a "stair down to the lower workings", a "crack you might squeeze through" that is not in that list does not exist — it is not on the map, it leads nowhere, and it cannot be walked through. If a room feels like it should have another way out, that is the layout's business and not yours. Describe the ways out you were given, and no others.
+
 ## What the room's description has to carry
 
 The room's `composed` is the paragraph the player actually reads on arrival. It has to
@@ -52,6 +65,18 @@ furniture. Give the player the situation.
 stair, a crawl, a rotted door. Where one is blocked, say what blocks it as it appears
 from this side. Exits are the player's only means of planning, and a way out they were
 never told about does not exist to them.
+
+Each is listed with the room on the far side. **Name that room only where the line says
+they have been there** — say "the stair back down to the Laboratory", because they know
+it and they will want to ask for it by name. For a way out they have not been through,
+describe the opening and nothing beyond it. You are given the name so you can keep the
+map straight; the player earns it by walking through.
+
+One way out may be marked **OUT OF THE DUNGEON**. That is the way they came in and the
+only way home, and it is worth a sentence of its own — daylight at the top of it, the
+air moving the wrong way, whatever it is. Never let it read as one more door. A player
+who cannot find the way out is a player who cannot decide to leave, and deciding when
+to leave is most of the game.
 
 ## What the player is not aware of
 
@@ -129,6 +154,8 @@ what to do. If a detail is not something the player could see, hear, or smell fr
 where they are standing, it belongs in `state`, not in the description.
 
 ## Ending
+
+**The room's `composed` is what the player reads on arrival. You do not have to write it twice.** It goes into the commit as a diff, and the interface shows that paragraph to the player as the arrival itself — so write it as prose meant to be read aloud, not as a note about the room. If you have something to say beyond it, write that as your message and it will be shown instead.
 
 Commit the `state` and `composed` diffs, then hand the turn back:
 

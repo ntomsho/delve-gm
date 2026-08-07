@@ -37,12 +37,14 @@ import {
   type IHazard,
   type IItem,
   type IMobileEffect,
+  isSurfaceExit,
   type IRoomConnector,
   type IRoomFeature,
 } from "../../engine/index.ts";
 import { equipResolving, unequip as unequipSlot } from "../../engine/index.ts";
 import { NO_CHANGE_STAGES } from "../types.ts";
 import { heldItems } from "../occupancy.ts";
+import { routeTo } from "../travel.ts";
 import { isWritable, normalizePath, writablePaths, type EntityKind } from "./paths.ts";
 import {
   PLAYER_ID,
@@ -152,6 +154,39 @@ function slayCreature(ctx: Ctx, creature: ICreature): void {
     entityId: creature.id,
     detail: `${creature.name || "a creature"} is dead`,
   });
+}
+
+/**
+ * THE PLAYER WALKS. They do not appear.
+ *
+ * The referee names where the player is going and the world works out how far
+ * they get, which is the same bargain as everywhere else in this file: state the
+ * destination, not the procedure. `routeTo` owns the graph — see travel.ts for
+ * what stops a walk and why the destination itself is never checked.
+ *
+ * Two things are settled here rather than there. A route that does not exist is
+ * a REJECTION, so the reasons reach the referee and it gets the one retry §5
+ * allows; a route that ends short is APPLIED, because getting as far as the
+ * Torture Room and finding something in it is a real outcome and not an error.
+ * The event says so, and the arrival pass describes wherever they actually are.
+ *
+ * Read AFTER any earlier diff in the same batch, deliberately: unbar the door
+ * and walk through it is one commit, and the unbarring is already applied by the
+ * time the route is drawn.
+ */
+function walkTo(ctx: Ctx, to: string): void {
+  const route = routeTo(ctx.world, to);
+  if (route.unreachable) fail(route.unreachable);
+
+  ctx.world.currentRoomId = route.endsAt;
+
+  if (route.stoppedBy) {
+    ctx.events.push({
+      kind: "movement-stopped",
+      entityId: ctx.world.pc.id,
+      detail: route.stoppedBy,
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -275,6 +310,16 @@ function applyToPlayer(ctx: Ctx, path: string, raw: string, value: unknown): voi
     if (pc.hp.current <= 0) {
       ctx.events.push({ kind: "player-died", entityId: pc.id, detail: "the player character is slain" });
     }
+    return;
+  }
+
+  if (path === "roomId") {
+    const room = requireEntity(ctx, asString(value, "roomId"));
+    if (room.kind !== "Room") fail("roomId must name a room");
+    // Where the player stands is world-level rather than a field on the sheet:
+    // dropped things land here, and a new value is what puts the turn machine
+    // into a room entry.
+    walkTo(ctx, resolveId(ctx, value as string));
     return;
   }
 
@@ -502,6 +547,17 @@ export function applyCommit(world: World, commit: Commit): ApplyOutcome {
   const ctx: Ctx = { world: draft, index: indexWorld(draft), events: [], refs: new Map() };
   const applied: Diff[] = [];
 
+  // The goal LATCHES. A referee that mentions it once and then forgets cannot
+  // undo the win, and there is no path back to false.
+  if (commit.goalMet === true && !draft.goalMet) {
+    draft.goalMet = true;
+    ctx.events.push({
+      kind: "goal-met",
+      entityId: draft.pc.id,
+      detail: "the dungeon's objective is accomplished",
+    });
+  }
+
   for (const diff of commit.diffs) {
     try {
       applyOne(ctx, diff);
@@ -515,6 +571,33 @@ export function applyCommit(world: World, commit: Commit): ApplyOutcome {
   }
 
   if (rejected.length > 0) return { ok: false, applied: [], rejected, events: [] };
+
+  // LEAVING IS A PLACE, NOT A DECISION. A run can only end on the surface, and
+  // only from a room with an unblocked way to it — checked after the diffs, so
+  // that clearing the rubble and climbing out is one commit. Refused rather than
+  // clamped: unlike a walk that ends short, there is no lesser outcome to apply.
+  if (commit.nextStage === "departed") {
+    const out = draft.entities.connectors.filter(
+      (c) => isSurfaceExit(c) && c.endpointA === draft.currentRoomId && c.isHidden !== true
+    );
+    const reason =
+      out.length === 0
+        ? `the player cannot leave the dungeon from here: this room has no way to the surface. ` +
+          `Walk them to one first — the way out is on the "Ways out" list of the room that has it.`
+        : out.every((c) => c.conditional !== undefined)
+          ? `the player cannot leave: the way to the surface is blocked — ` +
+            `${out.map((c) => c.conditional).join("; ")}.`
+          : undefined;
+
+    if (reason !== undefined) {
+      return {
+        ok: false,
+        applied: [],
+        events: [],
+        rejected: [{ diff: { entityId: PLAYER_ID, path: "nextStage", value: "departed" }, reason }],
+      };
+    }
+  }
 
   // Equipment can become illegal as a side effect — the shield survived but the
   // armour it was legal beside did not. Put down whatever no longer holds, and

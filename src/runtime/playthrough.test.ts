@@ -277,6 +277,7 @@ describe("a run through a generated dungeon", () => {
       entities: structuredClone(dungeon.entities),
       pc: testCharacter(),
       currentRoomId: dungeon.stocked.entranceRoomId,
+      goalMet: false,
     };
     const room = dungeon.stocked.entranceRoomId;
 

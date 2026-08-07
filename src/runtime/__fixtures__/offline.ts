@@ -22,6 +22,7 @@ import {
   runEntitiesPass,
   stockDungeon,
   type ContentPassPayload,
+  type IItem,
   type ContentPassResponse,
   type DungeonPassResponse,
   type PlayerCharacter,
@@ -38,7 +39,17 @@ export function fakeDungeonPass(groupIds: string[]): DungeonPassResponse {
     theme: "Wet limestone, green light through flooded shafts, a constant drip.",
     history: "A coin works drowned by the river it was built to exploit.",
     goal: { summary: "Recover the master die.", spec: "The player carries the master die out through the entrance." },
-    openingProse: "The stair goes down into standing water.",
+    // Short, but carrying the four things the real instruction asks for — what
+    // the place is, what is said about it, what is down there, and the errand —
+    // so anything reading the opening for shape gets the right shape offline.
+    openingProse:
+      "The Sunken Mint sits under the water meadows a half-day east of the town, " +
+      "where the river took back the coin works it was built to feed.\n\n" +
+      "They say the masters stayed at the presses while it filled. They say a good " +
+      "deal else besides, and not much of it agrees.\n\n" +
+      "Something lives in the flooded shafts. Nobody who says so has stayed long " +
+      "enough to say what.\n\n" +
+      "You were paid half in advance. You are here to recover the master die.",
     groups: groupIds.map((id, i) => ({
       id,
       name: `Group ${i + 1} Folk`,
@@ -47,39 +58,126 @@ export function fakeDungeonPass(groupIds: string[]): DungeonPassResponse {
   };
 }
 
+// ---------------------------------------------------------------------------
+// PROSE, WITHOUT A MODEL
+// ---------------------------------------------------------------------------
+//
+// The fake used to answer with its own field names — `base: "A Chasm, calm, at
+// threshold depth."` and an entity called "entrance thing". That proved the
+// wiring, which was its job, and it was actively misleading for everything
+// else: a referee handed a room whose identity is four words of metadata has
+// nothing to reason from, so it improvises, and then contradicts what it
+// improvised. Two live runs were lost to exactly that.
+//
+// So the fake still answers the payload point for point — every field is
+// derived from what was asked for, and nothing is invented that the payload did
+// not name — but it answers in prose. `depth` becomes how deep the water is,
+// which suits a drowned mint and, more usefully, gives the referee a hard
+// physical fact per room that it cannot talk itself out of.
+
+const WATER: Record<string, string> = {
+  threshold: "Water lies ankle-deep across the floor, still and cold.",
+  shallow: "The water is shin-deep here and slow-moving.",
+  middle: "Water stands knee-deep, and the walls are wet a foot above it.",
+  deep: "The water is waist-deep and black, and the floor underfoot is silt.",
+  furthest: "The room is flooded to the chest, and the far end is submerged entirely.",
+};
+
+const AIR: Record<string, string> = {
+  calm: "Nothing has disturbed it in a long time.",
+  uneasy: "Something has been through recently; the silt is stirred.",
+  dangerous: "There are fresh marks on the stonework, and the water is clouded.",
+  lethal: "Bones lie where the water dropped them against the walls.",
+};
+
+/** What a written-up feature or item of each kind actually is. */
+const THINGS: Record<string, { name: string; base: string }> = {
+  obstacle: {
+    name: "a fallen sluice gate",
+    base: "An iron sluice gate off its runners, jammed across the passage at an angle.",
+  },
+  clue: {
+    name: "a tally board",
+    base: "A slate board on the wall, still carrying a chalked column of figures gone soft with damp.",
+  },
+  reward: {
+    name: "a strongbox",
+    base: "A banded strongbox, its lid sprung and its lock long since broken open.",
+  },
+  hazard: {
+    name: "a rotted walkway",
+    base: "A timber walkway over the deep end, its planks soft and its supports eaten through.",
+  },
+};
+
 /** Answer a content-pass payload point for point, the way the schema demands. */
 export function fakeContentPass(p: ContentPassPayload): ContentPassResponse {
   return {
     rooms: p.rooms.map((r) => ({
       ref: r.ref,
-      name: `Room ${r.ref}`,
-      base: `A ${r.identity}, ${r.tension}, at ${r.depth} depth.`,
-      entities: r.entities.map((e) => ({ ref: e.ref, name: `${e.kind} thing`, base: `A written ${e.kind}.` })),
-      connectors: r.connectors.map((c) => ({
-        ref: c.ref,
-        name: c.gated ? "Barred door" : "Low arch",
-        form: c.gated ? "a plank door, barred from the far side" : "a low arch",
-        ...(c.gated ? { requirement: "the bar must be lifted from the other side" } : {}),
-      })),
+      name: `The ${r.identity}`,
+      base:
+        `A ${r.identity.toLowerCase()} of the drowned mint, its walls pale limestone crusted with mineral scale. ` +
+        `${WATER[r.depth] ?? WATER.middle} ${AIR[r.tension] ?? AIR.calm}`,
+      entities: r.entities.map((e) => {
+        const thing = THINGS[e.kind] ?? { name: `a ${e.kind}`, base: `A ${e.kind}, written up.` };
+        return { ref: e.ref, name: thing.name, base: thing.base };
+      }),
+      connectors: r.connectors.map((c) => {
+        // The way out of the dungeon: one end is a room and the other is
+        // daylight. Named as a thing, like every other connector.
+        if (c.surface) {
+          return {
+            ref: c.ref,
+            name: "the mint's stair",
+            form: "A broad flight of worn limestone steps rising out of the water toward the surface.",
+          };
+        }
+        return {
+          ref: c.ref,
+          name: c.gated ? "a barred door" : "a low arch",
+          form: c.gated
+            ? "a plank door swollen with water, barred from the far side"
+            : "a low arch of fitted stone, its keystone dropped an inch",
+          ...(c.gated ? { requirement: "the bar must be lifted from the other side" } : {}),
+        };
+      }),
       encounters: r.encounters.map((en) => ({
         ref: en.ref,
         ...(en.group
-          ? { group: { name: "Rank and file", base: "The mass, written once.", activity: en.activity } }
+          ? {
+              group: {
+                name: "the drowned hands",
+                base: "Mint workers who never got out, still in the leather aprons they died in.",
+                activity: en.activity,
+              },
+            }
           : {}),
         ...(en.distinct.length
           ? {
               distinct: en.distinct.map((d) => ({
                 kind: d.kind,
                 ...(d.member ? { member: d.member } : {}),
-                name: d.kind === "elite" ? "The big one" : "A named person",
-                base: `A distinct ${d.kind}.`,
+                name: d.kind === "elite" ? "the shift foreman" : "a drowned clerk",
+                base:
+                  d.kind === "elite"
+                    ? "A heavy figure in a foreman's apron, carrying the mallet it used on the presses."
+                    : "A slight figure with an inkhorn still tied at the belt.",
                 ...(d.isLeader ? { isLeader: true } : {}),
                 activity: en.activity,
               })),
             }
           : {}),
       })),
-      ...(r.goal ? { goal: { entityType: "Item" as const, name: "The master die", base: "A steel coin die." } } : {}),
+      ...(r.goal
+        ? {
+            goal: {
+              entityType: "Item" as const,
+              name: "the master die",
+              base: "A steel coin die the size of a fist, its face still sharp under the tarnish.",
+            },
+          }
+        : {}),
     })),
   };
 }
@@ -122,18 +220,37 @@ export function generateOffline(seed: number, size: Size): GeneratedDungeon {
 export function testCharacter(over: Partial<PlayerCharacter> = {}): PlayerCharacter {
   return {
     id: "pc-1",
-    name: "Wren",
+    name: "Testy",
     level: 1,
-    hp: { current: 6, max: 6 },
-    abilities: { str: 2, dex: 1, con: 2, int: 1, wis: 1, cha: 1 },
+    hp: { current: 15, max: 15 },
+    abilities: { str: 3, dex: 3, con: 3, int: 3, wis: 3, cha: 3 },
     traits: {
       physique: "Wiry", face: "Bony", skin: "Ashen", hair: "Cropped", clothing: "Patched",
       virtue: "Cautious", vice: "Greedy", speech: "Blunt", background: "Burglar",
       misfortunes: "Exiled", alignment: "Neutrality",
     },
-    inventory: [],
-    equipped: {},
+    inventory: testInventory,
+    equipped: { helmet: "test-helmet", armor: "test-chain", weapon: "test-sword" },
     conditions: [],
     ...over,
   };
 }
+
+/**
+ * NOTE ON `armor.defense`: it is the DEFENSE, not the Knave bonus. Unarmoured
+ * is 11 and a +1 gambeson is 12, so chain (+3) is 14. A bonus written here
+ * directly makes the character easier to hit than going naked.
+ *
+ * The helmet's own `defense` is never read — a helmet and a shield are worth a
+ * flat +1 each on top of the body armour. See `armorDefense` in
+ * dungeon-character.ts.
+ */
+const testInventory: IItem[] = [
+  { id: 'test-sword', 'name': 'Sword', type: 'Item', parentId: 'pc-1', slots: 2, weapon: { damage: '1d8', hands: 1 }, quality: 3, currentQuality: 3 },
+  { id: 'test-chain', 'name': 'Chain', type: 'Item', parentId: 'pc-1', slots: 3, armor: { armorType: 'body', defense: 14 }, quality: 5, currentQuality: 5 },
+  { id: 'test-spellbook', 'name': 'Spellbook: Telekinesis', type: 'Item', parentId: 'pc-1', slots: 1, spellBook: { spellName: 'Telekinesis', spellDescription: 'You may mentally move items equal to your level.', exhausted: false } },
+  { id: 'test-helmet', 'name': 'Helmet', type: 'Item', parentId: 'pc-1', slots: 1, armor: { armorType: 'helmet', defense: 1 }, quality: 1, currentQuality: 1 },
+  { id: 'test-rations', 'name': 'Travel Rations', type: 'Item', parentId: 'pc-1', slots: 1, amount: '3 days' },
+  { id: 'test-lantern', 'name': 'Lantern', type: 'Item', parentId: 'pc-1', slots: 1 },
+  { id: 'test-rope', 'name': 'Rope', type: 'Item', parentId: 'pc-1', slots: 1, amount: '50 feet' },
+]

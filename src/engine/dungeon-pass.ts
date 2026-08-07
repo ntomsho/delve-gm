@@ -141,10 +141,41 @@ goal        You are given a Dungeon Reward and a Mission. Resolve them into ONE
                        taken, or ended. This decides when the run is won, so do
                        not leave it to taste.
 
-opening     What the player reads standing at the threshold, before the first
-            room. Second person. The approach, the way in, and the first thing
-            the place does to them. A short paragraph -- it sets the register
-            for everything after it.
+opening     Everything the player knows walking in. Second person, present
+            tense, three or four short paragraphs, and the ONLY briefing they
+            get -- they cannot see the theme, the history, or the goal spec, and
+            nothing later in the run will stop to explain what they are doing
+            here. Write it as prose, not as a briefing document with headings.
+
+            It must carry four things:
+
+              WHAT THIS PLACE IS, and roughly where. A ruined abbey under a
+              tidal flat; a mine the road still goes past. Enough for the
+              player to picture it from outside before they are inside it.
+
+              WHAT IS SAID TO HAVE HAPPENED HERE. A version of the history --
+              the version that reached the surface. It may be thin, wrong in
+              places, or half legend. What it must NOT be is complete: leave
+              the player something to find out. If the truth is that the
+              abbot's own order did this, the rumour can be that something came
+              up out of the sea.
+
+              WHAT THEY ARE GOING TO MEET. The shape of the danger, not its
+              statistics. Say the thing lives here and hunts; do not say its
+              hit dice, its weakness, or how many there are. A player should be
+              able to decide what to bring and still be surprised.
+
+              WHY THEY CAME, and WHAT THEY ARE HERE TO DO. The why is brief and
+              may stay vague for now -- hired, paid in advance, owed a favour,
+              sent. One clause is enough. The WHAT is not vague: it is the goal
+              you wrote above, said plainly, in its own sentence, near the end
+              where it lands last. The player should be able to close the
+              opening and say what they are here for in one line. If they
+              cannot, rewrite it.
+
+            End at the threshold: the way in, and the first thing the place does
+            to them. The next thing they read is the first room, so hand off
+            into it rather than describing it.
 
 groups      For each listed group id, a plural name and a standing base.
             The base is what these things ARE, permanently and everywhere in
@@ -162,11 +193,20 @@ HARD RULES
 1. Do not contradict the rolls. Form, ruination, inhabitants and goal seed are
    settled; you are realising them, not revising them.
 2. Do not write rooms. No room names, no floor plan, no "in the eastern wing".
-   Rooms are written later, by a pass that has the layout in front of it.
+   Rooms are written later, by a pass that has the layout in front of it. This
+   binds the opening too: it ends AT the way in, and the room beyond it is the
+   next thing the player reads, written by somebody who can see it.
 3. Return a base for every listed group id and for no other id.
 4. Keywords are seeds, not vocabulary. "Fungal" means work out what the fungus
    has done to them; it does not mean using the word "fungal".
-5. Write prose, not notes. This is read as fiction by everything downstream.`;
+5. Write prose, not notes. This is read as fiction by everything downstream.
+6. The opening and the goal summary must say the same thing. The summary is the
+   objective as a line; the opening is that same objective as something a person
+   was asked to go and do. They are read minutes apart, and disagreeing is worse
+   than either of them being weak.
+7. The opening tells the player what they were TOLD, not what is true. Theme and
+   history are the facts, and they are for the referee. What reached the player
+   is allowed to be partial, and should be.`;
 
 const DUNGEON_PASS_SCHEMA = `Return JSON only, no prose outside it:
 
@@ -178,7 +218,7 @@ const DUNGEON_PASS_SCHEMA = `Return JSON only, no prose outside it:
     "summary": "<one line, told to the player>",
     "spec": "<what counts as achieving it, for the referee>"
   },
-  "openingProse": "<second person, at the threshold, before the first room>",
+  "openingProse": "<second person: what the place is, what is said to have happened, what lives there, why they came, and — plainly, in its own sentence — what they are here to do>",
   "groups": [
     { "id": "<exactly as listed>", "name": "<plural name>", "base": "<standing identity>" }
   ]

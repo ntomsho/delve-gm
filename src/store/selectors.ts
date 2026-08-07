@@ -15,6 +15,9 @@
 import {
   abilityDefense as creatureAbilityDefense,
   armorDefense as bodyArmorDefense,
+  attackBonus as creatureAttackBonus,
+  damageDie,
+  DEFAULT_MORALE,
   needsComposition as entityNeedsComposition,
   inventoryStatus,
   maxHp,
@@ -34,7 +37,7 @@ import {
   type SlotReport,
   type TemplateRegistry,
 } from "../engine/index.ts";
-import { EQUIP_SLOTS, heldItem, itemSummary } from "../engine/index.ts";
+import { EQUIP_SLOTS, farSide, heldItem, isSurfaceExit, itemSummary, touches } from "../engine/index.ts";
 import { directContents, heldItems } from "../runtime/occupancy.ts";
 import { pointLayout, type Layout, type LayoutConnector, type LayoutRoom } from "../runtime/layout.ts";
 import type { GeneratedDungeon } from "../runtime/generate.ts";
@@ -43,6 +46,24 @@ import type { RunState } from "./game.ts";
 // ===========================================================================
 // ENTITIES
 // ===========================================================================
+
+/**
+ * A creature's numbers, for whoever has to set a difficulty.
+ *
+ * REFEREE ONLY, and that is why it is optional and gated rather than always
+ * present: a defense on a panel is a defense the player has read, and the whole
+ * of step 4 rests on the difficulty staying hidden. `roomView` fills it in only
+ * when asked, prompt assembly asks, and nothing in `ui/` does.
+ */
+export interface CombatView {
+  /** what an attack against it has to beat */
+  armorDefense: number;
+  /** what a save against this creature's own threat is set from */
+  defenses: Record<Ability, number>;
+  attackBonus: number;
+  damage: string;
+  morale: number;
+}
 
 export interface EntityView {
   id: string;
@@ -62,6 +83,8 @@ export interface EntityView {
   activity?: string;
   count?: number;
   hp?: { current: number; max: number };
+  /** creatures only, and only when explicitly asked for — see CombatView */
+  combat?: CombatView;
   /** items only */
   slots?: number;
   quality?: { current: number; original: number };
@@ -69,7 +92,12 @@ export interface EntityView {
   contains: EntityView[];
 }
 
-function toView(entity: AnyEntity, entities: EntityPassResult, registry: TemplateRegistry): EntityView {
+function toView(
+  entity: AnyEntity,
+  entities: EntityPassResult,
+  registry: TemplateRegistry,
+  stats = false
+): EntityView {
   const view: EntityView = {
     id: entity.id,
     name: entity.name,
@@ -79,7 +107,7 @@ function toView(entity: AnyEntity, entities: EntityPassResult, registry: Templat
     base: resolveBase(entity, registry),
     needUpdate: entity.needUpdate === true,
     isHidden: entity.isHidden === true,
-    contains: heldItems(entity.id, entities).map((i) => toView(i, entities, registry)),
+    contains: heldItems(entity.id, entities).map((i) => toView(i, entities, registry, stats)),
   };
 
   if (entity.type === "Creature") {
@@ -87,6 +115,17 @@ function toView(entity: AnyEntity, entities: EntityPassResult, registry: Templat
     view.activity = c.activity;
     view.count = c.count;
     view.hp = { current: c.stats.hp, max: maxHp(c.stats) };
+    if (stats) {
+      view.combat = {
+        armorDefense: bodyArmorDefense(c.stats),
+        defenses: Object.fromEntries(
+          ABILITIES.map((a) => [a, creatureAbilityDefense(c.stats, a)])
+        ) as Record<Ability, number>,
+        attackBonus: creatureAttackBonus(c.stats),
+        damage: damageDie(c.stats),
+        morale: c.stats.morale ?? DEFAULT_MORALE,
+      };
+    }
   }
   if (entity.type === "Item") {
     const i = entity as IItem;
@@ -104,8 +143,19 @@ function toView(entity: AnyEntity, entities: EntityPassResult, registry: Templat
 
 export interface ExitView {
   connectorId: string;
-  /** the room on the other side */
-  toRoomId: string;
+  /** the room on the other side, or null for a way out of the dungeon */
+  toRoomId: string | null;
+  /**
+   * Out of the dungeon entirely. Stepping through it ends the run, so it is
+   * marked wherever it is shown rather than reading as one more door.
+   */
+  surface: boolean;
+  /** its name — for `exitLabel`, which decides whether it may be shown */
+  toRoomName: string;
+  /**
+   * The connector's own name, which says what it is and never where it goes.
+   * Read `exitLabel` instead unless you specifically want the bare form.
+   */
   name: string;
   /** what it physically is */
   form?: string;
@@ -143,6 +193,12 @@ export interface RoomViewOptions {
    * because the drawer is not, even though nobody marked the coin.
    */
   includeHidden?: boolean;
+  /**
+   * Include each creature's defenses, attack bonus, damage die and morale.
+   * TRUE for prompt assembly, where the referee sets difficulties off them.
+   * FALSE — always — for anything the player sees. See CombatView.
+   */
+  includeStats?: boolean;
 }
 
 export function roomView(
@@ -157,27 +213,33 @@ export function roomView(
 
   const registry = e.registry;
   const showAll = opts.includeHidden === true;
+  const stats = opts.includeStats === true;
   const visible = (x: AnyEntity) => showAll || x.isHidden !== true;
 
   const contents = directContents(roomId, e)
     .filter(visible)
-    .map((x) => toView(x, e, registry))
+    .map((x) => toView(x, e, registry, stats))
     // A thing inside a concealed thing is concealed too, whoever marked it.
     .map((v) => (showAll ? v : { ...v, contains: v.contains.filter((c) => !c.isHidden) }));
 
   const exits: ExitView[] = e.connectors
-    .filter((c) => c.endpointA === roomId || c.endpointB === roomId)
+    .filter((c) => touches(c, roomId))
     .filter(visible)
     .map((c: IRoomConnector) => {
-      const toRoomId = c.endpointA === roomId ? c.endpointB : c.endpointA;
+      const toRoomId = farSide(c, roomId);
+      const to = toRoomId === null ? undefined : e.rooms.find((r) => r.id === toRoomId);
       return {
         connectorId: c.id,
         toRoomId,
+        surface: isSurfaceExit(c),
+        toRoomName: to?.name ?? "",
         name: c.name,
         form: resolveBase(c, registry),
         blocked: c.conditional !== undefined,
         requirement: c.conditional,
-        toKnown: e.rooms.find((r) => r.id === toRoomId)?.composed !== undefined,
+        // The surface is somewhere they have certainly been — they walked in
+        // through it — and it is the one destination that needs no describing.
+        toKnown: isSurfaceExit(c) || to?.composed !== undefined,
       };
     });
 
@@ -192,6 +254,37 @@ export function roomView(
     exits,
     fiction: dungeon.dungeonContext,
   };
+}
+
+/**
+ * A way out, as it should be read from the side you are standing on.
+ *
+ * Connectors are named for what they are and never for where they go — one
+ * entity, two ends, and a name that points is wrong from one of them. The
+ * destination is joined on here instead, correct by construction whichever end
+ * is being read.
+ *
+ * Withheld until the player has been through, because a room's name is a thing
+ * they learn by arriving. That withholding is why this is the one place the
+ * label is built: the panel and the referee's prompt must agree about what the
+ * player is able to name, or the referee will offer them a room they cannot
+ * ask for.
+ */
+export function exitLabel(e: ExitView): string {
+  if (e.surface) return `${e.name} — out of the dungeon`;
+  if (!e.toKnown || e.toRoomName === "") return e.name;
+  return `${e.name} to ${theRoom(e.toRoomName)}`;
+}
+
+/**
+ * A room name with an article in front, unless it brought its own.
+ *
+ * Names are written by the content pass and arrive both ways — "Kennel" and
+ * "The Long Gallery" out of the same run. Anything building a sentence around
+ * one goes through here rather than gambling on "the The Long Gallery".
+ */
+export function theRoom(name: string): string {
+  return /^(the|a|an)\s/i.test(name) ? name : `the ${name}`;
 }
 
 /**

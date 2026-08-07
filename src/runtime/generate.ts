@@ -45,6 +45,7 @@ import {
 import { callForJson, type Usage } from "./llm/client.ts";
 import { contentPassSchema, dungeonPassSchema } from "./llm/schemas.ts";
 import { chunksFor, deriveSeeds, type RunSeeds } from "./seeds.ts";
+import { log } from "./journal.ts";
 
 // ---------------------------------------------------------------------------
 // PROGRESS
@@ -120,14 +121,18 @@ export async function generateDungeon(opts: GenerateOptions): Promise<GeneratedD
     report({ stage: "inhabitants" });
     const payload = buildDungeonPassPayload(blueprint);
     report({ stage: "history" });
+    const prompt = renderDungeonPassPrompt(payload);
     const { value, usage } = await callForJson({
       task: "dungeon-pass",
       schema: dungeonPassSchema,
       toolName: "establish_dungeon",
       toolDescription: "Record the dungeon's name, theme, history, goal, opening prose, and the standing identity of each inhabitant group.",
-      messages: [{ role: "user", content: renderDungeonPassPrompt(payload) }],
+      messages: [{ role: "user", content: prompt }],
       signal,
     });
+    // The dungeon is written exactly once and cannot be re-examined by playing
+    // differently, so what was asked for is worth keeping.
+    log({ kind: "generation", pass: "dungeon-pass", prompt, response: value, usage });
     return { result: applyDungeonPass(value, payload), usage };
   })();
 
@@ -162,14 +167,16 @@ export async function generateDungeon(opts: GenerateOptions): Promise<GeneratedD
         chunk,
         fictionResult.dungeonContext
       );
+      const prompt = renderContentPassPrompt(payload);
       const { value, usage } = await callForJson({
         task: "content-pass",
         schema: contentPassSchema,
         toolName: "write_region",
         toolDescription: "Name and write every room, entity, connector, and creature group in this region.",
-        messages: [{ role: "user", content: renderContentPassPrompt(payload) }],
+        messages: [{ role: "user", content: prompt }],
         signal,
       });
+      log({ kind: "generation", pass: "content-pass", chunk, prompt, response: value, usage });
       report({ stage: "writing", chunksDone: ++done, chunksTotal: chunks.length });
       return { chunk, payload, value, usage };
     })
@@ -186,7 +193,7 @@ export async function generateDungeon(opts: GenerateOptions): Promise<GeneratedD
     };
   }
 
-  return {
+  const result: GeneratedDungeon = {
     id: blueprint.id,
     seeds,
     size,
@@ -199,6 +206,12 @@ export async function generateDungeon(opts: GenerateOptions): Promise<GeneratedD
     entities,
     usage,
   };
+
+  // The baseline. Every diff in the rest of the journal is a delta from this,
+  // which is what makes the file a complete history rather than a highlight
+  // reel — any moment in the run can be rebuilt from here plus the commits.
+  log({ kind: "dungeon", dungeon: result });
+  return result;
 }
 
 // ---------------------------------------------------------------------------

@@ -7,6 +7,7 @@ import {
   DungeonPassError,
   generateBlueprint,
   generateBlueprintSeed,
+  isSurfaceExit,
   renderContentPassPrompt,
   renderDungeonPassPrompt,
   resolveBase,
@@ -324,6 +325,9 @@ describe("hidden connectors", () => {
     const gd = generateOffline(1005, 3);
     const stocked = new Map(gd.stocked.connectors.map((c) => [c.id, c]));
     for (const conn of gd.entities.connectors) {
+      // The way OUT of the dungeon is not in the topology pass — it joins a
+      // room to nothing, and nothing is not a node.
+      if (isSurfaceExit(conn)) continue;
       expect(conn.isHidden === true).toBe(stocked.get(conn.id)!.hidden);
     }
   });

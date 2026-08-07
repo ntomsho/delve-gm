@@ -1,0 +1,237 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`the messages > a fresh action 1`] = `
+[
+  {
+    "content": "# The world as it stands
+
+This is regenerated every turn and is always current. Turn 1.
+
+## The player character
+
+**Testy** — level 1, referred to in diffs as \`player\`.
+Hit points **15/15**.
+STR +3 (defense 13) · DEX +3 (defense 13) · CON +3 (defense 13) · INT +3 (defense 13) · WIS +3 (defense 13) · CHA +3 (defense 13)
+Armour defense 15 · melee attack +3 · ranged attack +3
+Inventory slots 10/13
+Conditions: none
+
+Carrying:
+- [test-sword] Sword — 2 slots, quality 3/3
+- [test-chain] Chain — 3 slots, quality 5/5
+- [test-spellbook] Spellbook: Telekinesis — 1 slot
+- [test-helmet] Helmet — 1 slot, quality 1/1
+- [test-rations] Travel Rations — 1 slot
+- [test-lantern] Lantern — 1 slot
+- [test-rope] Rope — 1 slot
+
+Equipped — weapon: [test-sword] Sword · armor: [test-chain] Chain · helmet: [test-helmet] Helmet · shield: —
+
+Traits: physique Wiry, face Bony, skin Ashen, hair Cropped, clothing Patched, virtue Cautious, vice Greedy, speech Blunt, background Burglar, misfortunes Exiled, alignment Neutrality
+
+## The room the player is standing in
+
+[«id-1»] **The Chasm** (NEVER ENCOUNTERED)
+base: A chasm of the drowned mint, its walls pale limestone crusted with mineral scale. Water lies ankle-deep across the floor, still and cold. Nothing has disturbed it in a long time.
+
+### In it
+- (nothing in it)
+
+### Ways out
+- [«id-2»] "a low arch" — a low arch of fitted stone, its keystone dropped an inch · leads to [«id-3»], somewhere they have not been
+- [«id-4»] "the mint's stair — out of the dungeon" — A broad flight of worn limestone steps rising out of the water toward the surface. · LEADS OUT OF THE DUNGEON — the way they came in, and the way home. Walking through it ENDS THE RUN: commit nextStage "departed"
+",
+    "role": "user",
+  },
+  {
+    "content": "The player says: I look at the far wall",
+    "role": "user",
+  },
+  {
+    "content": "# The player has acted
+
+Their words are the last message above. Resume the heuristic at the step you were given and carry it as far as it goes.
+
+Work through the heuristic in the open — none of it is shown to the player. Put the words they read inside \`<post>\` tags, once, at the end. Then end your turn with a single \`commit_state\` call. Every number you use must have come from the \`roll\` tool or from the player's own roll above.",
+    "role": "user",
+  },
+]
+`;
+
+exports[`the messages > a resolution, holding the roll 1`] = `
+[
+  {
+    "content": "# The world as it stands
+
+This is regenerated every turn and is always current. Turn 1.
+
+## The player character
+
+**Testy** — level 1, referred to in diffs as \`player\`.
+Hit points **15/15**.
+STR +3 (defense 13) · DEX +3 (defense 13) · CON +3 (defense 13) · INT +3 (defense 13) · WIS +3 (defense 13) · CHA +3 (defense 13)
+Armour defense 15 · melee attack +3 · ranged attack +3
+Inventory slots 10/13
+Conditions: none
+
+Carrying:
+- [test-sword] Sword — 2 slots, quality 3/3
+- [test-chain] Chain — 3 slots, quality 5/5
+- [test-spellbook] Spellbook: Telekinesis — 1 slot
+- [test-helmet] Helmet — 1 slot, quality 1/1
+- [test-rations] Travel Rations — 1 slot
+- [test-lantern] Lantern — 1 slot
+- [test-rope] Rope — 1 slot
+
+Equipped — weapon: [test-sword] Sword · armor: [test-chain] Chain · helmet: [test-helmet] Helmet · shield: —
+
+Traits: physique Wiry, face Bony, skin Ashen, hair Cropped, clothing Patched, virtue Cautious, vice Greedy, speech Blunt, background Burglar, misfortunes Exiled, alignment Neutrality
+
+## The room the player is standing in
+
+[«id-1»] **The Chasm** (NEVER ENCOUNTERED)
+base: A chasm of the drowned mint, its walls pale limestone crusted with mineral scale. Water lies ankle-deep across the floor, still and cold. Nothing has disturbed it in a long time.
+
+### In it
+- (nothing in it)
+
+### Ways out
+- [«id-2»] "a low arch" — a low arch of fitted stone, its keystone dropped an inch · leads to [«id-3»], somewhere they have not been
+- [«id-4»] "the mint's stair — out of the dungeon" — A broad flight of worn limestone steps rising out of the water toward the surface. · LEADS OUT OF THE DUNGEON — the way they came in, and the way home. Walking through it ENDS THE RUN: commit nextStage "departed"
+",
+    "role": "user",
+  },
+  {
+    "content": "## The roll the player just took
+
+They attempted: Strike at the thing in the dark.
+attack on STR, edge none, against [target-1]
+d20 17 +2 = **19** against 13 — **SUCCESS**
+Damage rolled: 1d6 → [4] = **4**
+
+These are the only numbers you have for this action. Use them; do not restate them differently.
+
+Resolve the action at step 5.
+
+Work through the heuristic in the open — none of it is shown to the player. Put the words they read inside \`<post>\` tags, once, at the end. Then end your turn with a single \`commit_state\` call. Every number you use must have come from the \`roll\` tool or from the player's own roll above.",
+    "role": "user",
+  },
+]
+`;
+
+exports[`the messages > a retry, holding the applier's reasons 1`] = `
+[
+  {
+    "content": "# The world as it stands
+
+This is regenerated every turn and is always current. Turn 1.
+
+## The player character
+
+**Testy** — level 1, referred to in diffs as \`player\`.
+Hit points **15/15**.
+STR +3 (defense 13) · DEX +3 (defense 13) · CON +3 (defense 13) · INT +3 (defense 13) · WIS +3 (defense 13) · CHA +3 (defense 13)
+Armour defense 15 · melee attack +3 · ranged attack +3
+Inventory slots 10/13
+Conditions: none
+
+Carrying:
+- [test-sword] Sword — 2 slots, quality 3/3
+- [test-chain] Chain — 3 slots, quality 5/5
+- [test-spellbook] Spellbook: Telekinesis — 1 slot
+- [test-helmet] Helmet — 1 slot, quality 1/1
+- [test-rations] Travel Rations — 1 slot
+- [test-lantern] Lantern — 1 slot
+- [test-rope] Rope — 1 slot
+
+Equipped — weapon: [test-sword] Sword · armor: [test-chain] Chain · helmet: [test-helmet] Helmet · shield: —
+
+Traits: physique Wiry, face Bony, skin Ashen, hair Cropped, clothing Patched, virtue Cautious, vice Greedy, speech Blunt, background Burglar, misfortunes Exiled, alignment Neutrality
+
+## The room the player is standing in
+
+[«id-1»] **The Chasm** (NEVER ENCOUNTERED)
+base: A chasm of the drowned mint, its walls pale limestone crusted with mineral scale. Water lies ankle-deep across the floor, still and cold. Nothing has disturbed it in a long time.
+
+### In it
+- (nothing in it)
+
+### Ways out
+- [«id-2»] "a low arch" — a low arch of fitted stone, its keystone dropped an inch · leads to [«id-3»], somewhere they have not been
+- [«id-4»] "the mint's stair — out of the dungeon" — A broad flight of worn limestone steps rising out of the water toward the surface. · LEADS OUT OF THE DUNGEON — the way they came in, and the way home. Walking through it ENDS THE RUN: commit nextStage "departed"
+",
+    "role": "user",
+  },
+  {
+    "content": "# Your last commit was REFUSED
+
+**Nothing was applied.** The world is exactly as the section above describes it. The reasons:
+
+- name: that field is never writable
+- ghoul-9: no such entity
+
+Write the turn again with those fixed. Ids must appear verbatim in the sheet or the room above, or have been created earlier in the same commit; \`base\`, \`name\`, \`id\` and \`type\` are never writable; a \`clarifying\` or \`rejected\` commit must carry no diffs at all.
+
+Work through the heuristic in the open — none of it is shown to the player. Put the words they read inside \`<post>\` tags, once, at the end. Then end your turn with a single \`commit_state\` call. Every number you use must have come from the \`roll\` tool or from the player's own roll above.",
+    "role": "user",
+  },
+]
+`;
+
+exports[`the messages > a room entry 1`] = `
+[
+  {
+    "content": "# The world as it stands
+
+This is regenerated every turn and is always current. Turn 1.
+
+## The player character
+
+**Testy** — level 1, referred to in diffs as \`player\`.
+Hit points **15/15**.
+STR +3 (defense 13) · DEX +3 (defense 13) · CON +3 (defense 13) · INT +3 (defense 13) · WIS +3 (defense 13) · CHA +3 (defense 13)
+Armour defense 15 · melee attack +3 · ranged attack +3
+Inventory slots 10/13
+Conditions: none
+
+Carrying:
+- [test-sword] Sword — 2 slots, quality 3/3
+- [test-chain] Chain — 3 slots, quality 5/5
+- [test-spellbook] Spellbook: Telekinesis — 1 slot
+- [test-helmet] Helmet — 1 slot, quality 1/1
+- [test-rations] Travel Rations — 1 slot
+- [test-lantern] Lantern — 1 slot
+- [test-rope] Rope — 1 slot
+
+Equipped — weapon: [test-sword] Sword · armor: [test-chain] Chain · helmet: [test-helmet] Helmet · shield: —
+
+Traits: physique Wiry, face Bony, skin Ashen, hair Cropped, clothing Patched, virtue Cautious, vice Greedy, speech Blunt, background Burglar, misfortunes Exiled, alignment Neutrality
+
+## The room the player is standing in
+
+[«id-1»] **The Chasm** (NEVER ENCOUNTERED)
+base: A chasm of the drowned mint, its walls pale limestone crusted with mineral scale. Water lies ankle-deep across the floor, still and cold. Nothing has disturbed it in a long time.
+
+### In it
+- (nothing in it)
+
+### Ways out
+- [«id-2»] "a low arch" — a low arch of fitted stone, its keystone dropped an inch · leads to [«id-3»], somewhere they have not been
+- [«id-4»] "the mint's stair — out of the dungeon" — A broad flight of worn limestone steps rising out of the water toward the surface. · LEADS OUT OF THE DUNGEON — the way they came in, and the way home. Walking through it ENDS THE RUN: commit nextStage "departed"
+",
+    "role": "user",
+  },
+  {
+    "content": "# The player has just walked in here
+
+These need writing — nothing else does:
+
+- [«id-1»] The Chasm (Room)
+
+Describe the arrival. Change nothing but \`state\` and \`composed\`.
+
+Work through the heuristic in the open — none of it is shown to the player. Put the words they read inside \`<post>\` tags, once, at the end. Then end your turn with a single \`commit_state\` call. Every number you use must have come from the \`roll\` tool or from the player's own roll above.",
+    "role": "user",
+  },
+]
+`;

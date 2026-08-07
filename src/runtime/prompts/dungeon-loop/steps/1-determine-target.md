@@ -23,8 +23,11 @@ Approve with no questions, and advance, when the target is:
 
 - **An existing entity the player is aware of.** "Aware of" means they have perceived it. A concealed thing they have not yet discovered is *not* a valid named target — but note that an action like "I search the shelves" validly targets the shelves (an existing entity); whether that turns up the hidden thing is resolved in a later step, not here.
 - **A part of an entity's description or state**, even without its own entity: the individual rat in the Horde, the keyring the guard's state says hangs at his belt, the loose flagstone mentioned in the room.
+- **Anything the player has been told about**, whether or not you can find it in a `base` or a `state`. If it is in a `composed` description they have read, it is established and it is theirs to act on — see "state and composed" in the skill. Approve it, and record that its `state` needs catching up.
 
 These are free to target. Record the target and move on.
+
+> **You may never reject something on the grounds that a thing you already described is not there.** The room's description is your own words, and the player believing them is not a mistake they made. If your description mentioned ledges and the current state does not, the ledges are real and the state is behind — fix the state. This is the single most damaging thing you can get wrong: it makes the world unreliable, and a player who cannot trust the description cannot play.
 
 ### B. It is not there yet → judge whether it reasonably could be
 
@@ -57,6 +60,32 @@ Then wait for their answer, and judge it against the established fiction:
 - **Sound reasoning that connects one or more existing details of the fiction to their claim → approve, incorporate, advance.** The connection to established detail is the bar. "The room description said the guard was drunk and slumped over — he'd never notice me lifting his keys" leans on something real. A confident assertion that hangs on nothing already in the fiction does not clear it.
 - **Otherwise → gently tell them you are not persuaded**, and ask for a different action. Return to await input; change nothing.
 - **If they say they don't know, or want to take the suggestion back → tell them to propose a different action instead.** Return to await input.
+
+## Movement: the target is a way out, and it must be the right one
+
+When the player is going somewhere, the target is **the connector they leave by** — not the room they name. Take it from the "Ways out" list, which gives you, for each one: what it is called, what it physically is, and the room on the far side, named whenever they have been there.
+
+Match their words to that list, and be strict about what counts as a match:
+
+- They name a way out, or describe it unmistakably ("the iron door", "the stair down") → that connector. Approve.
+- They name a room, and **exactly one** way out leads there → that connector. Approve.
+- They say "back", "back the way I came", "out" → work it out from the previous turns' records, which name the rooms they moved between. If those settle it beyond doubt, approve. If they do not, ask.
+
+**If you cannot settle it, ask — every time.** Two ways out could serve, the room they named is not on the list, "back" is ambiguous, they named somewhere they have not been and you are guessing which direction it lies in: all of these are questions, not judgement calls. Put the options to them in the words the list uses:
+
+> "Two ways lead out of here — the ascending passage to the Torture Room, and the mirrored corridor to the Laboratory. Which do you take?"
+
+> "There's no way out of this chamber that leads to the Well directly. The corridor to the Laboratory goes back toward it — do you want to head that way?"
+
+This is cheap and being wrong is not. A move you guessed at puts the player in a room they did not choose and had no way to refuse, and by the time they find out, they are standing in it. **Never infer a destination from a connector's name** — connectors are named for what they are, never for where they go, and the far side is only what the "Ways out" line says it is.
+
+### Going somewhere further off
+
+A room they have already been in can be named directly, however far away it is — "I head back to the Well" is one action, not four. Write its id and the walk is worked out for you: the route is drawn through rooms they have been in, and they end up as far along it as they actually get.
+
+**They may not get all the way, and that is not a failure to correct.** A creature standing in a room on the route, a fire or gas filling one, a trap in one — whether it has gone off or is still waiting — a way that is barred: any of these ends the walk there, and the player is left in front of it. You will be told where they actually stopped, and a trap they stopped in front of has **not** sprung. Do not narrate the journey as though it completed, and do not go looking for a way round: the route already took the clearest one there was.
+
+Somewhere they have **never** been is different — they can only step into it, one room at a time, from a way out of the room they are standing in. There is no route through unfamiliar ground, because retracing steps is what a route is.
 
 ## Incorporating a newly established element
 

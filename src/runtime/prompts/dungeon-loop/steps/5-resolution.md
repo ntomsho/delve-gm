@@ -1,8 +1,8 @@
 # Step 5 — Action resolution
 
-Everything the action needs has been decided: a no-stakes action carries an auto-success; a stakes action carries the result of a save or attack roll. Now resolve it fully — decide what happened, let the world react, write the changes into the world, and narrate it. This is also where other creatures take their turns.
+Everything the action needs has been decided: a no-stakes action carries an auto-success; a stakes action carries the result of the player's save or attack, **already rolled by the interface and sitting in front of you.** Now resolve it fully — decide what happened, let the world react, write the changes into the world, and narrate it. This is also where other creatures take their turns.
 
-The roll functions used below are provided by the runtime (`dungeon-rolls`): `saveRoll`, `attackRoll`, `moraleRoll`.
+**Roll everything you need in one call, and roll it first.** The dice you need are the creatures' — their attacks, their nerve — plus anything the world throws. Work out the whole list before you call `roll`, ask for all of it at once, and then write the turn. A second batch is a second exchange, and rolling for something you end up not using costs nothing. See the `roll` tool at the end of SKILL.md.
 
 ## 1. Decide what happened
 
@@ -24,7 +24,7 @@ Let the player's stated intent shape *what* success looks like, but keep the res
 
 Resolution also simulates the rest of the scene. For any creature involved in the action, or acting at the same time, decide two things: how the result of the action affects it, and what it does on its own turn.
 
-**Creature attacks.** A creature in combat with the player (or with another creature) may attack. Roll it with `attackRoll`:
+**Creature attacks.** A creature in combat with the player (or with another creature) may attack. Ask for it as a `kind: "attack"` in the batch:
 
 - **bonus** — the creature's **Strength** bonus for a melee attack, **Wisdom** bonus for a ranged one (a creature's ability bonus is its Hit Dice plus any modifier),
 - against the **player's armor defense** — the defense of the armor they wear, or **11** unarmored,
@@ -37,12 +37,15 @@ Resolution also simulates the rest of the scene. For any creature involved in th
 - their leader (or largest specimen) is defeated,
 - a single creature is dropped to half its health or less.
 
-A morale roll is **2d6 against the creatures' morale rating** (default 7). If the roll comes up **higher** than their morale, they break — attempting to flee, retreat, or parley. Fold that into what they do on their turn.
+Ask for it as a `kind: "morale"` in the batch, passing their rating (default 7). It comes back as **holds** or **breaks** — the 2d6 against the rating is done for you. A group that breaks attempts to flee, retreat, or parley; fold that into what they do on their turn.
+
+Since a morale check often depends on damage you have not applied yet, include it in the batch anyway. Roll it, and then decide whether the trigger was met.
 
 ## 3. Update state and stats
 
 With the action, its consequences, and the creatures' reactions decided, write it all into the world:
 
+- **catch up anything the player acted on that was only ever in a description.** If step 1 approved a target that lives in a `composed` paragraph but in no `base` or `state` — the ledge you described on arrival, the crate you mentioned in passing — write it into the `state` of whatever holds it now, or create it as an entity if it can be taken or broken. It has been true since you said it; this is the turn the record catches up.
 - update the **state** of every affected entity (which flags it, and its containers, for recompose),
 - apply changes to **game stats**: hit points from damage dealt or taken, items **consumed or damaged** (spend `currentQuality`), a **creature slain**, the **player or an entity moved** to another room, and so on.
 
@@ -50,13 +53,18 @@ With the action, its consequences, and the creatures' reactions decided, write i
 
 Draft a post that narrates how the action plays out and lays out its effects — the outcome, any damage, what the creatures did, what changed. At the same time, generate fresh **composed** prose for every entity you updated (the same base + state → composed rendering used on room entry), so the world stays consistent from here on.
 
-**If the player moved to a new room** as part of the action, run that room the way the entrance room was run: collect its entities, compose anything whose `composed` is stale (`needUpdate`), bottom-up to the room itself, and include a description of the new location in the post.
+**If the player moved to a new room, write no post at all.** Set their `roomId`, commit, and stop. Arriving somewhere is its own pass, it runs the moment your commit lands, and it is the one that has the new room's contents in front of it — you do not. **A commit that moves the player has its post discarded unread**; anything you write there reaches nobody, so spend nothing on it.
+
+This is not a style note. If you describe the room beyond, you are describing a place you have not been handed: you will furnish it out of nothing, and a moment later the player will be told what is actually there. Two descriptions of one room, disagreeing, one turn apart. An empty forge hall, and then the three figures standing in it. The arrival is the moment worth writing, and it is not yours.
+
+The exception is a move that **costs** something — a fall, a wound taken squeezing through, a torch dropped. Apply that as state in the same commit. The arrival pass reads state and will account for it.
 
 ## 5. End-of-turn checks
 
-The action is complete. Before looping, check two things:
+The action is complete. Before looping, check three things:
 
-- **Is the player still alive?** If their hit points are **0 or below**, they have been slain and the run is over. *(Exactly what happens then is deferred until the app is built.)*
-- **Has the goal been met?** If the player has accomplished the dungeon's goal, the run is over as well.
+- **Is the player still alive?** If their hit points are **0 or below**, they have been slain and the run is over — `nextStage: "dead"`.
+- **Did this turn accomplish the dungeon's goal?** Then set **`goalMet: true`** on the commit. The run does **not** end: they are holding it, not home with it, and the walk back out is the rest of the game. It latches, so you never have to say it twice.
+- **Did they just walk out through the way marked OUT OF THE DUNGEON?** Then the run is over — `nextStage: "departed"`. Do not say whether it was a win; that is settled from the flag, not from you.
 
-If neither, the turn ends. Return to the start of the loop and await the player's next chat input.
+If none, the turn ends. Return to the start of the loop and await the player's next chat input.

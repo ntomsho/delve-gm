@@ -125,7 +125,15 @@ export interface RollOutcome extends D20Result {
   success: boolean;
 }
 
-function resolve(rng: RollRng, bonus: number, dc: number, edge: Edge): RollOutcome {
+/**
+ * The contest underneath all three: d20 + bonus against a number to meet.
+ *
+ * Exported because the turn machine resolves a `RollSpec` whose `dc` has
+ * already been converted from a defense by whoever offered the roll — so it
+ * needs the bare contest, and taking it from here keeps `dcFromDefense` the
+ * only place a defense turns into a target.
+ */
+export function checkRoll(rng: RollRng, bonus: number, dc: number, edge: Edge = "none"): RollOutcome {
   const roll = d20(rng, edge);
   const total = roll.kept + bonus;
   return { ...roll, bonus, total, dc, success: total >= dc };
@@ -137,7 +145,7 @@ function resolve(rng: RollRng, bonus: number, dc: number, edge: Edge): RollOutco
  * opposed save is expressed, since a defense is always bonus + 10.
  */
 export function saveRoll(rng: RollRng, bonus: number, dc: number = ORDINARY_DC, edge: Edge = "none"): RollOutcome {
-  return resolve(rng, bonus, dc, edge);
+  return checkRoll(rng, bonus, dc, edge);
 }
 
 /**
@@ -188,7 +196,7 @@ export interface AttackResult extends RollOutcome {
  * natural 20 and for a well-suited weapon.
  */
 export function attackRoll(rng: RollRng, opts: AttackOptions): AttackResult {
-  const outcome = resolve(rng, opts.bonus, dcFromDefense(opts.targetDefense), opts.edge ?? "none");
+  const outcome = checkRoll(rng, opts.bonus, dcFromDefense(opts.targetDefense), opts.edge ?? "none");
   const crit = critEffects(outcome, opts.wellSuited);
   const result: AttackResult = { ...outcome, crit };
   if (outcome.success && opts.damage) {
@@ -206,7 +214,7 @@ export function attackRoll(rng: RollRng, opts: AttackOptions): AttackResult {
  * advantage bought the combination rather than a reroll.
  */
 export function stuntRoll(rng: RollRng, bonus: number, targetDefense: number, edge: Edge = "none"): RollOutcome {
-  return resolve(rng, bonus, dcFromDefense(targetDefense), edge);
+  return checkRoll(rng, bonus, dcFromDefense(targetDefense), edge);
 }
 
 // ---------------------------------------------------------------------------

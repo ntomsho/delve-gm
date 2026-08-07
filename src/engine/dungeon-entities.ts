@@ -15,9 +15,27 @@
  *   state     What is going on with it right now in the fiction. Written when
  *             the player first encounters the entity, rewritten whenever the
  *             fiction moves. `state === undefined` means NOT YET ENCOUNTERED.
- *   composed  Player-facing prose, rendered from base + state. A cache, never
- *             a source of truth: nothing should read `composed` to make a
- *             decision. Regenerate whenever base or state changes.
+ *   composed  Player-facing prose, rendered from base + state, and the only one
+ *             of the three the player has actually READ. Regenerate whenever
+ *             base or state changes.
+ *
+ * ON `composed` AS A SOURCE OF TRUTH. It was originally specified as a pure
+ * cache that nothing should ever read to make a decision, and mechanically it
+ * still is one: it is derived, it goes stale, and it is rewritten from the
+ * other two. But the referee is not a render pass, and the rule had a
+ * consequence nobody wanted — a description that mentioned a climbable ledge,
+ * a state that did not, and a player told on one turn that the ledge was there
+ * and on the next that it never existed.
+ *
+ * So at runtime the precedence is the other way round: what the player has been
+ * told BINDS. If `composed` and `state` disagree about something the player is
+ * acting on, `composed` is right and `state` is behind, and the referee's job
+ * is to catch the record up rather than to argue. Going back on what the player
+ * was told is the one failure a run does not recover from.
+ *
+ * Nothing in this file enforces that — it is a rule about judgement and it
+ * lives in the referee's playbook. It is written here because this is where
+ * anyone reading the lifetimes will look for it.
  */
 
 import type { MonsterSeed, NpcSeed } from "./dungeon-blueprint.ts";
@@ -271,6 +289,7 @@ export interface IItem extends IEntity {
    * total. Unarmored is 11.
    */
   armor?: { armorType: ArmorType; defense: number };
+  spellBook?: { spellName: string; spellDescription: string; exhausted: boolean; };
 }
 
 /** Fires, gas, weather: self-mobile and may span several rooms at once. */
@@ -285,10 +304,20 @@ export interface IRoom extends IEntity {
 }
 
 export interface IRoomConnector extends IEntity {
-  /** id of an IRoom */
+  /** id of an IRoom. Always a real room — the surface is never this end. */
   endpointA: string;
-  /** id of an IRoom */
-  endpointB: string;
+  /**
+   * id of an IRoom, or NULL for a way out of the dungeon entirely.
+   *
+   * A null end is the surface: daylight, the street, the hillside the party
+   * climbed down from. It is not a room and never will be one, which is why it
+   * is absent rather than pointing at a placeholder — a placeholder would be
+   * something the map draws, the router walks into, and the referee describes.
+   *
+   * Every dungeon has at least one, on the entrance room. Stepping through it
+   * ends the run: see `Stage` / `departed`.
+   */
+  endpointB: string | null;
   type: "RoomConnector";
   /**
    * What currently prevents passage -- locked, blocked, concealed, flooded,
@@ -358,6 +387,37 @@ export function hasBeenEncountered(e: IEntity): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// WAYS THROUGH
+// ---------------------------------------------------------------------------
+
+/**
+ * A way out of the dungeon rather than a way between two of its rooms.
+ *
+ * Everything that walks the graph has to ask this first. A surface exit joins
+ * one room to nothing, so a router that treats it as an edge walks into null,
+ * and a map that draws it has nowhere to draw it to.
+ */
+export function isSurfaceExit(c: IRoomConnector): boolean {
+  return c.endpointB === null;
+}
+
+/** True when this connector is a way out of `roomId`. */
+export function touches(c: IRoomConnector, roomId: string): boolean {
+  return c.endpointA === roomId || c.endpointB === roomId;
+}
+
+/**
+ * The far side of a connector, seen from `roomId`. Null means the surface.
+ *
+ * Callers that cannot cope with the surface must check `isSurfaceExit` rather
+ * than testing the result, because `null` here is a real answer — "outside" —
+ * and not a failure to resolve.
+ */
+export function farSide(c: IRoomConnector, roomId: string): string | null {
+  return c.endpointA === roomId ? c.endpointB : c.endpointA;
+}
+
+// ---------------------------------------------------------------------------
 // BASE RESOLUTION
 // ---------------------------------------------------------------------------
 
@@ -395,8 +455,10 @@ export function resolveName(e: IEntity, reg: TemplateRegistry): string {
 }
 
 /**
- * `composed` is a cache. Anything that mutates state must mark it stale so the
- * render pass knows to regenerate; nothing should read `composed` to decide.
+ * `composed` is derived, so anything that mutates state must mark it stale and
+ * let the render pass regenerate it. (That it is derived does not make it
+ * ignorable — see the note on the three lifetimes at the top of this file:
+ * what the player has been told outranks a state that has fallen behind.)
  *
  * The old description is left in place until it is actually rewritten — see the
  * note on `needUpdate`.

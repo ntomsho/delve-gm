@@ -2,10 +2,11 @@ import { describe, expect, it } from "vitest";
 import { generateOffline, testCharacter } from "../runtime/__fixtures__/offline.ts";
 import { newRun, useGame } from "./game.ts";
 import {
-  characterView, mapView, needsComposition, roomView, UNARMORED_DEFENSE,
+  characterView, exitLabel, mapView, needsComposition, roomView, UNARMORED_DEFENSE,
 } from "./selectors.ts";
 import { pathMidpoint, pointLayout, shapeCenter } from "../runtime/layout.ts";
 import type { Diff } from "../runtime/diffs/types.ts";
+import { isSurfaceExit } from "../engine/index.ts";
 import type { IItem } from "../engine/index.ts";
 
 const SEED = 1005;
@@ -13,6 +14,19 @@ const dungeon = generateOffline(SEED, 2);
 
 function freshRun() {
   return newRun(dungeon, testCharacter());
+}
+
+/**
+ * A character carrying nothing and wearing nothing.
+ *
+ * The shared `testCharacter()` now arrives armed and armoured, which is right
+ * for the fixture — a player with an empty inventory exercises none of the slot
+ * or equipment logic. But the three tests below are ABOUT the empty case, and a
+ * test whose subject is "unarmoured" should say so rather than inherit it from
+ * whatever the fixture happens to be wearing this week.
+ */
+function barehandedRun() {
+  return newRun(dungeon, testCharacter({ inventory: [], equipped: {} }));
 }
 
 const turn = (...diffs: Diff[]) =>
@@ -34,10 +48,15 @@ describe("pointLayout", () => {
     for (const c of layout.connectors) expect(connectorIds.has(c.id)).toBe(true);
   });
 
+  // Every way BETWEEN rooms. A way out of the dungeon has no second point to
+  // draw to, and is left to whatever real geometry pass replaces this — §7.
+  const interior = dungeon.entities.connectors.filter((c) => !isSurfaceExit(c));
+
   it("covers every room and connector exactly once", () => {
     expect(layout.rooms).toHaveLength(dungeon.entities.rooms.length);
     expect(new Set(layout.rooms.map((r) => r.id)).size).toBe(layout.rooms.length);
-    expect(layout.connectors).toHaveLength(dungeon.entities.connectors.length);
+    expect(layout.connectors).toHaveLength(interior.length);
+    expect(interior.length).toBeGreaterThan(0);
   });
 
   it("joins each connector to the two rooms it actually joins", () => {
@@ -126,12 +145,45 @@ describe("roomView", () => {
   it("reports which exits are blocked and where they lead", () => {
     const run = freshRun();
     const view = roomView(run, dungeon)!;
-    for (const exit of view.exits) {
+    for (const exit of view.exits.filter((x) => !x.surface)) {
       expect(exit.blocked).toBe(exit.requirement !== undefined);
       expect(run.entities.rooms.some((r) => r.id === exit.toRoomId)).toBe(true);
       // Nothing is known at the start of a run.
       expect(exit.toKnown).toBe(false);
     }
+  });
+
+  // The run starts on the entrance room, which is the room with the way out.
+  it("marks the way out of the dungeon, which leads to no room at all", () => {
+    const run = freshRun();
+    const out = roomView(run, dungeon)!.exits.filter((x) => x.surface);
+
+    expect(out).toHaveLength(1);
+    expect(out[0].toRoomId).toBeNull();
+    // Known from the first turn: they walked in through it.
+    expect(out[0].toKnown).toBe(true);
+    expect(exitLabel(out[0])).toBe(`${out[0].name} — out of the dungeon`);
+  });
+
+  // A connector is one entity read from both ends, so its name says what it is
+  // and never where it goes. The destination is joined on per side, and withheld
+  // until they have been through — which is also when they can ask for it by name.
+  it("names the room a way out leads to, once the player has been there", () => {
+    const run = freshRun();
+    const view = roomView(run, dungeon)!;
+    const exit = view.exits[0];
+    expect(exitLabel(exit)).toBe(exit.name);
+
+    const beyond = run.entities.rooms.find((r) => r.id === exit.toRoomId)!;
+    beyond.name = "Kennel";
+    beyond.composed = "they have stood in it";
+    const known = roomView(run, dungeon)!.exits.find((x) => x.connectorId === exit.connectorId)!;
+    expect(exitLabel(known)).toBe(`${exit.name} to the Kennel`);
+
+    // A name that brought its own article does not get a second one.
+    beyond.name = "The Long Gallery";
+    const titled = roomView(run, dungeon)!.exits.find((x) => x.connectorId === exit.connectorId)!;
+    expect(exitLabel(titled)).toBe(`${exit.name} to The Long Gallery`);
   });
 
   it("conceals what is inside a concealed thing, whoever marked it", () => {
@@ -256,23 +308,26 @@ describe("characterView", () => {
   });
 
   it("computes the numbers the player should not have to", () => {
-    const view = characterView(freshRun());
+    const pc = testCharacter({ inventory: [], equipped: {} });
+    const view = characterView(newRun(dungeon, pc));
+
     expect(view.armorDefense).toBe(UNARMORED_DEFENSE); // 11 with nothing worn
-    expect(view.meleeBonus).toBe(2); // STR
-    expect(view.rangedBonus).toBe(1); // WIS
-    expect(view.slots.capacity).toBe(12); // CON defense
+    expect(view.meleeBonus).toBe(pc.abilities.str);
+    expect(view.rangedBonus).toBe(pc.abilities.wis);
+    expect(view.slots.capacity).toBe(pc.abilities.con + 10); // CON defense
     expect(view.slots.used).toBe(0);
   });
 
   it("tracks slots and overburdening as things are picked up", () => {
-    const run = freshRun();
-    for (let i = 0; i < 13; i++) {
+    const run = barehandedRun();
+    const capacity = characterView(run).slots.capacity;
+    for (let i = 0; i < capacity + 1; i++) {
       run.pc.inventory.push({
         id: `rock-${i}`, name: "Rock", type: "Item", base: "a rock", parentId: run.pc.id, slots: 1,
       });
     }
     const view = characterView(run);
-    expect(view.slots.used).toBe(13);
+    expect(view.slots.used).toBe(capacity + 1);
     expect(view.slots.overburdened).toBe(true);
   });
 
@@ -281,7 +336,7 @@ describe("characterView", () => {
       id: "gambeson", name: "Gambeson", type: "Item", base: "a quilted coat",
       parentId: "pc-1", slots: 1, armor: { armorType: "body", defense: 12 },
     };
-    const run = freshRun();
+    const run = barehandedRun();
     run.pc.inventory.push(gambeson);
     run.pc.equipped.armor = "gambeson";
 
@@ -390,7 +445,9 @@ describe("mapView", () => {
     const run = freshRun();
     run.entities.connectors.find((c) => c.isHidden !== true)!.isHidden = true;
     const all = mapView(run, dungeon, undefined, { includeHidden: true });
-    expect(all.connectors).toHaveLength(run.entities.connectors.length);
+    expect(all.connectors).toHaveLength(
+      run.entities.connectors.filter((c) => !isSurfaceExit(c)).length
+    );
   });
 
   it("accepts a prebuilt layout, so geometry is computed once and not per frame", () => {

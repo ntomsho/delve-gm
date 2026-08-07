@@ -31,6 +31,15 @@ export interface Commit {
   rollRequest?: RollSpec;
   /** MUST be empty when nextStage is "clarifying" or "rejected" */
   diffs: Diff[];
+  /**
+   * The dungeon's objective has been accomplished. A LATCH: once true it stays
+   * true, so a referee that stops mentioning it cannot take the win back.
+   *
+   * Not a stage, because accomplishing the goal does not end the run — walking
+   * out with it does, and the two can be many turns apart. Not a diff either: it
+   * is a fact about the RUN rather than about anything in the world.
+   */
+  goalMet?: boolean;
 }
 
 /** The id the referee uses for the player character. */
@@ -80,7 +89,11 @@ export interface WorldEvent {
     | "unequipped"
     | "overburdened"
     | "player-died"
-    | "entity-created";
+    | "entity-created"
+    /** a walk ended short of where it was aimed — `detail` says what stopped it */
+    | "movement-stopped"
+    /** the objective was accomplished this turn; the run is not over yet */
+    | "goal-met";
   entityId: string;
   detail: string;
 }
@@ -99,4 +112,6 @@ export interface World {
   pc: PlayerCharacter;
   /** where the player is standing — dropped things land here */
   currentRoomId: string;
+  /** the objective is done; what makes walking out a win rather than an escape */
+  goalMet: boolean;
 }

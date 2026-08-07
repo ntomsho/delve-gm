@@ -48,6 +48,32 @@ export interface TranscriptEntry {
   text: string;
 }
 
+/**
+ * One line of the scrollback — what the screen shows, and nothing else.
+ *
+ * Deliberately not the transcript. `transcript` is what the referee is shown
+ * and is cleared the moment a turn closes, which is right for a prompt and
+ * fatal for a page: the player would watch the last hour of play blank itself
+ * every time they finished an action. Keeping them apart lets this one hold the
+ * referee's actual prose and survive a reload, while the transcript stays the
+ * lean thing BUILD-PLAN §4.4 describes.
+ *
+ * Never assembled into a prompt.
+ */
+export interface LogEntry {
+  /**
+   * `opening` is the briefing — what the player knows walking in, written by the
+   * Dungeon Pass. Exactly one, always first, and the only entry in the whole
+   * scrollback that no turn produced.
+   */
+  kind: "opening" | "arrival" | "referee" | "player" | "roll";
+  text: string;
+  /** arrivals only: which room, so the heading can name it */
+  roomId?: string;
+  /** the turn it belongs to, for the Phase 7 log viewer */
+  turn: number;
+}
+
 /** One model call, for the Phase 7 call log and for replay cassettes. */
 export interface CallLogEntry {
   at: number;
@@ -76,6 +102,11 @@ export interface RunState {
    * notion of elapsed time is miserable.
    */
   turnCount: number;
+  /**
+   * The dungeon's objective is accomplished. A latch, and NOT the end of the
+   * run: the player still has to carry it out — see `endingOf`.
+   */
+  goalMet: boolean;
   /** Play-time randomness. `draws` is what makes a reload resume mid-stream. */
   runSeed: number;
   rngDraws: number;
@@ -84,6 +115,8 @@ export interface RunState {
   pendingRoll?: RollSpec;
   /** the exchange for the action in progress; capped when assembling prompts */
   transcript: TranscriptEntry[];
+  /** the scrollback the player reads. Display only — never sent to the referee. */
+  log: LogEntry[];
   turnRecords: TurnRecord[];
   callLog: CallLogEntry[];
 }
@@ -96,12 +129,19 @@ export function newRun(dungeon: GeneratedDungeon, pc: PlayerCharacter): RunState
     stage: "room_entry",
     step: "room-entry",
     turnCount: 0,
+    goalMet: false,
     runSeed: dungeon.seeds.runSeed,
     rngDraws: 0,
     // The run mutates entities; the generated copy stays pristine so a restart
     // does not need regenerating.
     entities: structuredClone(dungeon.entities),
     transcript: [],
+    // The briefing, which is the first thing on the page. It was written during
+    // generation and belongs to no turn, so nothing in the turn machine would
+    // ever push it — and until it was put here it reached the journal file and
+    // never the player, who arrived in the first room knowing nothing about
+    // where they were or what they had come for.
+    log: [{ kind: "opening", text: dungeon.pass.openingProse, turn: 0 }],
     turnRecords: [],
     callLog: [],
   };
@@ -126,13 +166,40 @@ export interface GameStore {
 
   setStage(stage: Stage, step: Step): void;
   pushTranscript(entry: TranscriptEntry): void;
+  pushLog(entry: Omit<LogEntry, "turn">): void;
   recordTurn(record: Omit<TurnRecord, "turn">): void;
   logCall(entry: CallLogEntry): void;
   reset(): void;
 }
 
 function worldOf(run: RunState): World {
-  return { entities: run.entities, pc: run.pc, currentRoomId: run.currentRoomId };
+  return {
+    entities: run.entities,
+    pc: run.pc,
+    currentRoomId: run.currentRoomId,
+    goalMet: run.goalMet,
+  };
+}
+
+/**
+ * WHICH ENDING THIS IS.
+ *
+ * Two things outrank whatever the referee thought came next, and both for the
+ * same reason: they are derived from state the referee does not hold and cannot
+ * be talked out of.
+ *
+ * Death is hit points at zero.
+ *
+ * A departure is a stage the referee ASKS for — it knows the player walked out,
+ * and nothing else — and the store settles what that was worth. Out with the
+ * objective done is `goal_met`; out without it is `escaped`. Leaving that to the
+ * referee would mean the ending depended on whether it still remembered a thing
+ * that might have happened twenty turns ago.
+ */
+function endingOf(commit: Commit, world: World, died: boolean): Stage {
+  if (died) return "dead";
+  if (commit.nextStage === "departed") return world.goalMet ? "goal_met" : "escaped";
+  return commit.nextStage;
 }
 
 export const useGame = create<GameStore>((set, get) => ({
@@ -161,9 +228,8 @@ export const useGame = create<GameStore>((set, get) => ({
         entities: result.world.entities,
         pc: result.world.pc,
         currentRoomId: result.world.currentRoomId,
-        // Death outranks whatever the referee thought came next. It is derived
-        // from hit points, so it cannot be talked out of.
-        stage: died ? "dead" : commit.nextStage,
+        goalMet: result.world.goalMet,
+        stage: endingOf(commit, result.world, died),
         step: commit.nextStep,
         pendingRoll: commit.nextStage === "roll_offered" ? commit.rollRequest : undefined,
       },
@@ -190,6 +256,13 @@ export const useGame = create<GameStore>((set, get) => ({
   pushTranscript(entry) {
     const run = get().run;
     if (run) set({ run: { ...run, transcript: [...run.transcript, entry] } });
+  },
+
+  pushLog(entry) {
+    const run = get().run;
+    // Stamped with the turn in progress — `turnCount` is the number of CLOSED
+    // turns, so the line the player is reading now belongs to the next one.
+    if (run) set({ run: { ...run, log: [...run.log, { ...entry, turn: run.turnCount + 1 }] } });
   },
 
   recordTurn(record) {

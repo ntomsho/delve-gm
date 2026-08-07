@@ -22,6 +22,8 @@ import type {
 
 const ROOM_A = "room-a";
 const ROOM_B = "room-b";
+/** On the map, reachable from neither — the far side of a move that isn't one. */
+const ROOM_C = "room-c";
 
 function item(id: string, over: Partial<IItem> = {}): IItem {
   return { id, name: id, type: "Item", base: `a ${id}`, parentId: ROOM_A, slots: 1, ...over };
@@ -31,12 +33,20 @@ function makeWorld(): World {
   const rooms: IRoom[] = [
     { id: ROOM_A, name: "Antechamber", type: "Room", base: "a cold antechamber" },
     { id: ROOM_B, name: "Cell", type: "Room", base: "a bare cell" },
+    { id: ROOM_C, name: "Sacristy", type: "Room", base: "a room off the map" },
   ];
 
+  // A and B are joined twice — a barred door and an open arch — because a move
+  // is refused only when EVERY way across is shut, and one of each is what says
+  // so. C is joined to nothing.
   const connectors: IRoomConnector[] = [
     {
       id: "door", name: "Barred door", type: "RoomConnector", base: "a plank door",
       endpointA: ROOM_A, endpointB: ROOM_B, conditional: "barred from the far side",
+    },
+    {
+      id: "arch", name: "Low arch", type: "RoomConnector", base: "a low arch",
+      endpointA: ROOM_A, endpointB: ROOM_B,
     },
   ];
 
@@ -90,7 +100,7 @@ function makeWorld(): World {
     conditions: [],
   };
 
-  return { entities, pc, currentRoomId: ROOM_A };
+  return { entities, pc, currentRoomId: ROOM_A, goalMet: false };
 }
 
 let world: World;
@@ -449,6 +459,149 @@ describe("the player", () => {
     expect(world.pc.conditions).toEqual(["poisoned", "leg wound"]);
     const w = ok(commit({ entityId: PLAYER_ID, path: "conditions[0]", value: null }));
     expect(w.pc.conditions).toEqual(["leg wound"]);
+  });
+
+  it("moves between rooms, and takes the drop point with them", () => {
+    const w = ok(commit({ entityId: PLAYER_ID, path: "roomId", value: ROOM_B }));
+    expect(w.currentRoomId).toBe(ROOM_B);
+    expect(world.currentRoomId).toBe(ROOM_A); // the original is untouched
+
+    // Where the player stands is where dropped things land, so the two must
+    // move together or a drop lands a room behind.
+    world = w;
+    const after = ok(commit(
+      { entityId: "dagger", path: "parentId", value: PLAYER_ID },
+      { entityId: PLAYER_ID, path: "inventory[4]", value: null },
+    ));
+    expect(after.entities.items.find((i) => i.id === "dagger")!.parentId).toBe(ROOM_B);
+  });
+
+  it("refuses a move to something that is not a room", () => {
+    for (const target of ["ghoul", "chest", "nowhere"]) {
+      const r = applyCommit(world, commit({ entityId: PLAYER_ID, path: "roomId", value: target }));
+      expect(r.ok).toBe(false);
+      expect(r.world).toBeUndefined();
+    }
+  });
+
+  // The player walks. A referee that picked the wrong exit used to put them
+  // somewhere no corridor reaches, silently, and the arrival pass then described
+  // that room as though they had walked into it.
+  it("refuses a move to a room nothing connects to", () => {
+    const r = applyCommit(world, commit({ entityId: PLAYER_ID, path: "roomId", value: ROOM_C }));
+    expect(r.ok).toBe(false);
+    expect(r.rejected[0]!.reason).toMatch(/no way leads/);
+  });
+
+  // A barred way is not an error — it is a thing to be standing in front of.
+  it("stops them where they are when every way across is blocked", () => {
+    world.entities.connectors = world.entities.connectors.filter((c) => c.id !== "arch");
+    const r = applyCommit(world, commit({ entityId: PLAYER_ID, path: "roomId", value: ROOM_B }));
+    expect(r.ok).toBe(true);
+    expect(r.world!.currentRoomId).toBe(ROOM_A);
+    expect(r.events.find((e) => e.kind === "movement-stopped")!.detail).toMatch(
+      /barred from the far side/
+    );
+  });
+
+  // Unbar the door and walk through it is one commit. The check reads the world
+  // as the earlier diffs left it, so the batch has to hold together on its own
+  // terms rather than against the state it started from.
+  it("allows a move through a way the same commit opens", () => {
+    world.entities.connectors = world.entities.connectors.filter((c) => c.id !== "arch");
+    const w = ok(commit(
+      { entityId: "door", path: "conditional", value: null },
+      { entityId: PLAYER_ID, path: "roomId", value: ROOM_B },
+    ));
+    expect(w.currentRoomId).toBe(ROOM_B);
+  });
+
+  it("allows a move to the room they are already in", () => {
+    const w = ok(commit({ entityId: PLAYER_ID, path: "roomId", value: ROOM_A }));
+    expect(w.currentRoomId).toBe(ROOM_A);
+  });
+});
+
+// ===========================================================================
+// THE WAY OUT
+// ===========================================================================
+
+describe("leaving the dungeon", () => {
+  const depart = (over: Partial<Commit> = {}): Commit => ({
+    nextStage: "departed",
+    nextStep: "5-resolution",
+    diffs: [],
+    ...over,
+  });
+
+  /** A way to the surface from ROOM_A, in whatever condition is asked for. */
+  const surface = (over: Partial<IRoomConnector> = {}) =>
+    world.entities.connectors.push({
+      id: "stair", name: "Worn stair", type: "RoomConnector", base: "steps up to daylight",
+      endpointA: ROOM_A, endpointB: null, ...over,
+    });
+
+  it("is refused from a room with no way to the surface", () => {
+    const r = applyCommit(world, depart());
+    expect(r.ok).toBe(false);
+    expect(r.rejected[0]!.reason).toMatch(/no way to the surface/);
+  });
+
+  it("is refused when the way out is blocked", () => {
+    surface({ conditional: "the rubble has not shifted" });
+    const r = applyCommit(world, depart());
+    expect(r.ok).toBe(false);
+    expect(r.rejected[0]!.reason).toMatch(/the rubble has not shifted/);
+  });
+
+  // Clear the rubble and climb out is one commit — the check runs after the
+  // diffs, so the batch has to hold together on its own terms.
+  it("is allowed through a way the same commit opens", () => {
+    surface({ conditional: "the rubble has not shifted" });
+    const r = applyCommit(
+      world,
+      depart({ diffs: [{ entityId: "stair", path: "conditional", value: null }] })
+    );
+    expect(r.ok).toBe(true);
+  });
+
+  it("is allowed when the room has an open way out", () => {
+    surface();
+    expect(applyCommit(world, depart()).ok).toBe(true);
+  });
+
+  /** An ordinary turn that reports the objective done. Not itself an ending. */
+  const achieve = (): Commit => ({
+    nextStage: "awaiting_action",
+    nextStep: "1-target",
+    diffs: [],
+    goalMet: true,
+  });
+
+  // The goal LATCHES: the applier is the one place that can be sure a referee
+  // which stops mentioning it has not taken the win back.
+  it("latches the goal, and never unlatches it", () => {
+    world = ok(achieve());
+    expect(world.goalMet).toBe(true);
+
+    // A later commit that says nothing about it leaves it standing.
+    expect(ok(commit({ entityId: PLAYER_ID, path: "hp.current", value: 5 })).goalMet).toBe(true);
+  });
+
+  it("reports the goal as an event the turn it is met, and only then", () => {
+    const first = applyCommit(world, achieve());
+    expect(first.events.some((e) => e.kind === "goal-met")).toBe(true);
+
+    const again = applyCommit(first.world!, achieve());
+    expect(again.events.some((e) => e.kind === "goal-met")).toBe(false);
+  });
+
+  // A way out is a terminus, not an edge: a route that took it would end the
+  // run on the way to somewhere else.
+  it("is never used as a step in a walk", () => {
+    surface();
+    const r = applyCommit(world, commit({ entityId: PLAYER_ID, path: "roomId", value: ROOM_C }));
+    expect(r.ok).toBe(false);
   });
 });
 

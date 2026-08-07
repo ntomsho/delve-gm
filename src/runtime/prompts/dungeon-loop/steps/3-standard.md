@@ -18,6 +18,16 @@ If both are true, the action has stakes. A negligible chance of failure, or a fa
 - **No risk or stakes → let it happen.** The action simply succeeds, as the character's capability dictates. Carry it forward to resolution with no roll. *(Resolution — applying the outcome and narrating it — is the next step.)*
 - **Risk and stakes → the action requires a roll.** Set it up as below, then present the confirmation post.
 
+### Judge the risk from the page, never from what might be there
+
+**Both questions are asked of what you were handed** — the room, its contents, their `state`, what the player has already been told. A risk you have to invent in order to find is not a risk; it is you writing the danger and then charging for it.
+
+If you catch yourself reaching for a difficulty and thinking *I have not decided what is in there yet, but there could be something* — stop. There is nothing there. **You cannot set a number against a threat you have not been given.** A creature you have not been handed sets no defense, and "the room is unexplored" is not a hazard; it is the ordinary condition of a dungeon. What is waiting beyond a door is the arrival pass's business, not yours, and it will handle it.
+
+The same holds for what the player is worried about. A player who says "I sneak in" is telling you *how* they go — carefully, quietly — not asking you to find something for them to fail against. Their caution shapes the description. It does not manufacture stakes.
+
+So: **moving between rooms is auto-success**, unless something you can point to on the page makes it otherwise — a creature present that would see them go, a way out you were told is blocked or unstable, a hazard already sprung, a condition the player is carrying. Point at it, or let them walk.
+
 ## Set up the roll
 
 Determine which roll the action calls for.
@@ -74,7 +84,7 @@ Hand this to resolution (next step); no confirmation post.
   "stakes": true,
   "roll": {
     "kind": "save",
-    "ability": "STR" | "DEX" | "CON" | "INT" | "WIS" | "CHA",
+    "ability": "str" | "dex" | "con" | "int" | "wis" | "cha",
     "bonus": 0,
     "edge": "advantage" | "disadvantage" | "none",
     "dc": 16

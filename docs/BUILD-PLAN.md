@@ -24,7 +24,7 @@ Seven engine modules, all pure TypeScript with no framework dependencies. They m
 
 - `base` — immutable identity, written once at generation. **Never writable at runtime.**
 - `state` — what's true right now. `undefined` means *the player has not encountered this yet*.
-- `composed` — display cache rendered from base + state. Never read it to make a decision.
+- `composed` — rendered from base + state, and the only one the player has read. Derived, but not ignorable: when it and `state` disagree about something the player is acting on, `composed` wins and `state` is what gets corrected. Going back on what the player was told is the one failure a run does not recover from.
 
 There is a `dungeon-loop` skill (SKILL.md plus one file per step under `steps/`) that is the runtime referee playbook — prose the model performs, not code. It should live in the repo as `src/prompts/dungeon-loop/` and be imported as raw text.
 
@@ -81,6 +81,7 @@ src/
     turn.ts                  # the turn state machine
   store/
     game.ts                  # zustand store
+    characters.ts            # saved characters. async; an array now, a db later
     persist.ts
   ui/                        # React. See the design brief.
   dev/
@@ -117,7 +118,7 @@ This maps onto the `dungeon-loop` steps. Use it as a cheap correctness check: a 
 
 ### 4.2 The response envelope
 
-Narration streams as ordinary assistant text so the turn feels alive. Structured output arrives as a terminal tool call, `commit_state`:
+Narration is ordinary assistant text. Structured output arrives as a terminal tool call, `commit_state`, and the text is not shown until that call has validated and applied — see Phase 4:
 
 ```ts
 interface Commit {
@@ -127,7 +128,22 @@ interface Commit {
 }
 ```
 
-The model also gets a **dice tool** (`roll`) it may call mid-generation — needed during resolution, when creature turns require rolls the model can't anticipate. The dice tool is the *only* source of randomness; the model never states a number it did not receive from a tool result.
+Rolls are made in two places, and the split is deliberate.
+
+**The player's roll is client-side.** The referee offers it as a `rollRequest` and the interface throws it, from the run RNG, the moment the player takes it — that is what the `rolling` stage is. The result goes into the next call as the step-5 input. A roll the player takes is a thing they should watch happen, not a number that arrives inside a paragraph.
+
+**Everything else is the model's, through a batched dice tool.** Creature attacks, morale, a trap going off — rolls the referee cannot anticipate before it knows what the player's roll did. `roll` takes a **list** of requests, each with a caller-chosen `id`, and returns every result in one go:
+
+```ts
+roll({ rolls: [
+  { id: "ghoul-1", kind: "attack", bonus: 2, targetDefense: 12, damage: "1d6" },
+  { id: "nerve",   kind: "morale", rating: 7 },
+] })
+```
+
+Batching is what keeps this affordable: a resolution with three creatures in it costs **one** extra exchange rather than three, and the prompt tells the referee to roll wide and discard rather than go back for more. The kinds map one-to-one onto `dungeon-rolls` — `save`, `attack`, `stunt`, `morale`, `damage` — so every Knave rule (advantage keep-best, the natural 20's extra die and armour loss, well-suited bonuses, damage summation) stays in tested code rather than moving into the prompt.
+
+Together these are the *only* sources of randomness; the model never states a number it did not receive from one of them.
 
 ### 4.3 Diffs
 
@@ -212,7 +228,29 @@ Each phase should end somewhere demonstrable.
 
 **Phase 3 — Turn loop against a stub.** Wire the stage machine with a fake model that returns canned envelopes. Exercise every stage transition, every diff op, every rejection path without spending a token.
 
-**Phase 4 — Real model.** Swap the stub for the client. Streaming narration, `commit_state`, the dice tool, retry-on-invalid. Room entry pass. Death and goal-met terminals.
+**Phase 4 — Real model.** Swap the stub for the client. `commit_state`, dice, retry-on-invalid. Room entry pass. Death and goal-met terminals.
+
+**No streaming.** Narration is held back until the commit validates and applies. The two cannot both be had: text streamed as it is written is text already on the player's screen when the commit that was supposed to justify it fails validation, and there is no honest way to take it back. So a turn shows the `thinking` stage while it works and the prose arrives whole, with the world already changed to match it. That is what `thinking` is for, and why `Narration.tsx` renders an indeterminate marker rather than a fake one.
+
+**Phase 4.5 — The way in.** The two screens in front of a run, because until now
+there weren't any: the app generated a dungeon on mount from whatever the URL said
+and handed the test character to it. `Characters` lists the saved characters and
+offers the two doors — creation, disabled until Phase 5, and a new run.
+`RunSetup` takes size, level, and which character, and confirming drops straight
+into the loading screen with generation already running.
+
+Characters come from `store/characters.ts`, which is async against an array today
+and a database later — that module is the only thing that should have to change.
+Creation being disabled means the empty-stock state is currently unreachable; it
+is written but it is not designed, and it gets designed with the flow that can
+cause it.
+
+The dev switches still bypass all of it. Any of `?seed` `?size` `?level`
+`?offline` `?stub` skips the front and generates immediately, because interface
+work against a real dungeon is unbearable if every iteration costs two clicks and
+a minute. A run started from the front page mints a random seed unless `?seed=`
+pinned one; the bypass keeps its fixed default, so `?stub=1` alone still returns
+to the same dungeon every time.
 
 **Phase 5 — Character creation.** `character-creation.ts`: ability rolls (Knave 3d6-drop-two-highest → bonus), a point-buy alternative, the eleven traits, HP d8, starting equipment rolls, and a shop against 3d6×20 copper. Save/load characters to local storage — this doubles as the dev quick-start.
 

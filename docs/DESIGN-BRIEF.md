@@ -32,7 +32,68 @@ One thing worth designing against: the room description is the game. When it arr
 
 ## Screens
 
-### 1. Character creation
+### 1. Characters
+
+The landing screen, and the only one that is not part of a run. Two doors: make a
+character, or take one into a dungeon.
+
+**The characters list** is the saved characters — what this brief first called the
+character library. One name, used everywhere. A character is loaded from here,
+deleted from here, and eventually created from here. Persistence is a later
+concern (a database, not local storage, in the end), so nothing in the design may
+assume a small fixed number. Lay it out so 0, 1, and 12 all read correctly.
+
+Right now it holds exactly one occupant, the test character — Testy, level 1,
+15/15, +3 across the board, sword and chain. It is seeded in code, not created by
+the player.
+
+**Character creation is disabled in this pass.** The door has to be visible,
+because it is half of what this screen is for, but it does not open until Phase 5.
+It must read as *not yet*, not as broken and not as locked behind an
+accomplishment. Say plainly that it is coming; do not invent a padlock.
+
+A consequence worth naming: with creation off and the list seeded, **the empty
+state is currently unreachable**. It is still specified — an empty list is an
+invitation to roll one up — but it is dormant, and building it is not part of
+this pass.
+
+### 2. Run setup
+
+Reached from *start a new run*, and a screen of its own rather than a modal. That
+is a deliberate bet on where this goes: light and ration clocks, difficulty, a
+named dungeon instead of a seed number. It will not stay a three-field form, so
+it should not be housed in something that only works while it is one.
+
+For now, three selectors and a confirm:
+
+- **Size**, 1 to 5. This is the only control on the screen that spends the
+  player's real time and real money — size sets the chunk count and every chunk
+  is one model call. The interface should be honest about that rather than
+  presenting five interchangeable options. A 1 is a couple of minutes; a 5 is
+  not, and the player should know before they pick it, not while they watch the
+  loading screen.
+- **Level.** The dungeon's danger, not the character's. Those are different
+  numbers and a player who is new to this will assume they are the same one, so
+  the label has to do that work. Defaults to 1.
+- **Character**, chosen from the saved characters. One entry for now; design for
+  a list.
+- **Confirm**, which goes straight into the generation screen with the pipeline
+  already running. No summary step, no "are you sure" — the loading screen *is*
+  the confirmation, and it names what it is doing while it does it.
+
+There is no seed control here. The seed stays a URL parameter, where it is a dev
+affordance rather than a decision the player is asked to have an opinion about.
+
+The confirm button is the one piece of copy on this screen that should be
+diegetic. Everything else here is plainly the software asking a configuration
+question, but pressing this is the moment the player commits to going in, and it
+is the last thing they read before the fiction starts. "Start" is the software
+talking. Something closer to *go down* is not.
+
+Both of these screens are wired to the real store and the real pipeline, unlike
+the static-mock deliverable the rest of this brief describes.
+
+### 3. Character creation
 
 Multi-step, back-navigable, nothing committed until the end.
 
@@ -42,11 +103,13 @@ Multi-step, back-navigable, nothing committed until the end.
 4. **Equipment.** Everyone starts with 2 days of rations and one weapon of their choice. Armor and gear are then **rolled** on tables — or the player can opt out and shop instead with 3d6×20 copper pieces. Both paths need to exist. The shopping interface must show **slot cost** as prominently as price, because slots are the real constraint.
 5. **Name and confirm.** Full sheet review, then save.
 
-Also needs a **character library** — saved characters, load one, delete, start fresh.
+This flow is entered from **characters** (screen 1) and returns to it on save. That
+screen is where saved characters are listed, loaded, and deleted; this one only has
+to make one.
 
 Slot capacity is CON defense (CON bonus + 10), typically 11–13. Most items cost 1 slot, some cost more. Going over capacity is allowed but flagged. The slot meter should be visible from the moment the player has anything to carry, and should read as *a budget being spent*, not a progress bar being filled.
 
-### 2. Generation / loading
+### 4. Generation / loading
 
 The dungeon is written before play, which takes real time — this is a genuine wait, not a spinner's worth. The pipeline runs in named stages, and reporting them honestly is better than hiding them:
 
@@ -58,7 +121,7 @@ The dungeon is written before play, which takes real time — this is a genuine 
 
 Design this as a real screen with something to look at, not a modal. It's the player's first impression and it sets the fiction.
 
-### 3. Play
+### 5. Play
 
 The main screen. Three regions:
 
@@ -68,9 +131,9 @@ The main screen. Three regions:
 
 **Character panel (persistent).** Never more than a glance away: HP current/max, the six abilities as bonus/defense, armor defense, what's equipped, inventory with slot usage, and **conditions** — free-text status effects like "hungry", "poisoned", "leg wound", which can accumulate. HP changes and new conditions should be noticeable when they happen, not just different on next look.
 
-### 4. Terminal states
+### 6. Terminal states
 
-**Death** and **goal achieved**. Both end the run. Death is the expected outcome in this genre and should be treated with some grace rather than as a failure screen. Both need a route back to the character library.
+**Death** and **goal achieved**. Both end the run. Death is the expected outcome in this genre and should be treated with some grace rather than as a failure screen. Both need a route back to characters.
 
 ---
 
@@ -151,3 +214,8 @@ Empty states and failures are direction, not mood. An empty character library is
 
 1. A design plan first — palette as named hex values, type pairing with roles, layout concept, and the one signature element this game will be remembered by. Justify the choices against *this* subject, not against dark-fantasy UI in general.
 2. Then the components: character creation flow, generation screen, play screen with all eight input states, and both terminal screens. Static, mock data, no wiring.
+
+Characters and run setup (screens 1–2) were added after this brief's first pass and
+are the exception to item 2 — they are built wired, against the real store and the
+real generation pipeline, and they apply the token set in `src/ui/theme.ts` rather
+than proposing a new one.

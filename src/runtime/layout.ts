@@ -114,6 +114,11 @@ export function pointLayout(graph: Dungeon, opts: PointLayoutOptions = {}): Layo
       chunk: room.chunk,
       shape: { kind: "circle", at: at.get(room.id)!, r },
     })),
+    // Edges only, which means ways BETWEEN rooms. A way out of the dungeon
+    // joins a room to nothing and has no second point to draw to; showing it
+    // means choosing a direction to point it off the page in, and choosing
+    // directions is geometry. It belongs to whatever replaces this (§7), not
+    // to a layout that only knows where the circles go.
     connectors: graph.edges.map((edge) => ({
       id: edge.entityId,
       from: byIndex.get(edge.a)!.entityId,
