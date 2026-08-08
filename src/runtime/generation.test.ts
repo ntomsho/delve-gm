@@ -2,14 +2,17 @@ import { describe, expect, it } from "vitest";
 import {
   applyContentPass,
   applyDungeonPass,
+  applySeamsPass,
   buildContentPassPayload,
   buildDungeonPassPayload,
+  buildSeamsPassPayload,
   DungeonPassError,
   generateBlueprint,
   generateBlueprintSeed,
   isSurfaceExit,
   renderContentPassPrompt,
   renderDungeonPassPrompt,
+  renderSeamsPassPrompt,
   resolveBase,
   Rng,
   runEntitiesPass,
@@ -17,11 +20,13 @@ import {
   type ContentPassPayload,
   type ContentPassResponse,
   type DungeonPassResponse,
+  type SeamsPassPayload,
+  type SeamsPassResponse,
   type Size,
 } from "../engine/index.ts";
 import { validateWritten, type GeneratedDungeon } from "./generate.ts";
 import { chunksFor, deriveSeeds } from "./seeds.ts";
-import { contentPassSchema, dungeonPassSchema } from "./llm/schemas.ts";
+import { contentPassSchema, dungeonPassSchema, seamsPassSchema } from "./llm/schemas.ts";
 import { extractJson, ResponseFormatError, validate } from "./llm/json.ts";
 
 // ===========================================================================
@@ -47,6 +52,18 @@ function fakeDungeonPass(groupIds: string[]): DungeonPassResponse {
   };
 }
 
+/** Answer a seams payload point for point, naming both rooms in the form. */
+function fakeSeamsPass(p: SeamsPassPayload): SeamsPassResponse {
+  return {
+    connectors: p.seams.map((s) => ({
+      ref: s.ref,
+      name: "Flooded stair",
+      form: `a stair, ${s.a.name} at its head and ${s.b.name} at its foot`,
+      ...(s.gated ? { requirement: "silted up; it must be dug clear" } : {}),
+    })),
+  };
+}
+
 /** Answer a content-pass payload point for point, the way the schema demands. */
 function fakeContentPass(p: ContentPassPayload): ContentPassResponse {
   return {
@@ -55,7 +72,9 @@ function fakeContentPass(p: ContentPassPayload): ContentPassResponse {
       name: `Room ${r.ref}`,
       base: `A ${r.identity}, ${r.tension}, at ${r.depth} depth.`,
       entities: r.entities.map((e) => ({ ref: e.ref, name: `${e.kind} thing`, base: `A written ${e.kind}.` })),
-      connectors: r.connectors.map((c) => ({
+      // A seam is listed for the count and written by the seams pass; a chunk
+      // that answered with one would be writing a room it cannot see.
+      connectors: r.connectors.filter((c) => !c.seam).map((c) => ({
         ref: c.ref,
         name: c.gated ? "Barred door" : "Low arch",
         form: c.gated ? "a plank door, barred from the far side" : "a low arch",
@@ -103,6 +122,12 @@ function generateOffline(seed: number, size: Size): GeneratedDungeon {
     applyContentPass(res, payload, entities, blueprint, stocked, new Rng(stocked.seed + chunk));
   }
 
+  // Last, once every room has a name and a base: the ways between the chunks.
+  const seams = buildSeamsPassPayload(stocked, entities, dp.dungeonContext);
+  if (seams.seams.length > 0) {
+    applySeamsPass(validate(seamsPassSchema, fakeSeamsPass(seams)), seams, entities);
+  }
+
   return {
     id: blueprint.id,
     seeds,
@@ -114,6 +139,7 @@ function generateOffline(seed: number, size: Size): GeneratedDungeon {
     graph: dungeon,
     stocked,
     entities,
+    floorplan: null,
     usage: { inputTokens: 0, outputTokens: 0 },
   };
 }
@@ -166,7 +192,12 @@ describe("dungeon pass", () => {
 // ===========================================================================
 
 describe("dungeonContext", () => {
-  const gd = generateOffline(1005, 2);
+  // 1008 rather than the usual 1005: this block and the next one need a dungeon
+  // that actually stocks wanderers, and whether a seed does is a roll like any
+  // other. The assertions are otherwise seed-agnostic. It moved from 1007 when
+  // corridor designation added a draw to stocking and shifted every roll after
+  // it — which is what that comment is here to make cheap to fix.
+  const gd = generateOffline(1008, 2);
 
   it("names every inhabitant group", () => {
     for (const g of gd.blueprint.inhabitants) {
@@ -196,7 +227,7 @@ describe("dungeonContext", () => {
 // ===========================================================================
 
 describe("group bases", () => {
-  const gd = generateOffline(1005, 2);
+  const gd = generateOffline(1008, 2);
 
   it("inhabitant bases come from the dungeon pass and survive every chunk", () => {
     for (const g of gd.blueprint.inhabitants) {
@@ -233,8 +264,107 @@ describe("group bases", () => {
 });
 
 // ===========================================================================
-// A FULLY WRITTEN DUNGEON
+// WHO WRITES A WAY THROUGH
 // ===========================================================================
+// One connector, two rooms, one writer — and the writer has to be able to see
+// both rooms. Chunks manage that only inside themselves; everything crossing a
+// boundary waits for the seams pass. Before that split, both chunks wrote every
+// connector between them, blind to the far room, and the higher chunk number
+// silently won.
+
+describe("connector ownership", () => {
+  const build = (seed: number, size: Size) => {
+    const seeds = deriveSeeds(seed);
+    const blueprint = generateBlueprintSeed(size, seeds.blueprintSeed, 1);
+    const { dungeon } = generateBlueprint(seeds.graphSeed, { chunks: chunksFor(size) }, true);
+    const stocked = stockDungeon(dungeon, blueprint, { level: 1, seed: seeds.stockSeed });
+    const entities = runEntitiesPass(stocked, blueprint, new Rng(stocked.seed));
+    const chunks = [...new Set(stocked.rooms.map((r) => r.chunk))].sort((a, b) => a - b);
+    const payloads = chunks.map((c) =>
+      buildContentPassPayload(stocked, blueprint, entities, c, "[fiction]")
+    );
+    return { stocked, entities, payloads };
+  };
+
+  it.each([2, 3, 5] as Size[])("size %i: every connector is written exactly once", (size) => {
+    const { stocked, entities, payloads } = build(1005, size);
+
+    const writers = new Map<string, number>();
+    for (const p of payloads) {
+      for (const r of p.rooms) {
+        for (const c of r.connectors) {
+          if (c.seam) continue;
+          writers.set(c.ref, (writers.get(c.ref) ?? 0) + 1);
+        }
+      }
+    }
+    for (const s of buildSeamsPassPayload(stocked, entities, "[fiction]").seams) {
+      writers.set(s.ref, (writers.get(s.ref) ?? 0) + 1);
+    }
+
+    for (const conn of entities.connectors) {
+      expect(writers.get(conn.id), `connector ${conn.id} has no writer`).toBe(1);
+    }
+  });
+
+  it("hands the chunk boundaries to the seams pass and nobody else", () => {
+    const { stocked, entities, payloads } = build(1005, 3);
+    const chunkOf = new Map(stocked.rooms.map((r) => [r.roomId, r.chunk]));
+    const crossing = entities.connectors.filter(
+      (c) => c.endpointB !== null && chunkOf.get(c.endpointA) !== chunkOf.get(c.endpointB)
+    );
+    expect(crossing.length).toBeGreaterThan(0);
+
+    const seams = new Set(
+      buildSeamsPassPayload(stocked, entities, "[fiction]").seams.map((s) => s.ref)
+    );
+    expect([...crossing].map((c) => c.id).sort()).toEqual([...seams].sort());
+
+    // And no chunk claims one, though each still lists it so its rooms know how
+    // many ways out they have.
+    for (const p of payloads) {
+      for (const r of p.rooms) {
+        for (const c of r.connectors) {
+          if (seams.has(c.ref)) expect(c.seam).toBe(true);
+        }
+      }
+    }
+  });
+
+  it("shows the seams pass both rooms, written", () => {
+    const gd = generateOffline(1005, 3);
+    const payload = buildSeamsPassPayload(gd.stocked, gd.entities, gd.dungeonContext);
+    for (const s of payload.seams) {
+      expect(s.a.name).not.toBe("");
+      expect(s.b.name).not.toBe("");
+      expect(s.a.base).not.toBe("");
+      expect(s.b.base).not.toBe("");
+    }
+    // Which is what lets the form name the upper room — see CONNECTOR_HEIGHT.
+    const written = gd.entities.connectors.find((c) => c.id === payload.seams[0].ref)!;
+    expect(written.base).toContain(payload.seams[0].a.name);
+  });
+
+  it("ignores a chunk that answers with a seam anyway", () => {
+    const seeds = deriveSeeds(1005);
+    const blueprint = generateBlueprintSeed(2, seeds.blueprintSeed, 1);
+    const { dungeon } = generateBlueprint(seeds.graphSeed, { chunks: chunksFor(2) }, true);
+    const stocked = stockDungeon(dungeon, blueprint, { level: 1, seed: seeds.stockSeed });
+    const entities = runEntitiesPass(stocked, blueprint, new Rng(stocked.seed));
+
+    const payload = buildContentPassPayload(stocked, blueprint, entities, 0, "[fiction]");
+    const room = payload.rooms.find((r) => r.connectors.some((c) => c.seam))!;
+    const seam = room.connectors.find((c) => c.seam)!;
+
+    const res = fakeContentPass(payload);
+    res.rooms
+      .find((r) => r.ref === room.ref)!
+      .connectors!.push({ ref: seam.ref, name: "Wrong", form: "written by half a writer" });
+
+    applyContentPass(res, payload, entities, blueprint, stocked, new Rng(stocked.seed));
+    expect(entities.connectors.find((c) => c.id === seam.ref)!.base).toBeUndefined();
+  });
+});
 
 // ===========================================================================
 // CONCEALED WAYS  — the one kind of hidden thing generation settles
@@ -424,6 +554,12 @@ describe("prompt snapshots", () => {
 
   it("dungeon pass", () => {
     expect(redactIds(renderDungeonPassPrompt(buildDungeonPassPayload(bp)))).toMatchSnapshot();
+  });
+
+  it("seams pass", () => {
+    const gd = generateOffline(1005, 2);
+    const payload = buildSeamsPassPayload(gd.stocked, gd.entities, "[dungeon context]");
+    expect(redactIds(renderSeamsPassPrompt(payload))).toMatchSnapshot();
   });
 
   it("content pass, chunk 0", () => {

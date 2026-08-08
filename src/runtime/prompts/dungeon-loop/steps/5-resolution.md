@@ -18,7 +18,13 @@ For an **attack**, the roll's success is a **hit**:
 - **Hit, performing a stunt** → the stunt happens (per the Knave rules); no damage — *unless* the player spent advantage on **stunt-and-damage**, in which case both the stunt and the damage land.
 - **Miss** → the blow does not connect; the goal is not met, and the opening may cost the player (often through the creatures' turns below).
 
+**A save to stay unnoticed fails differently.** Where the roll on the table was "do it without being seen" (step 3), failing it does not mean the act failed. It means something looked up. The lock may well have opened; what has changed is that the room knows. Narrate it that way, and write the creatures' new `activity` — what they noticed, and what they are doing about it — so the next turn begins in a room that is awake to them.
+
+Worth saying in the other direction too: on a success they are *still* unnoticed. Leave the `activity` lines saying so. A creature does not drift into awareness between turns without something making it happen.
+
 Let the player's stated intent shape *what* success looks like, but keep the result inside what the character could actually achieve — never a wish granted wholesale.
+
+**Let cleverness show up in the size of it.** Where the player reached this outcome by setting something up earlier, or by an approach plainly better than the obvious one, spend that here rather than absorbing it: more of what they were after comes away, it costs them less, the creature ends up out of the fight instead of merely hurt, the thing they wanted survives being taken. Step 3 pays for thinking in the odds; this is where it pays in what actually happened — and it is also the one thing that lifts a no-stakes action above "fairly minor". What it never does is overrule the dice: a failed roll is a failure, however well it was planned.
 
 ## 2. Take other creatures' turns
 
@@ -41,12 +47,15 @@ Ask for it as a `kind: "morale"` in the batch, passing their rating (default 7).
 
 Since a morale check often depends on damage you have not applied yet, include it in the batch anyway. Roll it, and then decide whether the trigger was met.
 
+**Noise does not stop at the door — but you hold only this room.** The rooms next to this one are not in front of you, and their creatures are not yours to write or to wake. What you can do is leave the fact where the next pass will find it: when the action was loud — a fight, a scream, a door forced, masonry down — say so plainly in the outcome you record for the turn. Room entry reads those records, and that is how the room they walk into next knows what it heard.
+
 ## 3. Update state and stats
 
 With the action, its consequences, and the creatures' reactions decided, write it all into the world:
 
 - **catch up anything the player acted on that was only ever in a description.** If step 1 approved a target that lives in a `composed` paragraph but in no `base` or `state` — the ledge you described on arrival, the crate you mentioned in passing — write it into the `state` of whatever holds it now, or create it as an entity if it can be taken or broken. It has been true since you said it; this is the turn the record catches up.
 - update the **state** of every affected entity (which flags it, and its containers, for recompose),
+- **and if the turn settled something about the dungeon itself** — who built this, what the place was for, what happened here — put that one line on the commit as a `fictionNote` (see the skill). Only what is true of the *place*; anything true of a thing in the room is that thing's `state`, and most turns carry no note at all.
 - apply changes to **game stats**: hit points from damage dealt or taken, items **consumed or damaged** (spend `currentQuality`), a **creature slain**, the **player or an entity moved** to another room, and so on.
 
 ## 4. Narrate and recompose

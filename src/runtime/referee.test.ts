@@ -14,7 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createModelReferee, postOf } from "./referee.ts";
 import { generateOffline, testCharacter } from "./__fixtures__/offline.ts";
 import { useGame } from "../store/game.ts";
-import { dcFromDefense } from "../engine/index.ts";
+import { dcFromDefense, pcArmorDefense } from "../engine/index.ts";
 import type { RefereeRequest } from "./turn.ts";
 import type { Step } from "./types.ts";
 
@@ -121,6 +121,12 @@ describe("an ordinary turn", () => {
       // NOT `any`. Forcing a tool call suppresses the prose, and the prose is
       // what the player is here for — see the note in referee.ts.
       expect(sent[0].tool_choice).toEqual({ type: "auto" });
+
+      // `actor` is the way out of a refused batch, so it has to be on the wire
+      // for the referee to know it exists — and "player" must not be, because
+      // the player's roll is offered rather than thrown.
+      const roll = sent[0].tools[0].input_schema.properties.rolls.items.properties;
+      expect(roll.actor.enum).toEqual(["creature", "world"]);
     });
   });
 
@@ -135,14 +141,26 @@ describe("an ordinary turn", () => {
     expect(entry.model).toBeTruthy();
   });
 
+  it("carries a fact about the place through to the commit", async () => {
+    queue.push(
+      reply(
+        text("<post>Salt has come through the plaster in white feathers.</post>"),
+        commit({ fictionNote: "The gaol was built over a salt mine." })
+      )
+    );
+
+    const out = await referee()(request());
+    expect(out.commit?.fictionNote).toBe("The gaol was built over a salt mine.");
+  });
+
   it("sends the step's own files and no others", async () => {
     queue.push(reply(commit({})));
     await referee()(request({ step: "5-resolution" }));
 
-    // The third block is the step files. SKILL.md names every step in its
+    // The step files are the last block. SKILL.md names every step in its
     // overview, so the check has to be against that block and not the whole
     // system prompt.
-    const steps = sent[0].system[2].text;
+    const steps = sent[0].system.at(-1).text;
     expect(steps).toContain("# Step 5 — Action resolution");
     expect(steps).not.toContain("# Step 1 — Determine the target of the action");
     expect(steps).not.toContain("# Step 4 — Roll confirmation");
@@ -442,6 +460,121 @@ describe("a referee that will not stop", () => {
     queue.push(reply(text("<post>It breaks and runs.</post>"), commit({})));
 
     expect((await referee()(request())).narration).toBe("You swing.\n\nIt breaks and runs.");
+  });
+
+  // OBSERVED LIVE: the heuristic worked through in the open and the `roll` call
+  // at the end of it. The whole of "Step 1 — Determine the target" was taken
+  // for a post, banked, and printed above the paragraph the next round wrote.
+  // The playbook says to roll first and write nothing before it, so untagged
+  // text on a rolling round is never the player's.
+  it("does not bank the working-out that reached the dice", async () => {
+    queue.push(
+      reply(
+        text("Step 1 — the target is the forge-mouth.\n\nStep 4 — Confirm and roll."),
+        use("r1", "roll", { rolls: [{ id: "a", kind: "morale", rating: 7 }] })
+      )
+    );
+    queue.push(reply(text("<post>It breaks and runs.</post>"), commit({})));
+
+    expect((await referee()(request())).narration).toBe("It breaks and runs.");
+  });
+});
+
+// ---------------------------------------------------------------------------
+
+describe("the roll that was never offered", () => {
+  // testCharacter's abilities are all +3, so +3 is unmistakably the player's.
+  const asks = (...rolls: Record<string, unknown>[]) => use("r1", "roll", { rolls });
+  const offered = commit({
+    nextStage: "roll_offered",
+    nextStep: "4-confirm-roll",
+    rollRequest: { kind: "save", ability: "dex", bonus: 3, edge: "none", description: "Squeeze in." },
+  });
+
+  it("refuses a save at the player's own bonus, and draws nothing", async () => {
+    queue.push(reply(text("Step 4 — confirm and roll."), asks({ id: "hide", kind: "save", bonus: 3 })));
+    queue.push(reply(text("<post>The forge-mouth is narrow. A Dexterity save, +3.</post>"), offered));
+
+    const out = await referee()(request());
+
+    const refusal = sent[1].messages.at(-1).content[0];
+    expect(refusal.is_error).toBe(true);
+    expect(refusal.content).toContain("their roll, and you do not throw it");
+    expect(refusal.content).toContain("roll_offered");
+    // A refused batch must cost no draws, or the dice it asks for properly come
+    // out different from the ones it would have had.
+    expect(useGame.getState().run!.rngDraws).toBe(0);
+    expect(out.commit.nextStage).toBe("roll_offered");
+    // And the refusal is a redo, not a continuation: only the rewrite is prose.
+    expect(out.narration).toBe("The forge-mouth is narrow. A Dexterity save, +3.");
+  });
+
+  it("still refuses damage written off a batch that never landed", async () => {
+    // The turn has no dice behind it, whatever the referee asked for.
+    queue.push(reply(asks({ id: "hide", kind: "save", bonus: 3 })));
+    queue.push(
+      reply(
+        text("<post>You fall.</post>"),
+        commit({ diffs: [{ entityId: "player", path: "hp.current", value: 12 }] })
+      )
+    );
+    queue.push(reply(text("<post>You catch yourself.</post>"), commit({})));
+
+    const out = await referee()(request());
+
+    expect(sent[2].messages.at(-1).content[0].content).toContain("no dice were rolled this turn");
+    expect(out.commit.diffs).toEqual([]);
+  });
+
+  it("lets a creature strike at the player's armour through, whatever its bonus", async () => {
+    const armor = pcArmorDefense(useGame.getState().run!.pc);
+    queue.push(reply(asks({ id: "ghoul", kind: "attack", bonus: 3, targetDefense: armor, damage: "1d6" })));
+    queue.push(reply(text("<post>It lands.</post>"), commit({})));
+
+    await referee()(request({ step: "5-resolution" }));
+
+    expect(sent[1].messages.at(-1).content[0].is_error).toBeUndefined();
+    expect(useGame.getState().run!.rngDraws).toBeGreaterThan(0);
+  });
+
+  it("takes a referee at its word when it marks whose roll it is", async () => {
+    queue.push(reply(asks({ id: "ghoul-holds-on", kind: "save", bonus: 3, actor: "creature" })));
+    queue.push(reply(text("<post>It clings on.</post>"), commit({})));
+
+    await referee()(request());
+
+    expect(sent[1].messages.at(-1).content[0].content).toMatch(/^ghoul-holds-on: save — d20/);
+  });
+
+  it("never mistakes morale or damage for the player's", async () => {
+    queue.push(reply(asks({ id: "nerve", kind: "morale", rating: 7 }, { id: "roof", kind: "damage", expr: "1d6" })));
+    queue.push(reply(text("<post>The ceiling comes down.</post>"), commit({})));
+
+    await referee()(request());
+    expect(useGame.getState().run!.rngDraws).toBeGreaterThan(0);
+  });
+
+  it("leaves the batch alone once the player's own roll is what is being resolved", async () => {
+    queue.push(reply(asks({ id: "second-save", kind: "save", bonus: 3 })));
+    queue.push(reply(text("<post>And then the floor goes.</post>"), commit({})));
+
+    await referee()(
+      request({
+        step: "5-resolution",
+        roll: {
+          spec: { kind: "save", ability: "dex", bonus: 3, edge: "none", description: "Jump.", dc: 16 },
+          rolled: [11],
+          kept: 11,
+          total: 14,
+          success: false,
+          nat20: false,
+          nat1: false,
+          crit: { defenderArmor: false, attackerWeapon: false },
+        },
+      })
+    );
+
+    expect(sent[1].messages.at(-1).content[0].content).toMatch(/^second-save: save — d20/);
   });
 });
 

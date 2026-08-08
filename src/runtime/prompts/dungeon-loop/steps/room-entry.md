@@ -127,6 +127,41 @@ Finding is the other half: when the player does discover something, set `isHidde
 back to false and rewrite its `state` — that is the resolution step's business, not
 yours.
 
+## What the creatures have not noticed
+
+The other half of the same judgement. `isHidden` is what the player has not seen;
+this is what the room has not seen of *them*.
+
+**Assume the creatures in here have not noticed the player.** They were living
+their own afternoon until a moment ago, and someone careful in a doorway is easy
+to miss. Three things break that, and only these three:
+
+- **They came in loudly.** The action that brought them here spent the quiet —
+  they ran, they charged, they kicked it open, they were shouting. See the
+  standing assumption in the skill.
+- **Something carried from next door.** The turn records say what they just did
+  and how it went. A fight, a scream, a portcullis dropped, a door forced — one
+  room away and a turn or two ago, the things in here heard it and are already
+  watching the way in.
+- **They were waiting for someone.** The creature's `activity` says so: set for an
+  ambush, posted on the entrance, hiding from whatever comes through. That was
+  decided before you got here. Do not overrule it.
+
+Otherwise they are unaware, and you say so in each creature's `activity`, in plain
+words — "gnawing at the joint with its back to the arch", "asleep in the straw",
+"arguing over the dice and not watching the door". **`activity` is the one field
+entry may write besides the prose pair**, because whether the room knows they are
+there is what the whole next turn hangs on, and it has to still be readable a turn
+later.
+
+Then describe them doing it. **A creature that has not noticed the player is never
+described as noticing them** — no head coming up, no eyes finding them in the
+doorway, no sense that it knows. That moment is the thing the player gets to spend,
+and narrating it away spends it for them.
+
+Unaware is not harmless. Say what it is and what it could clearly do; leave it not
+knowing.
+
 ## What entry never does
 
 Entry is not an action. The player has not done anything yet, and nothing may happen
@@ -137,8 +172,10 @@ to them for having walked in.
   standing. It acts on its turn, once the player has acted on theirs.
 - **Spring nothing.** A hazard the player has walked into the room with is described
   if it is apparent, and left unsprung. It goes off when something sets it off.
-- **Change nothing but prose.** No hit points, no inventory, no conditions, no
-  movement. `state`, `composed`, and nothing else.
+- **Change nothing but prose and awareness.** No hit points, no inventory, no
+  conditions, no movement. `state`, `composed`, and the `activity` lines that say
+  what the creatures are doing and whether they have noticed anything. Nothing
+  else.
 
 The room can be frightening. It cannot be expensive.
 
@@ -156,6 +193,12 @@ where they are standing, it belongs in `state`, not in the description.
 ## Ending
 
 **The room's `composed` is what the player reads on arrival. You do not have to write it twice.** It goes into the commit as a diff, and the interface shows that paragraph to the player as the arrival itself — so write it as prose meant to be read aloud, not as a note about the room. If you have something to say beyond it, write that as your message and it will be shown instead.
+
+If writing this room settled something about the **dungeon** — what the place was
+built for, who cut it, what happened here — put that one line on the commit as a
+`fictionNote` (see the skill). Arrival prose is where a dungeon's history most
+often gets written, and the note is what stops it being written a second time,
+differently, four rooms from now.
 
 Commit the `state` and `composed` diffs, then hand the turn back:
 

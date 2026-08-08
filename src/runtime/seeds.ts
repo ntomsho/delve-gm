@@ -27,6 +27,12 @@ export interface RunSeeds {
   blueprintSeed: number;
   /** stocking; matches stockDungeon's own default so both agree */
   stockSeed: number;
+  /**
+   * The floorplan. Its own stream because the packer retries — it advances this
+   * seed until a plan draws — and a run of failed attempts must not shift what
+   * is in the rooms.
+   */
+  layoutSeed: number;
   /** play-time rolls, independent of everything above */
   runSeed: number;
 }
@@ -37,6 +43,7 @@ export function deriveSeeds(dungeonSeed: number, runSeed?: number): RunSeeds {
     graphSeed: String(dungeonSeed),
     blueprintSeed: dungeonSeed,
     stockSeed: dungeonSeed + 7919,
+    layoutSeed: dungeonSeed + 104_729,
     runSeed: runSeed ?? dungeonSeed ^ 0x5f3759df,
   };
 }

@@ -16,7 +16,7 @@ Ask two things, and require **both**:
 If both are true, the action has stakes. A negligible chance of failure, or a failure that costs nothing worth noting, means no stakes.
 
 - **No risk or stakes → let it happen.** The action simply succeeds, as the character's capability dictates. Carry it forward to resolution with no roll. *(Resolution — applying the outcome and narrating it — is the next step.)*
-- **Risk and stakes → the action requires a roll.** Set it up as below, then present the confirmation post.
+- **Risk and stakes → the action requires a roll.** Set it up as below, present the confirmation post, and put the roll on the table. **The roll is theirs to take; your turn ends when it is offered.**
 
 ### Judge the risk from the page, never from what might be there
 
@@ -26,7 +26,39 @@ If you catch yourself reaching for a difficulty and thinking *I have not decided
 
 The same holds for what the player is worried about. A player who says "I sneak in" is telling you *how* they go — carefully, quietly — not asking you to find something for them to fail against. Their caution shapes the description. It does not manufacture stakes.
 
-So: **moving between rooms is auto-success**, unless something you can point to on the page makes it otherwise — a creature present that would see them go, a way out you were told is blocked or unstable, a hazard already sprung, a condition the player is carrying. Point at it, or let them walk.
+So: **moving between rooms is auto-success**, unless something you can point to on the page makes it otherwise — a creature that has noticed them and would move to stop them, a way out you were told is blocked or unstable, a hazard already sprung, a condition the player is carrying. Point at it, or let them walk. A creature that has *not* noticed them is the next section's business, not this one's.
+
+## Acting in a room that has not noticed you
+
+Room entry settled whether the creatures here know the player is there, and the
+answer is written in their `activity`. While they are unaware, the player is
+holding something real, and this step is where it gets kept or spent.
+
+**Going back the way they came is auto-success.** Withdrawing through the way they
+entered by, from creatures who have not noticed them, is the one thing an
+unnoticed person can reliably do. Let them go. Where you can point at something on
+the page that genuinely complicates the withdrawal — one of them standing between
+the player and it, a floor of broken glass the description already mentions, a way
+out you were told is stuck — it becomes a Dex save **with advantage**. Not a flat
+one. The default is still that they get out.
+
+**Anything else is a Dex save to stay unnoticed.** Crossing the room, lifting
+something off a table, working a lock, leaving by a different way, getting a close
+look at the thing they came for: while the room is unaware, the question is not
+whether the act works. It is whether it is seen. So the action's roll is a Dex
+save, and it is the *only* roll — one action, one roll, and this is it.
+
+If the act would carry stakes even in an empty room — a lock genuinely beyond
+them, a jump that could turn an ankle — it is still one roll, not two. Pick the
+ability the harder half turns on, and let a failure carry both halves: they
+fumbled it *and* the room heard.
+
+Failure here means something particular, and step 5 knows it: not that the lock
+beat them, but that something looked up. Frame the roll in those terms when you
+present it.
+
+None of this applies to creatures that already know they are there. The quiet is
+spent; judge the action for stakes like any other.
 
 ## Set up the roll
 
@@ -52,6 +84,29 @@ Determine which roll the action calls for.
 
 Then gauge **advantage or disadvantage** per the game rules: advantage when the character's approach, position, or a fictional edge clearly favors them; disadvantage when the environment, circumstances, or a fictional handicap work against them; neither when it is an even attempt.
 
+### Pay for what they set up
+
+Advantage is how this game pays for thinking, and it should be paid readily. A
+player who did something earlier and is now *using* it has earned it: they put the
+lamps out two turns ago and are crossing the room now, they wedged the door before
+starting the fight, they read that the thing feeds on carrion and brought some. So
+has a player whose approach is simply better than the obvious one — going at it
+sideways, turning a feature of the room into a tool, using a creature's own habit
+against it.
+
+Pay it at the level that fits what they actually did:
+
+- a good idea, or a small piece of preparation → **advantage**;
+- preparation that genuinely takes the risk out of it → **no stakes at all**; let
+  it happen, per the top of this step;
+- where what ought to be bigger is the *outcome* rather than the odds — more
+  carried off, a creature out of the fight rather than merely hurt — that is step
+  5's to give. Note it in the record and let resolution spend it.
+
+The bar is that it leans on something real: an earlier action of theirs, a detail
+of the room, something established about the target. Confidence on its own is not
+setup and buys nothing.
+
 ## Present the confirmation post
 
 Tell the player, in a post:
@@ -62,9 +117,17 @@ Tell the player, in a post:
 - whether it carries advantage or disadvantage,
 - for an attack, anything still to clarify: the weapon, whether they strike to deal damage or to stunt, and — if they have advantage — how they will use it.
 
-**Never show the difficulty of the roll** — not the DC, not the target's defense. You may tell the player in plain terms if the attempt looks especially easy or especially hard, but never the number.
+**Never show the difficulty of the roll** — not the DC, not the target's defense. You may say in plain terms that something looks like a long shot, and you may name what is working against them; never the number.
 
-Do not roll yet, and change no state. The next step handles roll confirmation, the roll itself, and resolution.
+**Do not name anything working *for* them unless you are giving them advantage.** "The hasp is half eaten with rust", "you have the higher ground", "it is favouring the leg you opened" — a player reads any of those as the roll being softened, and if the roll was not softened you have quietly told them the difficulty is lower than it is. So the rule is: if a factor is worth mentioning, it is worth advantage. If it is not worth advantage, leave it out and let the odds speak for themselves.
+
+## Then end the turn on it
+
+**You do not roll this. Not now, and not with the `roll` tool — not ever.** The dice for the player's own attempt are thrown by the interface when *they* take it. Your job was to settle the terms; having settled them, get out of the way.
+
+So the turn ends here. Commit `nextStage: "roll_offered"` and `nextStep: "4-confirm-roll"`, carrying the roll as the `rollRequest`, and change no state — nothing has happened yet. The player takes it, or argues with it, and either way the action reaches you again with the result already made.
+
+Rolling it yourself would hand them the outcome of something they never agreed to attempt. The `roll` tool refuses a save or an attack made at one of their own bonuses for exactly this reason, so reaching for it here costs you the round as well as the point.
 
 ## Output of this step
 
@@ -112,4 +175,4 @@ Hand this to resolution (next step); no confirmation post.
 
 `bonus` on an attack is the STR bonus (melee) or WIS bonus (ranged). `weapon`, `mode`, and `advantageUse` may be `null` when still to clarify — the next step settles them before the attack is rolled (`advantageUse` applies only when `edge` is `advantage`). `dc` and `targetDefense` are internal; never shown.
 
-Present the confirmation post, then move to the next step.
+That record goes out verbatim as the commit's `rollRequest`. Present the confirmation post, commit it with `nextStage: "roll_offered"`, and stop.

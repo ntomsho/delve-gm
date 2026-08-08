@@ -153,6 +153,11 @@ export function renderRoom(room: RoomView): string {
         .map((x) => {
           const bits = [
             x.form ? x.form.replace(/\s*\n\s*/g, " ") : undefined,
+            // In the same order and with the same mark the player's panel gives
+            // it — "the way you came" is a thing they will say, and it has to
+            // resolve to the same door for both of you. Not on the surface exit,
+            // whose own line already says it in more words.
+            x.cameFrom && !x.surface ? `THE WAY THEY CAME IN` : undefined,
             x.blocked ? `BLOCKED: ${x.requirement ?? "something is in the way"}` : undefined,
             x.surface
               ? `LEADS OUT OF THE DUNGEON — the way they came in, and the way home. ` +

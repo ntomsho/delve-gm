@@ -87,9 +87,27 @@ describe("the system prompt", () => {
     expect(system[2].cache_control).toBeUndefined();
   });
 
+  // What play establishes about the place reads as a continuation of the
+  // dungeon's fiction, but it grows during the run — so it goes BEHIND the
+  // breakpoint, where a change costs one call's cache rather than every call's.
+  it("carries what play has established, after the cached block", () => {
+    const run = fresh();
+    expect(assemble({ step: "1-target", dungeon, run }).system).toHaveLength(3);
+
+    const { system } = assemble({
+      step: "1-target",
+      dungeon,
+      run: { ...run, fiction: ["The gaol was built over a mine."] },
+    });
+    expect(system).toHaveLength(4);
+    expect(system[1].cache_control).toEqual({ type: "ephemeral" });
+    expect(system[2].text).toContain("The gaol was built over a mine.");
+    expect(system[2].cache_control).toBeUndefined();
+  });
+
   it("loads the chain reachable from the step, and nothing else", () => {
     const at = (step: Parameters<typeof assemble>[0]["step"]) =>
-      assemble({ step, dungeon, run: fresh() }).system[2].text;
+      assemble({ step, dungeon, run: fresh() }).system.at(-1)!.text;
 
     // A fresh action runs 1 → 2 → 3 in a single call, so it carries all three
     // and neither of the two that only a later call reaches.

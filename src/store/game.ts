@@ -93,6 +93,24 @@ export interface RunState {
   dungeonId: string;
   pc: PlayerCharacter;
   currentRoomId: string;
+  /**
+   * The connector they came in by — set by the applier when a walk crosses one.
+   * The room card puts it at the top, apart from the rest: "the way you came" is
+   * the first thing anyone wants from a room they have just walked into.
+   */
+  arrivedVia?: string;
+  /**
+   * The room the player has actually READ about, which lags `currentRoomId` for
+   * as long as the arrival is being written.
+   *
+   * A move applies its diffs and then the room-entry pass runs, and for those
+   * few seconds the player is standing somewhere they have been told nothing
+   * about. Showing them its contents in the panel is the interface getting ahead
+   * of the narration — they read the inventory of a room before its first
+   * sentence. So the panel follows this, and this is advanced once, by the turn
+   * machine, when the room entry has finished and its prose is on the page.
+   */
+  shownRoomId?: string;
   stage: Stage;
   step: Step;
   /**
@@ -107,6 +125,16 @@ export interface RunState {
    * run: the player still has to carry it out — see `endingOf`.
    */
   goalMet: boolean;
+  /**
+   * What play has added to the story of the dungeon, oldest first — written by a
+   * commit's `fictionNote` and read back into every later call.
+   *
+   * Kept beside `dungeonContext` rather than folded into it. The generated
+   * fiction is an artifact of generation and stays as it was written; this is the
+   * run's own accumulation, it belongs to the save rather than to the dungeon,
+   * and two runs down the same dungeon should not inherit each other's history.
+   */
+  fiction: string[];
   /** Play-time randomness. `draws` is what makes a reload resume mid-stream. */
   runSeed: number;
   rngDraws: number;
@@ -122,14 +150,22 @@ export interface RunState {
 }
 
 export function newRun(dungeon: GeneratedDungeon, pc: PlayerCharacter): RunState {
+  const entrance = dungeon.stocked.entranceRoomId;
   return {
     dungeonId: dungeon.id,
     pc,
-    currentRoomId: dungeon.stocked.entranceRoomId,
+    currentRoomId: entrance,
+    // They came down the way out. It is true, and it puts the door home at the
+    // top of the panel from the first room onward, which is where a player
+    // deciding whether to press on wants to find it.
+    arrivedVia: dungeon.entities.connectors.find(
+      (c) => c.endpointB === null && c.endpointA === entrance
+    )?.id,
     stage: "room_entry",
     step: "room-entry",
     turnCount: 0,
     goalMet: false,
+    fiction: [],
     runSeed: dungeon.seeds.runSeed,
     rngDraws: 0,
     // The run mutates entities; the generated copy stays pristine so a restart
@@ -165,6 +201,14 @@ export interface GameStore {
   syncRng(rng: CountingRng): void;
 
   setStage(stage: Stage, step: Step): void;
+  /**
+   * The panel and the map marker catch up with the page. Called by the turn
+   * machine when a room entry finishes — see `shownRoomId`, and `enterRoom` in
+   * turn.ts, which is the only caller. A room entry that never finishes leaves
+   * the interface showing the room the player last read about, which is the
+   * honest answer while the game is in `error`.
+   */
+  showRoom(roomId: string): void;
   pushTranscript(entry: TranscriptEntry): void;
   pushLog(entry: Omit<LogEntry, "turn">): void;
   recordTurn(record: Omit<TurnRecord, "turn">): void;
@@ -177,7 +221,10 @@ function worldOf(run: RunState): World {
     entities: run.entities,
     pc: run.pc,
     currentRoomId: run.currentRoomId,
+    ...(run.arrivedVia !== undefined ? { arrivedVia: run.arrivedVia } : {}),
     goalMet: run.goalMet,
+    // A run saved before this field existed reloads without it.
+    fiction: run.fiction ?? [],
   };
 }
 
@@ -228,7 +275,9 @@ export const useGame = create<GameStore>((set, get) => ({
         entities: result.world.entities,
         pc: result.world.pc,
         currentRoomId: result.world.currentRoomId,
+        arrivedVia: result.world.arrivedVia,
         goalMet: result.world.goalMet,
+        fiction: result.world.fiction,
         stage: endingOf(commit, result.world, died),
         step: commit.nextStep,
         pendingRoll: commit.nextStage === "roll_offered" ? commit.rollRequest : undefined,
@@ -263,6 +312,11 @@ export const useGame = create<GameStore>((set, get) => ({
     // Stamped with the turn in progress — `turnCount` is the number of CLOSED
     // turns, so the line the player is reading now belongs to the next one.
     if (run) set({ run: { ...run, log: [...run.log, { ...entry, turn: run.turnCount + 1 }] } });
+  },
+
+  showRoom(roomId) {
+    const run = get().run;
+    if (run) set({ run: { ...run, shownRoomId: roomId } });
   },
 
   recordTurn(record) {

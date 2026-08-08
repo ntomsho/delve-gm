@@ -10,6 +10,7 @@
 import { z } from "zod";
 import type { DungeonPassResponse } from "../../engine/dungeon-pass.ts";
 import type { ContentPassResponse } from "../../engine/dungeon-content-pass.ts";
+import type { SeamsPassResponse } from "../../engine/dungeon-seams-pass.ts";
 import type { Diff, EntitySpec } from "../diffs/types.ts";
 import type { Stage, Step } from "../types.ts";
 
@@ -112,6 +113,16 @@ const roomResponse = z.object({
 });
 
 export const contentPassSchema = z.object({ rooms: z.array(roomResponse).min(1) });
+
+// ---------------------------------------------------------------------------
+// SEAMS PASS
+// ---------------------------------------------------------------------------
+// The ways between chunks, written once both their rooms exist. Same connector
+// shape a chunk returns — one job, one schema.
+
+export const seamsPassSchema = z.object({
+  connectors: z.array(connectorResponse).min(1),
+});
 
 // ===========================================================================
 // THE RUNTIME TOOLS
@@ -232,6 +243,16 @@ export const commitSchema = z.object({
    * it latches: saying it once is enough, forever.
    */
   goalMet: z.boolean().optional(),
+  /**
+   * One fact this turn established about the DUNGEON — its history, its makers,
+   * what a place was really for. Appended to the run's fiction and shown back on
+   * every later call, so the story of the place only ever grows.
+   *
+   * Capped, and deliberately short of a paragraph: this is a line for the record,
+   * not a second draft of the narration. Anything true of a single entity belongs
+   * in that entity's `state` instead, which is why the length is the check.
+   */
+  fictionNote: z.string().trim().min(1).max(300).optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -247,6 +268,14 @@ const rollSpecRequest = z.object({
   /** the caller's own label, so the results can be told apart */
   id: nonEmpty,
   kind: z.enum(["save", "attack", "stunt", "morale", "damage"]),
+  /**
+   * Whose roll this is — and `"player"` is deliberately unsayable, because the
+   * player's own roll is offered rather than thrown (see `playersOwnDice`).
+   * Optional, and read only when a roll made at one of the player's bonuses
+   * would otherwise be refused: saying it is the ghoul's is how a referee gets
+   * a genuine coincidence past the guard.
+   */
+  actor: z.enum(["creature", "world"]).optional(),
   edge: edge.optional(),
   /** save, attack, stunt */
   bonus: z.number().int().optional(),
@@ -283,11 +312,13 @@ export type RollRequestParsed = z.infer<typeof rollSpecRequest>;
 
 export type DungeonPassParsed = z.infer<typeof dungeonPassSchema>;
 export type ContentPassParsed = z.infer<typeof contentPassSchema>;
+export type SeamsPassParsed = z.infer<typeof seamsPassSchema>;
 
 type Assignable<A extends B, B> = [A, B];
 
 export type DungeonPassMatchesEngine = Assignable<DungeonPassParsed, DungeonPassResponse>;
 export type ContentPassMatchesEngine = Assignable<ContentPassParsed, ContentPassResponse>;
+export type SeamsPassMatchesEngine = Assignable<SeamsPassParsed, SeamsPassResponse>;
 
 export type CommitParsed = z.infer<typeof commitSchema>;
 

@@ -78,10 +78,40 @@ export function assemble(req: PromptInput): TurnPrompt {
       text: `# This dungeon\n\n${dungeon.dungeonContext}`,
       cache_control: { type: "ephemeral" },
     },
+    // AFTER the breakpoint, and that is the whole reason it is its own block.
+    // What play has established about the place belongs with the dungeon's
+    // fiction and reads as a continuation of it — but it grows during the run,
+    // and anything that moves has to sit behind everything that does not or the
+    // cached prefix dies with it. So: same subject, later block.
+    ...fiction(run),
     { type: "text", text: stepPrompt(req.step) },
   ];
 
   return { system, messages: [brief(req), ...exchange(run), instruction(req)] };
+}
+
+/**
+ * What the run itself has established about the dungeon.
+ *
+ * Empty until a turn writes a `fictionNote`, and no block at all until then —
+ * an empty heading would read as "nothing has been learned here", which is a
+ * claim, and on turn one it is not one worth making.
+ */
+function fiction(run: RunState): SystemBlock[] {
+  const notes = run.fiction ?? [];
+  if (notes.length === 0) return [];
+  return [
+    {
+      type: "text",
+      text: [
+        `# What play has since established about this place\n`,
+        `Written during the run, in the order it came out, and as binding as`,
+        `anything above — most of it has already reached the player. Do not`,
+        `contradict it. Build on it.\n`,
+        ...notes.map((n) => `- ${n}`),
+      ].join("\n"),
+    },
+  ];
 }
 
 // ---------------------------------------------------------------------------

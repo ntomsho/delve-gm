@@ -165,6 +165,8 @@ export interface ExitView {
   requirement?: string;
   /** the player has been through to the other side */
   toKnown: boolean;
+  /** the way they walked in by — first in the list, and set apart from it */
+  cameFrom: boolean;
 }
 
 export interface RoomView {
@@ -240,8 +242,12 @@ export function roomView(
         // The surface is somewhere they have certainly been — they walked in
         // through it — and it is the one destination that needs no describing.
         toKnown: isSurfaceExit(c) || to?.composed !== undefined,
+        // Only in the room they are actually standing in. Asked about anywhere
+        // else, the way they last came in by is a fact about a different room.
+        cameFrom: roomId === run.currentRoomId && c.id === run.arrivedVia,
       };
-    });
+    })
+    .sort(byUsefulness);
 
   return {
     id: room.id,
@@ -254,6 +260,27 @@ export function roomView(
     exits,
     fiction: dungeon.dungeonContext,
   };
+}
+
+/**
+ * THE ORDER THE WAYS OUT ARE READ IN.
+ *
+ * Three bands, and the reasoning is the same in each: put what the player is
+ * most likely to be looking for where they will find it without reading.
+ *
+ *   1. the way they came in     — where they are, and the way back
+ *   2. ways to rooms they know  — the ones they can plan a route through
+ *   3. everything unexplored    — the decisions, at the bottom
+ *
+ * Stable within a band: `sort` on an array built in world order leaves ties in
+ * world order, so a room's exits do not shuffle between turns. Used by the panel
+ * AND by `renderRoom`, because the referee offering a way out in a different
+ * order than the player is reading them is how "the second door" stops meaning
+ * anything.
+ */
+function byUsefulness(a: ExitView, b: ExitView): number {
+  const band = (e: ExitView) => (e.cameFrom ? 0 : e.toKnown ? 1 : 2);
+  return band(a) - band(b);
 }
 
 /**
@@ -285,6 +312,24 @@ export function exitLabel(e: ExitView): string {
  */
 export function theRoom(name: string): string {
   return /^(the|a|an)\s/i.test(name) ? name : `the ${name}`;
+}
+
+/**
+ * The room the interface should be showing, which is not always the room the
+ * player is standing in.
+ *
+ * A move applies before the arrival is written, so between the two the player is
+ * somewhere they have been told nothing about. The panel and the map marker stay
+ * where the player's reading is until the arrival lands — see `shownRoomId` on
+ * RunState. Undefined only before the first arrival of a run, when the honest
+ * thing to show is nothing.
+ *
+ * The referee is NOT shown this. It is told where they actually stand.
+ */
+export function shownRoom(run: RunState): string | undefined {
+  // A run saved before this existed comes back with nothing here; anything but
+  // a room entry in flight means the narration has long since caught up.
+  return run.shownRoomId ?? (run.stage === "room_entry" ? undefined : run.currentRoomId);
 }
 
 /**
@@ -455,7 +500,9 @@ export function mapView(
     rooms: base.rooms.map((r) => ({
       ...r,
       known: known(r.id),
-      current: r.id === run.currentRoomId,
+      // The marker moves with the narration, not with the commit — otherwise it
+      // points into an unlit room for as long as the arrival takes to write.
+      current: r.id === (shownRoom(run) ?? run.currentRoomId),
       name: known(r.id) ? rooms.get(r.id)?.name : undefined,
     })),
     connectors: base.connectors

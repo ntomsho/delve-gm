@@ -14,8 +14,11 @@ import { describe, expect, it } from "vitest";
 import { createElement as h } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Characters } from "./Characters.tsx";
+import { RoomCard } from "./play/RoomCard.tsx";
 import { RunSetup } from "./RunSetup.tsx";
-import { testCharacter } from "../runtime/__fixtures__/offline.ts";
+import { generateOffline, testCharacter } from "../runtime/__fixtures__/offline.ts";
+import { newRun, type RunState } from "../store/game.ts";
+import { roomView } from "../store/selectors.ts";
 
 const cs = [testCharacter()];
 const noop = () => {};
@@ -38,6 +41,35 @@ describe("characters", () => {
   it("survives an empty stock, which creation will make reachable", () => {
     const html = renderToStaticMarkup(h(Characters, { characters: [], onStartRun: noop }));
     expect(html).toContain("Nobody yet");
+  });
+});
+
+// The card is a standing reference, so what it puts where is the whole of it:
+// the way they came in first and apart, and the unexplored last.
+describe("the room card", () => {
+  const dungeon = generateOffline(1005, 2);
+
+  function card(over: Partial<RunState> = {}) {
+    const run = { ...newRun(dungeon, testCharacter()), ...over };
+    return renderToStaticMarkup(h(RoomCard, { room: roomView(run, dungeon)! }));
+  }
+
+  it("sets the way they came in apart from the rest", () => {
+    const html = card();
+    expect(html).toContain("Behind you");
+    expect(html).toContain("Other ways out");
+    // The way home, at the top, on the first turn of the run.
+    expect(html.indexOf("out of the dungeon")).toBeLessThan(html.indexOf("Other ways out"));
+  });
+
+  it("is one undivided list when they have not come from anywhere", () => {
+    const html = card({ arrivedVia: undefined });
+    expect(html).not.toContain("Behind you");
+    expect(html).toContain("Exits");
+  });
+
+  it("marks what they have not been through yet", () => {
+    expect(card()).toContain("unexplored");
   });
 });
 

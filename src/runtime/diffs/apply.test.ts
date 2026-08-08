@@ -100,7 +100,7 @@ function makeWorld(): World {
     conditions: [],
   };
 
-  return { entities, pc, currentRoomId: ROOM_A, goalMet: false };
+  return { entities, pc, currentRoomId: ROOM_A, goalMet: false, fiction: [] };
 }
 
 let world: World;
@@ -214,6 +214,58 @@ describe("atomicity", () => {
       diffs: [{ entityId: PLAYER_ID, path: "hp.current", value: 1 }],
     });
     expect(r.ok).toBe(false);
+  });
+
+  // The fiction is part of the world for this purpose: a turn that turned the
+  // action away established nothing, least of all about the dungeon.
+  it("a rejected turn cannot write the fiction either", () => {
+    const r = applyCommit(world, {
+      nextStage: "rejected",
+      nextStep: "1-target",
+      diffs: [],
+      fictionNote: "The gaol was built over a mine.",
+    });
+    expect(r.ok).toBe(false);
+    expect(r.rejected[0].reason).toMatch(/adding to its fiction/);
+  });
+});
+
+// ===========================================================================
+// THE DUNGEON'S OWN STORY
+// ===========================================================================
+
+describe("fictionNote", () => {
+  const note = (fictionNote: string): Commit => ({
+    nextStage: "awaiting_action",
+    nextStep: "1-target",
+    diffs: [],
+    fictionNote,
+  });
+
+  it("appends, oldest first", () => {
+    world = ok(note("The gaol was built over a mine."));
+    world = ok(note("The mine flooded in the winter of the collapse."));
+    expect(world.fiction).toEqual([
+      "The gaol was built over a mine.",
+      "The mine flooded in the winter of the collapse.",
+    ]);
+  });
+
+  // A refused commit is written again, and a referee restating the same fact on
+  // the retry should not leave it on the list twice.
+  it("does not stack the same fact twice", () => {
+    world = ok(note("The gaol was built over a mine."));
+    world = ok(note("  The gaol was built over a mine.  "));
+    expect(world.fiction).toHaveLength(1);
+  });
+
+  it("goes down with a batch that is refused for anything else", () => {
+    const r = applyCommit(world, {
+      ...note("The gaol was built over a mine."),
+      diffs: [{ entityId: "ghoul", path: "base", value: "rewritten" }],
+    });
+    expect(r.ok).toBe(false);
+    expect(world.fiction).toEqual([]);
   });
 });
 
@@ -519,6 +571,27 @@ describe("the player", () => {
   it("allows a move to the room they are already in", () => {
     const w = ok(commit({ entityId: PLAYER_ID, path: "roomId", value: ROOM_A }));
     expect(w.currentRoomId).toBe(ROOM_A);
+  });
+
+  // Which way they came in by is the applier's to know: it is the thing that
+  // routed the walk, and a room can have more than one way into it.
+  it("records the way they came in by", () => {
+    const w = ok(commit({ entityId: PLAYER_ID, path: "roomId", value: ROOM_B }));
+    // The open arch, not the barred door.
+    expect(w.arrivedVia).toBe("arch");
+  });
+
+  it("records the last way crossed when a walk ends short", () => {
+    world.entities.connectors = world.entities.connectors.filter((c) => c.id !== "arch");
+    const r = applyCommit(world, commit({ entityId: PLAYER_ID, path: "roomId", value: ROOM_B }));
+    // They never crossed anything, so there is nothing behind them to name.
+    expect(r.world!.arrivedVia).toBeUndefined();
+  });
+
+  it("leaves it alone when the walk covers no ground", () => {
+    world.arrivedVia = "arch";
+    const w = ok(commit({ entityId: PLAYER_ID, path: "roomId", value: ROOM_A }));
+    expect(w.arrivedVia).toBe("arch");
   });
 });
 

@@ -51,6 +51,7 @@ import {
   BUILDING_ROOMS,
   DUNGEON_ENTRANCES,
   DUNGEON_HAZARDS,
+  DUNGEON_CORRIDORS,
   DUNGEON_ROOMS,
   DUNGEON_ROOM_DETAILS,
   DUNGEON_TRICKS,
@@ -262,6 +263,19 @@ export interface RoomStock {
   claimed: boolean;
   /** a claimed room that also stacked a second headline */
   stacked?: Headline;
+
+  /**
+   * This room is a passage rather than a place: it rolled `identity` on the
+   * Dungeon Corridors table and the floorplan draws it as whatever shape the
+   * connection needed rather than as a chamber with an area band.
+   *
+   * A corridor is an ordinary room in every other respect -- it keeps its
+   * headline and its contents, occupancy and travel and fog work on it
+   * unchanged. It costs roughly 17% of the content rooms at every size, which
+   * is the point rather than the price: a dungeon of nothing but stocked rooms
+   * reads as beads on a string, and corridors are the pacing.
+   */
+  isCorridor: boolean;
 
   identity: Rolled;
   detail?: Rolled;
@@ -964,6 +978,61 @@ function mobileId(): string {
   return `${mobilePrefix}_${(++mobileCounter).toString(36)}`;
 }
 
+/**
+ * Pick the rooms that are passages rather than places.
+ *
+ * Count is N-1 / N / N+1 at 25 / 50 / 25 where N is the size, which comes to
+ * roughly a sixth of the rooms. Size 1 is a coin flip between 0 and 1.
+ *
+ * Eligibility is **degree >= 2** and nothing else. A corridor connects
+ * somewhere, so dead ends are out; the goal room is never one. Dropping every
+ * further degree preference removes the one degenerate case -- a size-1 chunk
+ * whose 3-cycle carries three spurs has degrees 3,3,3,1,1,1 and therefore no
+ * degree-2 rooms at all, which under "exactly 2" would yield none and under
+ * ">= 2" yields three.
+ *
+ * Two corridors are never adjacent: that is one hallway with a pointless door
+ * in it. Picks are spread across **depth** bands rather than chunks, because
+ * `RoomStock.chunk` is a batching unit and never a content input, and because
+ * corridors are about rhythm along the path inward.
+ */
+function designateCorridors(rooms: RoomStock[], s: Structure, size: Size, rng: Rng): void {
+  const target =
+    size === 1 ? (rng.coin() ? 1 : 0) : Math.max(0, size + rng.pick([-1, 0, 0, 1]));
+  if (target === 0) return;
+
+  const BANDS = 3;
+  const bandOf = (r: RoomStock) =>
+    s.maxDepth > 0 ? Math.min(BANDS - 1, Math.floor((r.depth / s.maxDepth) * BANDS)) : 0;
+
+  const byIndex = new Map(rooms.map((r) => [r.index, r]));
+  const pools: RoomStock[][] = Array.from({ length: BANDS }, () => []);
+  for (const r of rooms) {
+    if (r.degree < 2 || r.role === "goal") continue;
+    pools[bandOf(r)].push(r);
+  }
+
+  const taken = new Array<number>(BANDS).fill(0);
+  for (let n = 0; n < target; n++) {
+    // The emptiest band that still has a legal room in it, so the picks spread
+    // along the way in rather than clumping wherever the graph is densest.
+    let band = -1;
+    for (let b = 0; b < BANDS; b++) {
+      if (!pools[b].some(free)) continue;
+      if (band < 0 || taken[b] < taken[band]) band = b;
+    }
+    if (band < 0) return; // fewer legal rooms than the roll asked for
+
+    const choice = rng.pick(pools[band].filter(free));
+    choice.isCorridor = true;
+    taken[band]++;
+  }
+
+  function free(r: RoomStock): boolean {
+    return !r.isCorridor && !s.adj[r.index].some((n) => byIndex.get(n)?.isCorridor);
+  }
+}
+
 export function stockDungeon(
   dungeon: Dungeon,
   blueprint: DungeonBlueprintSeed,
@@ -989,6 +1058,7 @@ export function stockDungeon(
     role: i === s.entrance ? "entrance" : i === s.goal ? "goal" : "normal",
     headline: "quiet",
     claimed: false,
+    isCorridor: false,
     identity: "",
     depth: s.depth[i],
     degree: s.adj[i].length,
@@ -1062,8 +1132,17 @@ export function stockDungeon(
     baseRoom.occupants.push(m.id);
   });
 
+  // ---- 1d. corridors ----
+  // Here because this is the first point at which every input exists: it cannot
+  // be earlier than Phase A because it needs degree, and it cannot be in Phase A
+  // because the goal room is stocking's. Before identity, since a corridor rolls
+  // on a different table.
+  designateCorridors(rooms, s, blueprint.size, rng);
+
   // ---- 2. identity ----
-  for (const r of rooms) r.identity = roll(DUNGEON_ROOMS, rng);
+  for (const r of rooms) {
+    r.identity = roll(r.isCorridor ? DUNGEON_CORRIDORS : DUNGEON_ROOMS, rng);
+  }
 
   // ---- 3. headline quota ----
   const claimedCounts = { creature: 0, special: 0, quiet: 0 };

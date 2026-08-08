@@ -62,6 +62,7 @@ src/
     dungeon-content-pass.ts
     dungeon-character.ts
     dungeon-pass.ts          # NEW
+    dungeon-seams-pass.ts    # NEW
     dungeon-rolls.ts         # NEW
     character-creation.ts    # NEW
   runtime/
@@ -182,7 +183,7 @@ The entity `state` fields are the long-term memory. The transcript only carries 
 Task-keyed, so any task can be repointed independently:
 
 ```ts
-type Task = "dungeon-pass" | "content-pass" | "room-entry" | "turn-loop";
+type Task = "dungeon-pass" | "content-pass" | "seams-pass" | "room-entry" | "turn-loop";
 const MODELS: Record<Task, string> = { /* ... */ };
 ```
 
@@ -204,11 +205,15 @@ Runs once, up front, behind a loading screen.
      buildContentPassPayload(sd, bp, ep, chunk, dungeonContext)
      → renderContentPassPrompt → LLM → zod validate
      → applyContentPass(...)                                             [N calls]
+7. buildSeamsPassPayload(sd, ep, dungeonContext)
+     → renderSeamsPassPrompt → LLM → applySeamsPass                      [1 call]
 ```
 
 Steps 3 and 4–5 are independent; run them concurrently.
 
 **Chunk parallelism, carefully.** Fire all chunk *generations* in parallel, but call `applyContentPass` **serially in ascending chunk order**. `applyContentPass` threads a `groupBases` map through: an inhabitant group can appear in several chunks and its `base` must be written exactly once. Apply is pure and cheap, so serializing it costs nothing.
+
+**A connector is written by whoever can see both its rooms.** Inside a chunk that is free — six rooms are named in one response — and the lower graph index owns it so it is written once rather than by each of its two rooms. A connector *leaving* the chunk cannot be: every chunk payload is built before any of them is applied, so the room on the far side has no name yet. Those are **seams**, they are skipped by the chunks, and step 7 writes them at the end with both rooms in front of it. Without that split both chunks write every connector between them, blind to the far room, and the later apply silently wins — which is what shipped until the seams pass existed. There are about two per chunk boundary, so one call covers a whole dungeon.
 
 On zod failure: retry that chunk once with the validation errors appended to the prompt. On a second failure, surface it — do not fall back to partial content.
 

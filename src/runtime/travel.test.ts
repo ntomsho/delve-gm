@@ -70,7 +70,7 @@ function makeWorld(over: Partial<EntityPassResult> = {}): World {
     inventory: [], equipped: {}, conditions: [], copper: 0,
   } as unknown as PlayerCharacter;
 
-  return { entities, pc, currentRoomId: "a", goalMet: false };
+  return { entities, pc, currentRoomId: "a", goalMet: false, fiction: [] };
 }
 
 /**

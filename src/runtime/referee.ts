@@ -36,7 +36,7 @@
  * results it did not choose.
  */
 
-import { dcFromDefense, ORDINARY_DC } from "../engine/index.ts";
+import { dcFromDefense, ORDINARY_DC, pcArmorDefense } from "../engine/index.ts";
 import { renderOutcomes, rollBatch } from "./dice.ts";
 import { assemble } from "./prompts/assemble.ts";
 import {
@@ -49,7 +49,12 @@ import {
   type Usage,
 } from "./llm/client.ts";
 import { ResponseFormatError, validate } from "./llm/json.ts";
-import { commitSchema, rollBatchSchema, type CommitParsed } from "./llm/schemas.ts";
+import {
+  commitSchema,
+  rollBatchSchema,
+  type CommitParsed,
+  type RollBatchParsed,
+} from "./llm/schemas.ts";
 import { modelFor, type Task } from "./llm/models.ts";
 import { PLAYER_ID, type Commit } from "./diffs/types.ts";
 import type { RollSpec } from "./types.ts";
@@ -167,6 +172,66 @@ function unearnedDamage(req: RefereeRequest, commit: Commit): string[] {
 }
 
 /**
+ * THE ROLL THAT WAS NEVER OFFERED.
+ *
+ * A sibling of `unearnedDamage`, and the same shape of failure: the numbers had
+ * a provenance, and the player still did not get what they were owed. Observed
+ * on a live run — asked whether they could hide inside a forge-stone, the
+ * referee worked out a DEX save, wrote "Step 4 — Confirm and roll," and then
+ * called `roll` for it. The dice were honest. The player never saw the roll
+ * offered, never took it, and read the outcome of an attempt they were not
+ * asked to commit to. Two turns in a row.
+ *
+ * THE PLAYER'S ROLL IS THE ONE PLACE THE GAME HANDS THEM THE DICE. It goes on
+ * the table as `roll_offered` with a `rollRequest`, the turn ENDS there, and
+ * the interface throws it when they take it. The `roll` tool is for everything
+ * else — the creatures, the traps, the falling masonry.
+ *
+ * HOW ONE IS RECOGNISED. Only the bonus tells them apart: a roll made at one of
+ * the player character's own six modifiers, on a turn where no roll of theirs
+ * has arrived, is theirs. Two exceptions keep it honest — `morale` and `damage`
+ * are never a player's roll whatever the number, and an `attack` aimed at the
+ * player's own armour is a creature striking them, not them striking out.
+ *
+ * A bonus can collide by coincidence: a 2HD creature saving against a shove
+ * shares +2 with a player who has it. So the refusal names `actor` as the way
+ * out — a roll marked as a creature's or the world's is taken at its word, and
+ * a referee that meant it costs itself one round rather than the turn.
+ */
+function playersOwnDice(req: RefereeRequest, batch: RollBatchParsed): string[] {
+  // A roll of theirs already in hand: this turn is resolving it, and whatever
+  // else it needs is the world's.
+  if (req.roll) return [];
+
+  const pc = req.run.pc;
+  const theirs = new Set<number>(Object.values(pc.abilities));
+  const armor = pcArmorDefense(pc);
+
+  const out: string[] = [];
+  for (const r of batch.rolls) {
+    if (r.kind === "morale" || r.kind === "damage") continue;
+    if (r.actor !== undefined) continue;
+    if (r.bonus === undefined || !theirs.has(r.bonus)) continue;
+    if (r.kind === "attack" && r.targetDefense === armor) continue;
+
+    out.push(
+      `[${r.id}] is a ${r.kind} at ${r.bonus >= 0 ? "+" : ""}${r.bonus}, which is one of the ` +
+        `player character's own bonuses — so this is their roll, and you do not throw it.`
+    );
+  }
+
+  if (out.length > 0) {
+    out.push(
+      `Their roll goes on the table and the turn ends there: commit nextStage "roll_offered" ` +
+        `and nextStep "4-confirm-roll" with the terms as the \`rollRequest\`. They take it, and it ` +
+        `comes back to you at step 5 already made. If one of these is a creature's roll or the ` +
+        `world's and only happens to share a bonus with them, mark it \`actor\` and ask again.`
+    );
+  }
+  return out;
+}
+
+/**
  * The cross-field rules a JSON Schema cannot state.
  *
  * BUILD-PLAN §4.1 wants these caught as schema violations rather than left to
@@ -257,14 +322,26 @@ export function createModelReferee(opts: ModelRefereeOptions = {}): Referee {
         store,
       });
 
+      const rolls = turn.toolUses.filter((t) => t.name === "roll");
+
       // A tagged post always replaces the attempt. Untagged text only does so
       // when there is nothing to replace: the lenient fallback exists for a
       // referee that ignores the convention entirely, and a referee that used
       // it once and then answered a nudge with "You're right, let me commit
       // properly" has not written a second post — it has apologised.
+      //
+      // AND NEVER ON A ROUND THAT ROLLED. The playbook says to call `roll`
+      // first and write nothing before it, so untagged text on a rolling round
+      // is by definition the working-out that reached the dice — not a post.
+      // Observed live: "Step 1 — Determine the target" through step 4, banked
+      // by the roll branch below and printed above the paragraph the next round
+      // actually wrote. Banked text is never replaced, so a post admitted here
+      // wrongly is on the screen for good.
       const tagged = taggedPost(turn.text);
       if (tagged) attempt = tagged;
-      else if (tagged === undefined && attempt === "") attempt = turn.text.trim();
+      else if (tagged === undefined && attempt === "" && rolls.length === 0) {
+        attempt = turn.text.trim();
+      }
 
       const commit = turn.toolUses.find((t) => t.name === "commit_state");
       if (commit) {
@@ -288,16 +365,26 @@ export function createModelReferee(opts: ModelRefereeOptions = {}): Referee {
         };
       }
 
-      const rolls = turn.toolUses.filter((t) => t.name === "roll");
       if (rolls.length > 0) {
-        rolled = true;
-        // The turn continues. What was written before the dice stands, and the
-        // prose that follows them is a second thing to say, not a correction.
-        if (attempt) banked.push(attempt);
-        attempt = "";
+        const answers = rolls.map((r) =>
+          answerRoll(store, r, (batch) => playersOwnDice(req, batch))
+        );
+
+        // A batch that was refused threw nothing: no dice, no provenance, and
+        // no second thing to say. The round is a redo like any other, so the
+        // attempt stays where it is to be replaced by the rewrite.
+        if (answers.some((a) => a.threw)) {
+          rolled = true;
+          // The turn continues. What was written before the dice stands, and
+          // the prose that follows them is a second thing to say, not a
+          // correction.
+          if (attempt) banked.push(attempt);
+          attempt = "";
+        }
+
         messages.push(
           { role: "assistant", content: turn.content },
-          toolResults(rolls.map((r) => answerRoll(store, r)))
+          toolResults(answers.map((a) => a.result))
         );
         continue;
       }
@@ -412,6 +499,7 @@ function readCommit(call: ToolUse, also: (c: Commit) => string[]): Commit | stri
     diffs: parsed.diffs,
     ...(parsed.rollRequest ? { rollRequest: toRollSpec(parsed.rollRequest) } : {}),
     ...(parsed.goalMet ? { goalMet: true } : {}),
+    ...(parsed.fictionNote ? { fictionNote: parsed.fictionNote } : {}),
   };
 
   const problems = [...problemsWith(parsed), ...also(commit)];
@@ -424,19 +512,46 @@ function readCommit(call: ToolUse, also: (c: Commit) => string[]): Commit | stri
   return commit;
 }
 
+type RollResult = { id: string; content: string; isError?: boolean };
+
 /**
  * Roll what was asked for, from the run's own stream.
  *
  * `syncRng` immediately after: the draw count is what makes a reload resume
  * mid-stream, and dice that were rolled but not recorded would be rolled again.
+ *
+ * `threw` is what the caller cannot see from the result alone: a batch that was
+ * malformed or refused comes back as an error having touched neither the stream
+ * nor the turn, and a turn that has not thrown any dice is still a turn that
+ * cannot write damage off its own judgement.
  */
-function answerRoll(store: Store, call: ToolUse): { id: string; content: string; isError?: boolean } {
-  let batch;
+function answerRoll(
+  store: Store,
+  call: ToolUse,
+  guard: (batch: RollBatchParsed) => string[]
+): { result: RollResult; threw: boolean } {
+  let batch: RollBatchParsed;
   try {
     batch = validate(rollBatchSchema, call.input);
   } catch (e) {
-    if (e instanceof ResponseFormatError) return { id: call.id, content: e.feedback, isError: true };
+    if (e instanceof ResponseFormatError) {
+      return { result: { id: call.id, content: e.feedback, isError: true }, threw: false };
+    }
     throw e;
+  }
+
+  // Checked before the stream is touched: a refused batch must cost no draws,
+  // or the dice the referee is about to ask for properly come out different.
+  const refused = guard(batch);
+  if (refused.length > 0) {
+    return {
+      result: {
+        id: call.id,
+        content: `Nothing was rolled:\n${refused.map((p) => `  - ${p}`).join("\n")}`,
+        isError: true,
+      },
+      threw: false,
+    };
   }
 
   const rng = store.getState().rng();
@@ -445,9 +560,12 @@ function answerRoll(store: Store, call: ToolUse): { id: string; content: string;
   log({ kind: "roll", source: "referee", requested: batch.rolls, outcomes, draws: rng.draws });
 
   return {
-    id: call.id,
-    content: renderOutcomes(outcomes),
-    ...(outcomes.some((o) => o.failed) ? { isError: true } : {}),
+    result: {
+      id: call.id,
+      content: renderOutcomes(outcomes),
+      ...(outcomes.some((o) => o.failed) ? { isError: true } : {}),
+    },
+    threw: true,
   };
 }
 

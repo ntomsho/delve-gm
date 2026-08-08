@@ -9,6 +9,7 @@
  *   node src/dev/cli-generate.ts --seed 1005 --size 2
  *   node src/dev/cli-generate.ts --seed 1005 --size 2 --dry     # prompts only, no calls
  *   node src/dev/cli-generate.ts --seed 1005 --out out/1005.json
+ *   node src/dev/cli-generate.ts --seed 1005 --size 3 --dry --map out/1005.svg
  *
  * `--dry` is the workhorse. It renders every prompt the run would send and
  * exits, so prompt wording can be iterated at zero cost and zero latency.
@@ -24,15 +25,20 @@ import { dirname, resolve } from "node:path";
 import {
   buildContentPassPayload,
   buildDungeonPassPayload,
+  floorplanSvg,
   generateBlueprint,
   generateBlueprintSeed,
+  generateFloorplanValid,
   renderContentPassPrompt,
   renderDungeonPassPrompt,
   resolveBase,
   Rng,
   runEntitiesPass,
   stockDungeon,
+  validateFloorplan,
+  type Dungeon,
   type Size,
+  type StockedDungeon,
 } from "../engine/index.ts";
 import { configureTransport } from "../runtime/llm/client.ts";
 import { generateDungeon, validateWritten, type GenerationProgress } from "../runtime/generate.ts";
@@ -49,6 +55,8 @@ interface Args {
   out: string | null;
   dry: boolean;
   chunk: number | null;
+  /** where to write the floorplan as plain line art */
+  map: string | null;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -74,6 +82,7 @@ function parseArgs(argv: string[]): Args {
     out: get("out") ?? null,
     dry: argv.includes("--dry"),
     chunk: argv.includes("--chunk") ? num("chunk", 0) : null,
+    map: argv.includes("--map") ? (get("map") ?? "out/map.svg") : null,
   };
 }
 
@@ -151,6 +160,42 @@ function dryRun(args: Args): void {
     `\n[dry] ${chunks.length} chunk(s), ${sd.rooms.length} rooms, ` +
       `${ep.creatures.length} creature anchors, ${bp.inhabitants.length} inhabitant group(s). No calls made.`
   );
+
+  // The floorplan is pure, so --map needs no key and belongs here as much as in
+  // a live run. This is the iteration surface for the geometry.
+  if (args.map) writeMap(args, dungeon, sd);
+}
+
+/**
+ * Draw the plan and say whether it is sound. Plain line art, no decoration —
+ * the point is to look at a hundred of them, not to look at one nicely.
+ */
+function writeMap(args: Args, dungeon: Dungeon, sd: StockedDungeon): void {
+  const seeds = deriveSeeds(args.seed);
+  const started = Date.now();
+  const fp = generateFloorplanValid(dungeon, sd, { seed: seeds.layoutSeed });
+  if (!fp) {
+    console.error(
+      `\n[map] no floorplan: the packer could not draw this graph. ` +
+        `That is expected at sizes 4-5 — see CODING-PLAN §6a.`
+    );
+    return;
+  }
+
+  const problems = validateFloorplan(fp, dungeon, sd);
+  const corridors = fp.rooms.filter((r) => r.isCorridor).length;
+  console.error(
+    `\n[map] ${fp.rooms.length} rooms (${corridors} corridors), ${fp.doors.length} doors, ` +
+      `${fp.bounds.w}x${fp.bounds.h} cells, ${fp.attempts} attempt(s), ${Date.now() - started}ms`
+  );
+  if (problems.length) {
+    console.error(`[map] ${problems.length} PROBLEM(S) — the plan is not sound:`);
+    for (const p of problems.slice(0, 10)) console.error(`  ${p}`);
+  }
+
+  mkdirSync(dirname(resolve(args.map!)), { recursive: true });
+  writeFileSync(resolve(args.map!), floorplanSvg(fp));
+  console.error(`[map] Wrote ${args.map}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -163,6 +208,7 @@ const STAGE_LABEL: Record<GenerationProgress["stage"], string> = {
   history: "Writing its history",
   stocking: "Stocking the rooms",
   writing: "Writing the rooms",
+  joining: "Writing the ways between regions",
 };
 
 async function liveRun(args: Args): Promise<void> {
@@ -215,6 +261,8 @@ async function liveRun(args: Args): Promise<void> {
   } else {
     console.error("\nFully written: every entity has a name and a resolvable base.");
   }
+
+  if (args.map) writeMap(args, gd.graph, gd.stocked);
 
   const out = args.out ?? `out/dungeon-${args.seed}-s${args.size}.json`;
   mkdirSync(dirname(resolve(out)), { recursive: true });

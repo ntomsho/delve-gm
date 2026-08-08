@@ -31,15 +31,15 @@ Traits: physique Wiry, face Bony, skin Ashen, hair Cropped, clothing Patched, vi
 
 ## The room the player is standing in
 
-[«id-1»] **The Chasm** (NEVER ENCOUNTERED)
-base: A chasm of the drowned mint, its walls pale limestone crusted with mineral scale. Water lies ankle-deep across the floor, still and cold. Nothing has disturbed it in a long time.
+[«id-1»] **The Stockyard** (NEVER ENCOUNTERED)
+base: A stockyard of the drowned mint, its walls pale limestone crusted with mineral scale. Water lies ankle-deep across the floor, still and cold. Nothing has disturbed it in a long time.
 
 ### In it
 - (nothing in it)
 
 ### Ways out
-- [«id-2»] "a low arch" — a low arch of fitted stone, its keystone dropped an inch · leads to [«id-3»], somewhere they have not been
-- [«id-4»] "the mint's stair — out of the dungeon" — A broad flight of worn limestone steps rising out of the water toward the surface. · LEADS OUT OF THE DUNGEON — the way they came in, and the way home. Walking through it ENDS THE RUN: commit nextStage "departed"
+- [«id-2»] "the mint's stair — out of the dungeon" — A broad flight of worn limestone steps rising out of the water toward the surface. · LEADS OUT OF THE DUNGEON — the way they came in, and the way home. Walking through it ENDS THE RUN: commit nextStage "departed"
+- [«id-3»] "a low arch" — a low arch of fitted stone, its keystone dropped an inch · leads to [«id-4»], somewhere they have not been
 ",
     "role": "user",
   },
@@ -89,15 +89,15 @@ Traits: physique Wiry, face Bony, skin Ashen, hair Cropped, clothing Patched, vi
 
 ## The room the player is standing in
 
-[«id-1»] **The Chasm** (NEVER ENCOUNTERED)
-base: A chasm of the drowned mint, its walls pale limestone crusted with mineral scale. Water lies ankle-deep across the floor, still and cold. Nothing has disturbed it in a long time.
+[«id-1»] **The Stockyard** (NEVER ENCOUNTERED)
+base: A stockyard of the drowned mint, its walls pale limestone crusted with mineral scale. Water lies ankle-deep across the floor, still and cold. Nothing has disturbed it in a long time.
 
 ### In it
 - (nothing in it)
 
 ### Ways out
-- [«id-2»] "a low arch" — a low arch of fitted stone, its keystone dropped an inch · leads to [«id-3»], somewhere they have not been
-- [«id-4»] "the mint's stair — out of the dungeon" — A broad flight of worn limestone steps rising out of the water toward the surface. · LEADS OUT OF THE DUNGEON — the way they came in, and the way home. Walking through it ENDS THE RUN: commit nextStage "departed"
+- [«id-2»] "the mint's stair — out of the dungeon" — A broad flight of worn limestone steps rising out of the water toward the surface. · LEADS OUT OF THE DUNGEON — the way they came in, and the way home. Walking through it ENDS THE RUN: commit nextStage "departed"
+- [«id-3»] "a low arch" — a low arch of fitted stone, its keystone dropped an inch · leads to [«id-4»], somewhere they have not been
 ",
     "role": "user",
   },
@@ -150,15 +150,15 @@ Traits: physique Wiry, face Bony, skin Ashen, hair Cropped, clothing Patched, vi
 
 ## The room the player is standing in
 
-[«id-1»] **The Chasm** (NEVER ENCOUNTERED)
-base: A chasm of the drowned mint, its walls pale limestone crusted with mineral scale. Water lies ankle-deep across the floor, still and cold. Nothing has disturbed it in a long time.
+[«id-1»] **The Stockyard** (NEVER ENCOUNTERED)
+base: A stockyard of the drowned mint, its walls pale limestone crusted with mineral scale. Water lies ankle-deep across the floor, still and cold. Nothing has disturbed it in a long time.
 
 ### In it
 - (nothing in it)
 
 ### Ways out
-- [«id-2»] "a low arch" — a low arch of fitted stone, its keystone dropped an inch · leads to [«id-3»], somewhere they have not been
-- [«id-4»] "the mint's stair — out of the dungeon" — A broad flight of worn limestone steps rising out of the water toward the surface. · LEADS OUT OF THE DUNGEON — the way they came in, and the way home. Walking through it ENDS THE RUN: commit nextStage "departed"
+- [«id-2»] "the mint's stair — out of the dungeon" — A broad flight of worn limestone steps rising out of the water toward the surface. · LEADS OUT OF THE DUNGEON — the way they came in, and the way home. Walking through it ENDS THE RUN: commit nextStage "departed"
+- [«id-3»] "a low arch" — a low arch of fitted stone, its keystone dropped an inch · leads to [«id-4»], somewhere they have not been
 ",
     "role": "user",
   },
@@ -209,15 +209,15 @@ Traits: physique Wiry, face Bony, skin Ashen, hair Cropped, clothing Patched, vi
 
 ## The room the player is standing in
 
-[«id-1»] **The Chasm** (NEVER ENCOUNTERED)
-base: A chasm of the drowned mint, its walls pale limestone crusted with mineral scale. Water lies ankle-deep across the floor, still and cold. Nothing has disturbed it in a long time.
+[«id-1»] **The Stockyard** (NEVER ENCOUNTERED)
+base: A stockyard of the drowned mint, its walls pale limestone crusted with mineral scale. Water lies ankle-deep across the floor, still and cold. Nothing has disturbed it in a long time.
 
 ### In it
 - (nothing in it)
 
 ### Ways out
-- [«id-2»] "a low arch" — a low arch of fitted stone, its keystone dropped an inch · leads to [«id-3»], somewhere they have not been
-- [«id-4»] "the mint's stair — out of the dungeon" — A broad flight of worn limestone steps rising out of the water toward the surface. · LEADS OUT OF THE DUNGEON — the way they came in, and the way home. Walking through it ENDS THE RUN: commit nextStage "departed"
+- [«id-2»] "the mint's stair — out of the dungeon" — A broad flight of worn limestone steps rising out of the water toward the surface. · LEADS OUT OF THE DUNGEON — the way they came in, and the way home. Walking through it ENDS THE RUN: commit nextStage "departed"
+- [«id-3»] "a low arch" — a low arch of fitted stone, its keystone dropped an inch · leads to [«id-4»], somewhere they have not been
 ",
     "role": "user",
   },
@@ -226,7 +226,7 @@ base: A chasm of the drowned mint, its walls pale limestone crusted with mineral
 
 These need writing — nothing else does:
 
-- [«id-1»] The Chasm (Room)
+- [«id-1»] The Stockyard (Room)
 
 Describe the arrival. Change nothing but \`state\` and \`composed\`.
 

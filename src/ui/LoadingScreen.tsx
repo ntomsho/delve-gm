@@ -2,7 +2,7 @@
  * THE WAIT BEFORE THE GAME
  *
  * Generation is one pure branch and N model calls, and it takes the better part
- * of a minute. The five stages are named in `runtime/generate.ts` rather than
+ * of a minute. The stages are named in `runtime/generate.ts` rather than
  * here on purpose — the interface reports what the pipeline says it is doing
  * and has nothing to invent.
  *
@@ -15,7 +15,9 @@
 
 import type { GenerationProgress, GenerationStage } from "../runtime/generate.ts";
 
-const ORDER: GenerationStage[] = ["layout", "inhabitants", "history", "stocking", "writing"];
+const ORDER: GenerationStage[] = [
+  "layout", "inhabitants", "history", "stocking", "writing", "joining",
+];
 
 const SAYS: Record<GenerationStage, string> = {
   layout: "Cutting the rooms and the ways between them",
@@ -23,6 +25,7 @@ const SAYS: Record<GenerationStage, string> = {
   history: "Working out what happened",
   stocking: "Putting things in the rooms",
   writing: "Writing it all down",
+  joining: "Hanging the doors between them",
 };
 
 export function LoadingScreen({ progress }: { progress?: GenerationProgress }) {

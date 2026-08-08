@@ -40,6 +40,22 @@ export interface Commit {
    * is a fact about the RUN rather than about anything in the world.
    */
   goalMet?: boolean;
+  /**
+   * Something the turn established about the DUNGEON — not about any one thing
+   * in it. Why the cells were dug, who the carvings are of, what the miners
+   * were actually down here for.
+   *
+   * Prose written during play adds to the story of the place, and without this
+   * it is gone by the turn after next: the transcript is cleared when the action
+   * closes, the records carry two turns, and an entity's `state` can only hold
+   * what is true of that entity. So a fact about the whole place has nowhere to
+   * live, and the referee invents the history again, differently, three rooms
+   * later.
+   *
+   * Appended to the run's fiction, never merged into `dungeonContext` — that was
+   * written before play and stays as written, the way a `base` does.
+   */
+  fictionNote?: string;
 }
 
 /** The id the referee uses for the player character. */
@@ -112,6 +128,20 @@ export interface World {
   pc: PlayerCharacter;
   /** where the player is standing — dropped things land here */
   currentRoomId: string;
+  /**
+   * The way they came in by: the last connector the walk actually crossed.
+   *
+   * Written by the applier rather than by the referee, because the applier is
+   * what routes the walk and so is the only thing that knows which of several
+   * ways into a room was used. Absent only before the first move.
+   */
+  arrivedVia?: string;
   /** the objective is done; what makes walking out a win rather than an escape */
   goalMet: boolean;
+  /**
+   * What play has added to the story of the place, oldest first. Appended by
+   * `fictionNote`, never rewritten — this is a record of what the game has
+   * already told the player, and editing it is going back on it.
+   */
+  fiction: string[];
 }

@@ -171,7 +171,9 @@ describe("roomView", () => {
   it("names the room a way out leads to, once the player has been there", () => {
     const run = freshRun();
     const view = roomView(run, dungeon)!;
-    const exit = view.exits[0];
+    // Not the way out of the dungeon, which is named from the first turn — see
+    // the test above it. The first room's other exits are all unexplored.
+    const exit = view.exits.find((x) => !x.surface)!;
     expect(exitLabel(exit)).toBe(exit.name);
 
     const beyond = run.entities.rooms.find((r) => r.id === exit.toRoomId)!;
@@ -220,6 +222,75 @@ describe("roomView", () => {
 
   it("returns undefined for a room that does not exist", () => {
     expect(roomView(freshRun(), dungeon, "nowhere")).toBeUndefined();
+  });
+});
+
+// ===========================================================================
+// THE ORDER THE WAYS OUT ARE READ IN
+// ===========================================================================
+
+describe("exit order", () => {
+  /** The best-connected room, so there is something to put in every band. */
+  function busyRoom(run: ReturnType<typeof freshRun>) {
+    const ways = (id: string) =>
+      run.entities.connectors.filter(
+        (c) => (c.endpointA === id || c.endpointB === id) && !isSurfaceExit(c) && c.isHidden !== true
+      );
+    return run.entities.rooms
+      .map((r) => ({ id: r.id, ways: ways(r.id) }))
+      .sort((a, b) => b.ways.length - a.ways.length)[0];
+  }
+
+  it("puts the way they came in first, then the known, then the unexplored", () => {
+    const run = freshRun();
+    const busy = busyRoom(run);
+    run.currentRoomId = busy.id;
+    const room = run.currentRoomId;
+    const exits = busy.ways;
+    expect(exits.length).toBeGreaterThan(1);
+
+    // Walked in by the last of them, and one of the others goes somewhere they
+    // have already stood.
+    run.arrivedVia = exits[exits.length - 1].id;
+    const known = exits[0];
+    const beyond = run.entities.rooms.find(
+      (r) => r.id === (known.endpointA === room ? known.endpointB : known.endpointA)
+    )!;
+    beyond.composed = "they have stood in it";
+
+    const view = roomView(run, dungeon)!;
+    expect(view.exits[0].connectorId).toBe(run.arrivedVia);
+    expect(view.exits[0].cameFrom).toBe(true);
+    expect(view.exits[1].connectorId).toBe(known.id);
+
+    // Everything unexplored is below everything known, and nothing else claims
+    // to be the way they came.
+    const bands = view.exits.map((e) => (e.cameFrom ? 0 : e.toKnown ? 1 : 2));
+    expect(bands).toEqual([...bands].sort());
+    expect(view.exits.filter((e) => e.cameFrom)).toHaveLength(1);
+  });
+
+  it("holds its order between turns", () => {
+    const run = freshRun();
+    const first = roomView(run, dungeon)!.exits.map((e) => e.connectorId);
+    expect(roomView(run, dungeon)!.exits.map((e) => e.connectorId)).toEqual(first);
+  });
+
+  it("marks nothing as the way in when asked about another room", () => {
+    // A way they came in by is a fact about where they are standing. Asked about
+    // the room next door, the same connector is just a way through.
+    const run = freshRun();
+    const other = run.entities.rooms.find((r) => r.id !== run.currentRoomId)!;
+    const view = roomView(run, dungeon, other.id)!;
+    expect(view.exits.every((e) => !e.cameFrom)).toBe(true);
+  });
+
+  it("starts a run with the way out of the dungeon behind them", () => {
+    // They walked in through it, which is both true and the thing they will want
+    // to find again.
+    const view = roomView(freshRun(), dungeon)!;
+    expect(view.exits[0].surface).toBe(true);
+    expect(view.exits[0].cameFrom).toBe(true);
   });
 });
 

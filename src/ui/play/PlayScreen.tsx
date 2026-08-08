@@ -18,7 +18,7 @@ import { InputArea } from "./InputArea.tsx";
 import { Narration, type NarrationItem } from "./Narration.tsx";
 import { RoomCard } from "./RoomCard.tsx";
 import { pointLayout } from "../../runtime/layout.ts";
-import { characterView, mapView, roomView } from "../../store/selectors.ts";
+import { characterView, mapView, roomView, shownRoom } from "../../store/selectors.ts";
 import type { GeneratedDungeon } from "../../runtime/generate.ts";
 import type { RunState } from "../../store/game.ts";
 
@@ -37,7 +37,14 @@ export function PlayScreen({ dungeon, run, items, onSubmit, onRoll, onRetry }: P
   // Geometry is fixed for the whole run; only the fog over it changes.
   const layout = useMemo(() => pointLayout(dungeon.graph), [dungeon.graph]);
   const map = useMemo(() => mapView(run, dungeon, layout), [run, dungeon, layout]);
-  const room = useMemo(() => roomView(run, dungeon), [run, dungeon]);
+  // The room the player has READ, which lags where they are standing for as long
+  // as an arrival is being written — see `shownRoom`. Undefined until the first
+  // arrival lands, and then there is nothing honest to put in the panel.
+  const shown = shownRoom(run);
+  const room = useMemo(
+    () => (shown === undefined ? undefined : roomView(run, dungeon, shown)),
+    [run, dungeon, shown]
+  );
   const pc = useMemo(() => characterView(run), [run]);
 
   const busy = run.stage === "thinking" || run.stage === "resolving" || run.stage === "room_entry";

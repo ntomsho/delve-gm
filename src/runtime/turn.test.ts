@@ -17,7 +17,7 @@ import { respond, stubReferee } from "./__fixtures__/stub-referee.ts";
 import { PLAYER_ID, type Commit, type Diff } from "./diffs/types.ts";
 import { farSide, isSurfaceExit, touches } from "../engine/index.ts";
 import { useGame } from "../store/game.ts";
-import { theRoom } from "../store/selectors.ts";
+import { shownRoom, theRoom } from "../store/selectors.ts";
 import { acceptsInput } from "./types.ts";
 
 const SEED = 1005;
@@ -444,6 +444,67 @@ describe("moving between rooms", () => {
     expect(record.outcome).not.toContain("nobody handed you");
     expect(record.outcome).toBe(`They left ${name(entrance)} and are now in ${name(there)}.`);
     expect(entrance).not.toBe(there);
+  });
+
+  // The panel is not allowed to arrive before the prose does. Between the move
+  // applying and the entry pass finishing, the player is standing somewhere they
+  // have been told nothing about, and listing its contents would be the interface
+  // spoiling the paragraph that is still being written.
+  it("holds the panel on the last room the player has read", async () => {
+    const entrance = dungeon.stocked.entranceRoomId;
+    const link = dungeon.entities.connectors.find(
+      (c) => touches(c, entrance) && c.conditional === undefined && !isSurfaceExit(c)
+    )!;
+    const there = farSide(link, entrance)!;
+
+    const seen: (string | undefined)[] = [];
+    const m = createTurnMachine(async (req) => {
+      if (req.step === "room-entry") {
+        // Mid-entry: standing in the new room, still showing the old one.
+        seen.push(shownRoom(state()));
+        return say("A room.", open([
+          { entityId: req.run.currentRoomId, path: "state", value: "as found" },
+          { entityId: req.run.currentRoomId, path: "composed", value: "A room." },
+        ]));
+      }
+      return say("You go through.", open([{ entityId: PLAYER_ID, path: "roomId", value: there }]));
+    });
+
+    // Nothing has been read at all yet, so nothing is shown.
+    expect(shownRoom(state())).toBeUndefined();
+    await m.enterRoom();
+    expect(shownRoom(state())).toBe(entrance);
+
+    await m.submit("go through");
+    expect(state().currentRoomId).toBe(there);
+    expect(shownRoom(state())).toBe(there);
+    // While each entry was being written: nothing, then the room they came from.
+    expect(seen).toEqual([undefined, entrance]);
+  });
+
+  // A room they have already been told about owes them no new prose, so the
+  // entry pass writes none — and the panel still has to catch up.
+  it("catches the panel up even when the arrival says nothing", async () => {
+    const entrance = dungeon.stocked.entranceRoomId;
+    const link = dungeon.entities.connectors.find(
+      (c) => touches(c, entrance) && c.conditional === undefined && !isSurfaceExit(c)
+    )!;
+    const there = farSide(link, entrance)!;
+
+    const m = createTurnMachine(async (req) => {
+      if (req.step === "room-entry") {
+        return req.run.currentRoomId === entrance
+          ? say("Here.", describeRoom())
+          : say("", { nextStage: "awaiting_action", nextStep: "1-target", diffs: [] });
+      }
+      return say("You go through.", open([{ entityId: PLAYER_ID, path: "roomId", value: there }]));
+    });
+
+    await m.enterRoom();
+    await m.submit("go through");
+
+    expect(state().log.filter((l) => l.kind === "arrival")).toHaveLength(1);
+    expect(shownRoom(state())).toBe(there);
   });
 
   it("refuses a roomId that does not name a room", async () => {

@@ -15,6 +15,8 @@ export type Task =
   | "dungeon-pass"
   /** one call per chunk: rooms and everything in them */
   | "content-pass"
+  /** one call at the end: the ways between chunks, once both their rooms exist */
+  | "seams-pass"
   /** describing a room the player has just walked into */
   | "room-entry"
   /** the runtime referee: triage, roll confirmation, resolution */
@@ -43,6 +45,7 @@ export type Task =
 export const MODELS: Record<Task, string> = {
   "dungeon-pass": "claude-haiku-4-5",
   "content-pass": "claude-haiku-4-5",
+  "seams-pass": "claude-haiku-4-5",
   "room-entry": "claude-haiku-4-5",
   "turn-loop": "claude-haiku-4-5",
 };
@@ -55,6 +58,9 @@ export const MODELS: Record<Task, string> = {
 export const MAX_TOKENS: Record<Task, number> = {
   "dungeon-pass": 4096,
   "content-pass": 16384,
+  // A handful of connectors, two sentences each — a chunk boundary contributes
+  // about two, so even a large dungeon is under a dozen.
+  "seams-pass": 4096,
   "room-entry": 4096,
   "turn-loop": 4096,
 };

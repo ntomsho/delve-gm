@@ -81,6 +81,12 @@ export interface ConnectorBrief {
   /** null on a way out of the dungeon: there is no room on the other side */
   toRef: string | null;
   /**
+   * A way through to a room in ANOTHER chunk. Listed so the room knows how many
+   * ways out it has, and NOT written here -- see SeamBrief. Never set on a
+   * connector this chunk owns.
+   */
+  seam?: boolean;
+  /**
    * What is on the other side, as context only. A connector's NAME must not
    * mention either room -- it is named for what it physically is, and the room
    * it leads to is appended at read time, from whichever side is being read.
@@ -246,7 +252,7 @@ export interface ContentPassResponse {
 
 function monsterKeywords(m: MonsterSeed): KW {
   const r: KW = { Complexity: m.complexity, Silhouette: m.silhouette };
-  if (m.animals?.length) r["Animals"] = m.animals.join(" / ");
+  if (m.animals?.length) r["Reference animals"] = m.animals.join(" + ");
   if (m.humanoidSeed) r[m.humanoidSeed.table] = m.humanoidSeed.result;
   for (const t of m.traitsAndAbilities) r[t.table] = r[t.table] ? `${r[t.table]}; ${t.result}` : t.result;
   for (const f of m.featuresAndMutations) r[f.table] = r[f.table] ? `${r[f.table]}; ${f.result}` : f.result;
@@ -411,18 +417,26 @@ export function buildContentPassPayload(
       .filter((c) => c.a === roomId || c.b === roomId)
       .map((c) => ({ conn: c, other: roomById.get(c.a === roomId ? c.b : c.a)! }));
 
-  // One owner per connector: the in-chunk endpoint, or the lower graph index
-  // when both are in the chunk. Applies to ALL connectors now, not just gated.
+  /**
+   * A connector is written by the pass that can see BOTH rooms it joins.
+   *
+   * That is this one only when both endpoints are in this chunk -- and then the
+   * lower graph index owns it, so it is written once rather than by each of its
+   * two rooms.
+   *
+   * A connector leaving the chunk is a SEAM and is not written here. Every chunk
+   * payload is built before any of them is applied, so at this moment the room on
+   * the far side has no name and no base: whatever this chunk wrote would be
+   * written blind, and then silently overwritten by the other chunk writing it
+   * equally blind from its own side. Seams go to `buildSeamsPassPayload`, which
+   * runs after every chunk has landed and has both rooms in front of it.
+   */
   const ownsConnector = (c: StockedConnector, r: RoomStock): boolean => {
     const mine = c.a === r.roomId || c.b === r.roomId;
     if (!mine) return false;
-    const aIn = inChunkIds.has(c.a);
-    const bIn = inChunkIds.has(c.b);
-    if (aIn && bIn) {
-      const owner = roomById.get(c.a)!.index <= roomById.get(c.b)!.index ? c.a : c.b;
-      return r.roomId === owner;
-    }
-    return true;
+    if (!inChunkIds.has(c.a) || !inChunkIds.has(c.b)) return false;
+    const owner = roomById.get(c.a)!.index <= roomById.get(c.b)!.index ? c.a : c.b;
+    return r.roomId === owner;
   };
 
   const rooms: ContentRoomBrief[] = inChunk.map((r) => {
@@ -477,6 +491,22 @@ export function buildContentPassPayload(
         gated: l.conn.gated,
         hidden: l.conn.hidden,
       }));
+
+    // --- and the ways out of the chunk, as context only ---
+    // The room has to know how many ways out it has, or it writes itself as
+    // having fewer and the writing pass starts inventing replacements. It just
+    // does not get to write these ones.
+    for (const l of links) {
+      if (inChunkIds.has(l.other.roomId)) continue;
+      connectors.push({
+        ref: l.conn.id,
+        toRef: ref(l.other),
+        toIdentity: l.other.identity,
+        gated: l.conn.gated,
+        hidden: l.conn.hidden,
+        seam: true,
+      });
+    }
 
     // The way out of the dungeon belongs to the entrance room. It is not in
     // `sd.connectors` -- the topology pass only knows about ways between rooms
@@ -621,6 +651,15 @@ export function renderContentPassPrompt(p: ContentPassPayload): string {
         );
         continue;
       }
+      if (c.seam) {
+        L.push(
+          `way out [${c.ref}] to ${c.toRef} (${c.toIdentity})${c.gated ? " GATED" : ""}` +
+            ` -- WRITTEN ELSEWHERE. It leaves this region, so it is written by a later ` +
+            `pass that can see both rooms. Count it among this room's ways out; do not ` +
+            `name it, describe it, or return it.`
+        );
+        continue;
+      }
       const flags = `${c.gated ? " GATED" : ""}${c.hidden ? " CONCEALED" : ""}`;
       const asks = [
         c.hidden
@@ -674,12 +713,30 @@ export function renderContentPassPrompt(p: ContentPassPayload): string {
  * nature of the crossing and nothing else, and `renderRoom` appends the room on
  * the far side, correct from whichever end is being read.
  */
-const CONNECTOR_NAMING = `Its NAME is what the thing physically is and
+export const CONNECTOR_NAMING = `Its NAME is what the thing physically is and
   NOTHING else -- "Iron door", "Low archway", "Spiral stair", "Flooded crawl",
   "Rope bridge". Name NEITHER room it joins: no "to the", no "from the", no room
   name, no direction. One connector is walked both ways and read from both ends,
   so a name that points is wrong from one of them. Where it leads is appended
   when it is read, and is not yours to write.`;
+
+/**
+ * A stair has a top and a bottom, and one entity read from both ends has no
+ * "up" of its own.
+ *
+ * So the form says which ROOM is the upper one, by name. That is the one phrasing
+ * that survives being read from either side, and without it the same flight of
+ * steps is written as descending from both of its rooms -- which is what a player
+ * walking back the way they came finds out.
+ *
+ * Both rooms are named by whoever is writing: a chunk writes only the connectors
+ * whose two rooms it is naming in the same response, and the seams pass is handed
+ * the names the chunks settled.
+ */
+export const CONNECTOR_HEIGHT = `Where it changes level -- a stair, a ladder, a
+  shaft, a ramp, a hole in the floor, a drop -- the FORM must say which of the two
+  rooms is above and which below, BY NAME: "a stair, the Counting Room at its head
+  and the Sump at its foot". Not "leads down", which is true from only one end.`;
 
 const GOAL_INSTRUCTION =
   "Create exactly one entity that embodies the objective. Read the fiction and " +
@@ -706,8 +763,29 @@ PER ROOM
   mundane. ${CONNECTOR_NAMING}
   For a GATED connector also write what blocks it, seen from this room; do not
   invent the key.
+  ${CONNECTOR_HEIGHT}
 - Promotable details: a detail is always part of the room's description. Make it
   its own entity ONLY if a player would act on it. Most stay as description.
+
+NAMING A ROOM
+The name comes from whatever DOMINATES the room, not from the identity it was
+rolled from. The rolled identity says what the place was built as; the name says
+what a party walking in would call it. A kennel whose stalls stand empty, with an
+iron bridge over a chasm running through the middle of it, is not the Kennel --
+the bridge and the chasm are what anyone would remember it by, and what they will
+say when they mean "back to the room with the bridge". So read the room's
+entities and its detail, work out what the biggest thing in there actually is,
+and name it for that. Short, concrete, and sayable out loud.
+
+EVERYTHING IS THERE FOR A REASON
+Before you write a room or a feature, know why it is in THIS dungeon. Usually the
+answer is ordinary and needs no room on the page -- a barracks in a fort, a sump
+at the bottom of a mine. But anything that does NOT obviously belong is the first
+thing a party will notice and ask about, and the fiction has to be able to answer.
+A theatre inside a prison must have a story behind it: who built it, for whom, and
+what became of it. Put that answer in the base, as a clause, not a lecture. An
+incongruity with a reason behind it is the best thing in a dungeon; one without is
+a mistake the player can see from the doorway.
 
 A WAY THROUGH IS NEVER A FEATURE
 If something you are about to write reads as a way to somewhere else -- a stair,
@@ -735,12 +813,29 @@ activity fitting the encounter. Stats: you are given the hit-dice spine; return
 only DEVIATIONS the keywords imply (a heavier die for claws, armour, a morale or
 ability shift). Leave stats out for an average body.
 
+BEASTS -- WHAT THE REFERENCE ANIMALS ARE FOR
+A beastlike monster is listed with one reference animal or two. That was decided
+by the roll, not left to you: one means one, two means both. They are the starting
+point for a body, NOT the description of it. Take the general shape and bearing
+from them -- how it stands, how it moves, how much of the room it takes up -- and
+then write SPECIFIC borrowed parts: the shape of the snout, what it has instead of
+ears, the horn or the antler, the set of the eyes, the feet, the hide.
+
+What you must not do is name the animal and stop. "Badger-like", "part badger,
+part Pteranodon", "resembles a heron" -- that is the reference showing through
+where a creature should be. Name an animal only when the naming does real work
+("the flat spade-shaped digging claws of a badger" both names it and tells you
+something); otherwise the player should be able to picture the thing without ever
+learning what it was built out of.
+
 THE GOAL
 One room is marked GOAL. ${GOAL_INSTRUCTION}
 
 HARD RULES
-1. Every listed entity, connector, and encounter must appear exactly once. Do not
-   add a creature, hazard, or connector that was not listed.
+1. Every listed entity, encounter, and connector must appear exactly once -- except
+   a way out marked WRITTEN ELSEWHERE, which you must NOT return. That one leaves
+   this region and is written by a pass that can see the room on the other side.
+   Do not add a creature, hazard, or connector that was not listed.
 2. Keywords are seeds, not labels. Realise them into the place; do not gloss.
 3. Do not contradict the fiction. Material, history, and the state of the ruin are
    settled.
@@ -867,6 +962,10 @@ export function applyContentPass(
     for (const cr of rr.connectors ?? []) {
       const conn = connectorById.get(cr.ref);
       if (!conn) continue;
+      // A seam was listed as context and asked for back. Dropped rather than
+      // applied: it was written without the far room, and the seams pass is
+      // about to write it with both.
+      if (brief?.connectors.find((c) => c.ref === cr.ref)?.seam) continue;
       conn.name = cr.name;
       (conn as { base?: string }).base = cr.form;
       conn.keywords = {};

@@ -14,10 +14,13 @@
 import {
   applyContentPass,
   applyDungeonPass,
+  applySeamsPass,
   buildContentPassPayload,
   buildDungeonPassPayload,
+  buildSeamsPassPayload,
   generateBlueprint,
   generateBlueprintSeed,
+  generateFloorplanValid,
   Rng,
   runEntitiesPass,
   stockDungeon,
@@ -26,11 +29,13 @@ import {
   type ContentPassResponse,
   type DungeonPassResponse,
   type PlayerCharacter,
+  type SeamsPassPayload,
+  type SeamsPassResponse,
   type Size,
 } from "../../engine/index.ts";
 import type { GeneratedDungeon } from "../generate.ts";
 import { chunksFor, deriveSeeds } from "../seeds.ts";
-import { contentPassSchema, dungeonPassSchema } from "../llm/schemas.ts";
+import { contentPassSchema, dungeonPassSchema, seamsPassSchema } from "../llm/schemas.ts";
 import { validate } from "../llm/json.ts";
 
 export function fakeDungeonPass(groupIds: string[]): DungeonPassResponse {
@@ -123,7 +128,9 @@ export function fakeContentPass(p: ContentPassPayload): ContentPassResponse {
         const thing = THINGS[e.kind] ?? { name: `a ${e.kind}`, base: `A ${e.kind}, written up.` };
         return { ref: e.ref, name: thing.name, base: thing.base };
       }),
-      connectors: r.connectors.map((c) => {
+      // Seams are listed for the count and written by the seams pass — a chunk
+      // answering with one would be writing a room it cannot see.
+      connectors: r.connectors.filter((c) => !c.seam).map((c) => {
         // The way out of the dungeon: one end is a room and the other is
         // daylight. Named as a thing, like every other connector.
         if (c.surface) {
@@ -182,6 +189,26 @@ export function fakeContentPass(p: ContentPassPayload): ContentPassResponse {
   };
 }
 
+/**
+ * Answer a seams payload point for point.
+ *
+ * It names both rooms in the form, which is what the real instruction asks for
+ * and what the pass exists to make possible — a fake that ignored it would hide
+ * the one thing worth checking offline.
+ */
+export function fakeSeamsPass(p: SeamsPassPayload): SeamsPassResponse {
+  return {
+    connectors: p.seams.map((s) => ({
+      ref: s.ref,
+      name: s.hidden ? "a hollow-sounding panel" : "a flooded stair",
+      form:
+        `A short flight of steps between the regions, ${s.a.name} at its head and ` +
+        `${s.b.name} at its foot, standing in water for the lower half.`,
+      ...(s.gated ? { requirement: "the way is silted up and must be dug clear" } : {}),
+    })),
+  };
+}
+
 export function generateOffline(seed: number, size: Size): GeneratedDungeon {
   const seeds = deriveSeeds(seed);
   const blueprint = generateBlueprintSeed(size, seeds.blueprintSeed, 1);
@@ -202,6 +229,12 @@ export function generateOffline(seed: number, size: Size): GeneratedDungeon {
     );
   }
 
+  // Last, with every room written — the ways between the chunks.
+  const seams = buildSeamsPassPayload(stocked, entities, dp.dungeonContext);
+  if (seams.seams.length > 0) {
+    applySeamsPass(validate(seamsPassSchema, fakeSeamsPass(seams)), seams, entities);
+  }
+
   return {
     id: blueprint.id,
     seeds,
@@ -213,6 +246,9 @@ export function generateOffline(seed: number, size: Size): GeneratedDungeon {
     graph: dungeon,
     stocked,
     entities,
+    // Drawn for real rather than stubbed, so the offline fixture exercises the
+    // packer. It is nullable by design and the fixture does not force it.
+    floorplan: generateFloorplanValid(dungeon, stocked, { seed: seeds.layoutSeed }),
     usage: { inputTokens: 0, outputTokens: 0 },
   };
 }

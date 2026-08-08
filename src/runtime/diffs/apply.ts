@@ -180,6 +180,12 @@ function walkTo(ctx: Ctx, to: string): void {
 
   ctx.world.currentRoomId = route.endsAt;
 
+  // The last way they actually crossed — which is how the room they are now in
+  // knows which of its exits is the one behind them. Left alone when the walk
+  // covered no ground at all, because then nothing was crossed.
+  const last = route.legs[route.legs.length - 1];
+  if (last) ctx.world.arrivedVia = last.connectorId;
+
   if (route.stoppedBy) {
     ctx.events.push({
       kind: "movement-stopped",
@@ -531,16 +537,20 @@ export function applyCommit(world: World, commit: Commit): ApplyOutcome {
 
   // A rejection or a clarification changes nothing. Stated in the playbook and
   // enforced here, because "the referee was told not to" is not enforcement.
-  if (NO_CHANGE_STAGES.includes(commit.nextStage) && commit.diffs.length > 0) {
-    return {
-      ok: false,
-      applied: [],
-      events: [],
-      rejected: commit.diffs.map((diff) => ({
-        diff,
-        reason: `a "${commit.nextStage}" turn must not change the world`,
-      })),
-    };
+  if (NO_CHANGE_STAGES.includes(commit.nextStage) && (commit.diffs.length > 0 || commit.fictionNote)) {
+    const reason = `a "${commit.nextStage}" turn must not change the world`;
+    const refusals = commit.diffs.map((diff) => ({ diff, reason }));
+    // The fiction is part of the world for this purpose. A turn that turned the
+    // player away has not established anything — least of all about the dungeon
+    // — and a note attached to one is the referee writing history out of an
+    // action it just refused.
+    if (commit.fictionNote !== undefined) {
+      refusals.push({
+        diff: { entityId: "(the dungeon)", path: "fictionNote", value: commit.fictionNote },
+        reason: `${reason}, and that includes adding to its fiction`,
+      });
+    }
+    return { ok: false, applied: [], events: [], rejected: refusals };
   }
 
   const draft: World = structuredClone(world);
@@ -556,6 +566,15 @@ export function applyCommit(world: World, commit: Commit): ApplyOutcome {
       entityId: draft.pc.id,
       detail: "the dungeon's objective is accomplished",
     });
+  }
+
+  // What the turn added to the story of the place. Appended rather than merged,
+  // deduplicated so a referee restating the same fact on a retry does not stack
+  // it up, and dropped along with everything else if a diff below is refused —
+  // the clone is the whole of the atomicity.
+  if (commit.fictionNote !== undefined) {
+    const note = commit.fictionNote.trim();
+    if (note !== "" && !draft.fiction.includes(note)) draft.fiction.push(note);
   }
 
   for (const diff of commit.diffs) {

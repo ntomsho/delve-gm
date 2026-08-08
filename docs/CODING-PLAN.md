@@ -1549,33 +1549,413 @@ after D1); slot arithmetic against `slotCapacity`.
 
 ---
 
-### Phase 6 — Map
+### Phase 6 — Floorplan maps
 
-`src/ui/map/` + `src/runtime/layout.ts`.
+A real dungeon map with room outlines, not the circles-and-lines placeholder.
+`pointLayout` and `DungeonMap` already ship and already consume `Layout` with
+`Shape`/`Path` as discriminated unions, so the `polygon` and `polyline` cases are
+stubbed and waiting. Nothing downstream of `Layout` changes.
 
-The boundary in BUILD-PLAN §7 is the point of the phase — the component consumes
-`Layout`, never `dungeon.rooms[].pos`:
+Three sessions: **6a** geometry (headless), **6b** the map on screen, **6c**
+fixtures and the feedback loop into the content pass.
 
-```ts
-export interface Layout {
-  rooms: { id: string; shape: Shape; label?: string }[];
-  connectors: { id: string; path: Path }[];
-  bounds: { w: number; h: number };
-}
-export function pointLayout(d: Dungeon): Layout;   // circles + straight lines
-```
+#### What is settled
 
-`Shape` and `Path` must be discriminated unions from the start (`{kind:"circle"}` /
-`{kind:"polygon"}`, `{kind:"line"}` / `{kind:"polyline"}`) or the "later becomes a
-real dungeon map" promise is already broken. The brief says the same thing from the
-design side: don't build a visual grammar that only works for circles.
+**Corridors are rooms, drawn from the existing six-per-chunk budget.** Not a new
+entity type, not a promoted connector — a room whose identity is a passage. This was
+chosen over minting passage rooms and over giving `IRoomConnector` place-ness because
+it is the only option that costs nothing anywhere: no new entities, no topology
+change, no extra content-pass tokens, no ordering cycle, and no change to
+`travel.ts`, `occupancy.ts`, fog, the room block or the referee's step files. A
+corridor is a room and everything already works on it.
 
-Fog of war is `entity.state === undefined`. Unvisited rooms render as nothing, or as
-an inferred exit stub off a visited room. Gated connectors (`conditional` present)
-need their own visual language because that state drives player planning.
+The cost is roughly 17% of the content rooms at every size. That is the point rather
+than the price — a dungeon of nothing but stocked rooms reads as beads on a string,
+and corridors are the pacing.
 
-**Tests:** `pointLayout` bounds contain every shape; fog derivation given a state
-snapshot.
+Count is **N−1 / N / N+1 at 25 / 50 / 25**, where N is the size. Size 1 is a coin
+flip between 0 and 1.
+
+Selection: **degree ≥ 2** (a corridor connects somewhere, so dead ends are out),
+never the goal room, never adjacent to another corridor (that is one hallway with a
+pointless door in it), **distributed across depth bands**. Depth rather than chunk,
+deliberately — `RoomStock.chunk` is "purely a batching unit, never a content input",
+and corridors are about rhythm along the path inward.
+
+Dropping any degree preference beyond ≥ 2 removes the one degenerate case: a size-1
+chunk with a 3-cycle and three spurs has degrees 3,3,3,1,1,1 and therefore *no*
+degree-2 rooms. Under "≥ 2" that is three eligible rooms rather than none, and no
+size needs a special case.
+
+A corridor keeps its headline and its contents. It rolls `identity` on a new
+**Dungeon Corridors** table and `detail` on the existing shared Dungeon Room Detail
+table, so it swaps one table and changes no fields.
+
+**Designation happens in stocking**, immediately after the entrance and goal roles
+are fixed and before the headline quota. That is the first point at which every
+input exists — it cannot be earlier than Phase A because it needs degree, and it
+cannot be in Phase A because the goal room is stocking's.
+
+**The plane is flat and nothing overlaps.** Stairs, shafts and ramps are flavour that
+matters only inside the room where the change occurs; nothing in the model gets a z.
+This makes the map a *planar* drawing of the Phase A graph — see below.
+
+**Chambers get an area band and a form.** `class >= degree - 1`. No goal-room bump.
+
+| class | # | area | square example | long example |
+|---|---|---|---|---|
+| tiny | 1 | 4–9 | 3×3 | 2×4 |
+| small | 2 | 12–36 | 6×6 | 3×10 |
+| medium | 3 | 42–81 | 8×8 | 5×14 |
+| large | 4 | 90–144 | 11×12 | 9×15 |
+| vast | 5 | 156–225 | 14×15 | 7×30 |
+
+Area bands, not dimension pairs, so a `long` form has somewhere to go — the bands
+fall straight out of 2×2…3×3, 3×4…6×6 and so on, and do not overlap. Aspect is
+governed by the form and there is no global dimension cap: `rect` 1:1–1.5:1, `long`
+2:1–4:1, `round` square, `irregular` roughly square with jogs, `composite` by
+construction.
+
+`class >= degree - 1` replaces an earlier per-wall perimeter constraint, which was
+solving the wrong problem. A 2×2 room has four sides and can technically take four
+doors; what a high-degree room actually needs is **placement freedom** — neighbours
+arranged on several sides at once — and that is what size buys. One comparison
+instead of a perimeter calculation.
+
+**Corridors get no class.** 1–3 cells wide by default and whatever shape the
+connection needs: straight, L, cross, blob. Their length is whatever gap the packing
+leaves, which makes them the **slack in the layout** — when two rooms cannot quite be
+brought face to face the corridor between them stretches or bends instead of the
+whole placement failing. That property is a direct consequence of corridors being
+rooms and it is what makes the packer tractable.
+
+#### Planarity — measured, not assumed. **LANDED** (`dungeon-planarity.ts`)
+
+A flat plane with no overlaps means the drawing must be a planar embedding of the
+Phase A graph, and Phase A does not currently guarantee one. Measured over 1000
+dungeons per size with a Demoucron-based checker validated against K5, K3,3,
+Petersen, a subdivided K5, two K5s at a cut vertex and planar controls:
+
+| size | rooms | edges | not drawable flat |
+|---|---|---|---|
+| 1–3 | 6–18 | 6–21 | 0.00% |
+| 4 | 24 | 30 | 4.00% |
+| 5 | 30 | 36 | 8.50% |
+
+For **all 125 failures the region-level wiring was fine** — the tangle is always in
+which rooms the inter-chunk links landed on, never in how the regions connect. And
+generating until a drawable dungeon appears took **1.10 attempts on average, worst 3**
+across 200 samples at size 5.
+
+**Decision: reject and retry.** One predicate added to Phase A's `validate()`; the
+existing `generateValid` loop absorbs it with no new machinery. Repairing the stub
+assignment instead would preserve every seed but costs real changes to `pickStubRoom`
+for a problem that costs 0.1 of a generation to sidestep.
+
+**Breaking change.** Adding a check to the validator makes `generateValid` advance
+past seeds it used to accept, so a seed number maps to a different dungeon at sizes 4
+and 5. Determinism snapshots move; saved runs at those sizes are invalidated. Sizes
+1–3 are untouched. There is also a mild distribution bias — the most tangled 8.5% of
+size-5 layouts are discarded — which is arguably desirable, since those are the ones
+that would have drawn worst.
+
+What the measurement does *not* prove: that a good-looking drawing exists with rooms
+that have real width and height. Planarity is the necessary condition, not the
+sufficient one. It was the one that could have killed the flat-plane rule outright.
+
+**Outcome.** `src/engine/dungeon-planarity.ts` — Demoucron path addition, returning
+the rotation system rather than a boolean. `Dungeon.embedding` is set iff the graph
+is planar, and `validate()` reads exactly that. 29 tests; the whole suite stayed
+green, and no snapshot moved, because nothing in it pinned a size-4 or size-5 seed.
+
+Three things the session settled that the plan above did not anticipate:
+
+- **Demoucron needs a biconnected graph and the dungeon graph is not one** — a sixth
+  of its rooms are dead ends. So the graph is split into blocks, each embedded
+  separately, and the rotations concatenated at the cut vertices. That is why "two
+  K5s at a cut vertex" is in the test set: the split must not lose a non-planarity.
+- **Faces are kept as *directed* cycles throughout.** The rotation then falls out of
+  the face corners already consistently oriented, instead of needing a second pass to
+  reconcile per-vertex directions.
+- **Parallel edges go in opposite order at their two ends.** The sliver of face
+  between two parallel edges is bounded by one of them in each direction. Getting it
+  backwards yields a rotation that looks right and traces to the wrong face count —
+  which is what caught it, and why every planar test verifies `V − E + F = 1 + C` by
+  walking the returned rotation rather than trusting the boolean.
+
+**Re-measured with the shipped checker**, 1000 seeds per size — same shape, slightly
+different numbers than the session that made the decision, since the seed stream
+differs:
+
+| size | not drawable flat | mean attempts | worst |
+|---|---|---|---|
+| 1–3 | 0.00% | 1.00 / 1.02 / 1.06 | 2 |
+| 4 | 3.50% | 1.17 | 4 |
+| 5 | 10.00% | 1.22 | 4 |
+
+Still a fifth of a generation at worst, against `generateValid`'s 50-attempt ceiling.
+
+#### 6a — Geometry, headless
+
+No React, no content-pass change. The risky half, built where iteration is a shell
+command — the same discipline as Phase 1.
+
+**Phase A gains planarity. ✅ DONE.** The checker becomes engine code and is extended
+to return **the embedding** — the cyclic order of neighbours around each room —
+rather than a boolean. That order is the placement plan: it tells the packer which
+side each neighbour belongs on, turning placement from a blind search into a guided
+one. Same computation, more of it returned. See the planarity section above for what
+shipped.
+
+**Stocking gains corridor designation**, per the rules above.
+
+**`src/engine/dungeon-floorplan.ts`** — pure, seeded, never imports React.
+
+1. **Footprints.** An exception table maps `identity` to a form and size class.
+   `identity` rolls on `DUNGEON_ROOMS`, whose three nested references reach
+   `BUILDING_ROOMS`, `LOWER_CLASS_BUILDINGS` and `UPPER_CLASS_BUILDINGS` — about
+   **130 distinct nouns**, so a complete mapping is a chore that would rot. Annotate
+   only the ~40 that genuinely imply a geometry (Banquet hall, Barracks, Catacombs →
+   long; Well, Fountain, Oubliette → round; Cavern, Chasm, Mine shaft → irregular;
+   Chapel, Throne room → composite; Privy, Cabinet, Wardrobe → tiny). The rest fall
+   through to a default that **still rolls among the classes**, because monotony is
+   the failure mode to design against, not inaccuracy. Then the hard floors:
+   `class >= degree - 1`, and floor area sufficient for the entity count the entities
+   pass has already minted.
+2. **Placement.** Breadth-first from the entrance, each room placed on the side the
+   embedding assigns, backtracking when a room will not fit. **Connected rooms share
+   an exact wall** — no rock between them, no gap. The wall is a stroke on the shared
+   boundary and the door is a break in it. **Author's call**; an earlier draft put a
+   one-cell gap between rooms and claimed it was what made placement tractable, which
+   was overstated. Both pin the facing coordinate of every connected pair; the gap
+   only adds a unit of slack in one axis. Shared walls are in fact the simpler thing
+   to write, because placing a room against its neighbour fixes the shared edge and
+   leaves only the offset along it free.
+
+   Two consequences worth holding onto. **Only connected pairs must abut** — the
+   graph averages 2.4 edges per room, so a room shares walls with two or three
+   neighbours and rock remains everywhere the graph is silent; this is not a
+   honeycomb. And **corridors carry all of the slack** now, since nothing else in the
+   layout can stretch. Unconnected rooms that happen to end up neighbours get a solid
+   wall and no door, which is also correct.
+3. **Doors.** One per connector, on the facing walls, typed from the connector's
+   existing fields — plain, gated, concealed.
+4. **Emit.** Room polygons, corridor polygons, door positions and orientations,
+   bounds.
+
+**`validateFloorplan()`** — the equivalent of `dungeon.valid`, and what makes
+topological accuracy a guarantee rather than a hope. No two rooms overlap; every
+connector's two rooms share a wall segment with that connector's door in it; every
+connector has exactly one door; every room's door count equals its degree; bounds
+contain everything. The map is planning information the referee has to be able to
+agree with, so this is not optional.
+
+**A `layoutSeed`** joins `RunSeeds`, and the floorplan is stored on
+`GeneratedDungeon` — persisted rather than recomputed, because 6c makes the prose
+refer to it.
+
+**`--map out.svg`** on `cli-generate.ts`. Plain line art, no decoration. This is the
+iteration surface and it is the whole reason 6a is headless.
+
+**Tests:** the planarity checker against the eleven known graphs; every dungeon
+planar after the validator change across a seed spread; corridor count distribution,
+no corridor adjacent to another, goal never a corridor; `class >= degree - 1` and
+area within band for every chamber; `validateFloorplan` across 200 seeds × sizes 1–5,
+recording the attempt distribution; determinism on an id-stripped canonical form
+per G5.
+
+**Exit:** a hundred seeds across every size produce valid floorplans, dumped as SVG
+and eyeballed.
+
+**Risk: high, concentrated entirely in placement.** Everything else here is tables.
+If backtracking is slow at size 5 the escape hatch is the same as everywhere else —
+throw the seed away — and 6a measures and reports rather than tuning. **Author's
+call: do not pre-optimise this.**
+
+#### 6a outcome — ⚠️ **PLACEMENT MISSES ITS EXIT AT SIZES 4–5**
+
+Everything except placement landed and is tested: planarity, corridor designation,
+the two tables, footprints, doors, `validateFloorplan`, `layoutSeed`, the floorplan
+on `GeneratedDungeon`, and `--map`. 457 tests green, build clean.
+
+**The packer draws sizes 1–3 and does not draw 4–5.** Per-attempt success, measured
+over 15 dungeons × 8 layout seeds per size:
+
+| size | rooms | per-attempt | with 24 attempts | ms/attempt |
+|---|---|---|---|---|
+| 1 | 6 | ~100% | 100% | 30 |
+| 2 | 12 | 50.8% | ~100% | 146 |
+| 3 | 18 | 11.7% | ~95% | 289 |
+| 4 | 24 | 0.8% | ~18% | 778 |
+| 5 | 30 | 0.8% | ~18% | 800 |
+
+The exit criterion asked for a hundred seeds at every size. It is met at 1–3 and
+missed at 4–5, and the shape of the failure says the remaining gap is not tuning.
+Three algorithms were tried and measured:
+
+1. **Slide a fixed rectangle around looking for a fit.** Fails almost everywhere
+   past size 1. A chunk interior is a *cycle*, and a cycle has to meet up: walked
+   greedily around the ring, the last room arrives needing to touch two neighbours
+   that are by then six rooms apart.
+2. **Derive the rectangle from its neighbours** instead of guessing positions —
+   assign each placed neighbour a side and the geometry is nearly determined, so
+   only the slide along a shared wall is searched. Plus maximum-cardinality
+   ordering, which closes each ring while it is still small. This is what shipped,
+   and it is what got sizes 1–3.
+3. **Let the size class follow the rectangle** rather than pin it. A room pinned on
+   opposite sides has its width dictated outright, and one band of one form very
+   rarely contains that exact number. `class >= degree - 1` still holds by
+   construction because nothing below the floor is ever offered.
+
+**What is actually needed is a rectangular dual**, built from the planar embedding
+6a.1 already produces: triangulate the planar graph with dummy vertices that become
+rock, compute a regular edge labeling, and read the mosaic off it. That produces a
+valid drawing *by construction* rather than searching for one, which is the right
+shape for a problem where the failure rate compounds with room count. It is its own
+session, and it is the natural 6a.2.
+
+Two consequences held in the meantime, both deliberate:
+
+- **`GeneratedDungeon.floorplan` is nullable** and every consumer treats the map as
+  an enhancement over `pointLayout`, not a dependency. A dungeon with no floorplan
+  is completely playable. 6b must keep that true.
+- **The guarantee the packer makes is soundness, not coverage.** It does not promise
+  to draw every graph; a plan it hands back has been through `validateFloorplan` in
+  the tests at every size — nothing overlapping, every footprint one piece, every
+  connector exactly one door, and that door in a wall its two rooms really share.
+
+Smaller things that differed from the plan as written:
+
+- **Cells are packed integers, not `"x,y"` strings.** Placement tries tens of
+  thousands of positions and the string version spent its time allocating and
+  re-parsing keys. `Point`s at the boundary; the packing never leaves the file.
+- **Form is carved after placement, never before.** A notch cut ahead of time is
+  free to remove the very cell carrying a shared wall, so `irregular` and
+  `composite` are applied to the placed rectangle and refuse to drop any cell that
+  is load-bearing or that would break the bounding box the band is measured on.
+- **The archetype table is asserted reachable**, per §6a — every key resolves in
+  `DUNGEON_ROOMS` / `BUILDING_ROOMS` / `LOWER_CLASS_BUILDINGS` /
+  `UPPER_CLASS_BUILDINGS`.
+- **Corridor designation shifted the stocking RNG stream**, so six prompt snapshots
+  moved and two `generation.test.ts` fixtures needed a seed that still stocks
+  wanderers (1007 → 1008). Expected, and the comment naming why is still there.
+- `--map` works under `--dry`: the geometry is pure, so iterating on it needs no
+  key and no calls.
+
+#### 6b — The map on screen
+
+`floorplanLayout(fp): Layout` alongside `pointLayout`, emitting the `polygon` and
+`polyline` cases. `Layout` gains doors, fixture slots and labels. `DungeonMap.tsx` is
+rewritten against the same interface, which is what the §7 boundary was for.
+
+Fog with real geometry: undrawn space is simply undrawn, which under this rendering
+*is* the classic look — a player map drawn as you explore — rather than a compromise.
+A small blank area beyond the entrance's surface exit stands for the outside; the
+entrance does **not** need to be on the outer face of the whole drawing, and other
+parts of the dungeon may sit behind it.
+
+**Fog gains a second bit.** A corridor walked through but never stood in is *seen,
+not examined*: it should be drawn without having cost a composition call.
+`composed === undefined` continues to mean never encountered.
+
+Interactivity: hover on rooms, doors, features and items; **click a door to travel**,
+dispatched through the normal turn path so it is identical to typing it — a door is a
+better click target than a room because it stays unambiguous when the far side is
+dark, and a locked door stays clickable so the referee gets to be the one that says
+no. Player marker at room centre with no finer position, which is exactly what the
+model knows. Pan/zoom, since this is a drawing rather than thirty dots.
+
+The map may know more than the fiction but never differently. Nothing is drawn that
+the referee has not been told about.
+
+**Exit:** a run is playable against the real map.
+
+#### 6c — Fixtures and the feedback loop
+
+The content pass gains a **fixture menu** — a fixed enum of drawable things (cells,
+bunks, stalls, pews, pillars, pool, hearth, pit, altar, shelves, sarcophagi, well,
+stair, rubble) plus a coarse position vocabulary ("along the north wall", "centre",
+"far end") — and in return receives each room's dimensions, form and exits by wall
+direction.
+
+This is the accuracy multiplier and the reason the floorplan runs **before** the
+content pass. Prose gets written against the drawn room rather than the keyword the
+room started from, and cardinal directions become something the referee can say and
+the map can corroborate. Code owns the footprint — packing feasibility needs
+iteration a model cannot do, and a persisted map that drifts between generations of
+the same seed is worse than prose that drifts — while the model furnishes the
+interior.
+
+The model returns enum values, never numbers and never geometry, so the CLAUDE.md
+rule holds. Unrecognised values are dropped, never fatal.
+
+**Fixtures are stored as data — id, cells, orientation — and rendered separately**,
+never baked into SVG at generation time. **Author's call: markers are plain dots on
+their own layer for now**, with the line art deferred. Keeping them as facts about
+the room rather than pictures of it is what leaves "the pillars are cover" available
+later.
+
+**Exit:** a live generation produces prose that agrees with the map.
+
+**Cost:** prompt snapshots move, and this needs a real generation to verify — the
+offline fixtures cannot prove it.
+
+#### The tables — AUTHORED
+
+**Dungeon Corridors** (author's). Replaces the `DUNGEON_ROOMS` roll for a designated
+corridor; `detail` still rolls on the shared Dungeon Room Detail table.
+
+> Antechamber, Atrium, Bridge, Burrow, Chute, Cloister, Concourse, Corridor, Gallery,
+> Hallway, Hollow wall, Passageway, Ramp, Sewer, Shaft, Stairwell, Steps, Tunnel,
+> Walkway, Waterway
+
+Twenty entries against the house format of thirty-six. Deliberate and final —
+`roll` uses `rng.pick`, so any length works. Flagged only so a later reader does not
+"fix" it.
+
+**Corridors get no shape mapping. AUTHOR'S CALL.** A draft of this section gave the
+table its own width bands, on the grounds that Antechamber, Atrium, Concourse and
+Cloister are rooms you pass through rather than passages. That was wrong, and the
+reason matters: **fixed shapes break the thing corridors are for.** They are the only
+part of the layout allowed to stretch, and with connected rooms now sharing exact
+walls they carry *all* of the slack. Pinning their width would make the packer rigid
+in precisely the place it needs to give.
+
+So a corridor's `identity` informs the **prose only**. Its drawn shape is whatever
+the connection required — 1–3 wide by default, and straight, L, cross or blob as
+needed.
+
+The known trade, accepted rather than overlooked: a rolled "Atrium" may be drawn as a
+narrow passage, and the writing pass will be describing a shape the plan does not
+show. Left to see how it reads against a live model before adding machinery for it.
+
+`Bridge` implies crossing something the flat plane cannot show, and shares the
+flavour-only status of stairs and shafts: it matters inside the room it names and
+nowhere else.
+
+**Chamber archetype exceptions** (author's, from the list drafted in session). Only
+nouns that genuinely imply a geometry are annotated; the remaining ~90 fall through
+to a default that still rolls among the size classes.
+
+| form | entries |
+|---|---|
+| long and narrow | Banquet hall, Ballroom, Gallery, Barracks, Dormitory, Stables, Kennel, Catacombs, Sewers |
+| round | Well, Fountain, Pool, Fighting pit, Oubliette, Observatory |
+| irregular | Cavern, Chasm, Mine shaft |
+| axial with an end feature | Chapel, Shrine, Temple, Throne room, Courthouse, Opera house |
+| large and open | Courtyard, Garden, Marketplace, Park, Theater, Warehouse |
+| tiny | Privy, Cabinet, Cloakroom, Wardrobe, Pantry, Larder |
+
+**Every entry above is verified to exist** in `DUNGEON_ROOMS`, `BUILDING_ROOMS`,
+`LOWER_CLASS_BUILDINGS` or `UPPER_CLASS_BUILDINGS`. Three from the first draft were
+cut because they do not: `Silo` is on no table at all, `Tidal cave` is a Dungeon
+Entrance, and `Sinkhole` is a Dungeon Hazard. An annotation keyed on a noun that
+never rolls is dead weight that looks live, so **6a must assert that every key in
+both exception lists is reachable from the tables** — otherwise the next entry added
+from memory rots the same way silently.
+
+`irregular` stays at three entries. `Attic`, `Garret`, `Root cellar` and `Junk room`
+were considered and rejected — none of them is irregular in shape, only in contents.
 
 ---
 

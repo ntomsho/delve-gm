@@ -3,6 +3,7 @@ import {
   characterKey, dungeonKey, memoryStore, runKey, type KeyValueStore,
 } from "./persist.ts";
 import { listSaves, loadGame, newRun, saveDungeon, saveRun, useGame } from "./game.ts";
+import { shownRoom } from "./selectors.ts";
 import { CountingRng } from "../runtime/rng.ts";
 import { die } from "../engine/index.ts";
 import { PLAYER_ID } from "../runtime/diffs/types.ts";
@@ -126,7 +127,7 @@ function entities(): EntityPassResult {
 function dungeon(): GeneratedDungeon {
   return {
     id: "dungeon-test",
-    seeds: { dungeonSeed: 1005, graphSeed: "1005", blueprintSeed: 1005, stockSeed: 8924, runSeed: 42 },
+    seeds: { dungeonSeed: 1005, graphSeed: "1005", blueprintSeed: 1005, stockSeed: 8924, layoutSeed: 105734, runSeed: 42 },
     size: 1, level: 1,
     dungeonContext: "THE DUNGEON: Test",
     pass: {
@@ -137,6 +138,7 @@ function dungeon(): GeneratedDungeon {
     graph: {} as never,
     stocked: { entranceRoomId: ROOM, goalRoomId: ROOM } as never,
     entities: entities(),
+    floorplan: null,
     usage: { inputTokens: 0, outputTokens: 0 },
   };
 }
@@ -181,6 +183,38 @@ describe("save and load", () => {
     expect(run.currentRoomId).toBe(ROOM);
     expect(run.stage).toBe("room_entry");
     expect(run.turnCount).toBe(0);
+    // Nothing has been read yet, so there is nothing honest to put in the panel.
+    expect(run.shownRoomId).toBeUndefined();
+  });
+});
+
+// ===========================================================================
+// WHAT THE PANEL IS SHOWING
+// ===========================================================================
+
+describe("the room the player has read", () => {
+  beforeEach(() => { useGame.getState().reset(); });
+
+  it("shows nothing until a room entry has finished", () => {
+    useGame.getState().start(dungeon(), pc());
+    // The player is standing in the entrance and has been told nothing about it.
+    expect(useGame.getState().run!.shownRoomId).toBeUndefined();
+    expect(shownRoom(useGame.getState().run!)).toBeUndefined();
+
+    // Prose that is not an arrival does not move it.
+    useGame.getState().pushLog({ kind: "referee", text: "You heave at the door." });
+    expect(shownRoom(useGame.getState().run!)).toBeUndefined();
+
+    useGame.getState().showRoom(ROOM);
+    expect(shownRoom(useGame.getState().run!)).toBe(ROOM);
+  });
+
+  it("falls back to where they stand for a run saved before it existed", () => {
+    useGame.getState().start(dungeon(), pc());
+    useGame.getState().setStage("awaiting_action", "1-target");
+    const run = useGame.getState().run!;
+    expect(run.shownRoomId).toBeUndefined();
+    expect(shownRoom(run)).toBe(run.currentRoomId);
   });
 });
 

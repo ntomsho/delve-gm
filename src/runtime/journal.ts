@@ -67,7 +67,7 @@ export type JournalEvent =
    */
   | {
       kind: "generation";
-      pass: "dungeon-pass" | "content-pass";
+      pass: "dungeon-pass" | "content-pass" | "seams-pass";
       chunk?: number;
       prompt: string;
       response: unknown;

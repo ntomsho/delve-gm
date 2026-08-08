@@ -41,6 +41,12 @@ export type {
   Rng as RngFn,
 } from "./dungeon-phase-a.ts";
 
+// --- planarity -------------------------------------------------------------
+// Phase A calls this itself; exported because the floorplan packer reads the
+// embedding it produces.
+export { checkPlanarity } from "./dungeon-planarity.ts";
+export type { PlanarityResult, Pair as PlanarityPair } from "./dungeon-planarity.ts";
+
 // --- the genome and the tables ---------------------------------------------
 export * from "./dungeon-blueprint.ts";
 
@@ -60,6 +66,11 @@ export * from "./dungeon-content-pass.ts";
 
 // --- the dungeon pass ------------------------------------------------------
 export * from "./dungeon-pass.ts";
+
+// --- the seams pass --------------------------------------------------------
+// The ways between chunks, written after every chunk has landed. See the header
+// there for why they cannot be written by the chunks themselves.
+export * from "./dungeon-seams-pass.ts";
 
 // --- dice ------------------------------------------------------------------
 // `Edge` here is advantage/disadvantage. Phase A's `Edge` (a graph connection)
@@ -103,3 +114,7 @@ export type {
   EquipOutcome,
   SlotReport,
 } from "./dungeon-character.ts";
+
+// --- the floorplan ---------------------------------------------------------
+// `Point` and `Rect` are declared here; nothing else in the engine has them.
+export * from "./dungeon-floorplan.ts";

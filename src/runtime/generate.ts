@@ -25,12 +25,16 @@
 import {
   applyContentPass,
   applyDungeonPass,
+  applySeamsPass,
   buildContentPassPayload,
   buildDungeonPassPayload,
+  buildSeamsPassPayload,
   generateBlueprint,
   generateBlueprintSeed,
+  generateFloorplanValid,
   renderContentPassPrompt,
   renderDungeonPassPrompt,
+  renderSeamsPassPrompt,
   resolveBase,
   Rng,
   runEntitiesPass,
@@ -39,11 +43,12 @@ import {
   type DungeonBlueprintSeed,
   type DungeonPassResponse,
   type EntityPassResult,
+  type Floorplan,
   type Size,
   type StockedDungeon,
 } from "../engine/index.ts";
 import { callForJson, type Usage } from "./llm/client.ts";
-import { contentPassSchema, dungeonPassSchema } from "./llm/schemas.ts";
+import { contentPassSchema, dungeonPassSchema, seamsPassSchema } from "./llm/schemas.ts";
 import { chunksFor, deriveSeeds, type RunSeeds } from "./seeds.ts";
 import { log } from "./journal.ts";
 
@@ -52,16 +57,18 @@ import { log } from "./journal.ts";
 // ---------------------------------------------------------------------------
 
 /**
- * The five stages the loading screen reports, named here rather than in the UI
- * so there is nothing for the UI to invent. "writing" is the long one and is
- * the only one that carries a count.
+ * The stages the loading screen reports, named here rather than in the UI so
+ * there is nothing for the UI to invent. "writing" is the long one and is the
+ * only one that carries a count; "joining" is the short call after it that
+ * writes the ways between regions.
  */
 export type GenerationStage =
   | "layout"
   | "inhabitants"
   | "history"
   | "stocking"
-  | "writing";
+  | "writing"
+  | "joining";
 
 export interface GenerationProgress {
   stage: GenerationStage;
@@ -93,7 +100,35 @@ export interface GeneratedDungeon {
   stocked: StockedDungeon;
   /** every entity, plus the registry that resolves their shared bases */
   entities: EntityPassResult;
+  /**
+   * The drawing. Persisted rather than recomputed, because the prose will come
+   * to refer to it and a map that drifts between generations of the same seed
+   * is worse than prose that drifts.
+   *
+   * **Null when the packer could not draw this graph.** That is not rare at
+   * sizes 4 and 5 — see the measurement in CODING-PLAN §6a — so everything
+   * downstream treats the plan as an enhancement and falls back to the point
+   * layout. A dungeon with no floorplan is still completely playable.
+   */
+  floorplan: Floorplan | null;
   usage: Usage;
+}
+
+/**
+ * Floor a room needs for what is already standing in it, keyed by room id.
+ * Six cells — a hundred and fifty square feet — per creature and per feature:
+ * enough that a room with a warband and three sarcophagi in it does not come
+ * out a broom cupboard.
+ */
+function floorArea(entities: EntityPassResult): Record<string, number> {
+  const out: Record<string, number> = {};
+  const bump = (roomId: string | undefined) => {
+    if (!roomId) return;
+    out[roomId] = (out[roomId] ?? 0) + 6;
+  };
+  for (const c of entities.creatures) bump(c.roomId);
+  for (const f of entities.features) bump(f.roomId);
+  return out;
 }
 
 export interface GenerateOptions {
@@ -143,11 +178,20 @@ export async function generateDungeon(opts: GenerateOptions): Promise<GeneratedD
     report({ stage: "stocking" });
     const stocked = stockDungeon(dungeon, blueprint, { level, seed: seeds.stockSeed });
     const entities = runEntitiesPass(stocked, blueprint, new Rng(stocked.seed));
-    return { dungeon, stocked, entities };
+
+    // The plan is drawn before anything is written, so the prose can be given
+    // the room it is describing. It is allowed to fail: see GeneratedDungeon.
+    const floorplan = generateFloorplanValid(dungeon, stocked, {
+      seed: seeds.layoutSeed,
+      minCells: floorArea(entities),
+    });
+    return { dungeon, stocked, entities, floorplan };
   })();
 
-  const [{ result: fictionResult, usage: fictionUsage }, { dungeon, stocked, entities }] =
-    await Promise.all([fiction, structure]);
+  const [
+    { result: fictionResult, usage: fictionUsage },
+    { dungeon, stocked, entities, floorplan },
+  ] = await Promise.all([fiction, structure]);
 
   // The Dungeon Pass wrote the inhabitant bases; they belong on the registry,
   // which is the thing that gets persisted alongside the entities.
@@ -193,6 +237,32 @@ export async function generateDungeon(opts: GenerateOptions): Promise<GeneratedD
     };
   }
 
+  // --- the seams: the ways between chunks ----------------------------------
+  //
+  // LAST, and alone, because it is the only pass that needs the others finished.
+  // A connector joining two chunks cannot be written by either of them — see the
+  // header in dungeon-seams-pass.ts — so it waits here until both its rooms have
+  // names and descriptions, and is written once with both in front of it.
+  const seamsPayload = buildSeamsPassPayload(stocked, entities, fictionResult.dungeonContext);
+  if (seamsPayload.seams.length > 0) {
+    report({ stage: "joining" });
+    const prompt = renderSeamsPassPrompt(seamsPayload);
+    const { value, usage: seamsUsage } = await callForJson({
+      task: "seams-pass",
+      schema: seamsPassSchema,
+      toolName: "write_ways_through",
+      toolDescription: "Name and write every way through between the regions of the dungeon.",
+      messages: [{ role: "user", content: prompt }],
+      signal,
+    });
+    log({ kind: "generation", pass: "seams-pass", prompt, response: value, usage: seamsUsage });
+    applySeamsPass(value, seamsPayload, entities);
+    usage = {
+      inputTokens: usage.inputTokens + seamsUsage.inputTokens,
+      outputTokens: usage.outputTokens + seamsUsage.outputTokens,
+    };
+  }
+
   const result: GeneratedDungeon = {
     id: blueprint.id,
     seeds,
@@ -204,6 +274,7 @@ export async function generateDungeon(opts: GenerateOptions): Promise<GeneratedD
     graph: dungeon,
     stocked,
     entities,
+    floorplan,
     usage,
   };
 

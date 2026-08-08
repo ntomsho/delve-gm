@@ -110,6 +110,24 @@ const UPPER_CLASS_BUILDINGS = t(
   "Academy|Alchemist|Archive|Art dealer|Barber|Bookbinder|Bookseller|Castle|Clockmaker|Clothier|Courthouse|Furrier|Gallery|Garden|Haberdashery|Jeweler|Law office|Locksmith|Lounge|Manor|Museum|Observatory|Opera house|Park|Physician|Printer|Public baths|Restaurant|Salon|Stables|Taxidermist|Temple|Tobacconist|Townhouse|Winery|Zoo"
 );
 
+/**
+ * Corridors are rooms whose identity is a passage. A room designated a corridor
+ * during stocking rolls `identity` here instead of on DUNGEON_ROOMS; `detail`
+ * still rolls on the shared Dungeon Room Detail table, so it swaps one table
+ * and changes no fields.
+ *
+ * Twenty entries against the house format of thirty-six. Deliberate and final --
+ * `roll` uses `rng.pick`, so any length works. Flagged so a later reader does
+ * not "fix" it.
+ *
+ * `Bridge` implies crossing something a flat plane cannot show, and shares the
+ * flavour-only status of stairs and shafts: it matters inside the room it names
+ * and nowhere else.
+ */
+const DUNGEON_CORRIDORS = t(
+  "Antechamber|Atrium|Bridge|Burrow|Chute|Cloister|Concourse|Corridor|Gallery|Hallway|Hollow wall|Passageway|Ramp|Sewer|Shaft|Stairwell|Steps|Tunnel|Walkway|Waterway"
+);
+
 const DUNGEON_ENTRANCES = t(
   "All libraries|Beaver dam|Behind waterfall|Chalk rectangle|Chest bottom|Chimney|Cupboard|Dolmen shadow|Down a well|Fiery pit|Fog road|Forest spring|Giant book|Gypsy wagon|Hollow tree|Huge keyhole|Iron maiden|Living tattoo|Magic painting|Man-shape hole|Maze potion|Mirror|Monster mouth|Monster wound|Narrow alley|Rain door|Sewer grate|Sudden rift|Tidal cave|Tower top|Tree roots|Under the bed|Unfolded map|Up a tree|Whirlpool|Wine barrel"
 );
@@ -425,6 +443,7 @@ function roll(table: readonly string[], rng: Rng): Rolled {
 export { DUNGEON_ENTRANCES, DUNGEON_ROOM_DETAILS, DUNGEON_TRICKS, DUNGEON_HAZARDS, TRAP_EFFECTS, TRAP_TRIGGERS };
 export { TREASURE_ITEMS, VALUABLE_MATERIALS, WEAPON_ITEMS };
 export { DUNGEON_ROOMS, BUILDING_ROOMS, LOWER_CLASS_BUILDINGS, UPPER_CLASS_BUILDINGS };
+export { DUNGEON_CORRIDORS };
 
 export const rollDungeonEntrance = (rng: Rng): Rolled => roll(DUNGEON_ENTRANCES, rng);
 export const rollRoomDetail = (rng: Rng): Rolled => roll(DUNGEON_ROOM_DETAILS, rng);
@@ -472,7 +491,7 @@ export type GoalBranch = "same" | "opposed" | "own";
 export interface MonsterSeed {
   complexity: Complexity;
   silhouette: Silhouette;
-  /** beastlike only: 1-2 animals, LLM picks one or combines */
+  /** beastlike only: the reference animals, one or two, already decided here */
   animals?: string[];
   /** humanoid only: free grafted seed */
   humanoidSeed?: { table: "Mutation" | "Feature" | "Trait"; result: Rolled };
@@ -556,7 +575,11 @@ export function genMonster(complexity: Complexity, rng: Rng): MonsterSeed {
   let humanoidSeed: MonsterSeed["humanoidSeed"];
 
   if (silhouette === "beastlike") {
-    animals = [rollAnimal(rng), rollAnimal(rng)];
+    // One animal or two, decided here rather than by the writing pass. Handed
+    // both and told to "pick one or combine", a model combines every time, and
+    // every beast in the dungeon comes out a chimera. The coin is what keeps
+    // some of them one clean animal -- and it is a number, so it is rolled.
+    animals = rng.coin() ? [rollAnimal(rng)] : [rollAnimal(rng), rollAnimal(rng)];
   } else {
     const pick = rng.d(3);
     if (pick === 1) humanoidSeed = { table: "Mutation", result: roll(MUTATIONS, rng) };
@@ -807,7 +830,8 @@ function monsterSheet(m: MonsterSeed, indent = "    "): string[] {
   const L: string[] = [];
   L.push(`${indent}Complexity: ${m.complexity}`);
   L.push(`${indent}Silhouette: ${m.silhouette}`);
-  if (m.animals) L.push(`${indent}Animals (pick one or combine): ${m.animals.join(" / ")}`);
+  if (m.animals)
+    L.push(`${indent}Reference animal${m.animals.length > 1 ? "s (both, not either)" : ""}: ${m.animals.join(" / ")}`);
   if (m.humanoidSeed) L.push(`${indent}Humanoid seed (${m.humanoidSeed.table}): ${r(m.humanoidSeed.result)}`);
   L.push(`${indent}Traits/Abilities: ${m.traitsAndAbilities.map((x) => `${x.table}: ${r(x.result)}`).join("; ")}`);
   L.push(`${indent}Features/Mutations: ${m.featuresAndMutations.map((x) => `${x.table}: ${r(x.result)}`).join("; ")}`);

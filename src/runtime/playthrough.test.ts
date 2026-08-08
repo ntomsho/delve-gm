@@ -278,6 +278,7 @@ describe("a run through a generated dungeon", () => {
       pc: testCharacter(),
       currentRoomId: dungeon.stocked.entranceRoomId,
       goalMet: false,
+      fiction: [],
     };
     const room = dungeon.stocked.entranceRoomId;
 

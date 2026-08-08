@@ -15,6 +15,7 @@
 // ---------------------------------------------------------------- entity types
 
 import type { IEntity, IRoom, IRoomConnector } from "./dungeon-entities.ts";
+import { checkPlanarity } from "./dungeon-planarity.ts";
 
 export type { IEntity, IRoom, IRoomConnector };
 
@@ -84,6 +85,17 @@ export interface Dungeon {
   stats: Stats;
   valid: boolean;
   failures: string[];
+  /**
+   * The rotation system: each room's connectors in cyclic order around it, as
+   * indices into `edges`. Present **iff** the graph is planar, which the
+   * validator requires — the dungeon is drawn on one flat plane with nothing
+   * overlapping, so a graph with no crossing-free drawing is thrown away and
+   * the seed advanced.
+   *
+   * This is the placement plan: it says which side of a room each neighbour
+   * belongs on, which is what keeps the floorplan packer from searching blind.
+   */
+  embedding?: number[][];
 }
 
 export interface Params {
@@ -666,6 +678,10 @@ function validate(d: Dungeon, chunks: ChunkInfo[], maxDegree: number): string[] 
     }
   }
 
+  // The floorplan is a flat plane with no overlaps, so the graph has to be
+  // drawable without crossings. `embedding` is set iff it is.
+  if (!d.embedding) fails.push("graph has no crossing-free drawing (non-planar)");
+
   if (d.stats.maxDegree > maxDegree) {
     fails.push(`max degree ${d.stats.maxDegree} > ${maxDegree}`);
   }
@@ -738,6 +754,8 @@ export function generate(seed: string, params: Params): Dungeon {
     cycleLengths: chunks.map((c) => c.cycleLen),
   };
 
+  const planarity = checkPlanarity(n, edges.map((e) => [e.a, e.b] as const));
+
   const dungeon: Dungeon = {
     seed,
     chunkCount: C,
@@ -747,6 +765,7 @@ export function generate(seed: string, params: Params): Dungeon {
     stats,
     valid: false,
     failures: [],
+    ...(planarity.planar ? { embedding: planarity.rotation } : {}),
   };
   dungeon.entrances = chooseEntrances(rooms, edges, C, rng);
   dungeon.failures = validate(dungeon, chunks, maxDegree);

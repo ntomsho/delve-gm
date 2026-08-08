@@ -271,6 +271,20 @@ export function createTurnMachine(referee: Referee, store: Store = useGame): Tur
       state().pushTranscript({ role: "referee", text: reply.narration });
     }
 
+    // THE PANEL CATCHES UP WITH THE PAGE.
+    //
+    // The move applied several seconds ago; the arrival has only just been
+    // written. Between the two, the player was standing in a room the interface
+    // could have listed the contents of and the narration had said nothing about
+    // — the room card as a spoiler for prose that had not arrived. So the card
+    // and the map marker wait here, at the end of the entry pass, where what is
+    // on the screen and what has been read are the same thing.
+    //
+    // Not on the arrival line itself: a re-entry into a room that has not
+    // changed owes the player no new prose, writes none, and would leave the
+    // panel a room behind for the rest of the run.
+    if (entering) state().showRoom(after.currentRoomId);
+
     // What a move leaves behind for the next turn to read. Written by the
     // machine rather than kept from the referee: the discarded paragraphs are
     // the ones that had the room wrong, and a turn record is read back as fact.
