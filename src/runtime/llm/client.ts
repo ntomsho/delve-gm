@@ -27,7 +27,7 @@
 import { z } from "zod";
 import { MAX_TOKENS, modelFor, type Task } from "./models.ts";
 import { ResponseFormatError, validate } from "./json.ts";
-import { canBeStrict, toolSchema, type ToolSchema } from "./tool-schema.ts";
+import { canBeStrict, fitStrict, toolSchema, type ToolSchema } from "./tool-schema.ts";
 
 const PATH = "/v1/messages";
 
@@ -211,6 +211,11 @@ export interface ToolDefinition {
   strict?: boolean;
 }
 
+/**
+ * `strict` here is provisional: it says this tool could be guaranteed on its
+ * own. Whether it actually is depends on what else is on the table, and only
+ * the request knows that — `callWithTools` settles it with `fitStrict`.
+ */
 export function toolFor(name: string, description: string, schema: z.ZodType): ToolDefinition {
   const input_schema = toolSchema(schema);
   return {
@@ -261,7 +266,9 @@ export async function callWithTools(opts: ToolCallOptions): Promise<ToolTurn> {
       max_tokens: opts.maxTokens ?? MAX_TOKENS[opts.task],
       ...(opts.system ? { system: opts.system } : {}),
       messages: opts.messages,
-      tools: opts.tools,
+      // The strict budget is spent per request, so it is settled here rather
+      // than by whoever built the tools — see fitStrict.
+      tools: fitStrict(opts.tools),
       tool_choice: opts.toolChoice ?? { type: "auto" },
     },
     opts.signal

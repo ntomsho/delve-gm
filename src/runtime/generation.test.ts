@@ -3,6 +3,7 @@ import {
   applyContentPass,
   applyDungeonPass,
   applySeamsPass,
+  blockPlanValid,
   buildContentPassPayload,
   buildDungeonPassPayload,
   buildSeamsPassPayload,
@@ -15,8 +16,11 @@ import {
   renderSeamsPassPrompt,
   resolveBase,
   Rng,
+  roomSizes,
   runEntitiesPass,
+  siteRooms,
   stockDungeon,
+  type BlockPlan,
   type ContentPassPayload,
   type ContentPassResponse,
   type DungeonPassResponse,
@@ -139,7 +143,7 @@ function generateOffline(seed: number, size: Size): GeneratedDungeon {
     graph: dungeon,
     stocked,
     entities,
-    floorplan: null,
+    blockplan: null,
     usage: { inputTokens: 0, outputTokens: 0 },
   };
 }
@@ -562,12 +566,32 @@ describe("prompt snapshots", () => {
     expect(redactIds(renderSeamsPassPrompt(payload))).toMatchSnapshot();
   });
 
+  // WITH THE DRAWING, because that is what a live run sends. Built the way
+  // `generate.ts` builds it — the layout hook inside stocking — so the "as
+  // drawn" line, the per-connector wall and the fixture menu are all in the
+  // snapshot. A snapshot of the geometry-free payload would pass forever while
+  // the prompt the game actually sends drifted underneath it.
   it("content pass, chunk 0", () => {
     const { dungeon } = generateBlueprint(seeds.graphSeed, { chunks: 1 }, true);
-    const sd = stockDungeon(dungeon, bp, { level: 1, seed: seeds.stockSeed });
+    let plan: BlockPlan | null = null;
+    const sd = stockDungeon(dungeon, bp, {
+      level: 1,
+      seed: seeds.stockSeed,
+      layout: (rooms) => {
+        const corridor = new Set(rooms.filter((r) => r.isCorridor).map((r) => r.index));
+        plan = blockPlanValid(dungeon, (i) => corridor.has(i), seeds.layoutSeed);
+        return plan ? roomSizes(plan.rooms) : rooms.map(() => undefined);
+      },
+    });
+    const drawn = plan as BlockPlan | null;
+    expect(drawn, "seed 1005 at size 1 has always drawn; the snapshot needs it").not.toBeNull();
     const ep = runEntitiesPass(sd, bp, new Rng(sd.seed));
+    const corridors = new Set(sd.rooms.filter((r) => r.isCorridor).map((r) => r.index));
+    const site = siteRooms(drawn!, dungeon, { isCorridor: (i) => corridors.has(i) });
     expect(
-      redactIds(renderContentPassPrompt(buildContentPassPayload(sd, bp, ep, 0, "[dungeon context]")))
+      redactIds(
+        renderContentPassPrompt(buildContentPassPayload(sd, bp, ep, 0, "[dungeon context]", site))
+      )
     ).toMatchSnapshot();
   });
 });

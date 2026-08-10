@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { canBeStrict, toolSchema } from "./tool-schema.ts";
-import { contentPassSchema, dungeonPassSchema } from "./schemas.ts";
+import { canBeStrict, fitStrict, toolSchema } from "./tool-schema.ts";
+import {
+  commitSchema,
+  contentPassSchema,
+  dungeonPassSchema,
+  rollBatchSchema,
+} from "./schemas.ts";
 
 /**
  * The bug these guard against: `input_schema` was
@@ -79,5 +84,62 @@ describe("canBeStrict", () => {
 
   it("says yes when everything is required", () => {
     expect(canBeStrict(toolSchema(z.object({ a: z.string(), b: z.number() })))).toBe(true);
+  });
+});
+
+describe("fitStrict", () => {
+  const tool = (schema: z.ZodType) => {
+    const input_schema = toolSchema(schema);
+    return { input_schema, ...(canBeStrict(input_schema) ? { strict: true as const } : {}) };
+  };
+  const strictness = (tools: { strict?: boolean }[]) => tools.map((t) => t.strict === true);
+
+  /**
+   * The 400 that found this: `commit_state` (15 optionals) and `roll` (11) each
+   * pass `canBeStrict`, so both went out guaranteed — and the API compiles ONE
+   * grammar per call, so it saw 26 against a limit of 24 and refused the whole
+   * request. Every turn of the game offers both.
+   */
+  it("does not let two individually-strict tools bust the budget together", () => {
+    const commit = tool(commitSchema);
+    const roll = tool(rollBatchSchema);
+    expect(strictness([commit, roll])).toEqual([true, true]);
+
+    // Sent together, only the larger one keeps the guarantee.
+    expect(strictness(fitStrict([roll, commit]))).toEqual([false, true]);
+  });
+
+  it("spends the budget on the biggest schema first, whatever the order", () => {
+    const opts = (n: number) =>
+      tool(z.object(Object.fromEntries(
+        Array.from({ length: n }, (_, i) => [`f${i}`, z.string().optional()])
+      )));
+    const big = opts(20);
+    const small = opts(10);
+
+    // 20 fits, 20 + 10 does not — and the answer does not depend on the order
+    // the caller happened to list them in.
+    expect(strictness(fitStrict([big, small]))).toEqual([true, false]);
+    expect(strictness(fitStrict([small, big]))).toEqual([false, true]);
+
+    // 20 + 4 is exactly the limit, so both are guaranteed.
+    expect(strictness(fitStrict([opts(4), big]))).toEqual([true, true]);
+  });
+
+  it("leaves a tool alone when the whole set fits", () => {
+    const tools = [tool(dungeonPassSchema), tool(z.object({ a: z.string() }))];
+    expect(fitStrict(tools)).toEqual(tools);
+  });
+
+  it("drops strict rather than reshaping a tool", () => {
+    const roll = tool(rollBatchSchema);
+    const [fitted] = fitStrict([roll, tool(commitSchema)]);
+    expect(fitted.input_schema).toEqual(roll.input_schema);
+    expect("strict" in fitted).toBe(false);
+  });
+
+  it("never guarantees a tool that could not be guaranteed alone", () => {
+    const content = tool(contentPassSchema);
+    expect(strictness(fitStrict([content]))).toEqual([false]);
   });
 });

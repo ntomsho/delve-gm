@@ -38,8 +38,15 @@ import {
   type TemplateRegistry,
 } from "../engine/index.ts";
 import { EQUIP_SLOTS, farSide, heldItem, isSurfaceExit, itemSummary, touches } from "../engine/index.ts";
+import { describeGeometry, exitPhrase, positionPhrase, siteRooms } from "../engine/index.ts";
 import { directContents, heldItems } from "../runtime/occupancy.ts";
-import { pointLayout, type Layout, type LayoutConnector, type LayoutRoom } from "../runtime/layout.ts";
+import {
+  pointLayout,
+  type Layout,
+  type LayoutConnector,
+  type LayoutFixture,
+  type LayoutRoom,
+} from "../runtime/layout.ts";
 import type { GeneratedDungeon } from "../runtime/generate.ts";
 import type { RunState } from "./game.ts";
 
@@ -88,6 +95,16 @@ export interface EntityView {
   /** items only */
   slots?: number;
   quality?: { current: number; original: number };
+  /**
+   * Where in the room it stands, as one of the position words — "the north
+   * wall", "the far end". Absent for anything that was never placed, which is
+   * every creature and every dungeon generated without a drawing.
+   *
+   * This is the referee's half of the agreement the map keeps: the same word
+   * the content pass chose, so "the altar at the far end" is something the
+   * player can check against the dot.
+   */
+  position?: string;
   /** things this thing holds — a chest's contents, a body's gear */
   contains: EntityView[];
 }
@@ -107,6 +124,9 @@ function toView(
     base: resolveBase(entity, registry),
     needUpdate: entity.needUpdate === true,
     isHidden: entity.isHidden === true,
+    // Only a feature or a loose item carries one; the field is absent on the
+    // other five types and reads as undefined, which is the right answer.
+    position: (entity as { place?: { position: string } }).place?.position,
     contains: heldItems(entity.id, entities).map((i) => toView(i, entities, registry, stats)),
   };
 
@@ -167,6 +187,12 @@ export interface ExitView {
   toKnown: boolean;
   /** the way they walked in by — first in the list, and set apart from it */
   cameFrom: boolean;
+  /**
+   * Which wall of THIS room it cuts, and where along it — "the east wall,
+   * toward the north end". The same phrase the content pass was given when it
+   * wrote the room, so the referee and the prose already on the page agree.
+   */
+  wall?: string;
 }
 
 export interface RoomView {
@@ -182,6 +208,17 @@ export interface RoomView {
   exits: ExitView[];
   /** theme, history, who lives here, the goal — so nothing contradicts it */
   fiction: string;
+  /**
+   * The room as it was DRAWN — size, proportions, outline, ways out by wall.
+   * Absent for a dungeon with no block plan.
+   *
+   * The same sentence `buildContentPassPayload` was given, from the same
+   * function, on purpose. The prose on the page was written to it, so the
+   * referee reading a different description of the same room is the one way
+   * this could go wrong — and rendering it twice from one derivation is how
+   * that is made impossible rather than merely unlikely.
+   */
+  geometry?: string;
 }
 
 export interface RoomViewOptions {
@@ -224,6 +261,11 @@ export function roomView(
     // A thing inside a concealed thing is concealed too, whoever marked it.
     .map((v) => (showAll ? v : { ...v, contains: v.contains.filter((c) => !c.isHidden) }));
 
+  // The drawing, read back. Derived rather than persisted — see the note on
+  // `RoomView.geometry` for why it comes from the same function the content
+  // pass used rather than from a copy of what that function once said.
+  const drawn = geometryOf(dungeon, roomId);
+
   const exits: ExitView[] = e.connectors
     .filter((c) => touches(c, roomId))
     .filter(visible)
@@ -245,6 +287,9 @@ export function roomView(
         // Only in the room they are actually standing in. Asked about anywhere
         // else, the way they last came in by is a fact about a different room.
         cameFrom: roomId === run.currentRoomId && c.id === run.arrivedVia,
+        // The surface exit is on no graph edge, so the geometry knows it by its
+        // missing far end rather than by an id — the same join `mapView` makes.
+        wall: drawn?.walls.get(isSurfaceExit(c) ? null : c.id),
       };
     })
     .sort(byUsefulness);
@@ -259,7 +304,44 @@ export function roomView(
     contents,
     exits,
     fiction: dungeon.dungeonContext,
+    geometry: drawn?.line,
   };
+}
+
+/**
+ * One room's drawing, as the sentence and the per-connector walls.
+ *
+ * MEMOISED ON THE DUNGEON, because `roomView` runs on every render and on every
+ * prompt assembly while `siteRooms` covers all thirty rooms. It is pure and the
+ * inputs are write-once — `blockplan` and `graph` are set at generation and
+ * never written again — so a WeakMap keyed on the dungeon is a cache that
+ * cannot go stale and cannot leak.
+ */
+const SITED = new WeakMap<GeneratedDungeon, Map<string, { line: string; walls: Map<string | null, string> }>>();
+
+function geometryOf(
+  dungeon: GeneratedDungeon,
+  roomId: string
+): { line: string; walls: Map<string | null, string> } | undefined {
+  if (!dungeon.blockplan) return undefined;
+  let byRoom = SITED.get(dungeon);
+  if (!byRoom) {
+    byRoom = new Map();
+    const corridors = new Set(
+      dungeon.stocked.rooms.filter((r) => r.isCorridor).map((r) => r.index)
+    );
+    const site = siteRooms(dungeon.blockplan, dungeon.graph, {
+      isCorridor: (i) => corridors.has(i),
+    });
+    for (const [i, g] of site.geometry.entries()) {
+      byRoom.set(dungeon.graph.rooms[i].entityId, {
+        line: describeGeometry(g),
+        walls: new Map(g.exits.map((x) => [x.connectorId, exitPhrase(x)])),
+      });
+    }
+    SITED.set(dungeon, byRoom);
+  }
+  return byRoom.get(roomId);
 }
 
 /**
@@ -445,6 +527,12 @@ export interface MapRoomView extends LayoutRoom {
   current: boolean;
   /** only once known — an unvisited room has no name to show */
   name?: string;
+  /**
+   * What the player read on arrival, for the hover. Withheld under exactly the
+   * same test as `name`: a description of a room they have not entered is the
+   * one thing fog exists to withhold.
+   */
+  composed?: string;
 }
 
 export interface MapConnectorView extends LayoutConnector {
@@ -454,6 +542,42 @@ export interface MapConnectorView extends LayoutConnector {
   toUnknown: boolean;
   blocked: boolean;
   requirement?: string;
+  /** out of the dungeon entirely — drawn and confirmed unlike any other way */
+  surface: boolean;
+  /** what it is, for the hover. A connector is named for what it is, never where it goes. */
+  name: string;
+  composed?: string;
+}
+
+/**
+ * A thing standing in a room, as the player is entitled to see it.
+ *
+ * THE RULE: an entity appears on the map, and changes on the map, only when its
+ * `composed` changes. Nothing else about it reaches the drawing.
+ *
+ * That single test does every job at once, because `composed` is written in
+ * exactly one circumstance — the player is looking at the thing. So:
+ *
+ *   never encountered   `composed === undefined`, and nothing is drawn
+ *   concealed           room entry never composes a hidden thing, so likewise
+ *   two rooms away       `setState` marks `needUpdate` and LEAVES `composed`;
+ *                        the marker keeps saying where it was last seen
+ *
+ * The map is therefore a record of what the player observed, corrected only
+ * when they observe again — which is the same precedence `dungeon-entities.ts`
+ * sets for prose. What they were told binds.
+ */
+export interface MapFixtureView extends LayoutFixture {
+  /** the entity's name, for the hover */
+  name: string;
+  /** what the player read about it. Never undefined: it is why this is drawn. */
+  composed: string;
+  /**
+   * Where it stands, as prose — "along the north wall". The same fact the
+   * referee is given, said the same way, so the hover and the narration match
+   * word for word rather than merely agreeing.
+   */
+  position?: string;
 }
 
 export interface MapViewOptions {
@@ -465,6 +589,7 @@ export interface MapView {
   bounds: Layout["bounds"];
   rooms: MapRoomView[];
   connectors: MapConnectorView[];
+  fixtures: MapFixtureView[];
 }
 
 /**
@@ -481,6 +606,12 @@ export interface MapView {
  * A CONCEALED way is dropped entirely. Drawing it, even as a stub, would tell
  * the player a secret door is there, which is the one thing a secret door must
  * not do. It reappears the moment `isHidden` goes false.
+ *
+ * The same is true of everything standing in a room — see `MapFixtureView`.
+ * `Layout.fixtures` deliberately carries every placed entity, concealed ones
+ * included, because that module knows only geometry; this is the only place the
+ * filter exists, and it is the one filter in the file that cannot be walked
+ * back if it is wrong.
  */
 export function mapView(
   run: RunState,
@@ -495,6 +626,65 @@ export function mapView(
   // stood here — stale or not.
   const known = (id: string) => rooms.get(id)?.composed !== undefined;
 
+  const view = (c: LayoutConnector): MapConnectorView => {
+    const entity = connectors.get(c.id);
+    const fromKnown = known(c.from);
+    // A way OUT is known exactly when the room it leaves from is, and it never
+    // leads into the dark — the player walked in through it. Answering the
+    // far-side question with `true` instead would draw the exit stub hanging in
+    // blank paper before the entrance room itself has been described.
+    const toKnown = c.to === null ? fromKnown : known(c.to);
+    return {
+      ...c,
+      known: fromKnown || toKnown,
+      toUnknown: fromKnown !== toKnown,
+      blocked: entity?.conditional !== undefined,
+      requirement: entity?.conditional,
+      surface: c.to === null,
+      name: entity?.name ?? "",
+      composed: entity?.composed,
+    };
+  };
+
+  // The way out is not on `graph.edges` — it is minted by the entities pass
+  // with a null far end — so the layout can place it but cannot name it. This
+  // is where the geometry and the entity meet.
+  const surface = base.surface;
+  const exit = surface && run.entities.connectors.find(isSurfaceExit);
+
+  // --- what is standing in the rooms ---------------------------------------
+  //
+  // Four tests, and every one of them is load-bearing. `includeHidden` is
+  // honoured for the same debugging reason connectors honour it, and for no
+  // other: it is never true on anything the player sees.
+  const placed = new Map<string, AnyEntity>();
+  for (const f of run.entities.features) placed.set(f.id, f);
+  for (const i of run.entities.items) placed.set(i.id, i);
+
+  const fixtures: MapFixtureView[] = [];
+  for (const f of base.fixtures) {
+    const entity = placed.get(f.id);
+    if (!entity) continue;
+    if (!known(f.roomId)) continue;
+    if (opts.includeHidden !== true && entity.isHidden === true) continue;
+    // THE RULE. Undrawn until the player has been shown it, and thereafter
+    // showing what they were shown.
+    if (entity.composed === undefined) continue;
+    // An item that has left the room it was placed in is no longer lying there.
+    // Every path that moves one today happens with the player watching — they
+    // picked it up — so dropping the marker is what they saw. A thief carrying
+    // something off while they are elsewhere wants a "last seen here" snapshot
+    // instead, and that arrives with creature markers, which need it too.
+    if (entity.type === "Item" && entity.parentId !== f.roomId) continue;
+    const place = (entity as { place?: { position: string } }).place;
+    fixtures.push({
+      ...f,
+      name: entity.name,
+      composed: entity.composed,
+      position: place ? positionPhrase(place.position) : undefined,
+    });
+  }
+
   return {
     bounds: base.bounds,
     rooms: base.rooms.map((r) => ({
@@ -504,20 +694,25 @@ export function mapView(
       // points into an unlit room for as long as the arrival takes to write.
       current: r.id === (shownRoom(run) ?? run.currentRoomId),
       name: known(r.id) ? rooms.get(r.id)?.name : undefined,
+      composed: known(r.id) ? rooms.get(r.id)?.composed : undefined,
     })),
-    connectors: base.connectors
+    connectors: [
+      ...base.connectors,
+      ...(surface && exit
+        ? [
+            {
+              id: exit.id,
+              from: surface.roomId,
+              to: null,
+              interChunk: false,
+              door: surface.door,
+              path: { kind: "line" as const, from: surface.door.at, to: surface.door.through },
+            },
+          ]
+        : []),
+    ]
       .filter((c) => opts.includeHidden === true || connectors.get(c.id)?.isHidden !== true)
-      .map((c) => {
-        const entity = connectors.get(c.id);
-        const fromKnown = known(c.from);
-        const toKnown = known(c.to);
-        return {
-          ...c,
-          known: fromKnown || toKnown,
-          toUnknown: fromKnown !== toKnown,
-          blocked: entity?.conditional !== undefined,
-          requirement: entity?.conditional,
-        };
-      }),
+      .map(view),
+    fixtures,
   };
 }

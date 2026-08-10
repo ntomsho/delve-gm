@@ -4,10 +4,18 @@ import { newRun, useGame } from "./game.ts";
 import {
   characterView, exitLabel, mapView, needsComposition, roomView, UNARMORED_DEFENSE,
 } from "./selectors.ts";
-import { pathMidpoint, pointLayout, shapeCenter } from "../runtime/layout.ts";
+import { floorplanLayout, pathMidpoint, pointLayout, shapeCenter } from "../runtime/layout.ts";
 import type { Diff } from "../runtime/diffs/types.ts";
-import { isSurfaceExit } from "../engine/index.ts";
+import {
+  describeGeometry,
+  isSurfaceExit,
+  positionPhrase,
+  POSITION_WORDS,
+  setState,
+  siteRooms,
+} from "../engine/index.ts";
 import type { IItem } from "../engine/index.ts";
+import { placedThings } from "../runtime/occupancy.ts";
 
 const SEED = 1005;
 const dungeon = generateOffline(SEED, 2);
@@ -526,5 +534,281 @@ describe("mapView", () => {
     const view = mapView(freshRun(), dungeon, layout);
     expect(view.rooms).toHaveLength(layout.rooms.length);
     expect(view.bounds).toEqual(layout.bounds);
+  });
+});
+
+// ===========================================================================
+// THE MAP OVER A FLOORPLAN
+// ===========================================================================
+
+describe("mapView over the floorplan", () => {
+  const layout = floorplanLayout(dungeon.blockplan!, dungeon.graph);
+
+  it("has a floorplan to draw", () => {
+    // The fixture retries the graph until one draws, so this should not be
+    // flaky — and if it ever is, everything below is proving nothing.
+    expect(dungeon.blockplan).not.toBeNull();
+  });
+
+  it("gives every way through a door in a wall", () => {
+    const view = mapView(freshRun(), dungeon, layout);
+    for (const c of view.connectors) {
+      expect(c.door, `${c.name || c.id} has no door`).toBeDefined();
+    }
+  });
+
+  it("draws the way out of the dungeon, which is on no graph edge", () => {
+    // The regression this exists for: the surface connector is minted by the
+    // entities pass, not Phase A, so it is absent from `graph.edges` and every
+    // door-placing loop walked straight past it.
+    const view = mapView(freshRun(), dungeon, layout);
+    const out = view.connectors.filter((c) => c.surface);
+    expect(out).toHaveLength(1);
+    expect(out[0].to).toBeNull();
+
+    const real = dungeon.entities.connectors.find(isSurfaceExit)!;
+    expect(out[0].id, "joined to the real connector, not invented").toBe(real.id);
+    expect(out[0].from).toBe(dungeon.graph.rooms[dungeon.blockplan!.surface!.room].entityId);
+  });
+
+  it("shows the way out exactly when its room is shown", () => {
+    // It hangs off one room and reaches into blank paper, so drawing it before
+    // that room has been described leaves a stub attached to nothing.
+    const run = freshRun();
+    const surface = () => mapView(run, dungeon, layout).connectors.find((c) => c.surface)!;
+    expect(surface().known, "drawn before its room was").toBe(false);
+
+    const entrance = run.entities.rooms.find((r) => r.id === surface().from)!;
+    entrance.composed = "Daylight behind you, and the stair going down.";
+    expect(surface().known).toBe(true);
+    // Never a stub into the dark: there is no far room to be unexplored.
+    expect(surface().toUnknown).toBe(false);
+  });
+
+  it("still hides what the player has not seen", () => {
+    // Real geometry does not change what fog is for. A room they have not
+    // entered is drawn as nothing, and carries neither name nor prose.
+    const run = freshRun();
+    const view = mapView(run, dungeon, layout);
+    const unknown = view.rooms.filter((r) => !r.known);
+    expect(unknown.length).toBeGreaterThan(0);
+    for (const r of unknown) {
+      expect(r.name).toBeUndefined();
+      expect(r.composed).toBeUndefined();
+    }
+  });
+
+  it("carries name and prose for a room the player has read", () => {
+    const run = freshRun();
+    const here = run.entities.rooms.find((r) => r.id === run.currentRoomId)!;
+    here.composed = "A low vaulted cell, the floor gritty underfoot.";
+    const shown = mapView(run, dungeon, layout).rooms.find((r) => r.id === here.id)!;
+    expect(shown.known).toBe(true);
+    expect(shown.name).toBe(here.name);
+    expect(shown.composed).toBe(here.composed);
+  });
+});
+
+// ===========================================================================
+// THE DRAWING, AS THE REFEREE READS IT
+// ===========================================================================
+//
+// The whole point of 6c: the content pass wrote the room against a description
+// of how it was drawn, and the referee has to be reading the SAME description.
+// If these two ever diverge the map and the prose start describing different
+// rooms, and the player is the only one in a position to notice.
+
+describe("roomView geometry", () => {
+  it("gives the room the same sentence the content pass was given", () => {
+    const run = freshRun();
+    const view = roomView(run, dungeon)!;
+    expect(view.geometry, "no geometry on a dungeon that drew").toBeDefined();
+
+    // Rebuilt independently here, from the plan, rather than compared against a
+    // string literal — a literal would only prove that this test and the code
+    // were written on the same afternoon.
+    const corridors = new Set(dungeon.stocked.rooms.filter((r) => r.isCorridor).map((r) => r.index));
+    const site = siteRooms(dungeon.blockplan!, dungeon.graph, {
+      isCorridor: (i) => corridors.has(i),
+    });
+    const i = dungeon.graph.rooms.findIndex((r) => r.entityId === view.id);
+    expect(view.geometry).toBe(describeGeometry(site.geometry[i]));
+  });
+
+  it("tells every way out which wall it is in, the surface exit included", () => {
+    // The surface connector is on no graph edge, so it is joined by its missing
+    // far end rather than by an id — the join that 6b had to add for the map and
+    // that would silently give every OTHER exit a wall while missing this one.
+    const view = roomView(freshRun(), dungeon)!;
+    expect(view.exits.length).toBeGreaterThan(0);
+    for (const x of view.exits) {
+      expect(x.wall, `${x.name || x.connectorId} has no wall`).toMatch(
+        /^the (north|south|east|west) wall, (at the middle|toward the (north|south|east|west) end)$/
+      );
+    }
+    const out = view.exits.find((x) => x.surface);
+    expect(out?.wall, "the way out is the one that is on no edge").toBeDefined();
+  });
+
+  it("carries each placed thing's position, and nothing else's", () => {
+    const view = roomView(freshRun(), dungeon, undefined, { includeHidden: true })!;
+    const placed = view.contents.filter((c) => c.position !== undefined);
+    expect(placed.length, "nothing in the entrance room was placed").toBeGreaterThan(0);
+    for (const c of placed) expect(POSITION_WORDS).toContain(c.position);
+    // A creature has no footprint — nothing tracks where one is standing.
+    for (const c of view.contents.filter((x) => x.kind === "Creature")) {
+      expect(c.position).toBeUndefined();
+    }
+  });
+
+  it("says positions as prose, not as enum values", () => {
+    // "at throughout" and "at near the entrance" are what a naive prefix gives,
+    // and both went into a prompt before this existed.
+    expect(positionPhrase("throughout")).toBe("spread through the room");
+    expect(positionPhrase("centre")).toBe("in the middle of the room");
+    expect(positionPhrase("north wall")).toBe("along the north wall");
+    for (const w of POSITION_WORDS) {
+      const said = positionPhrase(w);
+      expect(said.length, w).toBeGreaterThan(0);
+      expect(said, `${w} was rendered as itself`).not.toBe(w);
+    }
+    // Anything unrecognised falls through rather than throwing: this renders
+    // what was stored, and validation happened when it was written.
+    expect(positionPhrase("under the stairs")).toBe("under the stairs");
+  });
+});
+
+// ===========================================================================
+// WHAT IS STANDING IN THE ROOMS
+// ===========================================================================
+//
+// THE RULE: an entity appears on the map, and changes on the map, only when its
+// `composed` changes. Every test here is a way of getting that wrong, because
+// the failure is silent — a dot that should not be there looks exactly like a
+// dot that should, and the one it discloses is a secret that cannot be put back.
+
+describe("mapView fixtures", () => {
+  /**
+   * The layout is pure geometry and carries EVERY placed entity, concealed ones
+   * included. That is deliberate — `layout.ts` knows nothing about run state —
+   * and it is why the filter has to be somewhere, and why it has to be here.
+   */
+  const layout = floorplanLayout(dungeon.blockplan!, dungeon.graph, {
+    placed: placedThings(dungeon.entities),
+  });
+
+  /** The room the player starts in, and something the content pass put in it. */
+  function somethingHere(run: ReturnType<typeof freshRun>) {
+    const here = run.entities.rooms.find((r) => r.id === run.currentRoomId)!;
+    const thing = run.entities.features.find((f) => f.roomId === here.id && f.place);
+    return { here, thing };
+  }
+
+  it("has placed things to draw at all", () => {
+    // Without this the whole block asserts nothing, quietly.
+    expect(layout.fixtures.length, "the fixture generated no placements").toBeGreaterThan(5);
+  });
+
+  it("draws nothing before the player has read anything", () => {
+    // A fresh run has composed nothing, so every test below has somewhere to
+    // move FROM. If this ever passes vacuously the rest are meaningless.
+    expect(mapView(freshRun(), dungeon, layout).fixtures).toHaveLength(0);
+  });
+
+  it("draws a thing once its room and it have both been described", () => {
+    const run = freshRun();
+    const { here, thing } = somethingHere(run);
+    expect(thing, "the entrance room holds nothing placed").toBeDefined();
+
+    // The room alone is not enough: the player has stood here, but this
+    // particular thing has not been described to them.
+    here.composed = "A low vaulted cell.";
+    expect(mapView(run, dungeon, layout).fixtures.find((f) => f.id === thing!.id)).toBeUndefined();
+
+    thing!.composed = "A bench of black stone against the far wall.";
+    const shown = mapView(run, dungeon, layout).fixtures.find((f) => f.id === thing!.id);
+    expect(shown).toBeDefined();
+    expect(shown!.name).toBe(thing!.name);
+    expect(shown!.composed).toBe(thing!.composed);
+    expect(shown!.at.length, "one entry per entity, one point per cell").toBe(
+      thing!.place!.cells.length
+    );
+  });
+
+  it("draws nothing in a room the player has not seen, however well described", () => {
+    // The belt to `composed`'s braces. A composition pass that wrote prose for
+    // something two rooms away must not put it on the map.
+    const run = freshRun();
+    const elsewhere = run.entities.features.find(
+      (f) => f.place && f.roomId !== run.currentRoomId
+    )!;
+    elsewhere.composed = "Written up, and nowhere the player has been.";
+    expect(mapView(run, dungeon, layout).fixtures.find((f) => f.id === elsewhere.id)).toBeUndefined();
+  });
+
+  it("NEVER draws a concealed thing, even one that has been described", () => {
+    // The one that cannot be walked back. A dot where a secret is tells the
+    // player it is there, which is the whole of what a secret must not do.
+    const run = freshRun();
+    const { here, thing } = somethingHere(run);
+    here.composed = "A low vaulted cell.";
+    thing!.composed = "A flagstone worn smoother than its neighbours.";
+    thing!.isHidden = true;
+    expect(mapView(run, dungeon, layout).fixtures.find((f) => f.id === thing!.id)).toBeUndefined();
+
+    // And back the moment it is found — which `setIsHidden` makes the next
+    // composition pass do, so the dot arrives with the prose rather than before.
+    thing!.isHidden = false;
+    expect(mapView(run, dungeon, layout).fixtures.find((f) => f.id === thing!.id)).toBeDefined();
+  });
+
+  it("shows a concealed thing under includeHidden, for the debug tools only", () => {
+    const run = freshRun();
+    const { here, thing } = somethingHere(run);
+    here.composed = "A low vaulted cell.";
+    thing!.composed = "A flagstone worn smoother than its neighbours.";
+    thing!.isHidden = true;
+    const view = mapView(run, dungeon, layout, { includeHidden: true });
+    expect(view.fixtures.find((f) => f.id === thing!.id)).toBeDefined();
+  });
+
+  it("leaves a marker where it was last seen when state moves and prose does not", () => {
+    // The case the rule exists for. Something changes in a room the player is
+    // not in: `setState` marks it stale and LEAVES `composed`, so the map goes
+    // on saying what they were told rather than what is now true.
+    const run = freshRun();
+    const { here, thing } = somethingHere(run);
+    here.composed = "A low vaulted cell.";
+    thing!.composed = "A bench of black stone, unmarked.";
+
+    const before = mapView(run, dungeon, layout).fixtures.find((f) => f.id === thing!.id)!;
+    setState(thing!, "Split down the middle, and the halves shoved apart.");
+
+    const after = mapView(run, dungeon, layout).fixtures.find((f) => f.id === thing!.id)!;
+    expect(thing!.needUpdate, "the world knows it moved").toBe(true);
+    expect(after.composed, "the map does not").toBe(before.composed);
+    expect(after.at).toEqual(before.at);
+  });
+
+  it("drops an item's marker once it is no longer lying in that room", () => {
+    // NOT the entrance room: this seed puts no loose item in it, and an earlier
+    // draft of this test looked there and quietly asserted nothing. Any room
+    // with a placed item will do, so it takes the first one it finds and says
+    // out loud when there is none.
+    const run = freshRun();
+    const item = run.entities.items.find(
+      (i) => i.place && run.entities.rooms.some((r) => r.id === i.parentId)
+    );
+    expect(item, "the fixture placed no loose item in any room").toBeDefined();
+
+    const room = run.entities.rooms.find((r) => r.id === item!.parentId)!;
+    room.composed = "A flooded gallery, the water black and still.";
+    item!.composed = "A tin cup, dented, lying on its side.";
+    expect(mapView(run, dungeon, layout).fixtures.find((f) => f.id === item!.id)).toBeDefined();
+
+    // Picked up. Every path that moves one today happens with the player
+    // watching, so the dot going is what they saw.
+    item!.parentId = run.pc.id;
+    expect(mapView(run, dungeon, layout).fixtures.find((f) => f.id === item!.id)).toBeUndefined();
   });
 });

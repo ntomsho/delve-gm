@@ -32,6 +32,57 @@ PER ROOM
   and the Sump at its foot". Not "leads down", which is true from only one end.
 - Promotable details: a detail is always part of the room's description. Make it
   its own entity ONLY if a player would act on it. Most stay as description.
+- Fixtures: up to the number the room gives, off the one menu. See FIXTURES.
+
+THE ROOM AS DRAWN
+Each room has already been drawn on the map. "as drawn" gives you its real size
+in feet, its proportions, whether its outline is square-cornered or broken up,
+and how many ways out are in each wall; each connector says which wall it is in.
+
+WRITE TO THE DRAWING, NOT TO THE IDENTITY. The rolled identity says what the
+place was built as; the drawing says what it came out as, and where the two
+disagree the drawing wins. A room rolled "Banquet hall" and drawn twenty feet
+square is not a long hall -- it is what became of one, or a service room off one,
+or a hall the collapse took most of. Say so. A player looking at the map and
+reading your prose must not be looking at two different rooms.
+
+Two hard rules about direction:
+- Compass only. North, south, east and west are on the map and are safe. "Left",
+  "right", "ahead", "behind" depend on which way the party is facing and you do
+  not know that; a party that walks back through will read them as lies.
+- Do not invent an exit, a window, or a level change that is not listed. The ways
+  out are exactly the connectors given.
+
+Feet are given so the prose can be concrete. Round them, compare them to
+something, or ignore them -- but do not contradict them.
+
+FIXTURES -- WHAT IS STANDING IN THE ROOM
+The menu, once. Starred kinds also fit in a passage; the rest need a chamber.
+
+  altar (a raised block for offering, execution or display); bunks (tiers of sleeping berths); cells (barred or barricaded holding cells); hearth (a fire pit, forge or chimney breast); pews (ranked benches facing one way); pillars* (columns holding the ceiling up); pit* (an opening in the floor -- a shaft, a sump, a grave); pool (standing water, clean or otherwise); rubble* (fallen stone and debris); sarcophagi* (stone coffins, niches or shelves for the dead); shelves* (racking, stacks or storage); stair* (steps within the room, going nowhere else); stalls (partitioned bays for animals or work); well (a lined shaft down to water)
+
+Each room says how many it may hold. Choose up to that many, or NONE AT ALL --
+an empty room is a real room, and a dungeon of uniformly furnished ones reads as
+a catalogue. Pick what the fiction has already earned: a barracks has bunks, a
+shrine has an altar, a collapsed gallery has rubble.
+
+Each fixture gets a "kind" from the menu, a "position", a name and a base, and is
+written exactly like any other feature -- a thing in this dungeon, not a generic
+one. Positions, and nothing else: north wall, south wall, east wall, west wall, centre, a corner, near the entrance, far end, throughout.
+
+A fixture is furniture, never a way somewhere. "stair" on the menu means steps
+INSIDE the room -- up to a dais, down into water -- that arrive nowhere else. If
+you want a way between two rooms, it is one of the connectors and it is already
+listed. See A WAY THROUGH IS NEVER A FEATURE.
+
+DO NOT say how many there are. "Pillars" is your decision; six pillars is not --
+the count is rolled, and the map will draw whatever it rolled. Name them in a way
+that survives either number, and write the base about what they ARE rather than
+about how many.
+
+Anything already listed as an entity may ALSO take a "position", from the same
+words, saying where in the room it sits. That is what puts the chest, the clue
+and the hazard on the map alongside the furniture.
 
 NAMING A ROOM
 The name comes from whatever DOMINATES the room, not from the identity it was
@@ -123,71 +174,87 @@ identity: Storeroom
 role: goal
 depth: furthest   tension: lethal
 headline: special
-room keywords: Room=Storeroom  |  Room Detail=Whispers
-entity [<id>] reward (Item): Valuable Material=Black Pearl
-promotable detail [Room Detail=Whispers] -- make it an entity only if a player would act on it
-connector [<id>] to room_1 (Courtyard) CONCEALED -- write it as the thing a person would walk past -- a seam, a draught, a panel that rings hollow -- not as a door; no barrier
-connector [<id>] to room_4 (Chasm) -- say what it physically is; no barrier
+room keywords: Room=Storeroom
+as drawn: a small chamber, about 20 by 35 feet -- oblong, running north-south, irregular, its walls stepping in and out. Ways out: one off the north wall, one off the south wall
+entity [<id>] reward (Item): Relic=Machine
+connector [<id>] in the north wall, toward the west end to room_1 (Gate house) CONCEALED -- write it as the thing a person would walk past -- a seam, a draught, a panel that rings hollow -- not as a door; no barrier
+connector [<id>] in the south wall, at the middle to room_4 (Stockyard) -- say what it physically is; no barrier
 GOAL HERE: reward "Jewels" + mission "Deface".
   Create exactly one entity that embodies the objective. Read the fiction and decide what type it needs to be -- an Item, a RoomFeature, or a Creature -- so that a party acting on it plausibly satisfies the mission. Then name and write it.
 open exits: room_1, room_4
+fixtures: up to 2, or none
 
 --- room_1 ---
-identity: Courtyard
+identity: Gate house
 depth: furthest   tension: lethal
-headline: creature + special
-room keywords: Room=Courtyard
-entity [<id>] obstacle (RoomFeature): Obstacle=Books  |  Trick=Release
-entity [<id>] reward (Item): Relic=Magical ally
-connector [<id>] to room_2 (Gate house) -- say what it physically is; no barrier
-encounter [mob_6vw_2] Solo, detachment from group 1, currently Worship, disposition hostile
-    mass: 1 x rank-and-file -> ONE consolidated entity, one stat block  [Complexity=major  |  Silhouette=humanoid  |  Trait=Ethereal  |  Ability=Camouflaging; Gaze weapon; Teleporting  |  Feature=Fur  |  Mutation=Extra eyes  |  Tactic=Demand duel  |  Personality=Bored  |  Weakness=Phylactery, Flowers]
-      MONSTER GROUP, tier Solo
-        base: major humanoid; trait: Ethereal; ability: Camouflaging; ability: Gaze weapon; ability: Teleporting; feature: Fur; mutation: Extra eyes; tactic: Demand duel; personality: Bored; weakness: Phylactery, Flowers
+headline: creature
+room keywords: Room=Gate house  |  Room Detail=Recent repairs
+as drawn: a small chamber, about 20 by 35 feet -- oblong, running north-south, irregular, its walls stepping in and out. Ways out: one off the south wall, one off the west wall
+promotable detail [Room Detail=Recent repairs] -- make it an entity only if a player would act on it
+connector [<id>] in the west wall, at the middle to room_2 (Oubliette) -- say what it physically is; no barrier
+encounter [mob_6vw_2] Band, unaffiliated, currently Loot, disposition hostile
+    distinct named [<id>] (leader) -> its own entity  [background=Kidnapper  |  Asset=Powerful spouse  |  Liability=Jealous  |  Method=Alchemy  |  Appearance=Sinewy  |  Personality=Serene  |  Goal=Revenge  |  Reputations=Entertainer  |  Misfortunes=Abandoned]
+    distinct named [<id>] -> its own entity  [background=Gravedigger  |  Asset=Faction-leader  |  Liability=Money trail  |  Method=Teamwork  |  Appearance=Hideous  |  Personality=Serene  |  Goal=Kidnap an NPC  |  Mannerisms=Robotic  |  Missions=Deliver  |  Misfortunes=Famished  |  Physical Details=One-eyed]
+    distinct named [<id>] -> its own entity  [background=Fortuneteller  |  Asset=Huge library  |  Liability=Addiction  |  Method=Bureaucracy  |  Appearance=Statuesque  |  Personality=Righteous  |  Goal=Serve evil  |  Physical Details=Shaved head]
+      PEOPLE GROUP, tier Band
+        faction: Theater troupe
+        traits: Efficient
+        - [LEADER] Jiles (male) [<id>]; background: Kidnapper; asset: Powerful spouse; liability: Jealous; method: Alchemy; appearance: Sinewy; personality: Serene; goal: Revenge; Reputations: Entertainer; Misfortunes: Abandoned
+        - Adelaide (female) [<id>]; background: Gravedigger; asset: Faction-leader; liability: Money trail; method: Teamwork; appearance: Hideous; personality: Serene; goal: Kidnap an NPC; Mannerisms: Robotic; Missions: Deliver; Misfortunes: Famished; Physical Details: One-eyed
+        - Fox (male) [<id>]; background: Fortuneteller; asset: Huge library; liability: Addiction; method: Bureaucracy; appearance: Statuesque; personality: Righteous; goal: Serve evil; Physical Details: Shaved head
 open exits: room_0, room_2
+fixtures: up to 2, or none
 
 --- room_2 ---
-identity: Gate house
+identity: Oubliette
 depth: deep   tension: uneasy
 headline: quiet
-room keywords: Room=Gate house  |  Room Detail=Stalactites
-entity [<id>] clue (RoomFeature): Clue=Scurrying -- points at creatures in an adjoining room (room_1)
-promotable detail [Room Detail=Stalactites] -- make it an entity only if a player would act on it
-connector [<id>] to room_3 (Oubliette) -- say what it physically is; no barrier
+room keywords: Room=Oubliette
+as drawn: a small chamber, about 10 by 35 feet -- long and narrow, running north-south, close to a rectangle, give or take a corner. Ways out: one off the south wall, one off the east wall
+connector [<id>] in the south wall, at the middle to room_3 (Chasm) -- say what it physically is; no barrier
 open exits: room_1, room_3
+fixtures: up to 2, or none
 
 --- room_3 ---
-identity: Oubliette
+identity: Chasm
 depth: middle   tension: dangerous
 headline: creature
-room keywords: Room=Oubliette  |  Room Detail=Fungus
-promotable detail [Room Detail=Fungus] -- make it an entity only if a player would act on it
-connector [<id>] to room_4 (Chasm) -- say what it physically is; no barrier
-connector [<id>] to room_5 (Stockyard) -- say what it physically is; no barrier
-encounter [mob_6vw_1] Solo, base of group 1, currently Escape, disposition hostile
+room keywords: Room=Chasm  |  Room Detail=Mosaics
+as drawn: a tiny chamber, about 25 by 15 feet -- oblong, running east-west, irregular, its walls stepping in and out. Ways out: one off the north wall, one off the south wall, one off the east wall
+entity [<id>] reward (Item): Valuable Material=Garnet
+promotable detail [Room Detail=Mosaics] -- make it an entity only if a player would act on it
+connector [<id>] in the east wall, at the middle to room_4 (Stockyard) -- say what it physically is; no barrier
+connector [<id>] in the south wall, toward the west end to room_5 (Cavern) -- say what it physically is; no barrier
+encounter [mob_6vw_1] Solo, base of group 1, currently Collect, disposition neutral
     mass: 1 x rank-and-file -> ONE consolidated entity, one stat block  [Complexity=major  |  Silhouette=humanoid  |  Trait=Ethereal  |  Ability=Camouflaging; Gaze weapon; Teleporting  |  Feature=Fur  |  Mutation=Extra eyes  |  Tactic=Demand duel  |  Personality=Bored  |  Weakness=Phylactery, Flowers]
       MONSTER GROUP, tier Solo
         base: major humanoid; trait: Ethereal; ability: Camouflaging; ability: Gaze weapon; ability: Teleporting; feature: Fur; mutation: Extra eyes; tactic: Demand duel; personality: Bored; weakness: Phylactery, Flowers
 open exits: room_2, room_4, room_5
+fixtures: up to 1, or none
 
 --- room_4 ---
-identity: Chasm
+identity: Stockyard
 depth: deep   tension: uneasy
 headline: special
-room keywords: Room=Chasm
-entity [<id>] obstacle (RoomFeature): Obstacle=Mirror  |  Cairn Feature=Levitates
-entity [<id>] reward (RoomFeature): Knowledge=Location of a hidden way
+room keywords: Room=Stockyard  |  Room Detail=Chains
+as drawn: a tiny chamber, about 30 by 10 feet -- long and narrow, running east-west, irregular, its walls stepping in and out. Ways out: one off the north wall, one off the west wall
+entity [<id>] obstacle (RoomFeature): Obstacle=Flames  |  Trick=Exchange
+entity [<id>] reward (Item): Valuable Material=Flanged mace
+promotable detail [Room Detail=Chains] -- make it an entity only if a player would act on it
 open exits: room_3, room_0
+fixtures: up to 1, or none
 
 --- room_5 ---
-identity: Stockyard
+identity: Cavern
 role: entrance
 depth: threshold   tension: calm
 headline: none
-room keywords: Room=Stockyard  |  Room Detail=Unusual smell
-promotable detail [Room Detail=Unusual smell] -- make it an entity only if a player would act on it
-connector [<id>] OUT OF THE DUNGEON -- the way the party came in and the only way back to daylight; realise it from [Entrance=Tree roots] and say what it physically is. Name it as a thing, not as an exit.
+room keywords: Room=Cavern  |  Room Detail=Bones
+as drawn: a small chamber, about 10 by 35 feet -- long and narrow, running north-south, close to a rectangle, give or take a corner. Ways out: one off the north wall, one off the east wall
+promotable detail [Room Detail=Bones] -- make it an entity only if a player would act on it
+connector [<id>] OUT OF THE DUNGEON in the east wall, toward the south end -- the way the party came in and the only way back to daylight; realise it from [Entrance=Tree roots] and say what it physically is. Name it as a thing, not as an exit.
 open exits: room_3
+fixtures: up to 2, or none
 
 === RESPONSE FORMAT ===
 Return JSON only, no prose outside it:
@@ -198,8 +265,9 @@ Return JSON only, no prose outside it:
       "ref": "<room ref, exactly as given>",
       "name": "<short room name>",
       "base": "<the room's standing description>",
-      "entities": [ { "ref": "<entity ref>", "name": "<name>", "base": "<identity>" } ],
-      "promotions": [ { "text": "<detail text as given>", "name": "<name>", "base": "<identity>", "hidden": false } ],
+      "entities": [ { "ref": "<entity ref>", "name": "<name>", "base": "<identity>", "position": "<one of the position words>" } ],
+      "fixtures": [ { "kind": "<one from THIS room's menu>", "position": "<one of the position words>", "name": "<name>", "base": "<identity>" } ],
+      "promotions": [ { "text": "<detail text as given>", "name": "<name>", "base": "<identity>", "hidden": false, "position": "<one of the position words>" } ],
       "connectors": [ { "ref": "<connector ref>", "name": "<what it is, naming neither room>", "form": "<what it physically is>", "requirement": "<gated only: what blocks it>" } ],
       "encounters": [
         {
@@ -210,14 +278,18 @@ Return JSON only, no prose outside it:
           ]
         }
       ],
-      "goal": { "entityType": "Item|RoomFeature|Creature", "name": "<name>", "base": "<identity>" }
+      "goal": { "entityType": "Item|RoomFeature|Creature", "name": "<name>", "base": "<identity>", "position": "<one of the position words>" }
     }
   ]
 }
 
 Include each key only when the room has it; "group" only when a mass is listed;
 "distinct" only for specimens marked distinct; omit "goal" except in the GOAL
-room. Leave "stats" out for an average creature."
+room. Leave "stats" out for an average creature.
+
+"fixtures" and every "position" are optional and are omitted entirely for a room
+with no "as drawn" line. NEVER put a count, a dimension, or a coordinate in any
+of them: "kind" and "position" are words off the lists and nothing else."
 `;
 
 exports[`prompt snapshots > dungeon pass 1`] = `

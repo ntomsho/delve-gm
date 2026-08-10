@@ -39,6 +39,10 @@
  */
 
 import type { MonsterSeed, NpcSeed } from "./dungeon-blueprint.ts";
+// Type-only, so there is no runtime edge from the entity model to the fixture
+// vocabulary — the same arrangement `dungeon-room-size.ts` has with the rooms
+// loop. The menu owns the words; this file owns what an entity stores.
+import type { Placement } from "./dungeon-fixtures.ts";
 
 // ---------------------------------------------------------------------------
 // BASE
@@ -267,6 +271,17 @@ export interface IRoomFeature extends IEntity {
   type: "RoomFeature";
   roomId: string;
   hazardId?: string;
+  /**
+   * Where in the drawn room it stands, when the room was drawn at all.
+   *
+   * Absent on a dungeon with no block plan, and absent on anything the content
+   * pass declined to place — both of which are ordinary. The map draws what it
+   * has; nothing depends on this being present.
+   *
+   * Written once, at generation. Not on the applier's writable-path allowlist:
+   * a brazier that gets knocked over changes its `state`, not its footprint.
+   */
+  place?: Placement;
 }
 
 export interface IItem extends IEntity {
@@ -290,6 +305,16 @@ export interface IItem extends IEntity {
    */
   armor?: { armorType: ArmorType; defense: number };
   spellBook?: { spellName: string; spellDescription: string; exhausted: boolean; };
+  /**
+   * Where it lies, for an item whose `parentId` is a ROOM.
+   *
+   * Meaningless once it is in a chest or a pack — then the thing holding it is
+   * what has a position — so it is written only for items loose on the floor and
+   * ignored by the map for any item whose parent is not a room. It is left in
+   * place rather than cleared on pickup, because a stale footprint on an item in
+   * a backpack costs nothing and clearing it is one more thing to get wrong.
+   */
+  place?: Placement;
 }
 
 /** Fires, gas, weather: self-mobile and may span several rooms at once. */

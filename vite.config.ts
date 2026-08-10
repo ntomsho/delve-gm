@@ -115,11 +115,37 @@ export default defineConfig(({ mode }) => {
       },
     },
 
+    /**
+     * TWO PROJECTS, SPLIT ON THE FILE EXTENSION.
+     *
+     * `.test.ts` is headless and stays that way: the engine and the runtime are
+     * framework-free by rule, and `src/ui/screens.test.ts` renders through
+     * `renderToStaticMarkup`, which needs no DOM. `.test.tsx` is the jsdom half,
+     * which arrived with the first test that has to CLICK something — a static
+     * render executes a component body but never reaches its state, its refs or
+     * its event handlers, and `DungeonMap` is mostly those.
+     *
+     * The extension is the whole of the rule, so a new test lands in the right
+     * project by being written in the syntax it needs.
+     */
     test: {
-      // Engine and runtime are framework-free and must stay runnable headless.
-      // A jsdom project arrives with the first UI test, not before.
-      environment: "node",
-      include: ["src/**/*.test.ts"],
+      projects: [
+        {
+          test: {
+            name: "node",
+            environment: "node",
+            include: ["src/**/*.test.ts"],
+          },
+        },
+        {
+          test: {
+            name: "ui",
+            environment: "jsdom",
+            include: ["src/**/*.test.tsx"],
+            setupFiles: ["src/ui/__fixtures__/jsdom-setup.ts"],
+          },
+        },
+      ],
     },
   };
 });

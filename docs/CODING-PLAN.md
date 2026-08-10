@@ -1600,21 +1600,28 @@ cannot be in Phase A because the goal room is stocking's.
 matters only inside the room where the change occurs; nothing in the model gets a z.
 This makes the map a *planar* drawing of the Phase A graph — see below.
 
-**Chambers get an area band and a form.** `class >= degree - 1`. No goal-room bump.
+**Chambers get an area band and a shape.** `class >= degree - 1`. No goal-room bump.
 
-| class | # | area | square example | long example |
-|---|---|---|---|---|
-| tiny | 1 | 4–9 | 3×3 | 2×4 |
-| small | 2 | 12–36 | 6×6 | 3×10 |
-| medium | 3 | 42–81 | 8×8 | 5×14 |
-| large | 4 | 90–144 | 11×12 | 9×15 |
-| vast | 5 | 156–225 | 14×15 | 7×30 |
+| class | # | area |
+|---|---|---|
+| tiny | 1 | 4–11 |
+| small | 2 | 12–41 |
+| medium | 3 | 42–89 |
+| large | 4 | 90–155 |
+| vast | 5 | 156–225 |
 
-Area bands, not dimension pairs, so a `long` form has somewhere to go — the bands
-fall straight out of 2×2…3×3, 3×4…6×6 and so on, and do not overlap. Aspect is
-governed by the form and there is no global dimension cap: `rect` 1:1–1.5:1, `long`
-2:1–4:1, `round` square, `irregular` roughly square with jogs, `composite` by
-construction.
+Area bands, not dimension pairs, so a long room has somewhere to go. **The bands are
+contiguous.** An earlier draft made them non-overlapping by leaving gaps — 9→12,
+36→42, 81→90, 144→156 — and those gaps turned out to be a direct cause of the
+size-4/5 packing failure. See 6a.2.
+
+Shape is four axes that vary independently — **family** (`rect` · `L` · `T` ·
+`cross` · `round`), **proportion** (`square` 1–1.25 · `moderate` 1.25–2 · `long`
+2–4), **relief** (0 perfect · 1 irregular · 2 highly irregular), and the size band
+above. 6a shipped a single five-valued `form` list that did all three jobs at once
+and drew 86% of chambers as plain rectangles as a result; **6a.2 supersedes it** and
+is the authority on the shape model. Band on **floor area**, cap the **bounding box**
+separately at 24 cells a side.
 
 `class >= degree - 1` replaces an earlier per-wall perimeter constraint, which was
 solving the wrong problem. A 2×2 room has four sides and can technically take four
@@ -1842,41 +1849,586 @@ Smaller things that differed from the plan as written:
 - `--map` works under `--dry`: the geometry is pure, so iterating on it needs no
   key and no calls.
 
-#### 6b — The map on screen
+#### 6a.2 — Room shape ⚠️ **PARTLY SUPERSEDED BY 6a.3**
 
-`floorplanLayout(fp): Layout` alongside `pointLayout`, emitting the `polygon` and
-`polyline` cases. `Layout` gains doors, fixture slots and labels. `DungeonMap.tsx` is
-rewritten against the same interface, which is what the §7 boundary was for.
+The size vocabulary below is live and load-bearing: `AREA`, `classOf`,
+`ARCHETYPES` and `sizeAllows` are what 6a.3 reads. The rest of this section
+describes the rectangle packer, which 6a.3 replaces — the family axis
+(`rect`/`L`/`T`/`cross`/`round`), the relief carving and the placement search are
+all still in `dungeon-floorplan.ts` and still tested, but nothing in the
+generation path calls them. Read it for the size model; skip it for the geometry.
 
-Fog with real geometry: undrawn space is simply undrawn, which under this rendering
-*is* the classic look — a player map drawn as you explore — rather than a compromise.
-A small blank area beyond the entrance's surface exit stands for the outside; the
-entrance does **not** need to be on the outer face of the whole drawing, and other
-parts of the dungeon may sit behind it.
+6a shipped with **86% of chambers drawn as plain rectangles**, measured over 728
+chambers at sizes 1–3. Corridors were fine — 126 of 136 genuinely L-shaped, cross
+or blob — but the chambers were flat, and the size-4/5 packing failure is entangled
+with why.
 
-**Fog gains a second bit.** A corridor walked through but never stood in is *seen,
-not examined*: it should be drawn without having cost a composition call.
-`composed === undefined` continues to mean never encountered.
+Three separate causes, only one of them deliberate:
 
-Interactivity: hover on rooms, doors, features and items; **click a door to travel**,
-dispatched through the normal turn path so it is identical to typing it — a door is a
-better click target than a room because it stays unambiguous when the far side is
-dark, and a locked door stays clickable so the referee gets to be the one that says
-no. Player marker at room centre with no finer position, which is exactly what the
-model knows. Pan/zoom, since this is a drawing rather than thirty dots.
+- **`round` was drawn as a square.** The spec line `round — square` meant square
+  *proportions*; no circular outline existed in the code. 163 rooms — a fifth of the
+  dungeon — rolled the well, the fountain, the fighting pit and got a box.
+- **L, T and cross for chambers were never built.** 6a lists straight/L/cross/blob
+  under *corridors* only; for chambers it says "roughly square with jogs" and
+  "by construction", and that narrower reading is what got built.
+- **Shape was carved after placement, with a guard that refused to touch any cell
+  abutting another room.** So shape was suppressed exactly where rooms meet, and it
+  silently did nothing on anything under 5×5. 70 of 119 "irregular" rooms came out
+  as rectangles anyway.
+
+##### The model
+
+The old list did three jobs at once. Split into axes that vary independently:
+
+| axis | values |
+|---|---|
+| **family** | `rect` · `L` · `T` · `cross` · `round` |
+| **proportion** | `square` (1–1.25) · `moderate` (1.25–2) · `long` (2–4) |
+| **relief** | `0` perfect · `1` irregular but the shape still reads · `2` highly irregular |
+| **size** | five **contiguous** bands: 4–11 / 12–41 / 42–89 / 90–155 / 156–225 |
+
+**Relief is a modifier, not a category.** That is the fix for the flatness: a T-shaped
+room can have a niche, a round room can have a bay. Tangling it into `irregular` and
+`composite` is why those were the only two forms that ever got carved.
+
+**`cave` is not a family.** A cavern is relief 2 over whatever family is underneath —
+which is more expressive than a category of its own, since a heavily relieved cross
+is a natural fissure and a heavily relieved rectangle is a collapsed hall.
+
+**Round takes proportion and relief like anything else.** Square + relief 0 is a
+circle; long is an oval; relief 2 is a blob. One family, no special case.
+
+**The size bands are contiguous, and the gaps were a bug.** 9→12, 36→42, 81→90,
+144→156 were the side effect of making bands non-overlapping, and they are a direct
+cause of the packing failure: a room pinned between two fixed neighbours has its
+width dictated, and if the resulting area lands in a hole there is no legal room at
+all. Contiguous bands make "the class describes the rectangle that fit" principled
+rather than the workaround 6a shipped.
+
+Band on **floor area**, cap the **bounding box** separately at 24 cells a side, which
+relief 2 may exceed. A cross fills perhaps 40% of its box, so the two numbers come
+apart badly on the shaped families and only one of them is what the fiction means.
+
+**Rooms always have walls.** Two abutting rooms have a wall down the edge between
+them; they are not one open space with a line drawn on it. The door is what connects
+them, and it is a break in that wall. This is true of the drawing and of the fiction.
+
+##### Hard, firm, soft
+
+**Family is hard, proportion is firm, size is soft.** A well that is not round is
+wrong; a banquet hall that is not long is wrong; a well one class larger than it
+rolled is nobody's problem. In 6a everything was equally rigid and the packer had
+nowhere to give — that rigidity is the failure.
+
+##### The archetype table on the axes
+
+Each noun constrains a subset and leaves the rest free, which is where the variety
+comes from. Relief is now one of the things it constrains.
+
+| group | constrains | free |
+|---|---|---|
+| Banquet hall, Ballroom, Barracks, Gallery, Dormitory, Stables, Kennel, Catacombs, Sewers | proportion = long | family, relief, size |
+| Well, Fountain, Pool, Fighting pit, Oubliette, Observatory | family = round, relief ≤ 1 | proportion, size (Well also pins tiny) |
+| Cavern, Chasm, Mine shaft | relief = 2 | family, proportion, size |
+| Chapel, Shrine, Temple, Throne room, Courthouse, Opera house | family = T or cross, proportion = long, relief ≤ 1 | size |
+| Courtyard, Garden, Marketplace, Park, Theater, Warehouse | size ≥ large, relief = 0 | family, proportion |
+| Privy, Cabinet, Cloakroom, Wardrobe, Pantry, Larder | size = tiny, relief = 0 | — |
+
+The axial group gains most: `composite` was an invented form that narrowed one end.
+On these axes it is simply a **T** — stem and bar, nave and transept — a real shape
+with ~10,800 distinct medium silhouettes behind it.
+
+**Relief rolls 25 / 75 across 0 / 1. Relief 2 never rolls** — it appears only where
+the archetype demands it. Tiny is pinned to relief 0.
+
+##### Measured, before building
+
+Distinct footprints per family within a band, and in brackets distinct *silhouettes*
+ignoring rotation and mirroring:
+
+| | tiny | small | medium | large | vast |
+|---|---|---|---|---|---|
+| rect | 6 (4) | 57 (30) | 63 (33) | 51 (27) | 27 (15) |
+| L | 216 (29) | 7,200 (912) | 16,308 (2,052) | 17,316 (2,178) | 8,328 (1,052) |
+| T | 308 (48) | 30,288 (4,199) | 78,696 (10,797) | 84,836 (11,632) | 36,592 (5,057) |
+| cross | 76 (19) | 33,088 (5,090) | 104,624 (15,567) | 102,186 (15,446) | 29,617 (4,817) |
+
+A medium cross has ~15,600 genuinely different shapes, because the bars need not be
+centred and the two bars have independent thicknesses. Repetition is not a risk.
+
+Round, where the doubt was. Relief 1 and 2 figures are distinct silhouettes out of
+600 sampled draws, so they double as a collision rate:
+
+| proportion | relief | tiny | small | medium | large | vast |
+|---|---|---|---|---|---|---|
+| square | 0 | 2 | 7 | 9 | 11 | 12 |
+| square | 1 | 20/583 | 250/600 | 504/600 | 588/600 | 599/600 |
+| square | 2 | 28/474 | 506/596 | 600/600 | 600/600 | 600/600 |
+| long | 0 | 2 | 14 | 24 | 28 | 11 |
+| long | 1 | 40/599 | 384/591 | 576/600 | 599/600 | 598/600 |
+
+Three readings. **Relief 0 is genuinely repetitive and that is correct** — a medium
+circle has nine possible shapes, and two perfect circles the same size *should* look
+alike; it is why 0 is the minority roll. **Relief 1 is the workhorse**, 504 unique in
+600 at medium and effectively 100% at large and vast. **Tiny cannot carry relief at
+all** — 20 distinct in 583 draws — which is why it is pinned to 0. (The long/vast
+relief-0 figure of 11 is depressed by the 24-cell enumeration cap, not by the design.)
+
+##### Order of work, and the only real constraint
+
+> **chambers → corridors → relief**
+
+Niches only remove cells, so they can never cause an overlap. Bays add cells outside
+the placed footprint, so they can — but applied *after* corridors, into cells already
+verified as empty rock, they cannot fail. Relief becomes decoration on a plan that is
+already sound, and `validateFloorplan` re-checks it regardless.
+
+The carving guard is **three things and no more**: never remove a cell carrying a
+door; keep the footprint in one piece; stop before the floor area leaves its band.
+6a's guard also refused any cell abutting another room, which was wrong — the
+validator only requires that a connector's door sits in a wall its two rooms share,
+and says nothing about how long that wall is. Since a room has ~2.4 connections, the
+old rule put the whole length of every shared wall off limits, often half the
+perimeter; the door-only rule costs two or three cells. Roughly half the boundary
+comes back, and it is the half the eye reads. Cap how far a shared wall may be eaten,
+so two rooms are not left joined by a single cell that looks accidental.
+
+The cost is a mild bias — bays appear where there is spare rock, so outer rooms get
+more of them than tightly packed interior ones. That reads correctly: an interior room
+genuinely has nowhere to bulge.
+
+##### This is half a fix for the packer, and the half matters
+
+**Family belongs inside the packer, chosen as part of placing each room.** Not
+stamped on afterwards — that was 6a's mistake and it is why shape contributed nothing
+to solving the layout.
+
+The mechanism is worth stating because it is the same constraint that broke 6a. A
+rectangle's area is width × height, so a room pinned between two fixed neighbours has
+its width dictated, and its **achievable areas are then quantised to multiples of
+that width** — one of those multiples has to land in the band, and the holes in the
+old bands meant sometimes none did. Pinned on all four sides, both dimensions are
+exact and there is a single candidate area. A cross in that same dictated bounding
+box can take almost any area by varying arm thickness.
+**The shaped families decouple the bounding box from the floor area**, which is
+exactly the coupling that was strangling placement. Per-room options go from ~63
+medium rectangles to well over 100,000 across families.
+
+Relief does **not** help — it runs after corridors, by which point every loop is
+already closed.
+
+So: build the family axis into the packer and **re-measure the size-4/5 rate before
+committing to the rectangular dual**. It improves the per-room odds substantially but
+it is still a search, so failures still compound with room count; it may carry size 4
+and leave 5 short. That measurement is an afternoon and the dual is a session, so it
+is the cheap experiment to run first.
+
+##### The types
+
+All of it inside `dungeon-floorplan.ts`. `RoomForm` is retired.
+
+```ts
+export type Family     = "rect" | "L" | "T" | "cross" | "round";
+export type Proportion = "square" | "moderate" | "long";
+export type Relief     = 0 | 1 | 2;
+export type SizeClass  = "tiny" | "small" | "medium" | "large" | "vast";  // unchanged
+
+export interface RoomShape {
+  family: Family;
+  proportion: Proportion;
+  relief: Relief;
+  sizeClass: SizeClass;
+}
+
+// FloorplanRoom: `form: RoomForm` + `sizeClass?: SizeClass`  ->  `shape?: RoomShape`
+```
+
+`shape` is optional for the same reason `sizeClass` was: a corridor is whatever the
+connection needed and has no shape to report. Making it one object rather than four
+loose fields matters for 6c, which hands the whole thing to the content pass.
+
+`AREA` becomes contiguous — 4–11 / 12–41 / 42–89 / 90–155 / 156–225. `ASPECT` is
+re-keyed from family to **proportion**, which is the axis that actually governs it,
+and a `BOX_CAP = 24` constant carries the bounding-box limit that `dimensionsFor`
+currently hard-codes as its loop bound.
+
+`Archetype` widens to constrain any subset of the axes, which is what makes the table
+in §"The archetype table on the axes" expressible:
+
+```ts
+interface Archetype {
+  family?: Family | Family[];     // Chapel: ["T", "cross"]
+  proportion?: Proportion;
+  relief?: Relief;                // pins it — Cavern: 2
+  maxRelief?: Relief;             // caps it — the round group: 1
+  sizeClass?: SizeClass;          // pins
+  minClass?: SizeClass;           // floors
+}
+```
+
+**This is a cheap change to make.** `form` and `sizeClass` escape
+`dungeon-floorplan.ts` into exactly one place — the `class >= degree - 1` assertion at
+`floorplan.test.ts:198`. No UI reads them (6b is unbuilt), no prompt payload carries
+them (that is 6c), so **no prompt snapshot moves.** The floorplan determinism fixtures
+move, because the layout RNG stream changes shape; that is the whole blast radius.
+
+##### Where each piece lands
+
+| Today | Becomes |
+|---|---|
+| `footprintFor(room, minCells, rng): Footprint` | `shapeFor(room, minCells, rng): ShapeRoll` — rolls the axes and returns what is pinned and what is free. No dimensions. |
+| `dimensionsFor(cls, form): Rect[]` — precomputed per class × form | `candidatesFor(roll, box): Footprint[]` — **called from inside the packer**, given the bounding box the neighbours have already dictated |
+| `carveForm(cells, form, box, grid, rng)` — runs before corridors | `applyRelief(cells, relief, grid, doors, rng)` — runs **after doors** |
+
+**`candidatesFor` is the load-bearing change and the reason the signature moves.** 6a
+precomputed a list of rectangles per class and asked placement to find one that fit;
+that is backwards once families are shaped. The packer knows the box before it knows
+the footprint, so the question is "given this box, what shapes of my family land in my
+band" — and a cross answers it by varying arm thickness, where a rectangle can only
+answer with the one area its dictated width permits. That inversion is the fix.
+
+A `round` room is an ellipse inscribed in its box, rasterised by a new `ellipseCells`
+primitive — the only genuinely new geometry in the session.
+
+##### Order of work
+
+The design says **chambers → corridors → relief**. The pipeline is one step longer
+than that, because relief's guard needs to know where the doors are:
+
+> **chambers → corridors → doors → relief**
+
+Relief is last, which is stronger than the design claims and worth having: by then
+every loop is closed, every door is placed, and `applyRelief` is decorating a plan
+that has already passed. Today `carveForm` runs at `dungeon-floorplan.ts:958`, before
+corridors — moving it past the door loop is most of the diff.
+
+The guard is **three things and no more**: never remove a cell carrying a door; keep
+the footprint in one piece; stop before the floor area leaves its band. Plus the cap
+on how far a shared wall may be eaten, so two rooms are not left joined by a single
+accidental-looking cell.
+
+##### Round is capped at degree 4. SETTLED
+
+**A round room's shared walls are short.** An ellipse meets an orthogonal neighbour
+along a handful of cells at each cardinal point, and `validateFloorplan` requires
+every connector's door to sit in a wall segment its two rooms genuinely share. A
+degree-5 round room has nowhere to put the fifth door.
+
+So **`round` is only offered at degree ≤ 4**, falling through to the next candidate
+family otherwise. It costs nothing — the archetype group that pins round is six
+nouns, and a well or an oubliette with five ways out was never the common case.
+
+`class >= degree - 1` does not cover this on its own, and the reason is worth keeping
+in view because it generalises: that floor buys **area**, on the theory that a bigger
+room has room to arrange its neighbours on several sides. What a door actually needs
+is a **flat run on the boundary**, and the two come apart on every shaped family — a
+vast ellipse has exactly four, the same as a small one. Degree is a constraint on
+perimeter shape, not on size.
+
+This is the one place a rolled family can be refused outright, so it belongs in
+`candidatesFor` alongside the band check rather than in `shapeFor`: the roll stays
+honest and the packer declines what it cannot draw.
+
+##### Tests
+
+- every `ARCHETYPES` key still reachable from the four tables (the existing assert,
+  extended to the new constraint shape)
+- the roll: **relief 2 never rolls unbidden**, tiny is always relief 0, relief is
+  25/75 across 0/1 everywhere else
+- every chamber's floor area is inside its band; every bounding box is ≤ 24 a side
+  except where relief 2 pushed it out
+- `class >= degree - 1` still holds — rewritten against `shape.sizeClass`
+- `applyRelief` never removes a door cell, never disconnects a footprint, never
+  leaves the band, and never eats a shared wall past the cap
+- every `round` archetype draws as an ellipse and not a box — the specific 6a bug
+- **no `round` chamber has degree > 4**, across the full seed spread, and a room whose
+  archetype pins round but whose degree is 5 still draws — as some other family, and
+  still passing `validateFloorplan`. The fallback is the half that can silently fail.
+- **the flatness metric as a regression test.** 6a shipped 86% plain rectangles. Assert
+  the chamber family distribution over a seed spread and fail above **40%** `rect`.
+  This is the one number the session exists to move, so it should be a test rather
+  than a measurement somebody remembers to take.
+- `validateFloorplan` across 200 seeds × sizes 1–5, unchanged
+- determinism on the id-stripped canonical form per G5
+
+#### 6a.3 — The block plan ✅ **BUILT AND WIRED IN**
+
+`src/engine/dungeon-blockplan.ts`. The dungeon is drawn by dividing the ground
+between the rooms rather than by searching for somewhere to put each of them.
+Nothing backtracks and nothing compounds, so a thirty-room dungeon is not
+meaningfully harder to draw than a six-room one.
+
+##### The pipeline
+
+```
+1. CENTRES   Phase A positions, scaled so a connection is 5-9 cells round a
+             corner (inter-chunk at the top of that), then spring-relaxed
+             against those targets.
+2. UNTANGLE  Hill-climb the crossing count to zero by swapping the two rooms on
+             a crossing pair, with a jiggle to escape plateaus. Alternates with
+             the spring pass and gets the last word.
+3. BLOCKS    Each anchor becomes a 2x2, anchor at a randomly chosen corner.
+4. PATHS     One-turn lines between block rims, shortest connection first. On a
+             jam, MOVE A ROOM and re-route rather than rerolling the seed.
+5. ZONES     Rooms take turns claiming ground -- rock, or a corridor they are an
+             end of, never another room's. Interior rooms first, corridors last.
+             Stops when every corridor cell has an owner.
+6. ROOMS     A skeleton through the room's doors, then growth one cell at a time
+             inside an aspect band toward a target area.
+7. DOORS     One per connector, at random along the wall the two rooms share.
+```
+
+**Crossings have to go, and that is a hard requirement rather than a nicety.**
+Phase A validates that the *graph* is planar — that a crossing-free drawing
+exists — but `relax()` is a plain spring simulation with no notion of a crossing,
+and its positions routinely contain them: every size-4 dungeon has at least one
+and size 5 averages six. Two rooms sharing a wall is a contact representation and
+cannot contain a crossing, so step 2 is what makes steps 4 onward possible at all.
+
+**Adjacency holds by construction.** Both rooms are required to contain their
+side of an agreed contact before either is drawn, so a connected pair always
+shares a wall and there is never anything to search for or check afterwards.
+
+**A 2x2 rather than a single cell**, because one cell has four ways out and a
+one-turn line can only leave toward its target — a room with three or four
+connections then has to find distinct exits among neighbours offering two options
+each, and frequently cannot.
+
+**Repair, not restart.** The spacing pass is a convergent relaxation, so a fresh
+seed lands in much the same layout; when a connection jams, the fix is to move
+the room that failed.
+
+**Growth is cell by cell, not ring by ring**, and that is what lets proportion
+steer. A ring adds to every side at once, so a long room could only ever get
+fatter. Cell by cell it takes the cells at its ends and refuses its flanks, and
+grows by getting longer.
+
+##### Size is read off the room. **SETTLED**
+
+An archetype's size pin used to be an instruction to the packer — a Well had to
+come out tiny — and the ground available rarely obliged. Now the geometry settles
+first, `roomSizes()` reads the class off the finished floor area, and the pin is
+**a condition on the identity roll**: `sizeAllows(identity, class)`. A four-cell
+closet does not get to be a banquet hall. Always satisfiable, because the roll is
+what bends.
+
+**Four bands, tight, against spacing of 5-9:** tiny 4-9, small 10-25, medium
+26-35, large 36 and up. They describe what the block plan actually draws — rooms
+of ten to forty cells on zones of twenty to forty — rather than an idealised
+spread. An earlier five-band version ran to 196 and put three of its five bands
+out of reach, which made the size a worse signal than no size at all. `vast` is
+gone.
+
+The *target areas* the room grows toward while filling its zone are a separate
+roll and are unchanged.
+
+##### Where it runs
+
+The layout needs the Phase A graph and which rooms are passages, and nothing
+else. So it runs *inside* stocking, between corridor designation and identity:
+
+```
+graph -> pre-pass + corridor designation -> BLOCK PLAN -> size per room
+      -> identity conditioned on size -> headlines, danger, rewards, content
+```
+
+`stockDungeon` takes a `layout` hook called at that point; `generate.ts` supplies
+it. `RoomStock.sizeClass` carries the result. Everything after identity is fiction
+and works from the room as drawn.
+
+**`minCells` is gone, deliberately.** The old packer raised a room's size class to
+fit what the entities pass had put in it. A room's size is now capped by the
+ground its neighbours left it, and the entities pass runs after the drawing
+regardless, so stocking decides what fits in the room rather than the room being
+sized to the stocking.
+
+##### Measured
+
+Per attempt, 8 dungeons x 100 attempts, roughly a millisecond each: **100% at
+size 1, 98.8% at size 3, 39.7% at size 5.** Soundness across sizes 1/3/5: every
+plan sound — no overlaps, every room one connected piece, every connected pair
+sharing a real wall, exactly one door per connector and every door in a wall its
+two rooms share.
+
+##### Tests
+
+`blockplan.test.ts`, 18 tests, about ten seconds. Four plans at each of the five
+sizes, built once, and every guarantee asserted against all of them: no two rooms
+share a cell, every room is one piece, **every connected pair shares a wall**,
+exactly one door per connector and both rooms contain their side of it, and rooms
+leave rock rather than tiling their zones. Plus determinism for a layout seed —
+and its opposite, that a *different* seed draws a different plan, which is the
+thing that was silently untrue when the jitter only reached the tie-breaks.
+
+The spacing assertion is deliberately "most, not all". Untangling swaps rooms to
+clear a crossing without regard for spacing and gets the last word, so about 83%
+of connections land in the 5–9 band and that is correct behaviour, not slack.
+
+##### Outstanding
+
+1. **Size 5 fails about one dungeon in eight**, with ~0.5 crossings surviving the
+   hill-climb. **HANDLED BY STARTING OVER — author's call.** `generate.ts` throws
+   the graph away and generates another, up to 8 (`GRAPH_ATTEMPTS`), which puts
+   the failure rate somewhere around one seed in ten million. It costs nothing:
+   the branch is pure and runs in milliseconds, and the fiction branch reads
+   `blueprint` rather than the graph, so nothing in flight is invalidated and no
+   tokens are re-spent. The seed still names one dungeon, because the retry seed
+   is derived (`<graphSeed>~<n>`) rather than random.
+
+   **TODO, not this phase.** Cheapest ideas first: flip a whole branch across a
+   crossing rather than swapping two rooms; allow occasional worsening steps;
+   stop the spring pass reintroducing crossings; bail before routing when
+   untangling did not reach zero. The proper answer is to derive positions from
+   the planar embedding rather than hill-climbing toward it — then the retry
+   loop runs once, always.
+2. **Relief is not applied.** It was to run last, on the built rooms.
+   **OUTSIDE MVP.** The axis and its carving code still exist in
+   `dungeon-floorplan.ts` and are still tested; nothing calls them.
+3. ~~**Nothing downstream consumes the plan.**~~ **DONE in 6b** — `floorplanLayout`
+   turns it into a `Layout` and the map renders it.
+4. **Large and vast rooms are unreachable.** Zones average 20–40 cells and `large`
+   starts at 72. Accepted: size feeds only the identity roll, and the bands that
+   matter for that are reachable.
+5. **The family axis is unused**, so no round, cross or T-shaped rooms. Accepted
+   for now — revisit if the drawings read as monotonous.
+6. **Proportion cannot lengthen a room whose doors cluster**, because the skeleton
+   runs between the doors, so "a banquet hall is long" is not honoured. Accepted.
+7. **Target areas are a placeholder roll** (`[6, 9, 14, 20, 28, 40, 56]`) rather
+   than derived from the size classes.
+8. **Corridors are only mildly narrower than chambers.** Accepted for now.
+
+**What size actually feeds.** `RoomStock.sizeClass` is written by the layout hook
+and read by exactly one thing — the `sizeAllows` condition on the identity roll.
+It is persisted, so the content pass and 6c can use it later, but nothing else
+reads it today.
+
+The vocabulary now lives in **`src/engine/dungeon-room-size.ts`** — the bands,
+`classOf`, the archetype table and `sizeAllows` — because the rooms loop and the
+block plan both need it and sit on opposite sides of the drawing. Tables and
+predicates only, no geometry.
+
+#### 6b — The map on screen ✅ **BUILT**
+
+`floorplanLayout(plan, graph): Layout` alongside `pointLayout`. `DungeonMap.tsx` is
+rewritten against the same interface, which is what the §7 boundary was for, and
+both layouts render through the one component — the point layout is still the
+fallback when `blockplan` is null, which a run saved before the plan existed will be.
+
+Under the block plan a connector has **no corridor to draw**: corridors are rooms, so
+a connected pair already shares a wall and the connector *is* the break in it. So
+`Layout` gains a door rather than a polyline — `{ at, wall, through }` — and the
+`polyline` case stays unused. Three other additions, each because the geometry
+demanded it:
+
+- **`Shape.polygon` gains `holes?`.** A room grown frontier-by-frontier can close a U
+  on itself. Filled without the hole it draws floor over rock.
+- **`LayoutRoom.centre`.** Not derivable from the shape: averaging the vertices of an
+  L puts the player marker in the rock outside it. It is a cell the room owns.
+- **`LayoutConnector.to` is `string | null`**, matching `IRoomConnector.endpointB`
+  and `ExitView.toRoomId`. Null is the surface.
+
+**The way out needed placing, not just drawing.** It is the one connector that is not
+a graph edge — the entities pass mints it with `endpointB: null` — so `chooseDoors`,
+which walks `graph.edges`, never saw it, and *the map had no door for the only exit
+every dungeon has*. `BlockPlan.surface` now places it on a wall of the entrance room
+facing open rock, chosen uniformly at random among those. It is drawn unlike anything
+else: the gap, then a dashed torch stub reaching into blank paper and stopping,
+because it is the only door on the map with nothing on its far side.
+
+`Layout.surface` carries no connector id, because this module knows only geometry and
+the surface connector is not in the graph. `mapView` joins it by its null end.
+
+**Fixed cell scale, not normalised.** `pointLayout` normalises into a box; the
+floorplan multiplies cells by a constant. A wall should be the same weight whether
+the dungeon is six rooms or thirty, and the viewBox scales the whole thing anyway.
+Normalise and size 1 draws in fat crayon while size 5 draws in hairline.
+
+**A door is a white rectangle outlined in ink at the wall's own weight**, lying along
+its wall, a little thicker than the wall line so it covers it rather than sitting on
+it, and **three quarters of the wall's length** so it stops short of the corners at
+either end. Outlined rather than bare, so it reads as a leaf set into the wall rather
+than as a gap left in it. `LayoutDoor.length` carries the length, because the layout
+is what knows the cell size and the renderer should not have to be told. A first pass
+drew an open gap with a jamb at each side; it read as a hole somebody forgot to draw.
+A blocked door is the same rectangle with the outline in torch.
+
+**Every room takes the same fill, corridors included.** Tinting a passage `panel` to
+set it apart made it match the ground the dungeon is cut out of, so a corridor read
+as a hole in the map rather than as a place. What a corridor is comes across through
+its shape and its prose. `LayoutRoom.corridor` stays, unread by the renderer, because
+6c wants it.
+
+Interactivity: hover on rooms and doors giving name + `composed`, as an HTML overlay
+rather than `<title>` — `composed` is a paragraph, and the native tooltip renders it
+in the system font at the system width after half a second. **Click a door to
+travel**, through a confirmation, then dispatched as ordinary text through the normal
+turn path so it is identical to typing it. A blocked door stays clickable so the
+referee gets to be the one that says no. Player marker at `centre`. Wheel zoom, drag
+pan, double-click to reset.
+
+**The confirmation is not ceremony.** A misclick on a map costs a model call and a
+slice of the run, where typing has a keystroke of friction built in; and the player
+should read the sentence before it is sent, since text is the only thing they can
+hold the referee to. `TravelConfirm` shows it in quotes.
+
+**Only the current room's doors are clickable.** A door across the map is a route
+rather than a step — `routeTo` can walk one, but phrasing a route as a sentence the
+player never wrote is how the map starts saying things they did not mean. Far doors
+are hover-only. Revisit with the route UI, if there is one.
+
+`--map` on `cli-generate.ts` now dumps the **block plan** through `floorplanLayout`
+and `layoutSvg`, not the superseded 6a floorplan. Through the same function the app
+uses, deliberately: a dump that renders the plan its own way can look right while the
+panel looks wrong.
 
 The map may know more than the fiction but never differently. Nothing is drawn that
 the referee has not been told about.
 
-**Exit:** a run is playable against the real map.
+**Deferred out of 6b**, all recorded rather than dropped:
+
+- **The second fog bit** — a corridor walked through but never stood in is *seen, not
+  examined*, and should be drawn without having cost a composition call. Not built;
+  `composed === undefined` is still the only fog signal.
+- **The blank area beyond the surface exit** standing for the outside. The stub is
+  there; the space around it is not designed.
+- **Room labels drawn in the polygons.** The name is on the hover only.
+- **Hover on features and items.** They are not drawn until 6c's fixtures.
 
 #### 6c — Fixtures and the feedback loop
+
+**Where 6b leaves this.** Read this part first; it is the difference between what 6c
+was drafted against and what is actually in the tree.
+
+- **`RoomShape` does not exist on a drawn room.** 6a.2's four axes are still typed and
+  tested in `dungeon-floorplan.ts`, but the block plan does not use them: the family
+  axis is unbuilt (§6a.3 Outstanding 5), relief is **outside MVP** (Outstanding 2),
+  and proportion is a growth hint that a room whose doors cluster cannot honour
+  (Outstanding 6). **What a drawn room actually knows is its `sizeClass`** — written
+  by the layout hook onto `RoomStock.sizeClass`, persisted, and today read by exactly
+  one thing, the `sizeAllows` condition on the identity roll.
+- **So the first decision in 6c is what to send.** Either the payload carries size,
+  dimensions and exits-by-direction and drops the shape axes, or the family axis gets
+  built into the block plan first and 6c sends the full `RoomShape`. The second is a
+  session of its own and buys a richer prompt; the first is available now. **Take the
+  first unless the drawings read as monotonous** — the axes were designed to fix a
+  packer that no longer exists.
+- **The geometry 6c needs is all in `floorplanLayout`'s inputs.** `BlockPlan.rooms[i]`
+  is the cell set, so dimensions and floor area are a bounding box away.
+  `BlockPlan.doors` and `BlockPlan.surface` give exits, and their wall direction falls
+  straight out of `LayoutDoor.wall` plus which side `through` points — a door whose
+  `through` is north of its `at` is a north exit. Nothing new has to be computed.
+- **`LayoutRoom.corridor` is already plumbed** and unread by the renderer. A corridor
+  should get a different fixture menu from a chamber, and that flag is how.
+- **The way out is a first-class thing on the map now** (`BlockPlan.surface`,
+  `Layout.surface`) and the content pass should know which room has it.
 
 The content pass gains a **fixture menu** — a fixed enum of drawable things (cells,
 bunks, stalls, pews, pillars, pool, hearth, pit, altar, shelves, sarcophagi, well,
 stair, rubble) plus a coarse position vocabulary ("along the north wall", "centre",
-"far end") — and in return receives each room's dimensions, form and exits by wall
-direction.
+"far end") — and in return receives each room's dimensions, its size class and its
+exits by wall direction. Geometry goes over as words rather than as coordinates, so
+"a long hall with three ways off the east wall" is something the model can write to
+without ever seeing a number.
 
 This is the accuracy multiplier and the reason the floorplan runs **before** the
 content pass. Prose gets written against the drawn room rather than the keyword the
@@ -1899,6 +2451,420 @@ later.
 
 **Cost:** prompt snapshots move, and this needs a real generation to verify — the
 offline fixtures cannot prove it.
+
+**Two things 6b left that 6c should not inherit by accident:**
+
+- ~~**`DungeonMap.tsx` has no test behind it.**~~ **DONE in 6c.3.** There was no jsdom
+  project configured (deferred since Phase 0: "arrives with the first UI test"). The
+  geometry was covered — `layout.test.ts` and the `mapView` block in
+  `selectors.test.ts` — but nothing rendered the component. 6c adds a fixture layer to
+  it, which is the point at which that stopped being acceptable.
+- **`dungeon-floorplan.ts` is now entirely dead to the generation path.** The 6a
+  packer, `generateFloorplanValid`, `floorplanSvg` and `validateFloorplan` have no
+  callers left outside `floorplan.test.ts` — `--map` was the last one and 6b moved it
+  to the block plan. Roughly a thousand lines that still typecheck, still pass their
+  tests, and describe a design that lost. **Confirm with the author before deleting**,
+  per the B3 precedent, but it should go: the size vocabulary that is still live was
+  already lifted into `dungeon-room-size.ts`.
+
+#### 6c.1 outcome — geometry and fixtures, headless ✅ **BUILT**
+
+The first of two sessions, split on the author's call: everything that runs without
+React, built where iteration is a shell command — the same discipline as Phase 1 and
+6a. 512 tests green, build clean. **The React half is 6c.2, below, and nothing here
+is visible in the app yet.**
+
+**The first decision went the way the section above recommends.** The payload carries
+size, dimensions and exits-by-wall; the 6a.2 shape axes are not sent, because they do
+not exist on a drawn room. Nothing suggested the drawings read as monotonous.
+
+##### `src/engine/dungeon-geometry.ts` — the drawn room, as words
+
+Pure, derived, never persisted. The block plan is the durable thing and this is one
+function over it, so the vocabulary can change without a migration.
+
+`roomGeometry(plan, graph, opts)` gives, per room: floor area, the bounding box in
+cells **and in feet**, `sizeClass`, proportion, which way the long side runs, the
+outline, the longest unbroken run against each of the four walls, every exit with the
+wall it cuts and where along that wall it sits, and the exit the player most likely
+arrives by. `siteRooms` returns that alongside `RoomGround` — the cells, the door
+cells and the arrival cell — and **the two halves are kept apart on purpose:** the
+words go in the prompt, the cells stay behind to place what the words come back
+describing.
+
+`describeGeometry` renders one line:
+
+> `as drawn: a small chamber, about 10 by 35 feet -- long and narrow, running
+> north-south, close to a rectangle, give or take a corner. Ways out: one off the
+> south wall, one off the east wall`
+
+Three things settled while building it:
+
+- **`CELL_FEET = 5`, in one constant.** The moment two places convert cells to feet
+  they disagree. Five is the dungeon-map convention and it is the number that makes
+  the bands read right — a four-cell closet comes out 10 by 10.
+- **The compass is map-absolute and the prompt says so.** North is up, the drawing
+  never rotates, and nothing in the model knows which way the party is facing. So the
+  instructions forbid "left", "right", "ahead" and "behind" outright, and a test
+  asserts `describeGeometry` never emits one. A relative direction is a lie the moment
+  the player walks back through.
+- **`roomDepths` is computed here** by BFS from `graph.entrances` rather than read off
+  `RoomStock.depth`, so the module needs the plan and the graph and nothing else. Same
+  separation the block plan itself makes.
+
+**The outline thresholds are measured, and the first pass was wrong.** Over 1,520
+chambers across sizes 1–5 the box-fill runs min 0.04, p25 0.53, **median 0.67**, p75
+0.78, max 1.00 — the block plan grows rooms cell by cell out of a skeleton, so a clean
+rectangle is the rare case. Cutting at 0.95 / 0.68 called **56% of the dungeon
+"ragged, nothing like a rectangle"**, which is a strong claim about the majority and
+therefore no information at all. At **0.85 / 0.60** the three words come out near
+16 / 48 / 36 and each distinguishes its rooms from the others. Re-measure before
+changing either number.
+
+The rest of the vocabulary, same corpus: proportion moderate 44 / long 33 / square 22;
+long axis east-west 41 / north-south 37 / none 22; size small 58 / tiny 22 / medium 13
+/ large 7; exits spread over 2 walls 56%, 3 walls 24%, 1 wall 18%, 4 walls 2%. Varied
+enough that the line is worth its tokens.
+
+##### `src/engine/dungeon-fixtures.ts` — the menu and the placement
+
+Fourteen kinds and nine position words, both exported as `const` arrays with type
+guards, and **both interpolated into the prompt from the same constants the validator
+reads**, so the menu and what apply will accept cannot drift.
+
+**The model picks a kind and a position. Code rolls the count and picks the cells.**
+That is the CLAUDE.md rule stated for this pass, and it is a test: every kind is
+placed twenty times and asserted inside its own `[lo, hi]`. "Pillars" is a decision
+about the room; "six pillars" would be a number the model invented.
+
+Placement refuses door cells and cells another fixture already took, uses
+farthest-point sampling so a colonnade reads as a row rather than a clump, and moves a
+wall-hugging kind to the longest wall when asked for the centre — the position word is
+a preference, what the object *is* is a fact. A word that resolves to nothing falls
+back through the whole room rather than dropping the fixture. It returns undefined
+only when there is no legal floor at all.
+
+**Caps rather than quotas**: tiny 1, small 2, medium/large 3, any passage 1. The model
+has never been shown the grid and has no sense of what a stone coffin takes up.
+
+**The menu is printed once**, in the instructions, with a `*` on the kinds a passage
+can hold. A first pass repeated it under all six rooms — three kilobytes a call to say
+the same fourteen things six times.
+
+##### What the content pass gained
+
+`ContentRoomBrief.geometry` (the sentence), `ConnectorBrief.wall` (which wall this
+room's exit cuts, on the connector's own line rather than gathered elsewhere), and a
+per-room fixture cap. In return `RoomResponse` gains `fixtures[]`, and `position` on
+`entities`, `promotions` and `goal` — so **the stocked chest, clue, hazard and the
+objective itself get placed alongside the furniture**, which was the author's call and
+is the difference between a map that dots the scenery and one that dots what the
+player came for.
+
+`ContentPassPayload.ground` carries the cells from build to apply. **The renderer does
+not touch it and must not:** the payload is already the channel for everything else
+apply looks up by ref, and coordinates are the half of the geometry that stays on this
+side of the boundary.
+
+An unrecognised `kind` drops the fixture; an unrecognised `position` falls back to the
+centre. Neither is ever fatal. The zod schema deliberately takes `position` as a loose
+string and lets `applyContentPass` narrow it — a rejected batch is six unwritten rooms
+and a retry, where a bad position word is a pillar in the wrong place.
+
+##### Entities, and the map's headless half
+
+`IRoomFeature.place` and `IItem.place` hold `{ cells, position, fixture? }`. `position`
+sits next to the cells because it is what the **prose** may say while the cells are
+what the **drawing** uses; re-deriving either from the other is how they drift. Written
+once at generation and **not on the applier's writable-path allowlist** — a brazier
+knocked over changes its `state`, not its footprint.
+
+`addFixture` mirrors `promoteDetail` in the entities pass. It writes no
+`ElementBinding`: a binding ties an entity to the *stocked* element it came from, and a
+fixture came from no roll.
+
+`Layout.fixtures` and `placedThings()` in `occupancy.ts` carry it to the drawing;
+`layout-svg.ts` draws plain ink dots at a third of a cell. Verified end to end on an
+offline size-3 dungeon: 18 rooms, 48 placed things, 86 marks, every one inside its room
+and clear of every doorway.
+
+##### A pre-existing bug this turned up
+
+**`generateOffline` was never running the layout hook inside stocking.** It computed
+the block plan alongside, which left `RoomStock.sizeClass` unset on the dev path — so
+`sizeAllows`, the condition that stops a four-cell closet rolling "Banquet hall",
+silently did not apply offline while it did apply live. Fixed by mirroring
+`generate.ts`. That is why room identities moved in five snapshots, and it is the
+reason `--dry` now runs the hook too: a dry run that skipped it would render prompts
+without the "as drawn" line, which is most of what there is to iterate on.
+
+##### `dungeon-floorplan.ts` — parked, not deleted. **AUTHOR'S CALL**
+
+Kept as the record of a design that lost. What is *not* kept is the cost: the four
+suites in `floorplan.test.ts` that exercise the packer are `describe.skip`, and the
+top-level `beforeAll` that built a hundred drawn rooms is gone (`corpus()` is memoised
+and lazy, so unskipping costs nothing). The module still typechecks, so it cannot
+silently rot.
+
+**Two suites stay live and must:** `corridor designation` covers stocking, and
+`chamber archetypes` covers the vocabulary in `dungeon-room-size.ts` that the identity
+roll reads through `sizeAllows`. Neither touches the packer. The live `traceOutline` is
+`runtime/layout.ts`'s and is covered by `layout.test.ts`; the skipped one is the
+engine's dead copy.
+
+The author asked for the module commented out; parking the *test* was proposed instead
+and accepted in effect — the module costs nothing to keep compiling, and the 488-line
+suite was the whole of the runtime bill.
+
+##### Tests
+
+`geometry.test.ts`, 28 of them. The derivation is checked against hand-built cell sets
+where the answer is obvious by eye — a 3×3, an L, a 12-cell L in a 4×4 box — and then
+swept over real plans for the facts that have to hold: area never exceeds its own box,
+proportion and long axis agree, a wall run never exceeds the box side it lies along,
+**every room has exactly as many exits as it has doors** (the assertion that catches a
+door indexed from one side only, which is what leaves a room describing fewer ways out
+than it has and the writing pass inventing replacements), and the same door reads
+through opposite walls from its two rooms.
+
+The placement tests are written as the contract with the content pass, because those
+are the ones that would go silently wrong: never in a doorway, never two things in one
+cell, never outside the room, the count always inside the kind's range, "far end"
+genuinely further from the arrival than "near the entrance", deterministic per seed and
+different across seeds.
+
+The offline fixture now returns fixtures and positions, so the whole apply path is
+exercised for free on every run.
+
+#### 6c.2 outcome — on screen and in the room block ✅ **BUILT**
+
+524 tests green, build clean. Four of the five items below landed; the fifth, the
+jsdom project, is deferred again by the author and is the only thing between here
+and Phase 6 being finished.
+
+##### THE RULE — an entity updates on the map only when its `composed` changes
+
+**Author's, and it is the load-bearing idea in this half.** It is the same
+precedence `dungeon-entities.ts` already sets for prose — *what the player was told
+binds* — applied to the drawing.
+
+One test does every job at once, because `composed` is written in exactly one
+circumstance: the player is looking at the thing.
+
+| case | why it falls out |
+|---|---|
+| never encountered | `composed === undefined`, nothing drawn |
+| concealed | room entry never composes a hidden thing, so likewise |
+| changed two rooms away | `setState` marks `needUpdate` and **leaves** `composed`, so the marker goes on saying where it was last seen |
+| revealed by a search | `setIsHidden(false)` sets `needUpdate`, the next composition writes `composed`, and the dot arrives **with** the prose rather than before it |
+
+That last row is worth stating plainly: **the applier already did its half.** No diff
+handler changed. `setIsHidden` opening a description debt on reveal, and `setState`
+declining to touch `composed`, are what make a `composed`-gated map correct without
+any new bookkeeping.
+
+The filter lives in `mapView` and nowhere else. `Layout.fixtures` deliberately carries
+every placed entity, concealed ones included, because `layout.ts` knows only geometry —
+the same arrangement `LayoutConnector` has. A second filter would be a second place for
+the rule to be wrong.
+
+**The one case the rule does not cover for free, recorded rather than solved:** the
+*position* of a thing that moves. Features never move. Items can, and an item that
+leaves its placed room currently loses its marker — right for every path that exists
+today, since all of them happen with the player watching (they picked it up), and wrong
+for a thief carrying something off while they are elsewhere, which wants a "last seen
+here" snapshot of where the entity was when `composed` was last written. **Creatures
+need that snapshot too and have no marker at all yet, so it arrives with creature
+markers.** Not before: a field that nothing reads correctly is worse than a documented
+gap.
+
+##### What was built
+
+1. **`MapView.fixtures`** (`selectors.ts`) — the four tests above, plus `includeHidden`
+   honoured for the debug tools exactly as connectors honour it.
+2. **`DungeonMap.tsx` fixture layer** — one `<g>` per entity, one dot per cell, drawn
+   in `graphite` so contents sit under walls in the eye's reading order, with a
+   transparent stroke widening the hit area because a three-unit dot is not a cursor
+   target. Hover gives name, position and `composed`.
+3. **`PlayScreen`** passes `placedThings(dungeon.entities)` — the **generated** copy,
+   not the run's, since `place` is not on the writable-path allowlist and so the
+   footprints really are fixed for the run. Which of them may be seen is `mapView`'s
+   question, answered against the run copy by id.
+4. **The geometry at runtime.** `RoomView.geometry`, `ExitView.wall`,
+   `EntityView.position`, rendered by `renderRoom` as an `### As drawn on the map`
+   section, a wall on each way out, and a position on each placed thing. Plus a
+   **"The map is open beside them"** section in `steps/room-entry.md`.
+
+   `geometryOf` memoises `siteRooms` in a `WeakMap` keyed on the `GeneratedDungeon`:
+   `roomView` runs on every render and every prompt assembly, `siteRooms` covers all
+   thirty rooms, and the inputs are write-once — so the cache cannot go stale and
+   cannot leak.
+
+**The referee reads the same sentence the content pass was given**, from the same
+function, and there is a test that rebuilds it from the plan rather than comparing
+against a literal. That is the whole of the feedback loop: prose written to the drawing
+at generation, prose written to the drawing at runtime, one derivation behind both.
+
+##### `positionPhrase`, and why the wire form and the prose form are separate
+
+The position words are enum values — short, unambiguous, easy to pick off a list. They
+do not survive being dropped into a sentence: prefixing with "at" produced **"at
+throughout"** and **"at near the entrance"**, and both reached a prompt before this
+existed. `positionPhrase` is the one place the prose form is decided, and the map hover
+and the room block both go through it so they match word for word rather than merely
+agreeing.
+
+##### A vacuous test, caught
+
+The first draft of "drops an item's marker once it is no longer lying in that room"
+looked for a loose item in the **entrance** room and returned early if there was none.
+Seed 1005 at size 2 has none, so it asserted nothing and passed. It now takes the first
+placed item in any room and fails loudly when there is none. Worth recording as a
+pattern rather than an incident: a guard clause that skips is a test that lies.
+
+##### What is left of Phase 6
+
+**One item, and then the exit criterion.**
+
+5. **The jsdom project and the first `DungeonMap` test.** Deferred since Phase 0
+   ("arrives with the first UI test"); §6c named the fixture layer as the point at
+   which that stops being acceptable, and the fixture layer now exists. The geometry
+   under it is covered — `layout.test.ts`, `geometry.test.ts`, and the `mapView`
+   blocks in `selectors.test.ts` — so what is missing is specifically that nothing
+   renders the component. **DONE in 6c.3, below.**
+
+**The 6c exit criterion is unmet and can only be met live:** "a live generation
+produces prose that agrees with the map" needs a real call. Everything built in 6c.1
+and 6c.2 is plumbing and vocabulary; whether the prose is any good is discovered
+against a model, and the offline fixtures cannot prove it. **MET — see 6c.4.**
+
+#### 6c.4 — the live run ✅ **EXIT CRITERION MET**
+
+`--seed 4201 --size 3`, 133s, 30,497 in / 16,845 out. "The Petrified Catacombs",
+18 rooms (3 corridors), 22 doors plus the way out, 32 placed things, 40 marks.
+
+**The prose agrees with the map, and closely.** The drawing said of the entrance
+region's first chamber: *a small chamber, about 20 by 30 feet — oblong, running
+north-south, ragged, nothing like a rectangle.* The model wrote: *a cramped, oblong
+room … The chamber runs north to south, barely twenty feet wide but thirty feet long,
+and the ragged outline of its walls suggests…* Dimensions, orientation and outline all
+carried, and the same held across the rooms spot-checked at every size class — a large
+roughly-square chamber written as *roughly square and ragged … perhaps forty feet
+square*, a corridor as *a narrow passage running east-west, roughly twenty-five feet
+long and ten feet wide, its walls stepping in and out*. The size vocabulary reached
+the fiction rather than sitting in the payload.
+
+**The map-absolute compass rule holds.** 74 pieces of written prose, **zero** relative
+directions — no "to the left", "ahead of you", "behind you" — and 17 of 18 rooms use a
+cardinal direction. That was the rule most at risk from a model writing scene-setting
+prose, and the instructions carried it.
+
+##### The one real finding, and it is not 6c's
+
+**Three of about ninety written things came back unwritten**, and `validateWritten`
+reported all three:
+
+| | where |
+|---|---|
+| an item, no name and no base | in The Fungal Passage, chunk 1 |
+| a hazard, no name and no resolvable base | `blueprintId` present, `registry.hazards` entry empty |
+| a connector, no physical form | **The Pit ↔ The Stone Dormitory, both in chunk 1** |
+
+The connector is the one that says what this is. Both its rooms are in the *same
+chunk*, so it is not a seam and the seams pass was never going to write it — the chunk
+that owned it simply left it out of an otherwise well-formed response.
+
+**So the gap is that omission is not a schema error.** The retry policy is "on zod
+failure, retry that chunk once" (BUILD-PLAN §5), and a response that answers with five
+of six connectors is valid JSON against a valid schema. It passes, and nothing notices
+until `validateWritten` sweeps at the end, by which point the pass is over and there is
+no retry left to take. This is a **Phase 1 exit criterion failure** — "no empty `base`
+on any room, connector, creature, feature, item, or hazard" — surfacing on the first
+live run since 6c changed the payload, not a regression in the map work.
+
+Worth fixing, and not in this session. The cheap version is a completeness check on
+each chunk response before it is accepted — every ref the payload asked about is
+present — which turns an omission into exactly the zod-shaped failure the retry
+already handles.
+
+#### 6c.3 outcome — the jsdom project ✅ **BUILT**
+
+553 tests green (29 new), build clean, `tsc --noEmit` clean. The last structural item
+in Phase 6; what remains is the live exit criterion above, which is the author's call
+to spend.
+
+##### Two projects, split on the file extension
+
+`vite.config.ts` grows a `test.projects` pair. `.test.ts` is the headless project and
+stays exactly as it was — the engine and the runtime are framework-free by rule, and
+`src/ui/screens.test.ts` renders through `renderToStaticMarkup` and needs no DOM.
+`.test.tsx` is the jsdom project. The extension is the whole of the rule, so a test
+lands in the right project by being written in the syntax it needs, and nothing that
+existed moved.
+
+`@vitejs/plugin-react` is not involved: `tsconfig.json` sets `jsx: "react-jsx"` and
+Vite's esbuild transform reads it, so JSX in a `.tsx` test compiles without the plugin
+being part of the test pipeline.
+
+##### One devDependency, and a twenty-line harness
+
+**`jsdom` only — no testing library.** Author's call, on the reasoning that kept this
+project off a component library. What these tests actually assert is
+`container.querySelectorAll("path")`, because the map is SVG and has almost no roles
+or text to query by; `render` and `fireEvent` are the whole of what a library would
+have added, and they are the two functions in `src/ui/__fixtures__/dom.ts`
+(`renderDom`, `fire`, plus `leave` and `drag`). `renderDom` unmounts in an `afterEach`
+— a component left mounted keeps its window listeners, and `TravelConfirm`'s Escape
+handler is one.
+
+`src/ui/__fixtures__/jsdom-setup.ts` holds what jsdom does not implement and nothing
+else. That is currently **`setPointerCapture` / `releasePointerCapture` /
+`hasPointerCapture`**, which jsdom 29 lacks while shipping `PointerEvent`, and which
+`DungeonMap.tsx:240` calls unconditionally so a drag survives the cursor leaving the
+svg. Plus `IS_REACT_ACT_ENVIRONMENT`. The rule for that file is worth keeping: it
+supplies missing entry points, it never fakes behaviour.
+
+##### Two kinds of fixture, deliberately
+
+**The real dungeon** — `generateOffline(1005, 2)` through `floorplanLayout` and
+`mapView`, the same three calls `PlayScreen` makes — for anything about counts and
+correspondence: fog, the §7 boundary, one mark per cell, the marker on `centre`.
+Those have to hold against data nobody arranged.
+
+**A hand-built `MapView`** for the interaction branches. Clicking the right one of
+fourteen doors means first working out which `<rect>` it is, which means re-deriving
+`doorRect` in the test — so the test would be checking its own arithmetic. One door,
+placed by hand, checks the component.
+
+##### What the 21 map tests cover
+
+Fog (nothing drawn before the first room is described, and no marker either); the
+marker on `LayoutRoom.centre` rather than an average corner; **the §7 boundary** —
+the same `<path>` element drawn with arcs from `pointLayout` and with corners from
+the block plan, which is the only test that renders the fallback a pre-blockplan save
+comes back on; one `<g>` per fixture entity and one dot per cell; hover giving name,
+`composed` and `positionPhrase`; travel restricted to the current room's doors, a
+blocked way still clickable and outlined in torch, a read-only map not throwing; the
+way out as the only door with a dashed stub; wheel zoom clamped at 1:1, drag, and
+double-click reset. `TravelConfirm` adds 8: the sentence handed back is the sentence
+shown, focus, Escape, the listener removed on unmount, backdrop versus dialog, and
+the surface copy.
+
+##### Two things the first run caught, both in the tests rather than the component
+
+- **`pointerleave` dispatched directly reaches nothing.** Leave does not bubble, so
+  React does not listen for it — it derives `onPointerLeave` from `pointerout` at the
+  root by comparing target against `relatedTarget`. The helper is named `leave()` and
+  says so, because the failure mode is a test that passes while asserting nothing.
+- **`pointLayout` rooms are `<path>`, not `<circle>`.** `roomPath` answers the
+  `Shape` union with an arc string. The corrected assertion is better than the one it
+  replaced: it checks the `d` attribute for an arc and for the absence of a straight
+  run, which is the §7 promise stated directly.
+
+One test was written seed-dependently and then fixed before it could rot: the fixture
+position assertion originally pinned the literal `"throughout"`. It now reads the
+stored word off the entity and asserts `positionPhrase(stored)` differs from it, which
+is the actual guard — the enum leaking into prose — and holds for every seed.
 
 #### The tables — AUTHORED
 
@@ -1937,6 +2903,12 @@ nowhere else.
 nouns that genuinely imply a geometry are annotated; the remaining ~90 fall through
 to a default that still rolls among the size classes.
 
+The groups are below in the prose the session settled them in. **6a.2's table is the
+authority on what each group actually constrains** — the six groups are the same six,
+restated on the four axes, and that is the version to build from. The difference is
+that a group now pins only the axes it means and leaves the rest to roll, which is
+where the variety comes from.
+
 | form | entries |
 |---|---|
 | long and narrow | Banquet hall, Ballroom, Gallery, Barracks, Dormitory, Stables, Kennel, Catacombs, Sewers |
@@ -1945,6 +2917,11 @@ to a default that still rolls among the size classes.
 | axial with an end feature | Chapel, Shrine, Temple, Throne room, Courthouse, Opera house |
 | large and open | Courtyard, Garden, Marketplace, Park, Theater, Warehouse |
 | tiny | Privy, Cabinet, Cloakroom, Wardrobe, Pantry, Larder |
+
+Two of these names do not survive the move and it is worth saying which: `irregular`
+is now **relief 2 over a rolled family**, and `axial with an end feature` — 6a's
+invented `composite` — is a **T**. Neither was a shape; both were a shape and a
+modifier tangled together.
 
 **Every entry above is verified to exist** in `DUNGEON_ROOMS`, `BUILDING_ROOMS`,
 `LOWER_CLASS_BUILDINGS` or `UPPER_CLASS_BUILDINGS`. Three from the first draft were
@@ -1975,14 +2952,416 @@ were considered and rejected — none of them is irregular in shape, only in con
 
 ---
 
+### Phase 8 — Playtest refinements 📋 **PLANNED, NOT STARTED**
+
+The first complete playthrough happened on **2026-08-10**, seed 15341, size 1, level 1
+— The Drowned Aviary. Start to finish, goal met. The log is
+`out/runs/2026-08-10T00-32-05-seed15341/` (`journal.jsonl` plus a rendered
+`transcript.md`), and it is the evidence base for everything below. Where a claim here
+cites a `seq`, that is a line in that journal.
+
+This phase is **the author's playtest feedback, sorted by what actually causes each
+symptom** — which is not how it was reported, because several unrelated-looking
+complaints turned out to be one defect. Nothing here is speculative UX polish; every
+item traces to something observed in a real run.
+
+Five sessions. **8a is first and is not negotiable in ordering**, because one defect in
+it produced three separate items on the feedback list and will produce them again in
+every playtest until it is fixed.
+
+#### What the run proved, before any of it is fixed
+
+The good news first, since a plan that only lists faults misreads the run: a level 1
+character walked into a generated dungeon, explored eleven rooms, searched features,
+negotiated with the referee, cast a spell, stole the objective and got out. The turn
+machine, the applier, the dice, the map, travel, fog of war and the goal terminal all
+held for a full run. **Four commits out of the whole session were refused**, and three
+of the four were one bug wearing two hats.
+
+---
+
+#### 8a — The referee cannot finish a turn twice. **DO THIS FIRST.**
+
+##### A1. A refused commit throws away the roll. **ROOT CAUSE FOUND.**
+
+This is the "it made me roll repeatedly for the same thing" bug, and it is a
+five-line defect in prompt assembly rather than anything the model did wrong.
+
+The chain, from the lockbox theft at the end of the run:
+
+1. The player casts Telekinesis on Demona's lockbox. A DEX save is offered. They roll
+   **17 + 3 = 20 against DC 16 — success.**
+2. The referee resolves it correctly and commits. One diff reads
+   `{ entityId: "player", path: "inventory[8]", value: { …the lockbox… } }`.
+3. `apply.ts:345` accepts `inventory[i]` **only** with `value: null` — see A2. The
+   commit is refused whole. **Nothing is applied.**
+4. `turn.ts:230` re-asks the referee with `rejections`. That is a **brand-new
+   conversation**, rebuilt from scratch by `assemble()` per §4.4.
+5. **`assemble.ts:183`** — the rejection branch `return`s early. It never reaches
+   `if (req.roll)` at `:210`, so **`renderRoll(req.roll)` is never rendered.**
+
+Step 5 is the whole bug. The roll result reaches the model through *exactly one
+channel*: that `renderRoll` line. Rolls are pushed to `run.log` (`turn.ts:401`) and the
+journal, and **never to `run.transcript`** — `pushTranscript` is called only for player
+input (`:380`) and referee narration (`:271`). So the retry prompt contained no roll, no
+"resolve the action at step 5", and no trace that a roll had ever been offered.
+
+A model handed that, at step 5, with a rejection notice and an action it had not
+resolved, does the only coherent thing available: it restarts the heuristic at step 1
+and offers the roll again. Which it did. The player rolled a second time, got a 9, and
+lost the lockbox they had already won.
+
+**The same defect explains two more items on the feedback list:**
+
+- **The duplicated establishing paragraph** — "You step into the chamber, the stench
+  hitting you like a wall…" appears twice (`transcript.md:2945` and `:3012`). Both are
+  the retry re-narrating an action it thought it had not yet narrated.
+- **The referee "getting completely messed up"** on the theft generally. It was not
+  confused. It was told nothing.
+
+**The fix.** The rejection block must be **prepended to** the original task, never
+substituted for it. A retry is the same turn asked again, so it needs everything the
+first ask had — the roll, the room-entry `owed` list at `:195`, the "player has acted"
+framing at `:214` — plus the reasons. One restructure of `task()` from an if/else
+chain into a preamble and a body.
+
+Two guards to add with it, so this class cannot recur silently:
+
+- **A snapshot test that a retry prompt is a superset of the original.** Assemble a
+  step-5 prompt with a roll, assemble the same one with `rejections`, and assert the
+  roll text appears in both. The current tests never build a rejection prompt with a
+  roll present, which is why this shipped.
+- **Put the roll in the transcript as well.** Defence in depth: the retry should not
+  be the only thing standing between the model and the number the player rolled.
+  Cheap, and it makes the exchange readable on its own terms.
+
+##### A2. `inventory[i]` is how the model says "they now have this", and the applier refuses it
+
+`apply.ts:345-357` treats `inventory[#]` as drop-only: a non-null value fails with
+`nothing carried at index N`. `SKILL.md:270` documents it the same way — *"null to
+drop it where they stand"*.
+
+But the model reached for it to express a **pickup of a newly created item** twice in
+one run, in two unrelated situations:
+
+| seq | What it wrote | Refusal |
+|---|---|---|
+| 193 | `inventory[7]` = a cloth bundle, `inventory[8]` = an iron key, both found by searching the Stables troughs and ledges | `nothing carried at index 7` / `at index 8` |
+| — | `inventory[8]` = the lockbox, lifted by Telekinesis | `nothing carried at index 8` |
+
+Both times the character had exactly seven items and was writing to the next free
+slots. This is not the model being sloppy; it is the model stating a destination value
+— which is precisely what `SKILL.md:206` tells it to do — through the path that most
+obviously names where the thing ended up.
+
+There is a documented way to do this: `children[]` on the player to mint it, or
+`parentId` → player to move an existing item. But the writable-path table lists
+`inventory[i]` immediately above `parentId`, describes it in terms of the player's
+hands, and then only permits the destructive half of it. **The vocabulary invites the
+mistake.**
+
+**The fix, both halves:**
+
+- **Applier.** Accept `inventory[i]` with a value: an **id string** resolves as a
+  pickup (`addItem` with the slot check), and an **entity object** mints it into the
+  inventory, exactly as `children[]` on the player already does. The index is
+  advisory — the inventory is a compacted list, so the item goes where it goes and the
+  stated index is not honoured as a position. Refuse only what genuinely cannot happen:
+  over-capacity, or an id that is not an item.
+- **Refusal messages must name the way through.** `nothing carried at index 8` is
+  true and useless. Every refusal in `paths.ts` and `apply.ts` should end with the
+  correct form — *"to put something in the player's hands, write the item's `parentId`
+  to `player`, or append to `children[]`"*. The retry is only productive if the
+  reasons are (§S2 rule 7), and this run is the proof that they were not.
+
+##### A3. The referee attaches invented things to ids off the character sheet
+
+**This is the lantern.** The report was "my lantern seemingly left my inventory and
+ended up as an item in the stables." It never left. At **seq 454** the referee wrote
+`state`, `composed` and `isHidden: false` onto **`test-lantern`** — the lantern the
+player was carrying — with prose reading *"sits half-buried in old straw near one of
+the stone stalls."*
+
+The player had searched the Stables. The referee decided a lantern was a good thing to
+find there, needed an entity for it, and reached for the nearest plausible id. The
+commit was **valid** — every path is writable on an item — so the applier had no
+grounds to refuse it, and the player's own lantern acquired a description of lying on
+a floor across the dungeon.
+
+`SKILL.md:246` ("Making something new") is correct and was not followed. Rule 3 at
+`:214` — *"Ids are quoted, never invented"* — is the rule the model was obeying, and it
+pulled in exactly the wrong direction: told never to invent an id, it reused one.
+
+**The fix is a rule and a guard:**
+
+- **Prompt.** Rule 3 gains its missing half: *an id on the character sheet or in the
+  room block names that exact object and nothing else. A thing the player has just
+  discovered is a new entity — `children[]` on whatever holds it — even when something
+  of the same kind already exists elsewhere.*
+- **Applier.** Refuse a write to `roomId` / `parentId` / `isHidden` on an item that is
+  **in the player's inventory** when the write would place it in the room the player
+  is standing in without a corresponding removal. Narrower than it sounds, and it
+  catches the exact shape of this failure. Worth checking whether a cheaper guard
+  exists — *composing* a carried item as scenery is the tell, and that is prose, so
+  possibly not.
+
+##### A4. Re-entering an unchanged room still costs a model call
+
+BUILD-PLAN §S1 is explicit: *"Empty → no model call. Render `room.composed` verbatim
+and go to `awaiting_action`. Free, instant, and consistent by construction."*
+
+`turn.ts:363-371` does not implement it. `enterRoom()` calls `setStage` and then
+`ask()` unconditionally. The staleness sweep runs, but it runs **inside**
+`assemble.ts:196` as `needsComposition(req.run)`, by which point the prompt has been
+built and the call is going out. On an empty sweep the instruction reads *"Nothing here
+needs new prose. Commit no diffs and hand the turn straight back"* — a full-price round
+trip to be told nothing happened.
+
+**In this run, 11 room entries produced 5 of those.** Nearly half the arrivals were
+paid for and discarded.
+
+**The fix** is where the plan always said it was: hoist the sweep into `enterRoom()`,
+ahead of the call. Empty sweep → push `room.composed` to the log, `showRoom`,
+`awaiting_action` / `1-target`, return. No referee, no tokens, and re-entry becomes
+instant.
+
+This is also the author's *"refactor how we do room descriptions so that going back to
+an already explored room can just show the room description"* item. It needs no
+refactor. It needs the code the plan already specifies.
+
+##### A5. A multi-cell fixture draws as several separate things
+
+Reported as *"fixture dots getting duplicated (2 Rotted sleeping berths)"*.
+
+Not a duplicate. There is exactly one berths entity in the dungeon
+(`53ef546c…`), and its `place.cells` holds **two** cells — `(3,7)` and `(2,8)`.
+`layout.ts:483` emits `at: p.place.cells.map(middle)`, one mark per cell, by design:
+the comment at `:475` explains that a mark is a third of a cell *"so a colonnade reads
+as a row of columns rather than as a filled stripe."*
+
+For a colonnade that is right. For `bunks` it is wrong, and the two cells are
+**diagonal** — not a row along the north wall, which is what the prose says and what
+the fixture is.
+
+**Two things to settle:**
+
+- **Which fixture kinds are a row of marks and which are one thing.** A colonnade,
+  rubble and a pool spread; bunks, an altar and a brazier are single objects that
+  happen to occupy area. The kind already exists on `LayoutFixture`; it just is not
+  consulted.
+- **Multi-cell placement should be contiguous along its wall.** Diagonal cells for a
+  wall-hugging fixture is a placement fault in `dungeon-fixtures.ts`, independent of
+  how it is drawn.
+
+##### A6. The related placement complaint: debris in a corner
+
+*"Collapsed debris described as covering the floor had its marker in a corner against a
+far wall when it probably should have been close to the center."* Same subsystem.
+`placeFixture` (`dungeon-fixtures.ts:308`) falls back *"through the room as a whole
+rather than dropping the fixture"*, and `positionPhrase` then narrates wherever it
+landed. A fixture whose nature is *throughout* should not be assigned a wall at all.
+Check that the `throughout` position survives placement rather than being overwritten
+by the wall fallback.
+
+##### A7. The layout shifts when the room changes
+
+Reported and not yet reproduced: *"Something changes causing a shift in the DOM layout
+when a room change occurs. I can't see what it is."* First job of the session is to
+reproduce it, most likely by stepping between two rooms whose cards differ in height.
+Prime suspects, in order: the room card growing or losing a section (occupants, ways
+out) between rooms; the map re-centring; a scrollbar appearing. Fix by reserving the
+space rather than by chasing the specific element.
+
+---
+
+#### 8b — The interface
+
+All of this is the author's list, and it holds together as one session because most of
+it is the same idea: **the things named in the prose should be inspectable, and the map
+and the text should agree about where they are.**
+
+- **Tooltips out of their parent, on `react-tooltip`.** The current ones are clipped
+  by their container. This is the reason the package is being added, so the acceptance
+  test is a tooltip on an entity near the panel edge rendering unclipped.
+- **A click-dropdown of quick actions** on an entity — inspect, search, attack, take —
+  writing the corresponding sentence into the input rather than bypassing it, so every
+  action still goes through the same heuristic and the player can edit it first.
+- **The room card entries get the same tooltip and menu.** Currently only the map
+  markers do. The room card is the more likely place to reach for.
+- **Hover on either highlights the other.** Room-card row ↔ map marker, both
+  directions. This is the cheapest thing on the list that most directly attacks the
+  "model got minor position details wrong" class of complaint — it lets the player see
+  where the game thinks a thing is.
+- **A header for the map section.** Proposed, since the question was asked: **the
+  dungeon's name** (`dungeon.pass.name` — "The Drowned Aviary") with **rooms explored /
+  total** beside it. The name is currently written by the Dungeon Pass and shown to the
+  player nowhere, which is a waste of the one piece of prose that names the whole
+  place; and explored-count is the only progress signal a dungeon crawl naturally has.
+- **A compass rose.** Not decoration — see 8c. The prose is being held to absolute
+  directions, and the map should state which way north is rather than assume it.
+- **Floating labels on explored rooms.** Room names on the map itself, fog permitting.
+- **A sticky room header at arrival** — room name, and enough of the description to
+  stay oriented, pinned as the narration scrolls.
+- **Roll entries larger and more prominent**, with success and failure carried by
+  colour and weight rather than by the word at the end of a mono line. The roll is the
+  moment the player was promised they would get to watch (BUILD-PLAN §4.2); it
+  currently renders as the least prominent thing in the scrollback.
+- **Auto-centre the map on the new room** when the player moves.
+- **A turn tracker**, top right of the stage area. `run.turnCount` already exists and
+  is already ticked correctly by `turn.ts:311`; nothing renders it.
+
+---
+
+#### 8c — Referee prose discipline
+
+Every item here is a prompt change, and they are grouped because they share a cause:
+**the referee is writing from the prose it was handed rather than from the geometry the
+floorplan actually has.** Phase 6 gave the room block real geometry — walls,
+positions, exits with sides — and the step files have not caught up with it.
+
+**Space and direction**
+
+- **Absolute directions only.** *"To your left"* — the player has
+  no facing, the map has no facing, and left is undefined. North/south/east/west, and
+  the room block already provides them.
+- **Positions must match the plan.** *"The ramp at the north wall's western end"* when
+  the connector is at the **eastern** end. The side and the end are both in the room
+  block; the step file needs to say that they bind, in the same voice §4.4 uses for
+  `composed`.
+- **Shape claims must match the shape.** A room drawn as a pyramid or half-round
+  described as *"running east to west"*. `describeGeometry` exists and is rendered;
+  the instruction to prefer it over invention does not.
+- **Elevation should not contradict itself.** *"The ramp slopes gently upward into
+  deeper darkness."* Up is not deeper. Worth one line, since the flat-plane rule means
+  ramps and stairs are flavour and the model has nothing constraining how it uses them.
+
+**Exits**
+
+- **Do not count the way the player came in.** *"Three ways lead out"* when there are
+  two plus the entrance. Either omit it or mention it last, separately, and outside the
+  count. The room block knows which connector was used — the turn record names it.
+
+**Reuse and register**
+
+- **Room descriptions are being reproduced verbatim.** The `composed` field binds the
+  referee (`SKILL.md:236`) and it is being satisfied by quotation. Two candidate fixes,
+  and they should be tried in this order: (1) instruct explicitly that `composed` is
+  what the player has *already read* and must be built on rather than repeated; (2) if
+  that does not hold, render the room block's prose fields in a deliberately
+  **non-prose form** — fragments, keyword lists — so there is nothing grammatical to
+  copy. The second is heavier but is the one that cannot be ignored.
+- **The verbal tics.** *"Running my fingers over"* everything inspected, *"moving
+  along"* everything traversed. A short list of banned constructions in the information
+  handler is the cheap fix; the better one is to say what an inspection paragraph is
+  *for* so it stops reaching for a stock gesture to open with.
+- **The roll announcement does not belong in the narration.** *"You need to cast this
+  without being noticed. Make a Dexterity save—DC 16. Roll 1d20+3."* The interface
+  renders the roll offer from `rollRequest`; the prose should end at the moment of
+  attempt. Anything the offer is missing should be added to `RollSpec`, not smuggled
+  into the post. **This also fixes a rules leak**: `SKILL.md:196` forbids stating the
+  DC to the player, and that paragraph states it.
+- **Room names and their descriptions must agree.** A room called "The Laboratory"
+  whose description was not of a laboratory. Needs diagnosis before a fix — the name
+  comes from the rolled `identity` and the description from the content pass, so
+  either the content-pass prompt is not treating the name as binding, or the naming
+  instruction is loose enough that the name was the odd one out. Read the seed 15341
+  content-pass prompt and response for that room before changing anything.
+
+---
+
+#### 8d — Rules gaps
+
+- **Spellcasting has no guidance at all.** Author's design, to be written into
+  `3-standard.md`: a spell is **auto-success** unless it targets another creature or
+  attempts something difficult or flashy, in which case it rolls as normal. It is
+  **exhausted after use** — with an explicit allowance for follow-up actions that are
+  part of the same effect, so lifting a thing and then setting it down is not two
+  castings. The lockbox theft is the worked example, and under this rule it would have
+  been a clean success with no roll at all.
+- **Hordes are too strong and half-HD creatures are not fodder.** Twelve creatures
+  plus a leader against a level 1 character. Two separate questions: whether
+  `dungeon-rooms-loop.ts` should be producing groups that large at level 1, and whether
+  a ½ HD creature resolves as a mook — dying to any hit, attacking as a group rather
+  than individually. The second is a rules addition to `dungeon-rolls`; the first is a
+  stocking parameter. **Measure before tuning**: run the existing generator across a
+  seed spread and get the actual distribution of group size against level.
+- **The magnetic field did nothing.** The player walked through it wearing chain,
+  carrying a sword and a helmet, and nothing happened. An effect with no mechanical
+  consequence written for it is an effect the referee has no way to apply. Either
+  effects need a consequence field the content pass fills in, or the resolution step
+  needs to be told that walking into an effect is an event. Decide which in session.
+
+---
+
+#### 8e — Time, attention, and the world acting on its own
+
+The largest item and the one that is genuinely new machinery, so it is last.
+
+The author's observation is that these are one problem: *"we need a contingency for
+loud sounds or other effects that would attract attention from elsewhere in the
+dungeon. This probably also implicates a system for the passing of time and actions of
+other creatures we don't have yet."* That is right, and the pursuit complaint —
+*"enemies didn't actively pursue into adjoining rooms"* — is the same gap seen from the
+other side.
+
+What exists to build on: `turnCount` has been in `GameState` since Phase 2 precisely
+for this (BUILD-PLAN Phase 2 says so in as many words); `stockDungeon` already
+generates wandering groups; `roomIndex` makes "who is where" a cheap question; and
+`travel.ts` already knows which rooms adjoin which.
+
+What does not exist: anything that runs between turns. Design questions for the
+session, none of them settled:
+
+- Does the world act on a **clock** (every N turns) or on **events** (a loud noise, a
+  fight, a scream)? Probably both, with the clock as the floor.
+- Is off-screen action **simulated in code** or **narrated by a model call**? Code is
+  cheaper and deterministic and fits the "the model never generates a number" rule;
+  prose is richer. A hybrid — code decides who moves where, the referee is told about
+  it on the next entry — is the obvious first cut.
+- How does the player learn about it? Almost certainly through the room-entry pass and
+  through `state` on the creatures that moved, which is what the three prose lifetimes
+  are for.
+
+**Multi-room travel is not part of this and is not missing.** The report says the
+travel function *"was lost"*; it was not. `runtime/travel.ts` implements routing across
+known rooms, stops the walk at a creature, a hazard, a spreading effect or a barred
+way, and reports where the player actually ended up — and `turn.ts:296` reads the
+`movement-stopped` event and writes it into the turn record. `SKILL.md:285` documents
+it to the referee. So this is a **wiring or prompt-adherence** question: find out
+whether the referee is failing to write a far `roomId`, or the UI is gating it to
+adjacent rooms only, before assuming anything needs building. Check `TravelConfirm.tsx`
+first.
+
+---
+
+#### Deferred out of Phase 8
+
+**Letting the player tell the referee it got something wrong.** The author raised it
+and was unsure of the shape (*"I don't know"*). **Deferred deliberately**, on the
+grounds that 8a removes the failure that prompted it — the referee in this run was not
+being stubborn, it was being handed a prompt with the roll missing — and a correction
+affordance designed against the wrong failure would be designed wrong. Revisit after a
+second playtest, with whatever still goes wrong then as the specification.
+
+Three shapes were considered and are recorded so the next reader does not re-derive
+them: a *"that's wrong"* button opening a correction turn that may rewrite `state` and
+`composed`; a persistent out-of-character input channel addressed to the referee as a
+referee; and nothing at all, on the theory that a referee which cannot be argued with
+is part of the genre. No decision.
+
+---
+
 ## Part 3 — Dependency order
 
 ```
 Phase 0 ──┬─> Phase 1 ──> Phase 2 ──┬─> Phase 3 ──> Phase 4 ──> Phase 6 ──> Phase 7
-          │                          │      ^
-          └─> Phase 2.5 ─────────────┘      │
+          │                          │      ^                       │
+          └─> Phase 2.5 ─────────────┘      │                       └─> Phase 8
                                        [B1 required]
 Phase 5 needs Phase 2 (rolls); otherwise independent — can slot anywhere after 2.
+Phase 8 is playtest-driven and needs a completed run behind it; the first one is
+seed 15341, 2026-08-10. 8a before the rest — see the phase. 8b–8e are independent
+of each other and can run in any order, or in parallel sessions.
 ```
 
 Critical path is 0 → 1 → 2 → 3 → 4. Phase 2.5 and Phase 5 are the parallelisable ones.
@@ -2016,4 +3395,22 @@ And the superseded Rooms Pass is **deleted** (B3) — `dungeon-content-pass.ts` 
 the single per-chunk generator for rooms and their entities, running after the Dungeon
 Pass has established the top-level fiction, batched by chunk.
 
-**Nothing is open. Phase 0 can start.**
+**Nothing is open through Phase 7.**
+
+**Open in Phase 8**, all of it recorded in the phase itself and none of it blocking
+8a, which is fully specified:
+
+- Whether a multi-cell fixture spreads or is one object, per fixture kind (8a A5).
+- Which of the two fixes for verbatim room-description reuse is needed — the
+  instruction, or rendering the room block's prose non-grammatically (8c).
+- Why "The Laboratory" and its description disagreed: a loose naming instruction, or
+  the content pass not treating the rolled name as binding. **Diagnose before
+  changing** (8c).
+- Whether group size at level 1 is a stocking fault or a rules one, and what a ½ HD
+  mook does mechanically. **Measure the existing distribution first** (8d).
+- How an effect with no written consequence — the magnetic field — reaches the
+  resolution step at all (8d).
+- Everything about time and off-screen action: clock or events, code or model call,
+  and how the player finds out (8e).
+- Whether the player gets a way to tell the referee it was wrong, and what shape it
+  takes. **Deferred past Phase 8 on purpose** — see the phase.

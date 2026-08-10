@@ -72,6 +72,7 @@ import {
 } from "./dungeon-blueprint.ts";
 
 import type { Dungeon, Edge, Room } from "./dungeon-phase-a.ts";
+import { sizeAllows, type SizeClass } from "./dungeon-room-size.ts";
 
 // ---------------------------------------------------------------------------
 // TABLES
@@ -276,6 +277,20 @@ export interface RoomStock {
    * reads as beads on a string, and corridors are the pacing.
    */
   isCorridor: boolean;
+
+  /**
+   * How big the room came out once the layout drew it, read off its floor area.
+   *
+   * This arrives from OUTSIDE stocking, via the `layout` hook, and it arrives
+   * before `identity` is rolled -- which is the whole reason the hook exists. A
+   * room's size is decided by where its neighbours ended up and how much ground
+   * they left it, and no roll can know that in advance. So the geometry settles
+   * first and the size then constrains what the room may be: a four-cell closet
+   * does not get to be a banquet hall. See `sizeAllows`.
+   *
+   * Undefined when no layout ran, in which case identity rolls unconstrained.
+   */
+  sizeClass?: SizeClass;
 
   identity: Rolled;
   detail?: Rolled;
@@ -1036,7 +1051,16 @@ function designateCorridors(rooms: RoomStock[], s: Structure, size: Size, rng: R
 export function stockDungeon(
   dungeon: Dungeon,
   blueprint: DungeonBlueprintSeed,
-  opts: { level?: number; seed?: number } = {}
+  opts: {
+    level?: number;
+    seed?: number;
+    /**
+     * Draw the dungeon, given the rooms once their roles and passages are fixed,
+     * and return the size class each one came out. Called between step 1d and
+     * step 2 -- after corridors, before identity.
+     */
+    layout?: (rooms: RoomStock[]) => Array<SizeClass | undefined>;
+  } = {}
 ): StockedDungeon {
   const level = opts.level ?? blueprint.level ?? 1;
   const seed = opts.seed ?? blueprint.seed + 7919;
@@ -1139,9 +1163,34 @@ export function stockDungeon(
   // on a different table.
   designateCorridors(rooms, s, blueprint.size, rng);
 
+  // ---- 1e. layout ----
+  // THE GEOMETRY RUNS HERE, between the corridors and the fiction.
+  //
+  // It needs exactly two things -- the graph, and which rooms are passages --
+  // and both exist by this line. Everything after it is fiction, and putting the
+  // drawing first is what lets a room's size be a fact the fiction works from
+  // rather than a demand the drawing has to satisfy. The caller supplies the
+  // hook because the layout module sits downstream of this one.
+  if (opts.layout) {
+    const sizes = opts.layout(rooms);
+    rooms.forEach((r, i) => {
+      r.sizeClass = sizes[i];
+    });
+  }
+
   // ---- 2. identity ----
+  // Rerolled until the noun suits the size the room actually came out. Most of
+  // the table is unannotated and passes at any size; the ones that are not are
+  // the closets and the courtyards, which genuinely cannot be any size at all.
+  // Bounded, and falls through to whatever it last rolled -- a slightly wrong
+  // noun beats an empty one.
   for (const r of rooms) {
-    r.identity = roll(r.isCorridor ? DUNGEON_CORRIDORS : DUNGEON_ROOMS, rng);
+    const table = r.isCorridor ? DUNGEON_CORRIDORS : DUNGEON_ROOMS;
+    let id = roll(table, rng);
+    for (let t = 0; t < 12 && r.sizeClass && !sizeAllows(id, r.sizeClass); t++) {
+      id = roll(table, rng);
+    }
+    r.identity = id;
   }
 
   // ---- 3. headline quota ----

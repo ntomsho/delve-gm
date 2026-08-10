@@ -23,24 +23,28 @@
 import { readFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import {
+  blockPlanValid,
   buildContentPassPayload,
   buildDungeonPassPayload,
-  floorplanSvg,
   generateBlueprint,
   generateBlueprintSeed,
-  generateFloorplanValid,
   renderContentPassPrompt,
   renderDungeonPassPrompt,
   resolveBase,
   Rng,
+  roomSizes,
   runEntitiesPass,
+  siteRooms,
   stockDungeon,
-  validateFloorplan,
+  type BlockPlan,
   type Dungeon,
   type Size,
   type StockedDungeon,
 } from "../engine/index.ts";
 import { configureTransport } from "../runtime/llm/client.ts";
+import { floorplanLayout, type PlacedThing } from "../runtime/layout.ts";
+import { placedThings } from "../runtime/occupancy.ts";
+import { layoutSvg } from "../runtime/layout-svg.ts";
 import { generateDungeon, validateWritten, type GenerationProgress } from "../runtime/generate.ts";
 import { chunksFor, deriveSeeds } from "../runtime/seeds.ts";
 
@@ -139,8 +143,34 @@ function dryRun(args: Args): void {
   console.log(renderDungeonPassPrompt(buildDungeonPassPayload(bp)));
 
   const { dungeon } = generateBlueprint(seeds.graphSeed, { chunks: chunksFor(args.size) }, true);
-  const sd = stockDungeon(dungeon, bp, { level: args.level, seed: seeds.stockSeed });
+
+  // THE DRAWING RUNS INSIDE STOCKING, exactly as it does in `generate.ts`. A
+  // dry run that skipped it would render prompts without the "as drawn" line
+  // and without the fixture menu — which is most of what there is to iterate on
+  // now — so this branch has to mirror the live one rather than shortcut it.
+  let plan: BlockPlan | null = null;
+  const sd = stockDungeon(dungeon, bp, {
+    level: args.level,
+    seed: seeds.stockSeed,
+    layout: (rooms) => {
+      const corridor = new Set(rooms.filter((r) => r.isCorridor).map((r) => r.index));
+      plan = blockPlanValid(dungeon, (i) => corridor.has(i), seeds.layoutSeed);
+      return plan ? roomSizes(plan.rooms) : rooms.map(() => undefined);
+    },
+  });
   const ep = runEntitiesPass(sd, bp, new Rng(sd.seed));
+
+  const drawn = plan as BlockPlan | null;
+  const corridors = new Set(sd.rooms.filter((r) => r.isCorridor).map((r) => r.index));
+  const site = drawn
+    ? siteRooms(drawn, dungeon, { isCorridor: (i) => corridors.has(i) })
+    : undefined;
+  if (!drawn) {
+    console.error(
+      "[dry] NO LAYOUT for this graph — prompts will carry no geometry and no " +
+        "fixture menu. A live run throws the graph away and generates another.\n"
+    );
+  }
 
   const placeholder =
     "[DUNGEON PASS OUTPUT — theme, history, who lives here, and the goal would be here]";
@@ -153,7 +183,9 @@ function dryRun(args: Args): void {
     console.log("\n" + RULE);
     console.log(`CONTENT PASS  —  chunk ${chunk} of ${chunks.length}`);
     console.log(RULE);
-    console.log(renderContentPassPrompt(buildContentPassPayload(sd, bp, ep, chunk, placeholder)));
+    console.log(
+      renderContentPassPrompt(buildContentPassPayload(sd, bp, ep, chunk, placeholder, site))
+    );
   }
 
   console.error(
@@ -163,38 +195,57 @@ function dryRun(args: Args): void {
 
   // The floorplan is pure, so --map needs no key and belongs here as much as in
   // a live run. This is the iteration surface for the geometry.
-  if (args.map) writeMap(args, dungeon, sd);
+  //
+  // NOTHING IS PLACED HERE. Fixtures come back from the content pass, which a
+  // dry run never makes, so the dry map draws the rooms and no dots. Placement
+  // is eyeballed off a live `--out` run, or off `--map` on one.
+  if (args.map) writeMap(args, dungeon, sd, drawn);
 }
 
 /**
  * Draw the plan and say whether it is sound. Plain line art, no decoration —
  * the point is to look at a hundred of them, not to look at one nicely.
  */
-function writeMap(args: Args, dungeon: Dungeon, sd: StockedDungeon): void {
+function writeMap(
+  args: Args,
+  dungeon: Dungeon,
+  sd: StockedDungeon,
+  drawn?: BlockPlan | null,
+  placed: readonly PlacedThing[] = []
+): void {
   const seeds = deriveSeeds(args.seed);
   const started = Date.now();
-  const fp = generateFloorplanValid(dungeon, sd, { seed: seeds.layoutSeed });
-  if (!fp) {
+  const corridors = new Set(sd.rooms.filter((r) => r.isCorridor).map((r) => r.index));
+  // Reuse the plan the caller already drew when there is one. Drawing it twice
+  // from the same seed gives the same answer, but it also silently permits the
+  // two to drift if either side ever changes how it seeds the layout.
+  const plan = drawn ?? blockPlanValid(dungeon, (i) => corridors.has(i), seeds.layoutSeed);
+  if (!plan) {
     console.error(
-      `\n[map] no floorplan: the packer could not draw this graph. ` +
-        `That is expected at sizes 4-5 — see CODING-PLAN §6a.`
+      `\n[map] no layout: untangling did not clear every crossing on this graph. ` +
+        `A live run throws the graph away and generates another — see CODING-PLAN §6a.3.`
     );
     return;
   }
 
-  const problems = validateFloorplan(fp, dungeon, sd);
-  const corridors = fp.rooms.filter((r) => r.isCorridor).length;
+  // Through `floorplanLayout`, not straight off the plan, so this draws exactly
+  // what the game draws. A dump that renders the plan its own way can look
+  // right while the map in the app looks wrong.
+  const layout = floorplanLayout(plan, dungeon, {
+    isCorridor: (i) => corridors.has(i),
+    placed,
+  });
+  const marks = layout.fixtures.reduce((n, f) => n + f.at.length, 0);
   console.error(
-    `\n[map] ${fp.rooms.length} rooms (${corridors} corridors), ${fp.doors.length} doors, ` +
-      `${fp.bounds.w}x${fp.bounds.h} cells, ${fp.attempts} attempt(s), ${Date.now() - started}ms`
+    `\n[map] ${layout.rooms.length} rooms (${corridors.size} corridors), ` +
+      `${layout.connectors.length} doors${layout.surface ? " + the way out" : ", NO WAY OUT"}, ` +
+      `${layout.fixtures.length} placed (${marks} marks), ` +
+      `${Math.round(layout.bounds.w)}x${Math.round(layout.bounds.h)}, ` +
+      `${plan.attempts} attempt(s), ${Date.now() - started}ms`
   );
-  if (problems.length) {
-    console.error(`[map] ${problems.length} PROBLEM(S) — the plan is not sound:`);
-    for (const p of problems.slice(0, 10)) console.error(`  ${p}`);
-  }
 
   mkdirSync(dirname(resolve(args.map!)), { recursive: true });
-  writeFileSync(resolve(args.map!), floorplanSvg(fp));
+  writeFileSync(resolve(args.map!), layoutSvg(layout));
   console.error(`[map] Wrote ${args.map}`);
 }
 
@@ -262,7 +313,7 @@ async function liveRun(args: Args): Promise<void> {
     console.error("\nFully written: every entity has a name and a resolvable base.");
   }
 
-  if (args.map) writeMap(args, gd.graph, gd.stocked);
+  if (args.map) writeMap(args, gd.graph, gd.stocked, gd.blockplan, placedThings(e));
 
   const out = args.out ?? `out/dungeon-${args.seed}-s${args.size}.json`;
   mkdirSync(dirname(resolve(out)), { recursive: true });

@@ -20,9 +20,11 @@ import {
   buildSeamsPassPayload,
   generateBlueprint,
   generateBlueprintSeed,
-  generateFloorplanValid,
+  blockPlanValid,
   Rng,
+  roomSizes,
   runEntitiesPass,
+  siteRooms,
   stockDungeon,
   type ContentPassPayload,
   type IItem,
@@ -32,6 +34,9 @@ import {
   type SeamsPassPayload,
   type SeamsPassResponse,
   type Size,
+  type BlockPlan,
+  type Dungeon,
+  type StockedDungeon,
 } from "../../engine/index.ts";
 import type { GeneratedDungeon } from "../generate.ts";
 import { chunksFor, deriveSeeds } from "../seeds.ts";
@@ -115,19 +120,62 @@ const THINGS: Record<string, { name: string; base: string }> = {
   },
 };
 
+/**
+ * The furniture the fake pass puts in a room, by size class.
+ *
+ * Deliberately varied across kinds and positions, because the fixture path is
+ * the one the map layer reads and a fake that always answered "one altar in the
+ * centre" would leave the multi-cell and wall-hugging cases untested. Passages
+ * take a starred kind, as the menu requires.
+ */
+const POSITIONS = ["centre", "west wall", "far end", "a corner"];
+
+const FURNITURE: { kind: string; position: string }[] = [
+  { kind: "pillars", position: "throughout" },
+  { kind: "shelves", position: "east wall" },
+  { kind: "pool", position: "far end" },
+  { kind: "sarcophagi", position: "north wall" },
+  { kind: "hearth", position: "a corner" },
+  { kind: "rubble", position: "near the entrance" },
+];
+
 /** Answer a content-pass payload point for point, the way the schema demands. */
 export function fakeContentPass(p: ContentPassPayload): ContentPassResponse {
   return {
-    rooms: p.rooms.map((r) => ({
+    // Room index, so different rooms get different furniture without anything
+    // here being random — the fixture is a fixture and stays deterministic.
+    rooms: p.rooms.map((r, n) => ({
       ref: r.ref,
       name: `The ${r.identity}`,
       base:
         `A ${r.identity.toLowerCase()} of the drowned mint, its walls pale limestone crusted with mineral scale. ` +
         `${WATER[r.depth] ?? WATER.middle} ${AIR[r.tension] ?? AIR.calm}`,
-      entities: r.entities.map((e) => {
+      entities: r.entities.map((e, i) => {
         const thing = THINGS[e.kind] ?? { name: `a ${e.kind}`, base: `A ${e.kind}, written up.` };
-        return { ref: e.ref, name: thing.name, base: thing.base };
+        return {
+          ref: e.ref,
+          name: thing.name,
+          base: thing.base,
+          // Only when the room was drawn — the response must be answerable
+          // without a plan, since a dungeon with no drawing is supported.
+          ...(r.geometry ? { position: POSITIONS[i % POSITIONS.length] } : {}),
+        };
       }),
+      ...(r.fixtures
+        ? {
+            fixtures: Array.from({ length: r.fixtures.cap }, (_, i) => {
+              const f = FURNITURE[(n + i) % FURNITURE.length];
+              // A passage only takes the starred half of the menu.
+              const kind = r.fixtures!.corridor ? "rubble" : f.kind;
+              return {
+                kind,
+                position: f.position,
+                name: `the ${kind}`,
+                base: `The ${kind} of the drowned mint, scaled with mineral crust.`,
+              };
+            }),
+          }
+        : {}),
       // Seams are listed for the count and written by the seams pass — a chunk
       // answering with one would be writing a room it cannot see.
       connectors: r.connectors.filter((c) => !c.seam).map((c) => {
@@ -212,9 +260,38 @@ export function fakeSeamsPass(p: SeamsPassPayload): SeamsPassResponse {
 export function generateOffline(seed: number, size: Size): GeneratedDungeon {
   const seeds = deriveSeeds(seed);
   const blueprint = generateBlueprintSeed(size, seeds.blueprintSeed, 1);
-  const { dungeon } = generateBlueprint(seeds.graphSeed, { chunks: chunksFor(size) }, true);
-  const stocked = stockDungeon(dungeon, blueprint, { level: 1, seed: seeds.stockSeed });
+  // A graph that will not draw is thrown away whole, exactly as `generate.ts`
+  // does it — the fixture is the interface's main dev path, and a map that is
+  // sometimes missing is worse than one that costs a few more milliseconds.
+  let dungeon!: Dungeon;
+  let blockplan: BlockPlan | null = null;
+  let stocked!: StockedDungeon;
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const graphSeed = attempt === 0 ? seeds.graphSeed : `${seeds.graphSeed}~${attempt}`;
+    dungeon = generateBlueprint(graphSeed, { chunks: chunksFor(size) }, true).dungeon;
+    // THE DRAWING RUNS INSIDE STOCKING, as it does in `generate.ts`. It used to
+    // be computed alongside, which left `RoomStock.sizeClass` unset offline and
+    // so left `sizeAllows` — the condition that stops a four-cell closet rolling
+    // "Banquet hall" — silently not applying on the dev path.
+    let drawn: BlockPlan | null = null;
+    const graph = dungeon;
+    stocked = stockDungeon(dungeon, blueprint, {
+      level: 1,
+      seed: seeds.stockSeed,
+      layout: (rooms) => {
+        const corridor = new Set(rooms.filter((r) => r.isCorridor).map((r) => r.index));
+        drawn = blockPlanValid(graph, (i) => corridor.has(i), seeds.layoutSeed);
+        return drawn ? roomSizes(drawn.rooms) : rooms.map(() => undefined);
+      },
+    });
+    blockplan = drawn;
+    if (blockplan) break;
+  }
   const entities = runEntitiesPass(stocked, blueprint, new Rng(stocked.seed));
+  const corridors = new Set(stocked.rooms.filter((r) => r.isCorridor).map((r) => r.index));
+  const site = blockplan
+    ? siteRooms(blockplan, dungeon, { isCorridor: (i) => corridors.has(i) })
+    : undefined;
 
   const dpPayload = buildDungeonPassPayload(blueprint);
   const dp = applyDungeonPass(validate(dungeonPassSchema, fakeDungeonPass(dpPayload.groupIds)), dpPayload);
@@ -222,7 +299,7 @@ export function generateOffline(seed: number, size: Size): GeneratedDungeon {
 
   const chunks = [...new Set(stocked.rooms.map((r) => r.chunk))].sort((a, b) => a - b);
   for (const chunk of chunks) {
-    const payload = buildContentPassPayload(stocked, blueprint, entities, chunk, dp.dungeonContext);
+    const payload = buildContentPassPayload(stocked, blueprint, entities, chunk, dp.dungeonContext, site);
     applyContentPass(
       validate(contentPassSchema, fakeContentPass(payload)),
       payload, entities, blueprint, stocked, new Rng(stocked.seed + chunk)
@@ -247,8 +324,9 @@ export function generateOffline(seed: number, size: Size): GeneratedDungeon {
     stocked,
     entities,
     // Drawn for real rather than stubbed, so the offline fixture exercises the
-    // packer. It is nullable by design and the fixture does not force it.
-    floorplan: generateFloorplanValid(dungeon, stocked, { seed: seeds.layoutSeed }),
+    // block plan. Still typed nullable, because a saved run from before this
+    // existed comes back without one.
+    blockplan,
     usage: { inputTokens: 0, outputTokens: 0 },
   };
 }

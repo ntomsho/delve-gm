@@ -117,4 +117,37 @@ export type {
 
 // --- the floorplan ---------------------------------------------------------
 // `Point` and `Rect` are declared here; nothing else in the engine has them.
+// --- room size and shape vocabulary ----------------------------------------
+// Its own module so the rooms loop and the block plan can both read it without
+// either importing the geometry.
+export * from "./dungeon-room-size.ts";
 export * from "./dungeon-floorplan.ts";
+
+// --- the block plan (the constructive alternative to the packer) ------------
+// `Point` is declared in both; the floorplan's wins the star export, and they
+// are structurally identical, so nothing downstream can tell them apart.
+export {
+  blockPlan,
+  blockPlanValid,
+  buildRooms,
+  chooseDoors,
+  countCrossings,
+  growZones,
+  roomSizes,
+  seedBlockPlan,
+  seedBlockPlanValid,
+  spanReport,
+  type BlockDoor,
+  type BlockPath,
+  type BlockPlan,
+  type BlockSeed,
+} from "./dungeon-blockplan.ts";
+
+// --- the drawn room, as words ----------------------------------------------
+// Derived from the block plan, never persisted. What the content pass reads at
+// generation and what the room block will read at runtime — one derivation, so
+// the prose and the map cannot describe different rooms.
+export * from "./dungeon-geometry.ts";
+
+// --- fixtures: the menu, the position words, and placement ------------------
+export * from "./dungeon-fixtures.ts";

@@ -90,3 +90,27 @@ export function roomIndex(e: EntityPassResult): Map<string, AnyEntity[]> {
 export function contentsOf(roomId: string, e: EntityPassResult): AnyEntity[] {
   return roomIndex(e).get(roomId) ?? [];
 }
+
+/**
+ * Everything the content pass put somewhere on the drawing.
+ *
+ * Features, and items lying loose on a floor. An item inside a chest is at the
+ * chest, so it is skipped here rather than given a second answer — its `place`
+ * is only ever written when its parent is a room, and this re-checks that
+ * because a pickup can move it afterwards and nothing clears the field.
+ *
+ * Belongs with the rest of "where is what": the map is one more consumer of the
+ * same question, and `layout.ts` deliberately knows nothing about entities.
+ */
+export function placedThings(
+  e: EntityPassResult
+): { id: string; roomId: string; place?: { cells: { x: number; y: number }[]; fixture?: string } }[] {
+  const rooms = new Set(e.rooms.map((r) => r.id));
+  const out = e.features
+    .filter((f) => f.place)
+    .map((f) => ({ id: f.id, roomId: f.roomId, place: f.place }));
+  for (const i of e.items) {
+    if (i.place && rooms.has(i.parentId)) out.push({ id: i.id, roomId: i.parentId, place: i.place });
+  }
+  return out;
+}

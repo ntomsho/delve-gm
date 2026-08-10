@@ -25,6 +25,7 @@
  */
 
 import { exitLabel, type CharacterView, type EntityView, type RoomView } from "../../store/selectors.ts";
+import { positionPhrase } from "../../engine/index.ts";
 import type { TurnRecord } from "../../store/game.ts";
 import type { RolledOutcome } from "../turn.ts";
 
@@ -111,6 +112,12 @@ function renderEntity(e: EntityView, indent = ""): string {
   if (e.hp) head.push(`hp ${e.hp.current}/${e.hp.max}`);
   if (e.isHidden) head.push("NOT YET FOUND BY THE PLAYER");
 
+  // Where it stands, in the words the content pass chose and the map drew to.
+  // On the head line rather than in a field of its own, because it is part of
+  // identifying the thing — "the altar at the far end" is how a player refers
+  // to it when there are two altars.
+  if (e.position) head.push(positionPhrase(e.position));
+
   const out = [`${indent}- ${head.join(" · ")} (${standing(e)})`];
   const field = (label: string, value?: string) =>
     value === undefined || value.trim() === ""
@@ -153,6 +160,7 @@ export function renderRoom(room: RoomView): string {
         .map((x) => {
           const bits = [
             x.form ? x.form.replace(/\s*\n\s*/g, " ") : undefined,
+            x.wall ? `in ${x.wall}` : undefined,
             // In the same order and with the same mark the player's panel gives
             // it — "the way you came" is a thing they will say, and it has to
             // resolve to the same door for both of you. Not on the surface exit,
@@ -182,6 +190,21 @@ export function renderRoom(room: RoomView): string {
     // against — so it says so, next to the text.
     room.composed
       ? `composed — THE PLAYER HAS READ THIS; it binds you: ${room.composed.replace(/\s*\n\s*/g, " ")}`
+      : undefined,
+    // AS DRAWN, and it is the map the player is looking at.
+    //
+    // The same sentence the content pass was given when it wrote this room, so
+    // the prose above and this line cannot disagree. It is here so the referee
+    // can say where in the room something happens and have the map corroborate
+    // it — the half of the loop the fixtures are the other half of.
+    room.geometry
+      ? lines([
+          ``,
+          `### As drawn on the map`,
+          room.geometry,
+          `The compass here is the MAP's, not the party's: north is north wherever they are ` +
+            `facing. Say "the north wall"; never "on your left", which you have no way to know.`,
+        ])
       : undefined,
     ``,
     `### In it`,

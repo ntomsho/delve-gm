@@ -138,7 +138,7 @@ function dungeon(): GeneratedDungeon {
     graph: {} as never,
     stocked: { entranceRoomId: ROOM, goalRoomId: ROOM } as never,
     entities: entities(),
-    floorplan: null,
+    blockplan: null,
     usage: { inputTokens: 0, outputTokens: 0 },
   };
 }

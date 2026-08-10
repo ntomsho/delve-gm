@@ -56,13 +56,38 @@ const statDeviations = z.object({
   modifiers: modifiers.optional(),
 });
 
-const writtenEntity = z.object({ ref: nonEmpty, name: nonEmpty, base: nonEmpty });
+/**
+ * Where in the room something stands.
+ *
+ * A LOOSE STRING, not an enum, and deliberately: a position that does not parse
+ * is a fixture in the middle of the room instead of at the far end, where a
+ * rejected batch is six unwritten rooms and a retry. `applyContentPass` does the
+ * narrowing (`isPositionWord`) and falls back to the centre. Same reasoning for
+ * `kind` below — the difference is that an unrecognised kind cannot be drawn at
+ * all, so apply drops the fixture rather than guessing at one.
+ */
+const position = z.string().optional();
+
+const writtenEntity = z.object({
+  ref: nonEmpty,
+  name: nonEmpty,
+  base: nonEmpty,
+  position,
+});
+
+const fixtureResponse = z.object({
+  kind: nonEmpty,
+  position: nonEmpty,
+  name: nonEmpty,
+  base: nonEmpty,
+});
 
 const promotedDetail = z.object({
   text: nonEmpty,
   name: nonEmpty,
   base: nonEmpty,
   hidden: z.boolean().optional(),
+  position,
 });
 
 const connectorResponse = z.object({
@@ -100,6 +125,7 @@ const roomResponse = z.object({
   name: nonEmpty,
   base: nonEmpty,
   entities: z.array(writtenEntity).optional(),
+  fixtures: z.array(fixtureResponse).optional(),
   promotions: z.array(promotedDetail).optional(),
   connectors: z.array(connectorResponse).optional(),
   encounters: z.array(encounterResponse).optional(),
@@ -108,6 +134,7 @@ const roomResponse = z.object({
       entityType: z.enum(["Item", "RoomFeature", "Creature"]),
       name: nonEmpty,
       base: nonEmpty,
+      position,
     })
     .optional(),
 });

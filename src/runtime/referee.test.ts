@@ -127,6 +127,14 @@ describe("an ordinary turn", () => {
       // the player's roll is offered rather than thrown.
       const roll = sent[0].tools[0].input_schema.properties.rolls.items.properties;
       expect(roll.actor.enum).toEqual(["creature", "world"]);
+
+      // The two schemas spend one strict budget between them and do not both
+      // fit, so the guarantee goes to the one that writes state. `roll` still
+      // goes out with its real schema; zod checks the batch coming back.
+      expect(sent[0].tools.map((t: { strict?: boolean }) => t.strict)).toEqual([
+        undefined,
+        true,
+      ]);
     });
   });
 

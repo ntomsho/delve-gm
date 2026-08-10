@@ -31,15 +31,22 @@ Traits: physique Wiry, face Bony, skin Ashen, hair Cropped, clothing Patched, vi
 
 ## The room the player is standing in
 
-[«id-1»] **The Stockyard** (NEVER ENCOUNTERED)
-base: A stockyard of the drowned mint, its walls pale limestone crusted with mineral scale. Water lies ankle-deep across the floor, still and cold. Nothing has disturbed it in a long time.
+[«id-1»] **The Cavern** (NEVER ENCOUNTERED)
+base: A cavern of the drowned mint, its walls pale limestone crusted with mineral scale. Water lies ankle-deep across the floor, still and cold. Nothing has disturbed it in a long time.
+
+### As drawn on the map
+a small chamber, about 10 by 35 feet -- long and narrow, running north-south, close to a rectangle, give or take a corner. Ways out: one off the north wall, one off the east wall
+The compass here is the MAP's, not the party's: north is north wherever they are facing. Say "the north wall"; never "on your left", which you have no way to know.
 
 ### In it
-- (nothing in it)
+- [«id-2»] the rubble — RoomFeature · near the way in (NEVER ENCOUNTERED)
+    base: The rubble of the drowned mint, scaled with mineral crust.
+- [«id-3»] the pillars — RoomFeature · spread through the room (NEVER ENCOUNTERED)
+    base: The pillars of the drowned mint, scaled with mineral crust.
 
 ### Ways out
-- [«id-2»] "the mint's stair — out of the dungeon" — A broad flight of worn limestone steps rising out of the water toward the surface. · LEADS OUT OF THE DUNGEON — the way they came in, and the way home. Walking through it ENDS THE RUN: commit nextStage "departed"
-- [«id-3»] "a low arch" — a low arch of fitted stone, its keystone dropped an inch · leads to [«id-4»], somewhere they have not been
+- [«id-4»] "the mint's stair — out of the dungeon" — A broad flight of worn limestone steps rising out of the water toward the surface. · in the east wall, toward the south end · LEADS OUT OF THE DUNGEON — the way they came in, and the way home. Walking through it ENDS THE RUN: commit nextStage "departed"
+- [«id-5»] "a low arch" — a low arch of fitted stone, its keystone dropped an inch · in the north wall, at the middle · leads to [«id-6»], somewhere they have not been
 ",
     "role": "user",
   },
@@ -89,15 +96,22 @@ Traits: physique Wiry, face Bony, skin Ashen, hair Cropped, clothing Patched, vi
 
 ## The room the player is standing in
 
-[«id-1»] **The Stockyard** (NEVER ENCOUNTERED)
-base: A stockyard of the drowned mint, its walls pale limestone crusted with mineral scale. Water lies ankle-deep across the floor, still and cold. Nothing has disturbed it in a long time.
+[«id-1»] **The Cavern** (NEVER ENCOUNTERED)
+base: A cavern of the drowned mint, its walls pale limestone crusted with mineral scale. Water lies ankle-deep across the floor, still and cold. Nothing has disturbed it in a long time.
+
+### As drawn on the map
+a small chamber, about 10 by 35 feet -- long and narrow, running north-south, close to a rectangle, give or take a corner. Ways out: one off the north wall, one off the east wall
+The compass here is the MAP's, not the party's: north is north wherever they are facing. Say "the north wall"; never "on your left", which you have no way to know.
 
 ### In it
-- (nothing in it)
+- [«id-2»] the rubble — RoomFeature · near the way in (NEVER ENCOUNTERED)
+    base: The rubble of the drowned mint, scaled with mineral crust.
+- [«id-3»] the pillars — RoomFeature · spread through the room (NEVER ENCOUNTERED)
+    base: The pillars of the drowned mint, scaled with mineral crust.
 
 ### Ways out
-- [«id-2»] "the mint's stair — out of the dungeon" — A broad flight of worn limestone steps rising out of the water toward the surface. · LEADS OUT OF THE DUNGEON — the way they came in, and the way home. Walking through it ENDS THE RUN: commit nextStage "departed"
-- [«id-3»] "a low arch" — a low arch of fitted stone, its keystone dropped an inch · leads to [«id-4»], somewhere they have not been
+- [«id-4»] "the mint's stair — out of the dungeon" — A broad flight of worn limestone steps rising out of the water toward the surface. · in the east wall, toward the south end · LEADS OUT OF THE DUNGEON — the way they came in, and the way home. Walking through it ENDS THE RUN: commit nextStage "departed"
+- [«id-5»] "a low arch" — a low arch of fitted stone, its keystone dropped an inch · in the north wall, at the middle · leads to [«id-6»], somewhere they have not been
 ",
     "role": "user",
   },
@@ -150,15 +164,22 @@ Traits: physique Wiry, face Bony, skin Ashen, hair Cropped, clothing Patched, vi
 
 ## The room the player is standing in
 
-[«id-1»] **The Stockyard** (NEVER ENCOUNTERED)
-base: A stockyard of the drowned mint, its walls pale limestone crusted with mineral scale. Water lies ankle-deep across the floor, still and cold. Nothing has disturbed it in a long time.
+[«id-1»] **The Cavern** (NEVER ENCOUNTERED)
+base: A cavern of the drowned mint, its walls pale limestone crusted with mineral scale. Water lies ankle-deep across the floor, still and cold. Nothing has disturbed it in a long time.
+
+### As drawn on the map
+a small chamber, about 10 by 35 feet -- long and narrow, running north-south, close to a rectangle, give or take a corner. Ways out: one off the north wall, one off the east wall
+The compass here is the MAP's, not the party's: north is north wherever they are facing. Say "the north wall"; never "on your left", which you have no way to know.
 
 ### In it
-- (nothing in it)
+- [«id-2»] the rubble — RoomFeature · near the way in (NEVER ENCOUNTERED)
+    base: The rubble of the drowned mint, scaled with mineral crust.
+- [«id-3»] the pillars — RoomFeature · spread through the room (NEVER ENCOUNTERED)
+    base: The pillars of the drowned mint, scaled with mineral crust.
 
 ### Ways out
-- [«id-2»] "the mint's stair — out of the dungeon" — A broad flight of worn limestone steps rising out of the water toward the surface. · LEADS OUT OF THE DUNGEON — the way they came in, and the way home. Walking through it ENDS THE RUN: commit nextStage "departed"
-- [«id-3»] "a low arch" — a low arch of fitted stone, its keystone dropped an inch · leads to [«id-4»], somewhere they have not been
+- [«id-4»] "the mint's stair — out of the dungeon" — A broad flight of worn limestone steps rising out of the water toward the surface. · in the east wall, toward the south end · LEADS OUT OF THE DUNGEON — the way they came in, and the way home. Walking through it ENDS THE RUN: commit nextStage "departed"
+- [«id-5»] "a low arch" — a low arch of fitted stone, its keystone dropped an inch · in the north wall, at the middle · leads to [«id-6»], somewhere they have not been
 ",
     "role": "user",
   },
@@ -209,15 +230,22 @@ Traits: physique Wiry, face Bony, skin Ashen, hair Cropped, clothing Patched, vi
 
 ## The room the player is standing in
 
-[«id-1»] **The Stockyard** (NEVER ENCOUNTERED)
-base: A stockyard of the drowned mint, its walls pale limestone crusted with mineral scale. Water lies ankle-deep across the floor, still and cold. Nothing has disturbed it in a long time.
+[«id-1»] **The Cavern** (NEVER ENCOUNTERED)
+base: A cavern of the drowned mint, its walls pale limestone crusted with mineral scale. Water lies ankle-deep across the floor, still and cold. Nothing has disturbed it in a long time.
+
+### As drawn on the map
+a small chamber, about 10 by 35 feet -- long and narrow, running north-south, close to a rectangle, give or take a corner. Ways out: one off the north wall, one off the east wall
+The compass here is the MAP's, not the party's: north is north wherever they are facing. Say "the north wall"; never "on your left", which you have no way to know.
 
 ### In it
-- (nothing in it)
+- [«id-2»] the rubble — RoomFeature · near the way in (NEVER ENCOUNTERED)
+    base: The rubble of the drowned mint, scaled with mineral crust.
+- [«id-3»] the pillars — RoomFeature · spread through the room (NEVER ENCOUNTERED)
+    base: The pillars of the drowned mint, scaled with mineral crust.
 
 ### Ways out
-- [«id-2»] "the mint's stair — out of the dungeon" — A broad flight of worn limestone steps rising out of the water toward the surface. · LEADS OUT OF THE DUNGEON — the way they came in, and the way home. Walking through it ENDS THE RUN: commit nextStage "departed"
-- [«id-3»] "a low arch" — a low arch of fitted stone, its keystone dropped an inch · leads to [«id-4»], somewhere they have not been
+- [«id-4»] "the mint's stair — out of the dungeon" — A broad flight of worn limestone steps rising out of the water toward the surface. · in the east wall, toward the south end · LEADS OUT OF THE DUNGEON — the way they came in, and the way home. Walking through it ENDS THE RUN: commit nextStage "departed"
+- [«id-5»] "a low arch" — a low arch of fitted stone, its keystone dropped an inch · in the north wall, at the middle · leads to [«id-6»], somewhere they have not been
 ",
     "role": "user",
   },
@@ -226,7 +254,9 @@ base: A stockyard of the drowned mint, its walls pale limestone crusted with min
 
 These need writing — nothing else does:
 
-- [«id-1»] The Stockyard (Room)
+- [«id-1»] The Cavern (Room)
+- [«id-2»] the rubble (RoomFeature)
+- [«id-3»] the pillars (RoomFeature)
 
 Describe the arrival. Change nothing but \`state\` and \`composed\`.
 

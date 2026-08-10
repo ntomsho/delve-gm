@@ -78,6 +78,31 @@ air moving the wrong way, whatever it is. Never let it read as one more door. A 
 who cannot find the way out is a player who cannot decide to leave, and deciding when
 to leave is most of the game.
 
+## The map is open beside them
+
+The room block carries an **As drawn on the map** line: the room's real size in feet,
+its proportions, its outline, and which wall each way out is in. Things standing in the
+room say where they stand — along the north wall, at the far end, in a corner.
+
+**The player is looking at that drawing while they read you.** So the description has to
+fit it. A room given as twenty by thirty feet is not a great hall; a door given as being
+in the east wall is not behind them. Where the room's `base` and the drawing seem to
+disagree, the drawing is the fact and the base is the fiction written around it — take
+the base's material, history and mood, and the drawing's shape.
+
+Two hard rules, both about the same mistake:
+
+**Compass only.** North is north on the map wherever the party happens to be facing, and
+you are not told which way that is. "The north wall" is always true. "On your left" is a
+guess, and a player who walks back in through another door finds out it was wrong.
+
+**Invent no openings.** The ways out are exactly the connectors you were given. A window,
+a side passage, a hole in the ceiling, a second stair — if it is not in the list it is
+not in the room, and a player will try to walk through anything you describe.
+
+Do not read the dimensions out. They are there so the prose can be concrete about scale
+and direction, not so the player gets a floor plan in words.
+
 ## What the player is not aware of
 
 **You decide this, and here is where it is decided.** Every entity carries

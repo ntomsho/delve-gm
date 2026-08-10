@@ -28,12 +28,31 @@ import {
   type Tier,
 } from "./dungeon-blueprint.ts";
 import {
+  addFixture,
   createCreatureFromGroup,
   createCreatureFromSeed,
   promoteDetail,
   PENDING_CONDITION,
   type EntityPassResult,
 } from "./dungeon-entities-pass.ts";
+import {
+  describeGeometry,
+  exitPhrase,
+  type RoomGeometry,
+  type RoomGround,
+  type Siting,
+} from "./dungeon-geometry.ts";
+import {
+  fixtureCap,
+  fixtureMenu,
+  isFixtureKind,
+  isPositionWord,
+  placeAt,
+  placeFixture,
+  POSITION_WORDS,
+  type Placement,
+  type PositionWord,
+} from "./dungeon-fixtures.ts";
 import type {
   MobileEntity,
   RewardParcel,
@@ -106,6 +125,15 @@ export interface ConnectorBrief {
    * not as a door.
    */
   hidden: boolean;
+  /**
+   * Which wall of THIS room it cuts through -- "the east wall, toward the north
+   * end". Absent when the dungeon was generated without a block plan.
+   *
+   * On the connector line rather than gathered into the room's shape line, so
+   * the fact sits next to the thing it is about and nothing has to be joined by
+   * ref twice.
+   */
+  wall?: string;
 }
 
 /** One consolidated body of rank-and-file, count rolled in code. */
@@ -155,6 +183,25 @@ export interface ContentRoomBrief {
   goal?: { reward: string; mission: string };
   gatedExits: string[];
   openExits: string[];
+  /**
+   * The room as it was DRAWN, in words -- size, proportion, outline, which walls
+   * the ways out are in. See `describeGeometry`.
+   *
+   * This is the accuracy multiplier and the reason the block plan runs before
+   * this pass. Without it the model writes to the rolled identity alone and
+   * produces "a long banquet hall" for a room the map draws nearly square; the
+   * player is then the only one in a position to notice that the prose and the
+   * map are describing different rooms.
+   *
+   * Absent when the dungeon has no block plan, which stays a supported case.
+   */
+  geometry?: string;
+  /**
+   * How many drawable things this room may hold, and whether it is a passage —
+   * in which case only the starred half of the menu fits. The menu itself is in
+   * the instructions, once, rather than repeated under all six rooms.
+   */
+  fixtures?: { cap: number; corridor: boolean };
 }
 
 export interface ContentBorderBrief {
@@ -172,6 +219,18 @@ export interface ContentPassPayload {
   borders: ContentBorderBrief[];
   instructions: string;
   responseSchema: string;
+  /**
+   * THE CELLS, WHICH NEVER REACH THE MODEL.
+   *
+   * `renderContentPassPrompt` does not touch this and must not: coordinates are
+   * the half of the geometry that stays on this side, and the payload is already
+   * the channel between build and apply for everything else apply needs to look
+   * up by ref (rolled keywords, encounter briefs). Keyed by room ref.
+   *
+   * Absent when there is no block plan, in which case nothing is placed and the
+   * map falls back to `pointLayout` — a fully playable dungeon with no drawing.
+   */
+  ground?: Record<string, { geometry: RoomGeometry; ground: RoomGround }>;
 }
 
 // ===========================================================================
@@ -190,6 +249,14 @@ export interface WrittenEntity {
   ref: string;
   name: string;
   base: string;
+  /**
+   * One of the position words, saying where in the room it sits.
+   *
+   * Free text is validated against the vocabulary and anything else falls back
+   * to the centre. Optional because a dungeon with no drawing has nowhere to put
+   * it — and because a dropped position costs a dot, not a room.
+   */
+  position?: string;
 }
 
 export interface PromotedDetail {
@@ -197,6 +264,21 @@ export interface PromotedDetail {
   name: string;
   base: string;
   hidden?: boolean;
+  position?: string;
+}
+
+/**
+ * A drawable thing the model chose to furnish the room with.
+ *
+ * `kind` and `position` are validated against the menu and the position words;
+ * an unrecognised value is dropped and never fatal. HOW MANY there are is not
+ * here and never will be — that is rolled from the kind, in code.
+ */
+export interface FixtureResponse {
+  kind: string;
+  position: string;
+  name: string;
+  base: string;
 }
 
 export interface ConnectorResponse {
@@ -236,10 +318,16 @@ export interface RoomResponse {
   name: string;
   base: string;
   entities?: WrittenEntity[];
+  fixtures?: FixtureResponse[];
   promotions?: PromotedDetail[];
   connectors?: ConnectorResponse[];
   encounters?: EncounterResponse[];
-  goal?: { entityType: "Item" | "RoomFeature" | "Creature"; name: string; base: string };
+  goal?: {
+    entityType: "Item" | "RoomFeature" | "Creature";
+    name: string;
+    base: string;
+    position?: string;
+  };
 }
 
 export interface ContentPassResponse {
@@ -395,7 +483,13 @@ export function buildContentPassPayload(
   bp: DungeonBlueprintSeed,
   ep: EntityPassResult,
   chunk: number,
-  dungeonContext: string
+  dungeonContext: string,
+  /**
+   * The drawn rooms, by graph index. Optional throughout: a dungeon with no
+   * block plan generates exactly as it did before, without geometry in the
+   * prompt and without fixtures in the response.
+   */
+  site?: Siting
 ): ContentPassPayload {
   const rng = new Rng((sd.seed ?? 0) + 131 * (chunk + 1));
   const roomById = new Map(sd.rooms.map((r) => [r.roomId, r]));
@@ -439,8 +533,18 @@ export function buildContentPassPayload(
     return r.roomId === owner;
   };
 
+  // A connector is looked up by its own id when the geometry is asked which
+  // wall it is in. The surface exit is not on the graph and so has no entry;
+  // it is matched by its null far side instead, per `GeometryExit`.
+  const wallOf = (roomIndex: number, connectorId: string | null): string | undefined => {
+    const g = site?.geometry[roomIndex];
+    const exit = g?.exits.find((x) => x.connectorId === connectorId);
+    return exit ? exitPhrase(exit) : undefined;
+  };
+
   const rooms: ContentRoomBrief[] = inChunk.map((r) => {
     const links = linksOf(r.roomId);
+    const geom = site?.geometry[r.index];
 
     // --- room-local entities ---
     const entities: EntityBrief[] = [];
@@ -490,6 +594,7 @@ export function buildContentPassPayload(
         toIdentity: l.other.identity,
         gated: l.conn.gated,
         hidden: l.conn.hidden,
+        wall: wallOf(r.index, l.conn.id),
       }));
 
     // --- and the ways out of the chunk, as context only ---
@@ -505,6 +610,9 @@ export function buildContentPassPayload(
         gated: l.conn.gated,
         hidden: l.conn.hidden,
         seam: true,
+        // A seam is not written here, but the room still stands in front of it
+        // and the prose has to be able to say which way it faces.
+        wall: wallOf(r.index, l.conn.id),
       });
     }
 
@@ -523,6 +631,9 @@ export function buildContentPassPayload(
           surface: r.entranceFeature ? { Entrance: r.entranceFeature } : {},
           gated: false,
           hidden: false,
+          // Null, because the way out is minted by the entities pass and is not
+          // on `graph.edges` — the geometry knows it only by its missing far end.
+          wall: wallOf(r.index, null),
         });
       }
     }
@@ -590,6 +701,8 @@ export function buildContentPassPayload(
       goal: r.roomId === ep.pendingGoal.roomId ? { reward: ep.pendingGoal.reward, mission: ep.pendingGoal.mission } : undefined,
       gatedExits: links.filter((l) => l.conn.gated).map((l) => ref(l.other)),
       openExits: links.filter((l) => !l.conn.gated).map((l) => ref(l.other)),
+      geometry: geom ? describeGeometry(geom) : undefined,
+      fixtures: geom ? { cap: fixtureCap(geom), corridor: geom.corridor } : undefined,
     };
   });
 
@@ -612,7 +725,26 @@ export function buildContentPassPayload(
     };
   });
 
-  return { chunk, dungeonContext, rooms, borders, instructions: CONTENT_PASS_INSTRUCTIONS, responseSchema: CONTENT_PASS_SCHEMA };
+  // Only the rooms this chunk writes. A border room's cells are of no use here
+  // — apply never touches it — and carrying them would put the whole dungeon's
+  // grid in every one of N payloads.
+  let ground: ContentPassPayload["ground"];
+  if (site) {
+    ground = {};
+    for (const r of inChunk) {
+      ground[ref(r)] = { geometry: site.geometry[r.index], ground: site.ground[r.index] };
+    }
+  }
+
+  return {
+    chunk,
+    dungeonContext,
+    rooms,
+    borders,
+    instructions: CONTENT_PASS_INSTRUCTIONS,
+    responseSchema: CONTENT_PASS_SCHEMA,
+    ground,
+  };
 }
 
 // ===========================================================================
@@ -635,6 +767,10 @@ export function renderContentPassPrompt(p: ContentPassPayload): string {
     L.push(`depth: ${r.depth}   tension: ${r.tension}${r.isDeadEnd ? "   dead end" : ""}`);
     L.push(`headline: ${r.headline}${r.stacked ? ` + ${r.stacked}` : ""}`);
     L.push(`room keywords: ${kwLine(r.keywords)}`);
+    // AS DRAWN. Placed directly under the identity, because the two are read
+    // together: the identity says what the place was built as and this says
+    // what it came out as, and where they disagree the drawing is the fact.
+    if (r.geometry) L.push(`as drawn: ${r.geometry}`);
 
     for (const e of r.entities) {
       L.push(`entity [${e.ref}] ${e.kind} (${e.entity})${e.hidden ? " HIDDEN" : ""}: ${kwLine(e.keywords)}` + (e.note ? ` -- ${e.note}` : ""));
@@ -643,9 +779,10 @@ export function renderContentPassPrompt(p: ContentPassPayload): string {
       L.push(`promotable detail [${kwLine(d.keywords)}] -- make it an entity only if a player would act on it`);
     }
     for (const c of r.connectors) {
+      const where = c.wall ? ` in ${c.wall}` : "";
       if (c.surface) {
         L.push(
-          `connector [${c.ref}] OUT OF THE DUNGEON -- the way the party came in and the ` +
+          `connector [${c.ref}] OUT OF THE DUNGEON${where} -- the way the party came in and the ` +
             `only way back to daylight; realise it from [${kwLine(c.surface)}] and say what ` +
             `it physically is. Name it as a thing, not as an exit.`
         );
@@ -653,7 +790,7 @@ export function renderContentPassPrompt(p: ContentPassPayload): string {
       }
       if (c.seam) {
         L.push(
-          `way out [${c.ref}] to ${c.toRef} (${c.toIdentity})${c.gated ? " GATED" : ""}` +
+          `way out [${c.ref}]${where} to ${c.toRef} (${c.toIdentity})${c.gated ? " GATED" : ""}` +
             ` -- WRITTEN ELSEWHERE. It leaves this region, so it is written by a later ` +
             `pass that can see both rooms. Count it among this room's ways out; do not ` +
             `name it, describe it, or return it.`
@@ -670,7 +807,7 @@ export function renderContentPassPrompt(p: ContentPassPayload): string {
       // The far side is named so the form can suit it -- a kennel wants a gate,
       // a vault wants a door -- and for no other reason. It must not reach the
       // connector's name; see CONNECTOR_NAMING.
-      L.push(`connector [${c.ref}] to ${c.toRef} (${c.toIdentity})${flags} -- ${asks}`);
+      L.push(`connector [${c.ref}]${where} to ${c.toRef} (${c.toIdentity})${flags} -- ${asks}`);
     }
     for (const en of r.encounters) {
       L.push(`encounter [${en.ref}] ${en.tier}, ${en.affiliation}, currently ${en.activity}, disposition ${en.disposition}`);
@@ -686,6 +823,12 @@ export function renderContentPassPrompt(p: ContentPassPayload): string {
     }
     if (r.gatedExits.length) L.push(`gated exits: ${r.gatedExits.join(", ")}`);
     if (r.openExits.length) L.push(`open exits: ${r.openExits.join(", ")}`);
+    if (r.fixtures) {
+      L.push(
+        `fixtures: up to ${r.fixtures.cap}, or none` +
+          (r.fixtures.corridor ? " -- A PASSAGE: starred kinds only" : "")
+      );
+    }
     L.push("");
   }
 
@@ -766,6 +909,57 @@ PER ROOM
   ${CONNECTOR_HEIGHT}
 - Promotable details: a detail is always part of the room's description. Make it
   its own entity ONLY if a player would act on it. Most stay as description.
+- Fixtures: up to the number the room gives, off the one menu. See FIXTURES.
+
+THE ROOM AS DRAWN
+Each room has already been drawn on the map. "as drawn" gives you its real size
+in feet, its proportions, whether its outline is square-cornered or broken up,
+and how many ways out are in each wall; each connector says which wall it is in.
+
+WRITE TO THE DRAWING, NOT TO THE IDENTITY. The rolled identity says what the
+place was built as; the drawing says what it came out as, and where the two
+disagree the drawing wins. A room rolled "Banquet hall" and drawn twenty feet
+square is not a long hall -- it is what became of one, or a service room off one,
+or a hall the collapse took most of. Say so. A player looking at the map and
+reading your prose must not be looking at two different rooms.
+
+Two hard rules about direction:
+- Compass only. North, south, east and west are on the map and are safe. "Left",
+  "right", "ahead", "behind" depend on which way the party is facing and you do
+  not know that; a party that walks back through will read them as lies.
+- Do not invent an exit, a window, or a level change that is not listed. The ways
+  out are exactly the connectors given.
+
+Feet are given so the prose can be concrete. Round them, compare them to
+something, or ignore them -- but do not contradict them.
+
+FIXTURES -- WHAT IS STANDING IN THE ROOM
+The menu, once. Starred kinds also fit in a passage; the rest need a chamber.
+
+  ${fixtureMenu()}
+
+Each room says how many it may hold. Choose up to that many, or NONE AT ALL --
+an empty room is a real room, and a dungeon of uniformly furnished ones reads as
+a catalogue. Pick what the fiction has already earned: a barracks has bunks, a
+shrine has an altar, a collapsed gallery has rubble.
+
+Each fixture gets a "kind" from the menu, a "position", a name and a base, and is
+written exactly like any other feature -- a thing in this dungeon, not a generic
+one. Positions, and nothing else: ${POSITION_WORDS.join(", ")}.
+
+A fixture is furniture, never a way somewhere. "stair" on the menu means steps
+INSIDE the room -- up to a dais, down into water -- that arrive nowhere else. If
+you want a way between two rooms, it is one of the connectors and it is already
+listed. See A WAY THROUGH IS NEVER A FEATURE.
+
+DO NOT say how many there are. "Pillars" is your decision; six pillars is not --
+the count is rolled, and the map will draw whatever it rolled. Name them in a way
+that survives either number, and write the base about what they ARE rather than
+about how many.
+
+Anything already listed as an entity may ALSO take a "position", from the same
+words, saying where in the room it sits. That is what puts the chest, the clue
+and the hazard on the map alongside the furniture.
 
 NAMING A ROOM
 The name comes from whatever DOMINATES the room, not from the identity it was
@@ -855,8 +1049,9 @@ const CONTENT_PASS_SCHEMA = `Return JSON only, no prose outside it:
       "ref": "<room ref, exactly as given>",
       "name": "<short room name>",
       "base": "<the room's standing description>",
-      "entities": [ { "ref": "<entity ref>", "name": "<name>", "base": "<identity>" } ],
-      "promotions": [ { "text": "<detail text as given>", "name": "<name>", "base": "<identity>", "hidden": false } ],
+      "entities": [ { "ref": "<entity ref>", "name": "<name>", "base": "<identity>", "position": "<one of the position words>" } ],
+      "fixtures": [ { "kind": "<one from THIS room's menu>", "position": "<one of the position words>", "name": "<name>", "base": "<identity>" } ],
+      "promotions": [ { "text": "<detail text as given>", "name": "<name>", "base": "<identity>", "hidden": false, "position": "<one of the position words>" } ],
       "connectors": [ { "ref": "<connector ref>", "name": "<what it is, naming neither room>", "form": "<what it physically is>", "requirement": "<gated only: what blocks it>" } ],
       "encounters": [
         {
@@ -867,14 +1062,18 @@ const CONTENT_PASS_SCHEMA = `Return JSON only, no prose outside it:
           ]
         }
       ],
-      "goal": { "entityType": "Item|RoomFeature|Creature", "name": "<name>", "base": "<identity>" }
+      "goal": { "entityType": "Item|RoomFeature|Creature", "name": "<name>", "base": "<identity>", "position": "<one of the position words>" }
     }
   ]
 }
 
 Include each key only when the room has it; "group" only when a mass is listed;
 "distinct" only for specimens marked distinct; omit "goal" except in the GOAL
-room. Leave "stats" out for an average creature.`;
+room. Leave "stats" out for an average creature.
+
+"fixtures" and every "position" are optional and are omitted entirely for a room
+with no "as drawn" line. NEVER put a count, a dimension, or a coordinate in any
+of them: "kind" and "position" are words off the lists and nothing else.`;
 
 // ===========================================================================
 // APPLY
@@ -931,13 +1130,42 @@ export function applyContentPass(
       room.keywords = brief?.keywords ?? {};
     }
 
+    // --- placement -------------------------------------------------------
+    //
+    // One `taken` set for the whole room, shared by fixtures and stocked
+    // things alike, so nothing ends up standing in anything else. Absent
+    // ground means the dungeon has no drawing and `place` returns undefined
+    // for everything, which every consumer already handles.
+    const site = payload.ground?.[rr.ref];
+    const taken = new Set<string>();
+    const place = (word: string | undefined): Placement | undefined => {
+      if (!site) return undefined;
+      const w: PositionWord = word !== undefined && isPositionWord(word) ? word : "centre";
+      return placeAt(w, site.ground, site.geometry, rng, { taken });
+    };
+
     // entities
     for (const w of rr.entities ?? []) {
       const kw = entityKw.get(w.ref) ?? {};
       const f = featureById.get(w.ref);
-      if (f) { f.name = w.name; (f as { base?: string }).base = w.base; f.keywords = kw; continue; }
+      if (f) {
+        f.name = w.name;
+        (f as { base?: string }).base = w.base;
+        f.keywords = kw;
+        f.place = place(w.position);
+        continue;
+      }
       const it = itemById.get(w.ref);
-      if (it) { it.name = w.name; (it as { base?: string }).base = w.base; it.keywords = kw; continue; }
+      if (it) {
+        it.name = w.name;
+        (it as { base?: string }).base = w.base;
+        it.keywords = kw;
+        // Only an item loose in the room has a position of its own. One inside
+        // a chest is wherever the chest is, and giving it a second answer is
+        // how the map ends up drawing the contents next to the container.
+        if (it.parentId === roomId) it.place = place(w.position);
+        continue;
+      }
       const hz = hazardById.get(w.ref);
       if (hz) {
         hz.name = w.name;
@@ -945,6 +1173,22 @@ export function applyContentPass(
         const seed = ep.registry.hazards[hz.blueprintId];
         if (seed) seed.base = w.base;
       }
+    }
+
+    // fixtures -- the model furnishing a room whose footprint code drew
+    for (const fx of (rr.fixtures ?? []).slice(0, site ? fixtureCap(site.geometry) : 0)) {
+      // Unrecognised kind: dropped, and the entity with it. A position that
+      // does not parse falls back to the centre, because the thing being in
+      // the room is the decision and where it stands is the detail.
+      if (!isFixtureKind(fx.kind)) continue;
+      const word = isPositionWord(fx.position) ? fx.position : "centre";
+      const placed = placeFixture({ kind: fx.kind, position: word }, site!.ground, site!.geometry, rng, { taken });
+      if (!placed) continue;
+      const f = addFixture(roomId, ep);
+      f.name = fx.name;
+      (f as { base?: string }).base = fx.base;
+      f.keywords = { Fixture: fx.kind };
+      f.place = placed;
     }
 
     // promoted details
@@ -956,6 +1200,7 @@ export function applyContentPass(
       (f as { base?: string }).base = pr.base;
       f.keywords = { "Room Detail": pr.text };
       if (pr.hidden) f.isHidden = true;
+      f.place = place(pr.position);
     }
 
     // connectors -- physical form for all, requirement for gated
@@ -976,6 +1221,12 @@ export function applyContentPass(
     if (rr.goal && roomId === ep.pendingGoal.roomId) {
       goalEntity = createGoalEntity(rr.goal, roomId, sd, rng, ep);
       if (goalEntity.type === "Creature") created.push(goalEntity as ICreature);
+      // The one thing the whole run is for belongs on the map like anything
+      // else. A goal creature does not get a footprint — creatures move, and
+      // nothing tracks where they are standing.
+      if (goalEntity.type === "Item" || goalEntity.type === "RoomFeature") {
+        goalEntity.place = place(rr.goal.position);
+      }
     }
 
     // encounters

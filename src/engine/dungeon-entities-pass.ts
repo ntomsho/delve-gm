@@ -538,6 +538,25 @@ export function promoteDetail(
   return f;
 }
 
+/**
+ * A fixture from the content pass, as a real feature of the room.
+ *
+ * The mirror of `promoteDetail`, and deliberately the same shape: a thing the
+ * writing pass decided to add, minted here so the entity layer stays the one
+ * place entities come from. The caller fills in name, base and `place`.
+ *
+ * There is no binding for it. `ElementBinding` ties an entity back to the
+ * STOCKED element it came from, and a fixture came from no roll — it is the
+ * model furnishing a room whose footprint code had already drawn. Nothing later
+ * looks a fixture up by element, so a binding would be a row that only ever gets
+ * filtered out.
+ */
+export function addFixture(roomId: string, res: EntityPassResult): IRoomFeature {
+  const f: IRoomFeature = { id: makeId(), name: "", type: "RoomFeature", roomId };
+  res.features.push(f);
+  return f;
+}
+
 /** Placeholder for a gated connector whose condition text is not yet written. */
 export const PENDING_CONDITION = "[gated -- condition not yet written]";
 

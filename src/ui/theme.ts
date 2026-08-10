@@ -18,6 +18,12 @@ export const color = {
   paper: "#F6F2E8",
   /** a panel set slightly into the sheet */
   panel: "#F1EBDF",
+  /**
+   * A door on the map: brighter than the floor it interrupts, so it reads as a
+   * way through rather than as a mark on the wall. The one white in the
+   * palette, and it earns it by being the only thing the player clicks.
+   */
+  door: "#FFFFFF",
   /** ruled lines, borders, the grain of the paper */
   rule: "#CFC7B4",
   /** a lighter rule, for divisions that should not assert themselves */

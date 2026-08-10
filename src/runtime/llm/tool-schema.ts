@@ -70,6 +70,12 @@ export interface ToolSchema {
  * works with or without strict. Where the schema is small enough, strict adds
  * a hard guarantee on top; where it is not, zod is still validating every
  * response and a bad one still costs only a retry.
+ *
+ * THE BUDGET IS PER REQUEST, NOT PER TOOL. The grammar is compiled for the call,
+ * so every strict schema on the table spends from the same 24 — `commit_state`
+ * (15) and `roll` (11) each fit alone and 400 the moment they are offered
+ * together. `fitStrict` is where that is settled; `canBeStrict` answers only for
+ * a tool that goes out on its own.
  */
 const STRICT_OPTIONAL_LIMIT = 24;
 
@@ -87,9 +93,49 @@ function countOptional(node: unknown): number {
   return n;
 }
 
-/** Whether this schema is simple enough for the API to guarantee it. */
+/** Whether this schema is simple enough for the API to guarantee it, alone. */
 export function canBeStrict(schema: ToolSchema): boolean {
   return countOptional(schema) <= STRICT_OPTIONAL_LIMIT;
+}
+
+/** The `strict` flag is decided per request, so this is all a tool has to carry. */
+interface Strictable {
+  input_schema: ToolSchema;
+  strict?: boolean;
+}
+
+/**
+ * Spend the request's strict budget across the tools going out together.
+ *
+ * Only compiled schemas count against it — the content pass has been sending an
+ * unguaranteed 35-optional tool since Phase 1 — so this drops `strict` rather
+ * than touching any schema. The tool keeps its real shape either way, and zod
+ * still checks whatever comes back.
+ *
+ * Biggest first, so the guarantee lands where the model has the most to get
+ * wrong. On the runtime's pair that is `commit_state`, which writes state; a
+ * malformed `roll` costs one more exchange and nothing else.
+ */
+export function fitStrict<T extends Strictable>(tools: T[]): T[] {
+  const guaranteed = new Set<number>();
+  let spent = 0;
+
+  const byCost = tools
+    .map((t, i) => ({ i, cost: countOptional(t.input_schema) }))
+    .sort((a, b) => b.cost - a.cost || a.i - b.i);
+
+  for (const { i, cost } of byCost) {
+    if (spent + cost > STRICT_OPTIONAL_LIMIT) continue;
+    spent += cost;
+    guaranteed.add(i);
+  }
+
+  return tools.map((tool, i) => {
+    if (guaranteed.has(i)) return tool.strict === true ? tool : { ...tool, strict: true };
+    if (tool.strict === undefined) return tool;
+    const { strict: _dropped, ...rest } = tool;
+    return rest as T;
+  });
 }
 
 /**

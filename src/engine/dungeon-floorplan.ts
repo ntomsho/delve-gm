@@ -26,12 +26,36 @@
  * instead of the placement failing. That is what makes the packer tractable,
  * and it is why corridors are placed second, once the chambers are down:
  *
- *   1. chambers  — rectangles, depth-first with backtracking
+ *   1. chambers  — a family footprint each, depth-first with backtracking
  *   2. corridors — regions of free cells grown to touch every neighbour
  *   3. doors     — one per connector, in the wall its two rooms share
+ *   4. relief    — niches and bays, decorating a plan that already holds
  *
  * Corridors are never adjacent to each other (stocking guarantees it), so every
  * corridor's neighbours are chambers, all of them placed before step 2 begins.
+ *
+ * RELIEF RUNS LAST, AFTER THE DOORS. Niches only remove cells, so they can never
+ * cause an overlap; bays add cells outside the placed footprint, so they can —
+ * but applied into cells already verified as empty rock they cannot fail. By
+ * step 4 every loop is closed and every door is placed, so relief is decoration
+ * on a plan that has already been proved. Its guard is three things and no more:
+ * never remove a cell carrying a door, keep the footprint in one piece, and stop
+ * before the floor area leaves its band. 6a's guard also refused any cell
+ * abutting another room, which put the whole length of every shared wall off
+ * limits and is why 70 of its 119 "irregular" rooms came out as rectangles.
+ *
+ * SHAPE IS FOUR AXES, NOT ONE LIST. `family` (rect/L/T/cross/round), `proportion`,
+ * `relief` and a size band, varying independently — see `RoomShape`. 6a had a
+ * single five-valued `form` doing all three jobs and drew 86% of chambers as
+ * plain rectangles as a result.
+ *
+ * FAMILY IS CHOSEN INSIDE THE PACKER, and that is the point rather than a detail.
+ * A rectangle's area is width times height, so a room pinned between two fixed
+ * neighbours has its width dictated and its achievable areas quantised to
+ * multiples of that width; one of those has to land in the band. A cross in the
+ * same dictated box takes almost any area by varying arm thickness. The shaped
+ * families decouple the bounding box from the floor area, which is exactly the
+ * coupling that was strangling placement.
  *
  * Pure, seeded, no React. A failed layout returns null and the caller advances
  * the layout seed — the same escape hatch Phase A uses, and cheap for the same
@@ -47,13 +71,23 @@
 import { Rng } from "./dungeon-blueprint.ts";
 import type { Dungeon } from "./dungeon-phase-a.ts";
 import type { RoomStock, StockedDungeon } from "./dungeon-rooms-loop.ts";
+import {
+  ARCHETYPES,
+  AREA,
+  CLASSES,
+  classOf,
+  classRank,
+  type Family,
+  type Proportion,
+  type Relief,
+  type RoomShape,
+  type SizeClass,
+} from "./dungeon-room-size.ts";
 
 // ---------------------------------------------------------------------------
 // TYPES
 // ---------------------------------------------------------------------------
 
-export type RoomForm = "rect" | "long" | "round" | "irregular" | "composite";
-export type SizeClass = "tiny" | "small" | "medium" | "large" | "vast";
 export type DoorKind = "plain" | "gated" | "concealed";
 export type Orientation = "horizontal" | "vertical";
 
@@ -74,9 +108,8 @@ export interface FloorplanRoom {
   /** graph index, so the plan joins back to the graph and the stock */
   index: number;
   isCorridor: boolean;
-  form: RoomForm;
   /** chambers only — a corridor is whatever shape the connection needed */
-  sizeClass?: SizeClass;
+  shape?: RoomShape;
   /** the footprint, one point per five-foot cell */
   cells: Point[];
   bounds: Rect;
@@ -108,6 +141,19 @@ export interface Floorplan {
   attempts: number;
 }
 
+/**
+ * Why an attempt gave up. The packer declining is not the same as the packer
+ * drawing something bad — everything it does hand back passes
+ * `validateFloorplan` — so when the draw rate is low this is the only thing that
+ * says which of the three quite different problems is actually biting.
+ */
+export type GiveUp =
+  | "placement-budget"    // the search ran out of positions to try
+  | "placement-stuck"     // the search exhausted the tree without spending the budget
+  | "corridor-adjacent"   // a corridor next to a corridor, which stocking should prevent
+  | "corridor-route"      // a corridor could not reach all its neighbours through the rock
+  | "no-shared-wall";     // two connected rooms ended up not touching
+
 export interface FloorplanOptions {
   seed: number;
   /**
@@ -123,102 +169,25 @@ export interface FloorplanOptions {
 // FOOTPRINT TABLES
 // ---------------------------------------------------------------------------
 
-/** class -> [min area, max area]. Bands, not dimension pairs, so `long` has somewhere to go. */
-const AREA: Record<SizeClass, [number, number]> = {
-  tiny: [4, 9],
-  small: [12, 36],
-  medium: [42, 81],
-  large: [90, 144],
-  vast: [156, 225],
-};
-
-const CLASSES: SizeClass[] = ["tiny", "small", "medium", "large", "vast"];
-const classRank = (c: SizeClass) => CLASSES.indexOf(c) + 1;
-
-/** form -> [min aspect, max aspect], long side over short. */
-const ASPECT: Record<RoomForm, [number, number]> = {
-  rect: [1, 1.5],
+/** proportion -> [min aspect, max aspect], long side over short. */
+const ASPECT: Record<Proportion, [number, number]> = {
+  square: [1, 1.25],
+  moderate: [1.25, 2],
   long: [2, 4],
-  round: [1, 1],
-  irregular: [1, 1.5],
-  composite: [1, 2],
 };
-
-interface Archetype {
-  form?: RoomForm;
-  /** pins the class outright */
-  sizeClass?: SizeClass;
-  /** raises the floor without pinning it */
-  minClass?: SizeClass;
-}
 
 /**
- * `identity` rolls on DUNGEON_ROOMS, whose three nested references reach
- * BUILDING_ROOMS, LOWER_CLASS_BUILDINGS and UPPER_CLASS_BUILDINGS — about 130
- * distinct nouns. A complete mapping would be a chore that rots, so only the
- * nouns that genuinely imply a geometry are annotated and the other ~90 fall
- * through to a default that **still rolls among the classes**: monotony is the
- * failure mode to design against, not inaccuracy.
- *
- * Every key here is asserted reachable from those four tables (see the tests) —
- * an annotation keyed on a noun that never rolls is dead weight that looks
- * live. `Silo`, `Tidal cave` and `Sinkhole` were cut from an earlier draft for
- * exactly that reason: the first is on no table, the second is a Dungeon
- * Entrance and the third a Dungeon Hazard.
+ * The bounding box may not exceed this on a side. Relief 2 is allowed to push
+ * past it, since a bay is by definition outside the placed footprint.
  */
-const ARCHETYPES: Record<string, Archetype> = {
-  // long and narrow
-  "Banquet hall": { form: "long" },
-  Ballroom: { form: "long" },
-  Gallery: { form: "long" },
-  Barracks: { form: "long" },
-  Dormitory: { form: "long" },
-  Stables: { form: "long" },
-  Kennel: { form: "long" },
-  Catacombs: { form: "long" },
-  Sewers: { form: "long" },
+const BOX_CAP = 24;
 
-  // round
-  Well: { form: "round", sizeClass: "tiny" },
-  Fountain: { form: "round" },
-  Pool: { form: "round" },
-  "Fighting pit": { form: "round" },
-  Oubliette: { form: "round" },
-  Observatory: { form: "round" },
+/** A round room needs a flat run of boundary per door, and an ellipse has four. */
+const ROUND_MAX_DEGREE = 4;
 
-  // irregular — irregular in SHAPE. `Attic`, `Garret`, `Root cellar` and
-  // `Junk room` were considered and rejected: they are irregular only in their
-  // contents.
-  Cavern: { form: "irregular" },
-  Chasm: { form: "irregular" },
-  "Mine shaft": { form: "irregular" },
 
-  // axial with an end feature
-  Chapel: { form: "composite" },
-  Shrine: { form: "composite" },
-  Temple: { form: "composite", minClass: "medium" },
-  "Throne room": { form: "composite", minClass: "medium" },
-  Courthouse: { form: "composite" },
-  "Opera house": { form: "composite", minClass: "large" },
 
-  // large and open
-  Courtyard: { minClass: "large" },
-  Garden: { minClass: "large" },
-  Marketplace: { minClass: "large" },
-  Park: { minClass: "large" },
-  Theater: { minClass: "large" },
-  Warehouse: { minClass: "large" },
-
-  // tiny
-  Privy: { sizeClass: "tiny" },
-  Cabinet: { sizeClass: "tiny" },
-  Cloakroom: { sizeClass: "tiny" },
-  Wardrobe: { sizeClass: "tiny" },
-  Pantry: { sizeClass: "tiny" },
-  Larder: { sizeClass: "tiny" },
-};
-
-export { ARCHETYPES, AREA, ASPECT, CLASSES };
+export { ASPECT, BOX_CAP, ROUND_MAX_DEGREE };
 
 // ---------------------------------------------------------------------------
 // GRID
@@ -313,162 +282,457 @@ export function traceOutline(cells: Iterable<Point>): Point[] {
 }
 
 // ---------------------------------------------------------------------------
-// FOOTPRINT CHOICE
+// FAMILIES
 // ---------------------------------------------------------------------------
 
-/** Every (w, h) whose area sits in the class's band and whose aspect suits the form. */
-function dimensionsFor(cls: SizeClass, form: RoomForm): Rect[] {
-  const [lo, hi] = AREA[cls];
-  const [aLo, aHi] = ASPECT[form];
-  const out: Rect[] = [];
-  for (let w = 2; w <= 24; w++) {
-    for (let h = 2; h <= w; h++) {
-      const area = w * h;
-      if (area < lo || area > hi) continue;
-      const aspect = w / h;
-      if (aspect < aLo - 1e-9 || aspect > aHi + 1e-9) continue;
-      out.push({ x: 0, y: 0, w, h });
-      if (w !== h) out.push({ x: 0, y: 0, w: h, h: w });
-    }
-  }
-  return out;
-}
+const FAMILIES: Family[] = ["rect", "L", "T", "cross", "round"];
+const PROPORTIONS: Proportion[] = ["square", "moderate", "long"];
 
-interface Dim {
-  w: number;
-  h: number;
-  rank: number;
-  /** how far this is from what the room rolled; added to the placement score */
-  penalty: number;
-}
-
-interface Footprint {
-  /** what the room rolled — a preference, not a pin */
-  form: RoomForm;
-  sizeClass: SizeClass;
-  dims: Dim[];
+/**
+ * One way of drawing a family inside a given bounding box, plus the floor area
+ * it comes to. The two parameters mean something different per family and
+ * nothing outside `carve` reads them:
+ *
+ *   rect / round   unused — the box determines the footprint outright
+ *   L              the corner rectangle bitten out, `a` wide by `b` tall
+ *   T              bar thickness `a`, stem width `b`; `alt` turns it on its side
+ *   cross          horizontal bar `a` thick, vertical bar `b` thick
+ *
+ * EVERY CONFIGURATION TOUCHES ALL FOUR SIDES OF THE BOX. That is not decoration:
+ * placement pins a room's edges against its neighbours, so a footprint that
+ * pulled back from a side would silently stop sharing a wall there and the
+ * connector would have nowhere to put its door.
+ */
+interface Config {
+  a: number;
+  b: number;
+  alt: boolean;
+  area: number;
 }
 
 /**
- * Pick a room's form and size class.
+ * Every configuration of a family in a `w` by `h` box, sorted by floor area.
  *
- * Two hard floors sit under the roll. `class >= degree - 1`, because what a
- * high-degree room actually needs is placement freedom — neighbours arranged on
- * several sides at once — and that is what size buys; one comparison instead of
- * a perimeter calculation. And enough floor for what the entities pass has
- * already put in the room.
- *
- * The *form* only governs aspect here. Its shape — a bitten corner, an apse —
- * is carved after placement, because a notch taken before it would be free to
- * remove the very cell that was carrying a shared wall.
+ * Memoised, and deliberately not parameterised by the wanted area: the same few
+ * thousand (family, w, h) triples come up over and over across rooms, attempts
+ * and seeds, and keeping the range out of the key is what makes the cache hit.
+ * Callers binary-search the sorted areas instead — see `nearestArea`.
  */
-function footprintFor(room: RoomStock, minCells: number, rng: Rng): Footprint {
-  const arch = ARCHETYPES[room.identity] ?? {};
+const CONFIGS = new Map<string, Config[]>();
 
-  const form: RoomForm =
-    arch.form ??
-    rng.pick<RoomForm>(["rect", "rect", "rect", "long", "long", "round", "irregular", "composite"]);
+function familyConfigs(family: Family, w: number, h: number): Config[] {
+  const key = `${family}:${w}:${h}`;
+  const hit = CONFIGS.get(key);
+  if (hit) return hit;
 
-  const forEntities = CLASSES.findIndex((c) => AREA[c][1] >= minCells) + 1;
-  const floor = Math.max(
-    arch.minClass ? classRank(arch.minClass) : 1,
-    room.degree - 1,
-    forEntities || 1
-  );
-  const pinned = arch.sizeClass ? classRank(arch.sizeClass) : 0;
-  const rank = Math.min(5, Math.max(floor, pinned || rng.pick([2, 2, 3, 3, 3, 4, 4, 5])));
-  const sizeClass = CLASSES[rank - 1];
-
-  // The roll is a preference and the packer is allowed to miss it. It has to
-  // be: a room pinned by neighbours on opposite sides has its width dictated
-  // outright, and one band of one form very rarely contains that exact number.
-  // Offering every class at or above the floor, and the plain aspects as well
-  // as the rolled one, is the difference between a plan that draws and one
-  // that does not — so the class ends up *describing* the rectangle that fit
-  // rather than dictating it, while `class >= degree - 1` still holds by
-  // construction because nothing below the floor is ever offered.
-  const best = new Map<string, Dim>();
-  for (let r = floor; r <= 5; r++) {
-    for (const f of [form, "rect", "long"] as RoomForm[]) {
-      const penalty = 2 * Math.abs(r - rank) + (f === form ? 0 : 3);
-      for (const d of dimensionsFor(CLASSES[r - 1], f)) {
-        const k = `${d.w}x${d.h}`;
-        const prev = best.get(k);
-        if (!prev || prev.penalty > penalty) best.set(k, { w: d.w, h: d.h, rank: r, penalty });
+  const out: Config[] = [];
+  if (family === "rect") {
+    out.push({ a: 0, b: 0, alt: false, area: w * h });
+  } else if (family === "round") {
+    const area = ellipseCells({ x: 0, y: 0, w, h }).length;
+    if (area >= 4) out.push({ a: 0, b: 0, alt: false, area });
+  } else if (w >= 3 && h >= 3) {
+    if (family === "L") {
+      for (let cw = 1; cw < w; cw++) {
+        for (let ch = 1; ch < h; ch++) out.push({ a: cw, b: ch, alt: false, area: w * h - cw * ch });
       }
-    }
-  }
-
-  const dims = [...best.values()].sort((a, b) => a.penalty - b.penalty);
-  return { form, sizeClass, dims: dims.length ? dims : [{ w: 3, h: 3, rank: 1, penalty: 0 }] };
-}
-
-/**
- * Cut the room's form into an already-placed rectangle.
- *
- * Both operations are constrained to keep the bounding box — which is what the
- * area band is measured on — and to leave every cell that carries a shared
- * wall. A room's shape is decoration; its contacts are the plan.
- */
-function carveForm(cells: Cell[], form: RoomForm, box: Rect, grid: Grid, rng: Rng): Cell[] {
-  if (form !== "irregular" && form !== "composite") return cells;
-  if (box.w < 5 || box.h < 5) return cells;
-
-  const set = new Set(cells);
-  const load = (c: Cell) => STEP.some((s) => grid.has(c + s) && !set.has(c + s));
-
-  const drop = (c: Cell) => {
-    if (!set.has(c) || load(c)) return;
-    set.delete(c);
-  };
-
-  if (form === "irregular") {
-    // A bite out of one or two corners. Kept under a third of each side so the
-    // bounding box survives and the room still reads as one space.
-    const corners: Point[] = [
-      { x: box.x, y: box.y },
-      { x: box.x + box.w - 1, y: box.y },
-      { x: box.x, y: box.y + box.h - 1 },
-      { x: box.x + box.w - 1, y: box.y + box.h - 1 },
-    ];
-    for (const c of rng.pickN(corners, rng.range(1, 2))) {
-      const bw = rng.range(1, Math.max(1, Math.floor(box.w / 3)));
-      const bh = rng.range(1, Math.max(1, Math.floor(box.h / 3)));
-      const sx = c.x === box.x ? 1 : -1;
-      const sy = c.y === box.y ? 1 : -1;
-      for (let i = 0; i < bw; i++) {
-        for (let j = 0; j < bh; j++) drop(cell(c.x + sx * i, c.y + sy * j));
+    } else if (family === "T") {
+      // A bar with a stem. The stem is kept off both ends so the room has two
+      // shoulders — one shoulder is an L, and L is its own family.
+      for (let t = 1; t <= h - 2; t++) {
+        for (let sw = 1; sw <= w - 2; sw++) {
+          out.push({ a: t, b: sw, alt: false, area: w * t + sw * (h - t) });
+        }
       }
-    }
-  } else {
-    // Axial with an end feature: the far third narrows to a sanctuary, so the
-    // room reads as a nave pointing at something.
-    const along = box.w >= box.h;
-    const inset = 1;
-    const depth = Math.max(1, Math.floor((along ? box.w : box.h) / 3));
-    const far = rng.coin();
-    for (let d = 0; d < depth; d++) {
-      const at = along
-        ? far
-          ? box.x + box.w - 1 - d
-          : box.x + d
-        : far
-          ? box.y + box.h - 1 - d
-          : box.y + d;
-      for (let k = 0; k < inset; k++) {
-        if (along) {
-          drop(cell(at, box.y + k));
-          drop(cell(at, box.y + box.h - 1 - k));
-        } else {
-          drop(cell(box.x + k, at));
-          drop(cell(box.x + box.w - 1 - k, at));
+      for (let t = 1; t <= w - 2; t++) {
+        for (let sw = 1; sw <= h - 2; sw++) {
+          out.push({ a: t, b: sw, alt: true, area: h * t + sw * (w - t) });
+        }
+      }
+    } else {
+      // Two bars crossing, each kept clear of both edges so the arms are real.
+      // The bars need not be centred and their thicknesses are independent,
+      // which is where a medium cross's ~15,600 distinct silhouettes come from.
+      for (let th = 1; th <= h - 2; th++) {
+        for (let tw = 1; tw <= w - 2; tw++) {
+          out.push({ a: th, b: tw, alt: false, area: w * th + h * tw - th * tw });
         }
       }
     }
   }
 
-  const kept = [...set];
-  return connected(kept) && kept.length >= 4 ? kept : cells;
+  out.sort((p, q) => p.area - q.area || p.a - q.a || p.b - q.b || Number(p.alt) - Number(q.alt));
+  CONFIGS.set(key, out);
+  return out;
+}
+
+/** An ellipse inscribed in the box. Square proportions give a circle, long an oval. */
+function ellipseCells(box: Rect): Cell[] {
+  const out: Cell[] = [];
+  const rx = box.w / 2;
+  const ry = box.h / 2;
+  for (let i = 0; i < box.w; i++) {
+    for (let j = 0; j < box.h; j++) {
+      const dx = (i + 0.5 - rx) / rx;
+      const dy = (j + 0.5 - ry) / ry;
+      if (dx * dx + dy * dy <= 1 + 1e-9) out.push(cell(box.x + i, box.y + j));
+    }
+  }
+  return out;
+}
+
+/** First index whose area is at or above `v`. */
+function lowerBound(cfgs: Config[], v: number): number {
+  let lo = 0;
+  let hi = cfgs.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (cfgs[mid].area < v) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+/**
+ * The achievable area inside `[lo, hi]` that sits closest to the rolled band,
+ * or null when the family cannot reach the range at all in this box. All binary
+ * search: this runs a few thousand times per room and a linear scan of the
+ * configuration list would dominate the packer.
+ */
+function nearestArea(cfgs: Config[], lo: number, hi: number, tLo: number, tHi: number): number | null {
+  if (!cfgs.length) return null;
+  const first = lowerBound(cfgs, lo);
+  if (first >= cfgs.length || cfgs[first].area > hi) return null;
+
+  // Anything inside the rolled band, clamped to what is allowed, is a free hit.
+  const wantLo = Math.max(tLo, lo);
+  const wantHi = Math.min(tHi, hi);
+  if (wantLo <= wantHi) {
+    const i = lowerBound(cfgs, wantLo);
+    if (i < cfgs.length && cfgs[i].area <= wantHi) return cfgs[i].area;
+  }
+
+  // Otherwise the nearest on either side of it, still inside `[lo, hi]`.
+  const at = lowerBound(cfgs, wantLo);
+  const above = at < cfgs.length && cfgs[at].area <= hi ? cfgs[at].area : null;
+  const below = at > 0 && cfgs[at - 1].area >= lo ? cfgs[at - 1].area : null;
+  if (above === null) return below;
+  if (below === null) return above;
+  return Math.abs(above - wantLo) <= Math.abs(wantLo - below) ? above : below;
+}
+
+// ---------------------------------------------------------------------------
+// THE SHAPE ROLL
+// ---------------------------------------------------------------------------
+
+/** A bounding box worth trying, and the family that will be drawn inside it. */
+interface Dim {
+  w: number;
+  h: number;
+  family: Family;
+  /** how far this is from what the room rolled; added to the placement score */
+  penalty: number;
+}
+
+/**
+ * What a room rolled, what it is allowed to become, and the boxes that satisfy
+ * both. Family, proportion and size are preferences the packer may miss; the
+ * area interval and the degree floor are not.
+ */
+interface ShapeRoll {
+  family: Family;
+  proportion: Proportion;
+  relief: Relief;
+  /** the class the room wanted, before the packer had its say */
+  sizeClass: SizeClass;
+  /** the allowed floor-area interval — one interval, because the bands abut */
+  areaLo: number;
+  areaHi: number;
+  /** the rolled class's own band, used to choose among configurations */
+  targetLo: number;
+  targetHi: number;
+  boxes: Dim[];
+  /**
+   * `boxes` indexed by width and by height.
+   *
+   * Neighbours on opposite sides dictate a dimension outright, and then all but
+   * a handful of the boxes are dead on arrival — `span` would return null for
+   * every one of them. Scanning the whole list to discover that is what made the
+   * first cut of this six times slower than 6a at size 3, because it happens
+   * inside the arrangement loop, inside the backtracking search.
+   */
+  byW: Map<number, Dim[]>;
+  byH: Map<number, Dim[]>;
+  degree: number;
+}
+
+/** Boxes kept per room. Enough variety to place with; bounded so the packer stays quick. */
+const MAX_BOXES = 300;
+
+/**
+ * Roll a room's four axes and work out which bounding boxes can serve them.
+ *
+ * FAMILY IS HARD, PROPORTION IS FIRM, SIZE IS SOFT. A well that is not round is
+ * wrong; a banquet hall that is not long is wrong; a well one class larger than
+ * it rolled is nobody's problem. 6a made all three equally rigid and the packer
+ * had nowhere to give, which is most of why it could not draw sizes 4 and 5. So
+ * the rolled family and proportion are merely cheapest here, and every other
+ * combination stays available at a penalty.
+ *
+ * Two hard floors sit under the size roll. `class >= degree - 1`, because what a
+ * high-degree room needs is placement freedom — neighbours arranged on several
+ * sides at once — and that is what size buys. And enough floor for what the
+ * entities pass has already put in the room. Both outrank an archetype's pin: a
+ * Well with four ways out stops being tiny, because the structure is real and
+ * the fiction is a preference.
+ */
+function shapeFor(room: RoomStock, minCells: number, rng: Rng): ShapeRoll {
+  const arch = ARCHETYPES[room.identity] ?? {};
+
+  const family: Family = arch.family
+    ? rng.pick(arch.family)
+    : rng.pick<Family>([
+        "rect", "rect", "rect",
+        "L", "L", "L",
+        "T", "T",
+        "cross", "cross",
+        "round", "round",
+      ]);
+
+  const proportion: Proportion =
+    arch.proportion ??
+    rng.pick<Proportion>(["square", "square", "moderate", "moderate", "moderate", "long"]);
+
+  // Relief 2 never rolls — it appears only where an archetype demands it.
+  const rolledRelief = rng.pick<Relief>([0, 1, 1, 1]);
+  const relief: Relief =
+    arch.relief ?? (Math.min(arch.maxRelief ?? 2, rolledRelief) as Relief);
+
+  const forEntities = CLASSES.findIndex((c) => AREA[c][1] >= minCells) + 1;
+  const pinned = arch.sizeClass ? classRank(arch.sizeClass) : 0;
+  const floorRank = Math.max(
+    arch.minClass ? classRank(arch.minClass) : 1,
+    room.degree - 1,
+    forEntities || 1,
+    pinned
+  );
+  const ceilRank = pinned ? Math.max(pinned, floorRank) : CLASSES.length;
+  const rolledRank = Math.min(
+    ceilRank,
+    Math.max(floorRank, pinned || Math.min(CLASSES.length, rng.pick([2, 2, 3, 3, 3, 4, 4, 5])))
+  );
+
+  const areaLo = Math.max(AREA[CLASSES[floorRank - 1]][0], minCells);
+  const areaHi = AREA[CLASSES[ceilRank - 1]][1];
+  const [targetLo, targetHi] = AREA[CLASSES[rolledRank - 1]];
+
+  // Preference order: the rolled value first, everything else behind it.
+  const props = [proportion, ...PROPORTIONS.filter((p) => p !== proportion)];
+  const fams = [family, ...FAMILIES.filter((f) => f !== family)];
+
+  const boxes: Dim[] = [];
+  for (let w = 2; w <= BOX_CAP; w++) {
+    for (let h = 2; h <= BOX_CAP; h++) {
+      const aspect = Math.max(w, h) / Math.min(w, h);
+      const pi = props.findIndex(
+        (p) => aspect >= ASPECT[p][0] - 1e-9 && aspect <= ASPECT[p][1] + 1e-9
+      );
+      if (pi < 0) continue;
+
+      let best: Dim | null = null;
+      for (let fi = 0; fi < fams.length; fi++) {
+        const f = fams[fi];
+        // The one place a rolled family is refused outright. An ellipse meets
+        // its orthogonal neighbours along four short flat runs, and a door needs
+        // one each; `class >= degree - 1` does not cover it, because that floor
+        // buys area and a vast ellipse has no more flat runs than a small one.
+        if (f === "round" && room.degree > ROUND_MAX_DEGREE) continue;
+        const near = nearestArea(familyConfigs(f, w, h), areaLo, areaHi, targetLo, targetHi);
+        if (near === null) continue;
+        const penalty =
+          3 * pi + (fi > 0 ? 3 : 0) + 2 * Math.abs(classRank(classOf(near)) - rolledRank);
+        if (!best || best.penalty > penalty) best = { w, h, family: f, penalty };
+      }
+      if (best) boxes.push(best);
+    }
+  }
+
+  boxes.sort((a, b) => a.penalty - b.penalty || a.w * a.h - b.w * b.h || a.w - b.w);
+
+  const kept = boxes.length
+    ? boxes.slice(0, MAX_BOXES)
+    : [{ w: 3, h: 3, family: "rect" as Family, penalty: 0 }];
+
+  const byW = new Map<number, Dim[]>();
+  const byH = new Map<number, Dim[]>();
+  for (const d of kept) {
+    (byW.get(d.w) ?? byW.set(d.w, []).get(d.w)!).push(d);
+    (byH.get(d.h) ?? byH.set(d.h, []).get(d.h)!).push(d);
+  }
+
+  return {
+    family,
+    proportion,
+    relief,
+    sizeClass: CLASSES[rolledRank - 1],
+    areaLo,
+    areaHi,
+    targetLo,
+    targetHi,
+    boxes: kept,
+    byW,
+    byH,
+    degree: room.degree,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// DRAWING A FAMILY INTO A BOX
+// ---------------------------------------------------------------------------
+
+/** A closed run of rows or columns, box-relative. */
+type Iv = [number, number];
+
+/**
+ * What the placement has already committed this room to reaching, box-relative
+ * and split by side: the rows a western neighbour needs the west edge to cover,
+ * and so on.
+ */
+interface Need {
+  w: Iv[];
+  e: Iv[];
+  n: Iv[];
+  s: Iv[];
+}
+
+/**
+ * Offsets at which a run of `len` still meets every interval, within `[lo, hi]`.
+ *
+ * This is the whole reason the shaped families work inside the packer rather
+ * than beside it. A cross drawn at a random offset misses the neighbour it was
+ * placed against perhaps half the time, and every miss is a rejected candidate
+ * and a backtrack; solving for the offset instead makes the contact a property
+ * of the construction. Measured: this is the difference between 1,700ms and
+ * 200ms an attempt at size 3.
+ */
+function solveOffset(ivs: Iv[], len: number, lo: number, hi: number): Iv | null {
+  let from = lo;
+  let to = hi;
+  for (const [a, b] of ivs) {
+    from = Math.max(from, a - len + 1);
+    to = Math.min(to, b);
+  }
+  return from <= to ? [from, to] : null;
+}
+
+/** Does every interval reach into `[lo, hi]`? */
+const allReach = (ivs: Iv[], lo: number, hi: number) => ivs.every((v) => v[0] <= hi && v[1] >= lo);
+
+/**
+ * Paint one configuration of a family into the box, positioned so the footprint
+ * still touches everything placement pinned it against.
+ *
+ * Returns null when this configuration cannot meet the contacts at any offset,
+ * which the caller reads as "try the next configuration".
+ */
+function carve(box: Rect, family: Family, cfg: Config, need: Need, rng: Rng): Cell[] | null {
+  const { x, y, w, h } = box;
+  const pick = (r: Iv) => rng.range(r[0], r[1]);
+
+  if (family === "rect") return rectCells(box);
+  if (family === "round") return ellipseCells(box);
+
+  const out: Cell[] = [];
+
+  if (family === "L") {
+    // A bite out of one corner. The area is the same whichever corner it is, so
+    // the choice is free — which means it can be spent on keeping the contacts.
+    const corners: Array<[number, number]> = [
+      [0, 0],
+      [w - cfg.a, 0],
+      [0, h - cfg.b],
+      [w - cfg.a, h - cfg.b],
+    ];
+    // A bitten corner only threatens the two edges it sits on, and only if it
+    // swallows a neighbour's whole run there.
+    const survives = ([cx0, cy0]: [number, number]) => {
+      const clearsRows = (ivs: Iv[]) => ivs.every((v) => v[0] < cy0 || v[1] > cy0 + cfg.b - 1);
+      const clearsCols = (ivs: Iv[]) => ivs.every((v) => v[0] < cx0 || v[1] > cx0 + cfg.a - 1);
+      if (cx0 === 0 && !clearsRows(need.w)) return false;
+      if (cx0 + cfg.a === w && !clearsRows(need.e)) return false;
+      if (cy0 === 0 && !clearsCols(need.n)) return false;
+      if (cy0 + cfg.b === h && !clearsCols(need.s)) return false;
+      return true;
+    };
+    const ok = rng.pickN(corners, corners.length).find(survives);
+    if (!ok) return null;
+    const [cx0, cy0] = ok;
+    for (let i = 0; i < w; i++) {
+      for (let j = 0; j < h; j++) {
+        const bitten = i >= cx0 && i < cx0 + cfg.a && j >= cy0 && j < cy0 + cfg.b;
+        if (!bitten) out.push(cell(x + i, y + j));
+      }
+    }
+    return out;
+  }
+
+  if (family === "T") {
+    // A bar down one whole side and a stem out of the middle of it. The bar's
+    // side is free and the stem's offset along it is free; both get spent on
+    // the contacts. `alt` stands the whole thing on its side.
+    const along = cfg.alt ? h : w;
+    const across = cfg.alt ? w : h;
+    // Along the bar, the far edge is reached by the stem alone; the two edges
+    // the bar runs between are reached by the bar alone.
+    const barSides = cfg.alt ? ([need.w, need.e] as const) : ([need.n, need.s] as const);
+    const runSides = cfg.alt ? [...need.n, ...need.s] : [...need.w, ...need.e];
+
+    for (const far of rng.coin() ? [false, true] : [true, false]) {
+      // `far` puts the bar on the high edge, so the bar occupies the last
+      // `cfg.a` of `across` and the stem reaches the low one.
+      const barLo = far ? across - cfg.a : 0;
+      if (!allReach(runSides, barLo, barLo + cfg.a - 1)) continue;
+      const stemSide = far ? barSides[0] : barSides[1];
+      const range = solveOffset(stemSide, cfg.b, 1, along - cfg.b - 1);
+      if (!range) continue;
+
+      const off = pick(range);
+      for (let i = 0; i < along; i++) {
+        for (let j = 0; j < across; j++) {
+          const inBar = j >= barLo && j < barLo + cfg.a;
+          const inStem = i >= off && i < off + cfg.b;
+          if (!inBar && !inStem) continue;
+          out.push(cfg.alt ? cell(x + j, y + i) : cell(x + i, y + j));
+        }
+      }
+      return out;
+    }
+    return null;
+  }
+
+  // cross — a horizontal bar `a` thick and a vertical bar `b` thick, neither
+  // necessarily centred. The west and east edges are reached by the horizontal
+  // bar alone, the north and south by the vertical one, so each bar's offset is
+  // solved against the sides it serves.
+  const rows = solveOffset([...need.w, ...need.e], cfg.a, 1, h - cfg.a - 1);
+  const cols = solveOffset([...need.n, ...need.s], cfg.b, 1, w - cfg.b - 1);
+  if (!rows || !cols) return null;
+  const ry = pick(rows);
+  const rx = pick(cols);
+  for (let i = 0; i < w; i++) {
+    for (let j = 0; j < h; j++) {
+      if ((j >= ry && j < ry + cfg.a) || (i >= rx && i < rx + cfg.b)) out.push(cell(x + i, y + j));
+    }
+  }
+  return out;
+}
+
+/** Do these two footprints share at least one unit of wall? */
+function touches(a: Set<Cell>, b: Set<Cell>): boolean {
+  for (const c of a) {
+    for (const s of STEP) if (b.has(c + s)) return true;
+  }
+  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -481,25 +745,109 @@ interface Placement {
   index: number;
   cells: Cell[];
   set: Set<Cell>;
-  form: RoomForm;
-  sizeClass: SizeClass;
+  shape: RoomShape;
   bounds: Rect;
   centre: Point;
 }
 
-function place(index: number, box: Rect, fp: Footprint, rank: number): Placement {
-  const cells = rectCells(box);
-  return {
-    index,
-    cells,
-    set: new Set(cells),
-    form: fp.form,
-    // The class the room ended up with, which is the one the band is measured
-    // against. It is never below the floor `footprintFor` set.
-    sizeClass: CLASSES[rank - 1],
-    bounds: box,
-    centre: { x: box.x + box.w / 2, y: box.y + box.h / 2 },
+/** Configurations tried per box before the box is given up on. */
+const CARVE_TRIES = 6;
+
+/**
+ * Draw the room into a box that placement has already found room for.
+ *
+ * This is where the family axis earns its place inside the packer. The box is
+ * dictated — a room pinned between two fixed neighbours has its width decided
+ * for it — and the question is what can be drawn inside it. A rectangle answers
+ * with one area, quantised to a multiple of that width; a cross answers with
+ * almost any area at all, by varying arm thickness. Decoupling the bounding box
+ * from the floor area is the coupling 6a could not break.
+ *
+ * Returns null when nothing legal can be drawn here, which the caller reads as
+ * "try the next box" rather than as a failure.
+ */
+function place(
+  index: number,
+  box: Rect,
+  dim: Dim,
+  roll: ShapeRoll,
+  hard: Placement[],
+  rng: Rng
+): Placement | null {
+  // Which side each pinned neighbour is on, and the run it needs reaching.
+  const need: Need = { w: [], e: [], n: [], s: [] };
+  for (const n of hard) {
+    const b = n.bounds;
+    if (b.x + b.w === box.x || b.x === box.x + box.w) {
+      const iv: Iv = [
+        Math.max(b.y, box.y) - box.y,
+        Math.min(b.y + b.h, box.y + box.h) - 1 - box.y,
+      ];
+      if (iv[0] <= iv[1]) (b.x === box.x + box.w ? need.e : need.w).push(iv);
+    } else if (b.y + b.h === box.y || b.y === box.y + box.h) {
+      const iv: Iv = [
+        Math.max(b.x, box.x) - box.x,
+        Math.min(b.x + b.w, box.x + box.w) - 1 - box.x,
+      ];
+      if (iv[0] <= iv[1]) (b.y === box.y + box.h ? need.s : need.n).push(iv);
+    }
+  }
+
+  const finish = (cells: Cell[] | null, family: Family): Placement | null => {
+    if (!cells || cells.length < 4 || !connected(cells)) return null;
+    if (cells.length < roll.areaLo || cells.length > roll.areaHi) return null;
+    const set = new Set(cells);
+    // The belt to `carve`'s braces. `need` is derived from bounding boxes, and
+    // a footprint that satisfied it should touch — but a connector with nowhere
+    // to put its door is a plan `validateFloorplan` refuses outright, so the
+    // cheap direct check stays.
+    for (const n of hard) if (!touches(set, n.set)) return null;
+    const bounds = boundsOf(cells);
+    return {
+      index,
+      cells,
+      set,
+      shape: {
+        family,
+        proportion: roll.proportion,
+        relief: roll.relief,
+        // The class DESCRIBES the room that fit rather than dictating it. It is
+        // never below the floor `shapeFor` set, because nothing below the floor
+        // was ever offered.
+        sizeClass: classOf(cells.length),
+      },
+      bounds,
+      centre: { x: bounds.x + bounds.w / 2, y: bounds.y + bounds.h / 2 },
+    };
   };
+
+  // The box's own family first, then the rest. A box is offered on the strength
+  // of one family reaching the band in it, but others often can too, and taking
+  // a second-choice silhouette here is far cheaper than backtracking.
+  const order = [dim.family, ...FAMILIES.filter((f) => f !== dim.family)];
+  let tries = CARVE_TRIES;
+
+  for (const family of order) {
+    if (family === "round" && roll.degree > ROUND_MAX_DEGREE) continue;
+    const cfgs = familyConfigs(family, box.w, box.h);
+
+    // Configurations that land in the allowed interval, nearest the rolled band
+    // first. The band is a preference; the interval is not.
+    const usable: Config[] = [];
+    for (let i = lowerBound(cfgs, roll.areaLo); i < cfgs.length && cfgs[i].area <= roll.areaHi; i++) {
+      usable.push(cfgs[i]);
+    }
+    if (!usable.length) continue;
+    const want = (roll.targetLo + roll.targetHi) / 2;
+    usable.sort((p, q) => Math.abs(p.area - want) - Math.abs(q.area - want));
+
+    for (const cfg of usable) {
+      if (tries-- <= 0) return null;
+      const got = finish(carve(box, family, cfg, need, rng), family);
+      if (got) return got;
+    }
+  }
+  return null;
 }
 
 const boxFits = (grid: Grid, box: Rect): boolean => {
@@ -546,31 +894,87 @@ function centroid(ps: Placement[]): Point {
 type Side = "west" | "east" | "north" | "south";
 const SIDES: Side[] = ["west", "east", "north", "south"];
 
-/** Every way of putting k neighbours on k distinct sides. */
-function arrangements(k: number): Side[][] {
-  if (k === 0) return [[]];
-  const out: Side[][] = [];
-  const walk = (acc: Side[], left: Side[]) => {
-    if (acc.length === k) {
-      out.push([...acc]);
-      return;
-    }
-    for (let i = 0; i < left.length; i++) {
-      acc.push(left[i]);
-      walk(acc, [...left.slice(0, i), ...left.slice(i + 1)]);
-      acc.pop();
-    }
-  };
-  walk([], SIDES);
-  return out;
-}
-const ARRANGEMENTS = [0, 1, 2, 3, 4].map(arrangements);
+/** Which way each wall faces, as an angle, in screen coordinates where y grows down. */
+const FACING: Array<{ side: Side; angle: number }> = [
+  { side: "east", angle: 0 },
+  { side: "south", angle: Math.PI / 2 },
+  { side: "west", angle: Math.PI },
+  { side: "north", angle: -Math.PI / 2 },
+];
 
-const MAX_CANDIDATES = 10;
+/**
+ * The walls a neighbour lying in a given direction may attach to, nearest first.
+ *
+ * Phase A already relaxed the rooms into positions — connected rooms pulling
+ * together, all rooms pushing apart — which is a rough sketch of the whole map.
+ * The packer ignored it entirely and guessed instead, trying every permutation
+ * of neighbours onto walls and scoring them. This uses the sketch: the angle
+ * from a room to its neighbour says roughly where that neighbour belongs, so
+ * only the walls facing that way are worth trying.
+ *
+ * The tolerance is a quarter turn either side, which is one point of an
+ * eight-point compass. A neighbour to the north-east may attach on the north
+ * wall or the east wall. One due east may attach on the east wall, or near the
+ * east end of the north or south wall — a room reaches round its own corner,
+ * and pretending otherwise is what made this too rigid before.
+ *
+ * Nothing here says a wall takes one neighbour. Two or three may share, which is
+ * an ordinary room with two doors in a wall, and is also the only way to draw a
+ * room with more than four connections at all.
+ */
+function sidesToward(dx: number, dy: number): Side[] {
+  const want = Math.atan2(dy, dx);
+  const off = (a: number) => {
+    const d = Math.abs(((want - a + Math.PI) % (2 * Math.PI)) - Math.PI);
+    return d;
+  };
+  return FACING.filter((f) => off(f.angle) <= Math.PI / 2 + 1e-9)
+    .sort((a, b) => off(a.angle) - off(b.angle))
+    .map((f) => f.side);
+}
+
+/** How many wall assignments a room will actually try. */
+const MAX_ASSIGNMENTS = 24;
+
+/**
+ * Combine each neighbour's allowed walls into whole assignments, cheapest first,
+ * where cost is how far each neighbour strayed from the wall it wanted.
+ *
+ * Kept to a beam so a room with five neighbours and three options each does not
+ * enumerate 243 of them; the tail of that list is every neighbour on its worst
+ * wall at once, which is not worth the arithmetic.
+ */
+function sideAssignments(options: Side[][]): Side[][] {
+  let beam: Array<{ sides: Side[]; cost: number }> = [{ sides: [], cost: 0 }];
+  for (const opts of options) {
+    const next: Array<{ sides: Side[]; cost: number }> = [];
+    for (const acc of beam) {
+      opts.forEach((s, rank) => next.push({ sides: [...acc.sides, s], cost: acc.cost + rank }));
+    }
+    next.sort((a, b) => a.cost - b.cost);
+    beam = next.slice(0, MAX_ASSIGNMENTS * 2);
+  }
+  return beam.slice(0, MAX_ASSIGNMENTS).map((e) => e.sides);
+}
+
+/**
+ * How much of the search actually happens.
+ *
+ * 6a.2 widened what each room could be — five families, hundreds of boxes — and
+ * measured no improvement at sizes 4 and 5. The reason looks like these two
+ * numbers: a bigger menu changes *which* ten positions get tried, not how many.
+ * The extra options never reached the search at all.
+ */
+const MAX_CANDIDATES = 24;
 /** how many positions get the more expensive second look */
-const SHORTLIST = 40;
+const SHORTLIST = 96;
 /** free-axis positions sampled per (arrangement, dimension) pair */
 const SLIDES = 5;
+/**
+ * Positions tried before the attempt is abandoned. Counted in positions rather
+ * than rooms because a seed that is going to thrash does it inside one level.
+ */
+const PLACEMENT_BUDGET = 6_000;
 
 /**
  * Positions worth trying for one room, best first.
@@ -591,28 +995,32 @@ const SLIDES = 5;
  * A room with no placed neighbours is a group reached only through corridors.
  * That one is set down beside something already placed, with a gap of one to
  * three cells so there is rock for the corridor to run through.
+ *
+ * What is searched here is the *box*. What goes inside it is `place`'s business,
+ * and it is chosen knowing the box — which is the 6a.2 inversion.
  */
 function* candidates(
   index: number,
-  fp: Footprint,
+  roll: ShapeRoll,
   hard: Placement[],
+  sketch: Map<number, Point>,
   pull: Point,
   placed: Placement[],
   grid: Grid,
   rng: Rng
 ): Generator<Placement> {
-  const scored: Array<{ box: Rect; rank: number; near: number }> = [];
+  const scored: Array<{ box: Rect; dim: Dim; near: number }> = [];
   const add = (box: Rect, d: Dim) => {
     if (!boxFits(grid, box)) return;
     scored.push({
       box,
-      rank: d.rank,
+      dim: d,
       near: dist({ x: box.x + box.w / 2, y: box.y + box.h / 2 }, pull) + d.penalty,
     });
   };
 
   if (hard.length === 0) {
-    const dims = fp.dims.slice(0, 12);
+    const dims = roll.boxes.slice(0, 12);
     if (placed.length === 0) {
       for (const d of dims) add({ x: 0, y: 0, w: d.w, h: d.h }, d);
     } else {
@@ -636,7 +1044,8 @@ function* candidates(
       }
     }
   } else {
-    for (const sides of ARRANGEMENTS[hard.length]) {
+    const sweep = (options: Side[][]) => {
+    for (const sides of sideAssignments(options)) {
       const west: Rect[] = [], east: Rect[] = [], north: Rect[] = [], south: Rect[] = [];
       hard.forEach((n, i) => {
         const b = n.bounds;
@@ -645,6 +1054,15 @@ function* candidates(
         else if (sides[i] === "north") north.push(b);
         else south.push(b);
       });
+
+      // Two neighbours may share a side — that is an ordinary room with two
+      // doors in one wall — but they can only both abut it if they present the
+      // same facing edge. Checked here so an impossible pin costs nothing.
+      const flush = (rs: Rect[], f: (r: Rect) => number) => rs.every((r) => f(r) === f(rs[0]));
+      if (west.length > 1 && !flush(west, (r) => r.x + r.w)) continue;
+      if (east.length > 1 && !flush(east, (r) => r.x)) continue;
+      if (north.length > 1 && !flush(north, (r) => r.y + r.h)) continue;
+      if (south.length > 1 && !flush(south, (r) => r.y)) continue;
 
       // A neighbour to the west pins the left edge; one to the east pins the
       // right. With both, the width is dictated and only the dimensions that
@@ -657,7 +1075,22 @@ function* candidates(
       const vertical = [...west, ...east];
       const horizontal = [...north, ...south];
 
-      for (const d of fp.dims) {
+      // Pinned on both sides of an axis, the size along it is dictated and only
+      // the boxes that already have it are worth looking at.
+      const reqW = xLo !== null && xHi !== null ? xHi - xLo : null;
+      const reqH = yLo !== null && yHi !== null ? yHi - yLo : null;
+      let pool: Dim[];
+      if (reqW !== null && reqH !== null) {
+        pool = (roll.byW.get(reqW) ?? []).filter((d) => d.h === reqH);
+      } else if (reqW !== null) {
+        pool = roll.byW.get(reqW) ?? [];
+      } else if (reqH !== null) {
+        pool = roll.byH.get(reqH) ?? [];
+      } else {
+        pool = roll.boxes;
+      }
+
+      for (const d of pool) {
         const xs = span(xLo, xHi, d.w, horizontal, "x", rng);
         if (!xs) continue;
         const ys = span(yLo, yHi, d.h, vertical, "y", rng);
@@ -674,6 +1107,24 @@ function* candidates(
         }
       }
     }
+    };
+
+    // Phase A's sketch says roughly where each neighbour lies, so try the walls
+    // facing that way first.
+    const from = sketch.get(index);
+    sweep(
+      hard.map((n) => {
+        const to = sketch.get(n.index);
+        return from && to ? sidesToward(to.x - from.x, to.y - from.y) : [...SIDES];
+      })
+    );
+
+    // But the sketch is a HINT, not a ruling. It is a force-relaxed
+    // approximation of a graph, not a plan, and it knows nothing about how big
+    // any room turned out to be — so where it disagrees with what will actually
+    // fit, the room still has to be placed. Letting it veto is what made size 1
+    // fail to draw at all, which a rough sketch has no business doing.
+    if (!scored.length) sweep(hard.map(() => [...SIDES]));
   }
 
   // Two passes, because the second test is the expensive one. Nearest first;
@@ -686,7 +1137,10 @@ function* candidates(
     .map((s) => ({ ...s, score: s.near - 6 * openness(s.box, grid) }));
   shortlist.sort((a, b) => a.score - b.score);
 
-  for (const s of shortlist.slice(0, MAX_CANDIDATES)) yield place(index, s.box, fp, s.rank);
+  for (const s of shortlist.slice(0, MAX_CANDIDATES)) {
+    const p = place(index, s.box, s.dim, roll, hard, rng);
+    if (p) yield p;
+  }
 }
 
 /**
@@ -733,7 +1187,8 @@ function placeChambers(
   order: number[],
   hard: Map<number, number[]>,
   soft: Map<number, number[]>,
-  footprints: Map<number, Footprint>,
+  rolls: Map<number, ShapeRoll>,
+  sketch: Map<number, Point>,
   budget: { left: number },
   rng: Rng
 ): Map<number, Placement> | null {
@@ -754,8 +1209,8 @@ function placeChambers(
       .filter((p): p is Placement => !!p);
     const pull = centroid(softPlaced.length ? softPlaced : here);
 
-    const fp = footprints.get(index)!;
-    for (const cand of candidates(index, fp, hardPlaced, pull, here, grid, rng)) {
+    const roll = rolls.get(index)!;
+    for (const cand of candidates(index, roll, hardPlaced, sketch, pull, here, grid, rng)) {
       if (budget.left-- <= 0) return false;
       placed.set(index, cand);
       for (const c of cand.cells) grid.add(c);
@@ -868,6 +1323,158 @@ function walkFree(
 }
 
 // ---------------------------------------------------------------------------
+// RELIEF
+// ---------------------------------------------------------------------------
+
+/** How many niches and how many bays, per relief level. */
+const RELIEF_WORK: Record<Relief, { cuts: number; bays: number; depth: number }> = {
+  0: { cuts: 0, bays: 0, depth: 0 },
+  1: { cuts: 2, bays: 2, depth: 3 },
+  2: { cuts: 5, bays: 5, depth: 4 },
+};
+
+/**
+ * Niches and bays, cut into a plan that already holds.
+ *
+ * Relief is a MODIFIER, not a category — a T-shaped room can have a niche and a
+ * round one can have a bay. Tangling it into 6a's `irregular` and `composite`
+ * forms is why those were the only two shapes that ever got carved, and why 70
+ * of 119 "irregular" rooms came out as plain rectangles anyway.
+ *
+ * The guard is three things and no more:
+ *
+ *   1. never remove a cell carrying a door
+ *   2. keep the footprint in one piece
+ *   3. stop before the floor area leaves its band
+ *
+ * Plus a cap on how far any one shared wall may be eaten, so two rooms are not
+ * left joined by a single cell that looks accidental. 6a's guard also refused
+ * every cell abutting another room, which — at ~2.4 connections per room — put
+ * often half the perimeter off limits. The validator only asks that a
+ * connector's door sit in a wall its two rooms share, and says nothing about how
+ * long that wall is. The door-only rule costs two or three cells and gives back
+ * roughly half the boundary, which is the half the eye reads.
+ */
+function applyRelief(
+  own: Set<Cell>,
+  relief: Relief,
+  neighbours: Array<Set<Cell>>,
+  doorCells: Set<Cell>,
+  grid: Grid,
+  areaLo: number,
+  areaHi: number,
+  rng: Rng
+): Cell[] {
+  const work = RELIEF_WORK[relief];
+  if (!work.cuts && !work.bays) return [...own];
+
+  const set = new Set(own);
+
+  // Which neighbours a cell is in contact with, and how much contact each has
+  // left to spend. Tracked incrementally: recomputing per removal would make
+  // this the most expensive thing in the packer for no reason.
+  const contactsOf = (c: Cell): number[] => {
+    const out: number[] = [];
+    for (let i = 0; i < neighbours.length; i++) {
+      for (const s of STEP) {
+        if (neighbours[i].has(c + s)) {
+          out.push(i);
+          break;
+        }
+      }
+    }
+    return out;
+  };
+
+  const contact = neighbours.map(() => 0);
+  for (const c of set) for (const i of contactsOf(c)) contact[i]++;
+  const keep = contact.map((n) => Math.max(1, Math.floor(n / 2)));
+
+  const boundary = (): Cell[] => {
+    const out: Cell[] = [];
+    for (const c of set) {
+      for (const s of STEP) {
+        if (!set.has(c + s)) {
+          out.push(c);
+          break;
+        }
+      }
+    }
+    return out;
+  };
+
+  // --- niches ---------------------------------------------------------------
+  for (let n = 0; n < work.cuts; n++) {
+    if (set.size <= areaLo) break;
+    const edge = boundary();
+    if (!edge.length) break;
+
+    let at: Cell | undefined = rng.pick(edge);
+    for (let d = rng.range(1, work.depth); d > 0 && at !== undefined; d--) {
+      const c: Cell = at;
+      const touched = contactsOf(c);
+      const blocked =
+        doorCells.has(c) || set.size - 1 < areaLo || touched.some((i) => contact[i] <= keep[i]);
+      if (!blocked) {
+        set.delete(c);
+        if (connected([...set])) {
+          for (const i of touched) contact[i]--;
+        } else {
+          set.add(c); // put it back: a room in two pieces is not a room
+          break;
+        }
+      }
+      at = STEP.map((s) => c + s).find((x) => set.has(x));
+    }
+  }
+
+  // --- bays -----------------------------------------------------------------
+  // Only into cells already verified as empty rock, which is why relief runs
+  // after the corridors: by now there is nothing left to collide with.
+  let box = boundsOf(set);
+  for (let n = 0; n < work.bays; n++) {
+    if (set.size >= areaHi) break;
+    const free: Cell[] = [];
+    for (const c of set) {
+      for (const s of STEP) {
+        const x = c + s;
+        if (!grid.has(x) && !set.has(x)) free.push(x);
+      }
+    }
+    if (!free.length) break;
+
+    let at: Cell | undefined = rng.pick(free);
+    for (let d = rng.range(1, work.depth); d > 0 && at !== undefined; d--) {
+      if (set.size >= areaHi) break;
+      const c: Cell = at;
+      // A bay is outside the placed footprint by definition, so it is the one
+      // thing that can push a room past the box cap. Only relief 2 may.
+      if (relief < 2) {
+        const x = cellX(c);
+        const y = cellY(c);
+        if (
+          Math.max(x, box.x + box.w - 1) - Math.min(x, box.x) + 1 > BOX_CAP ||
+          Math.max(y, box.y + box.h - 1) - Math.min(y, box.y) + 1 > BOX_CAP
+        ) {
+          break;
+        }
+        box = {
+          x: Math.min(x, box.x),
+          y: Math.min(y, box.y),
+          w: Math.max(x, box.x + box.w - 1) - Math.min(x, box.x) + 1,
+          h: Math.max(y, box.y + box.h - 1) - Math.min(y, box.y) + 1,
+        };
+      }
+      set.add(c);
+      grid.add(c);
+      at = STEP.map((s) => c + s).find((x) => !grid.has(x) && !set.has(x));
+    }
+  }
+
+  return [...set];
+}
+
+// ---------------------------------------------------------------------------
 // ENTRY POINT
 // ---------------------------------------------------------------------------
 
@@ -878,9 +1485,13 @@ function walkFree(
 export function generateFloorplan(
   graph: Dungeon,
   sd: StockedDungeon,
-  opts: { seed: number; minCells?: Record<string, number> }
+  opts: { seed: number; minCells?: Record<string, number>; onGiveUp?: (r: GiveUp) => void }
 ): Floorplan | null {
   const rng = new Rng(opts.seed);
+  const giveUp = (r: GiveUp): null => {
+    opts.onGiveUp?.(r);
+    return null;
+  };
   const minCells = opts.minCells ?? {};
 
   const stockByIndex = new Map(sd.rooms.map((r) => [r.index, r]));
@@ -940,28 +1551,22 @@ export function generateFloorplan(
     }
   }
 
-  const footprints = new Map<number, Footprint>();
+  const rolls = new Map<number, ShapeRoll>();
   for (const i of chambers) {
     const stock = stockByIndex.get(i)!;
-    footprints.set(i, footprintFor(stock, minCells[stock.roomId] ?? 0, rng));
+    rolls.set(i, shapeFor(stock, minCells[stock.roomId] ?? 0, rng));
   }
 
-  const placed = placeChambers(order, hard, soft, footprints, { left: 1_500 }, rng);
-  if (!placed) return null;
+  // Phase A's force-relaxed positions: a rough sketch of the whole map, which
+  // the packer used to ignore completely.
+  const sketch = new Map<number, Point>(graph.rooms.map((r, i) => [i, { x: r.pos.x, y: r.pos.y }]));
+
+  const budget = { left: PLACEMENT_BUDGET };
+  const placed = placeChambers(order, hard, soft, rolls, sketch, budget, rng);
+  if (!placed) return giveUp(budget.left <= 0 ? "placement-budget" : "placement-stuck");
 
   const grid: Grid = new Set();
   for (const p of placed.values()) for (const c of p.cells) grid.add(c);
-
-  // Shape comes after placement, never before: a notch cut ahead of time is
-  // free to remove the cell that was carrying a shared wall.
-  for (const p of placed.values()) {
-    const carved = carveForm(p.cells, p.form, p.bounds, grid, rng);
-    if (carved.length === p.cells.length) continue;
-    for (const c of p.cells) grid.delete(c);
-    p.cells = carved;
-    p.set = new Set(carved);
-    for (const c of carved) grid.add(c);
-  }
 
   // --- corridors ------------------------------------------------------------
   const drawn = boundsOf(grid);
@@ -977,46 +1582,97 @@ export function generateFloorplan(
   for (const i of all.filter(isCorridor)) {
     const stock = stockByIndex.get(i)!;
     const nb = adj[i].map((n) => placed.get(n)?.set).filter((s): s is Set<Cell> => !!s);
-    if (nb.length !== adj[i].length) return null; // a corridor beside a corridor
+    if (nb.length !== adj[i].length) return giveUp("corridor-adjacent");
     const want = Math.max(4, minCells[stock.roomId] ?? 0, rng.range(4, 12));
     const cells = growCorridor(nb, grid, want, arena, rng);
-    if (!cells) return null;
+    if (!cells) return giveUp("corridor-route");
     corridors.set(i, cells);
     for (const c of cells) grid.add(c);
   }
 
-  // --- assemble -------------------------------------------------------------
+  // --- doors ----------------------------------------------------------------
   const cellsOf = new Map<string, Set<Cell>>();
-  const rooms: FloorplanRoom[] = [];
   for (const stock of sd.rooms) {
-    const p = placed.get(stock.index);
-    const cells = p ? p.cells : corridors.get(stock.index)!;
-    cellsOf.set(stock.roomId, new Set(cells));
-    rooms.push({
-      roomId: stock.roomId,
-      index: stock.index,
-      isCorridor: stock.isCorridor,
-      form: p ? p.form : "irregular",
-      ...(p ? { sizeClass: p.sizeClass } : {}),
-      cells: cells.map(asPoint),
-      bounds: boundsOf(cells),
-      outline: outlineOf(cells),
-    });
+    cellsOf.set(stock.roomId, new Set(placed.get(stock.index)?.cells ?? corridors.get(stock.index)!));
   }
 
   const doors: FloorplanDoor[] = [];
   for (const c of sd.connectors) {
     const a = cellsOf.get(c.a);
     const b = cellsOf.get(c.b);
-    if (!a || !b) return null;
+    if (!a || !b) return giveUp("no-shared-wall");
     const seams = sharedWall(a, b);
-    if (!seams.length) return null;
+    if (!seams.length) return giveUp("no-shared-wall");
     doors.push({
       connectorId: c.id,
       from: c.a,
       to: c.b,
       kind: c.hidden ? "concealed" : c.gated ? "gated" : "plain",
       ...seams[Math.floor(seams.length / 2)],
+    });
+  }
+
+  // --- relief ---------------------------------------------------------------
+  // Last, and after the doors, because the guard needs to know which cells are
+  // carrying one. By this point every loop is closed and the plan is sound;
+  // relief is decoration on something already proved.
+  const doorsOfRoom = new Map<string, Set<Cell>>(sd.rooms.map((r) => [r.roomId, new Set<Cell>()]));
+  for (const d of doors) {
+    // A door segment sits between two cells; each room owns the one on its side.
+    const pair =
+      d.orientation === "vertical"
+        ? [cell(d.x - 1, d.y), cell(d.x, d.y)]
+        : [cell(d.x, d.y - 1), cell(d.x, d.y)];
+    for (const roomId of [d.from, d.to]) {
+      const own = cellsOf.get(roomId)!;
+      for (const c of pair) if (own.has(c)) doorsOfRoom.get(roomId)!.add(c);
+    }
+  }
+
+  for (const stock of sd.rooms) {
+    const p = placed.get(stock.index);
+    if (!p) continue; // corridors take whatever shape the connection needed
+    // Tiny cannot carry relief — 20 distinct silhouettes in 583 draws — so a
+    // room that came out tiny is left perfect whatever it rolled.
+    if (p.shape.relief === 0 || p.shape.sizeClass === "tiny") continue;
+
+
+    const own = cellsOf.get(stock.roomId)!;
+    const neighbours = adj[stock.index]
+      .map((n) => stockByIndex.get(n))
+      .map((s) => (s ? cellsOf.get(s.roomId) : undefined))
+      .filter((s): s is Set<Cell> => !!s);
+
+    for (const c of own) grid.delete(c);
+    const relieved = applyRelief(
+      own,
+      p.shape.relief,
+      neighbours,
+      doorsOfRoom.get(stock.roomId)!,
+      grid,
+      rolls.get(stock.index)!.areaLo,
+      rolls.get(stock.index)!.areaHi,
+      rng
+    );
+    cellsOf.set(stock.roomId, new Set(relieved));
+    for (const c of relieved) grid.add(c);
+  }
+
+  // --- assemble -------------------------------------------------------------
+  const rooms: FloorplanRoom[] = [];
+  for (const stock of sd.rooms) {
+    const p = placed.get(stock.index);
+    const cells = [...cellsOf.get(stock.roomId)!];
+    rooms.push({
+      roomId: stock.roomId,
+      index: stock.index,
+      isCorridor: stock.isCorridor,
+      // The class describes the room that was drawn, so it is read off the
+      // final area — after relief, which may have moved it.
+      ...(p ? { shape: { ...p.shape, sizeClass: classOf(cells.length) } } : {}),
+      cells: cells.map(asPoint),
+      bounds: boundsOf(cells),
+      outline: outlineOf(cells),
     });
   }
 
@@ -1097,13 +1753,30 @@ export function validateFloorplan(fp: Floorplan, graph: Dungeon, sd: StockedDung
 
     if (!r.isCorridor) {
       const stock = stockById.get(r.roomId);
-      if (stock && classRank(r.sizeClass!) < stock.degree - 1) {
-        fails.push(`room ${r.roomId}: class ${r.sizeClass} below degree ${stock.degree} - 1`);
-      }
-      const [lo, hi] = AREA[r.sizeClass!];
-      const box = r.bounds.w * r.bounds.h;
-      if (box < lo || box > hi) {
-        fails.push(`room ${r.roomId}: ${box} cells outside the ${r.sizeClass} band ${lo}-${hi}`);
+      const shape = r.shape;
+      if (!shape) {
+        fails.push(`room ${r.roomId}: a chamber with no shape`);
+      } else {
+        if (stock && classRank(shape.sizeClass) < stock.degree - 1) {
+          fails.push(`room ${r.roomId}: class ${shape.sizeClass} below degree ${stock.degree} - 1`);
+        }
+        // The band is measured on FLOOR AREA, not on the bounding box: a cross
+        // fills perhaps 40% of its box and only one of those two numbers is
+        // what the fiction means.
+        const [lo, hi] = AREA[shape.sizeClass];
+        if (cells.length < lo || cells.length > hi) {
+          fails.push(
+            `room ${r.roomId}: ${cells.length} cells outside the ${shape.sizeClass} band ${lo}-${hi}`
+          );
+        }
+        // The box is capped separately, and relief 2 is allowed past it — a bay
+        // is by definition outside the placed footprint.
+        if (shape.relief < 2 && (r.bounds.w > BOX_CAP || r.bounds.h > BOX_CAP)) {
+          fails.push(`room ${r.roomId}: ${r.bounds.w}x${r.bounds.h} exceeds the ${BOX_CAP} cap`);
+        }
+        if (shape.family === "round" && stock && stock.degree > ROUND_MAX_DEGREE) {
+          fails.push(`room ${r.roomId}: round with degree ${stock.degree}`);
+        }
       }
     }
   }

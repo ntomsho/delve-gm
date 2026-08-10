@@ -31,19 +31,21 @@ import {
   buildSeamsPassPayload,
   generateBlueprint,
   generateBlueprintSeed,
-  generateFloorplanValid,
+  blockPlanValid,
+  roomSizes,
   renderContentPassPrompt,
   renderDungeonPassPrompt,
   renderSeamsPassPrompt,
   resolveBase,
   Rng,
   runEntitiesPass,
+  siteRooms,
   stockDungeon,
   type Dungeon,
   type DungeonBlueprintSeed,
   type DungeonPassResponse,
   type EntityPassResult,
-  type Floorplan,
+  type BlockPlan,
   type Size,
   type StockedDungeon,
 } from "../engine/index.ts";
@@ -105,31 +107,20 @@ export interface GeneratedDungeon {
    * to refer to it and a map that drifts between generations of the same seed
    * is worse than prose that drifts.
    *
-   * **Null when the packer could not draw this graph.** That is not rare at
-   * sizes 4 and 5 — see the measurement in CODING-PLAN §6a — so everything
-   * downstream treats the plan as an enhancement and falls back to the point
-   * layout. A dungeon with no floorplan is still completely playable.
+   * Null when no layout could be drawn for this graph — uncommon at sizes 1-3
+   * and still real at 5 — so everything downstream treats the plan as an
+   * enhancement over the point layout. A dungeon with no plan is playable.
    */
-  floorplan: Floorplan | null;
+  blockplan: BlockPlan | null;
   usage: Usage;
 }
 
-/**
- * Floor a room needs for what is already standing in it, keyed by room id.
- * Six cells — a hundred and fifty square feet — per creature and per feature:
- * enough that a room with a warband and three sarcophagi in it does not come
- * out a broom cupboard.
- */
-function floorArea(entities: EntityPassResult): Record<string, number> {
-  const out: Record<string, number> = {};
-  const bump = (roomId: string | undefined) => {
-    if (!roomId) return;
-    out[roomId] = (out[roomId] ?? 0) + 6;
-  };
-  for (const c of entities.creatures) bump(c.roomId);
-  for (const f of entities.features) bump(f.roomId);
-  return out;
-}
+// `floorArea` lived here: a floor a room needed for what the entities pass had
+// put in it, which the old packer used to raise a room's size class. It is gone
+// deliberately. A room's size is now capped by the ground its neighbours left it,
+// so a floor demanded by its contents cannot be honoured — and the entities pass
+// runs after the drawing regardless. Stocking decides what fits in the room
+// rather than the room being sized to the stocking.
 
 export interface GenerateOptions {
   seed: number;
@@ -142,6 +133,15 @@ export interface GenerateOptions {
 // ---------------------------------------------------------------------------
 // PIPELINE
 // ---------------------------------------------------------------------------
+
+/**
+ * How many graphs to try before giving up on a seed.
+ *
+ * Size 5 fails about one graph in eight, so eight tries leaves a failure rate
+ * around one seed in ten million. Cheap enough to be generous with: the whole
+ * branch is pure and takes milliseconds.
+ */
+const GRAPH_ATTEMPTS = 8;
 
 export async function generateDungeon(opts: GenerateOptions): Promise<GeneratedDungeon> {
   const { size, signal } = opts;
@@ -174,23 +174,69 @@ export async function generateDungeon(opts: GenerateOptions): Promise<GeneratedD
   // --- branch B: structure and entities (pure, instant) --------------------
   const structure = (async () => {
     report({ stage: "layout" });
-    const { dungeon } = generateBlueprint(seeds.graphSeed, { chunks: chunksFor(size) }, true);
-    report({ stage: "stocking" });
-    const stocked = stockDungeon(dungeon, blueprint, { level, seed: seeds.stockSeed });
-    const entities = runEntitiesPass(stocked, blueprint, new Rng(stocked.seed));
 
-    // The plan is drawn before anything is written, so the prose can be given
-    // the room it is describing. It is allowed to fail: see GeneratedDungeon.
-    const floorplan = generateFloorplanValid(dungeon, stocked, {
-      seed: seeds.layoutSeed,
-      minCells: floorArea(entities),
-    });
-    return { dungeon, stocked, entities, floorplan };
+    // A GRAPH THAT WILL NOT DRAW IS THROWN AWAY WHOLE.
+    //
+    // `blockPlanValid` already tries a hundred layout seeds, so reaching here
+    // with nothing means the graph itself is the problem — untangling did not
+    // get the crossings to zero, which is about one size-5 dungeon in eight.
+    // The escalation is therefore a different graph, not another layout seed.
+    //
+    // It costs nothing to do: this whole branch is pure and runs in
+    // milliseconds, and the fiction branch reads `blueprint` rather than the
+    // graph, so nothing already in flight is invalidated and no tokens are
+    // re-spent. The seed still names one dungeon, because the retry is
+    // derived rather than random.
+    //
+    // TODO: the real fix is to derive the centres from the planar embedding
+    // Phase A already computes, instead of hill-climbing toward it — see
+    // CODING-PLAN §6a.3 Outstanding 1. Then this loop runs once, always.
+    for (let attempt = 0; ; attempt++) {
+      // `generateValid` appends `#n` internally when a graph fails validation,
+      // so a different separator keeps these seeds out of that space.
+      const graphSeed = attempt === 0 ? seeds.graphSeed : `${seeds.graphSeed}~${attempt}`;
+      const { dungeon } = generateBlueprint(graphSeed, { chunks: chunksFor(size) }, true);
+      report({ stage: "stocking" });
+
+      // THE DRAWING RUNS INSIDE STOCKING, between the corridors and the fiction.
+      //
+      // It needs the graph and which rooms are passages, and nothing else. Putting
+      // it first means each room's size is settled before its identity is rolled,
+      // so the roll can be conditioned on it — a four-cell closet does not get to
+      // be a banquet hall. The alternative, which is what 6a did, is to let the
+      // roll demand a size and hope the ground obliges; it usually did not.
+      let blockplan: BlockPlan | null = null;
+      const stocked = stockDungeon(dungeon, blueprint, {
+        level,
+        seed: seeds.stockSeed,
+        layout: (rooms) => {
+          const corridor = new Set<number>(rooms.filter((r) => r.isCorridor).map((r) => r.index));
+          blockplan = blockPlanValid(dungeon, (i) => corridor.has(i), seeds.layoutSeed);
+          return blockplan ? roomSizes(blockplan.rooms) : rooms.map(() => undefined);
+        },
+      });
+
+      const plan = blockplan as BlockPlan | null;
+      if (plan === null && attempt < GRAPH_ATTEMPTS - 1) continue;
+      if (plan === null) {
+        throw new Error(
+          `no drawable layout for seed ${opts.seed} at size ${size} after ${GRAPH_ATTEMPTS} graphs`
+        );
+      }
+
+      const entities = runEntitiesPass(stocked, blueprint, new Rng(stocked.seed));
+      // The drawing, read back as words. Derived rather than persisted — the
+      // plan is the durable thing and this is one function over it, so the
+      // vocabulary can change without a migration.
+      const corridors = new Set(stocked.rooms.filter((r) => r.isCorridor).map((r) => r.index));
+      const site = siteRooms(plan, dungeon, { isCorridor: (i) => corridors.has(i) });
+      return { dungeon, stocked, entities, plan, site };
+    }
   })();
 
   const [
     { result: fictionResult, usage: fictionUsage },
-    { dungeon, stocked, entities, floorplan },
+    { dungeon, stocked, entities, plan, site },
   ] = await Promise.all([fiction, structure]);
 
   // The Dungeon Pass wrote the inhabitant bases; they belong on the registry,
@@ -209,7 +255,8 @@ export async function generateDungeon(opts: GenerateOptions): Promise<GeneratedD
         blueprint,
         entities,
         chunk,
-        fictionResult.dungeonContext
+        fictionResult.dungeonContext,
+        site
       );
       const prompt = renderContentPassPrompt(payload);
       const { value, usage } = await callForJson({
@@ -274,7 +321,7 @@ export async function generateDungeon(opts: GenerateOptions): Promise<GeneratedD
     graph: dungeon,
     stocked,
     entities,
-    floorplan,
+    blockplan: plan,
     usage,
   };
 
