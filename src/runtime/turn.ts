@@ -41,7 +41,7 @@ import type { GeneratedDungeon } from "./generate.ts";
 import type { Commit, WorldEvent } from "./diffs/types.ts";
 import { acceptsInput, isTerminal, type RollSpec, type Stage, type Step } from "./types.ts";
 import { useGame, type GameStore, type RunState } from "../store/game.ts";
-import { theRoom } from "../store/selectors.ts";
+import { needsComposition, theRoom } from "../store/selectors.ts";
 import { log } from "./journal.ts";
 
 // ---------------------------------------------------------------------------
@@ -360,10 +360,43 @@ export function createTurnMachine(referee: Referee, store: Store = useGame): Tur
   /** The last thing asked, so `retry` can ask it again after an error. */
   let lastRequest: { input?: string; roll?: RolledOutcome; step: Step; entering: boolean } | undefined;
 
+  /**
+   * Describe where the player is standing — but only if anything here has
+   * changed since they last read it.
+   *
+   * THE SWEEP DECIDES, AND IT DECIDES BEFORE THE CALL. Nothing owing fresh
+   * prose means the room can be re-shown exactly as they last read it: free,
+   * instant, and consistent by construction, because a room the player has not
+   * affected cannot drift in its retelling.
+   *
+   * The sweep already existed — inside `assemble`, where it ran after the
+   * prompt was built and the call was going out, and the instruction it wrote
+   * on an empty result was "nothing here needs new prose, hand the turn
+   * straight back". A full-price round trip to be told nothing happened, and
+   * in the 2026-08-10 playtest that was 5 of 11 arrivals. (8a A4.)
+   */
   async function enterRoom(): Promise<void> {
     const r = run();
     const dungeon = state().dungeon;
     if (!r || !dungeon) return;
+
+    const room = r.entities.rooms.find((x) => x.id === r.currentRoomId);
+    const shown = room?.composed;
+
+    // `composed === undefined` puts the room itself in the sweep, so an empty
+    // sweep already implies there is something to re-show. Checked anyway: the
+    // alternative to being wrong here is an arrival with no prose at all.
+    if (shown !== undefined && needsComposition(r).length === 0) {
+      log({ kind: "narration", text: shown, arrival: true, roomId: r.currentRoomId });
+      state().pushLog({ kind: "arrival", text: shown, roomId: r.currentRoomId });
+      // Onto the referee's side of the exchange as well, exactly as a written
+      // arrival lands there — the next call should not be able to tell which
+      // kind of entry it followed.
+      state().pushTranscript({ role: "referee", text: shown });
+      state().showRoom(r.currentRoomId);
+      setStage("awaiting_action", "1-target");
+      return;
+    }
 
     setStage("room_entry", "room-entry");
     lastRequest = { step: "room-entry", entering: true };
@@ -399,6 +432,14 @@ export function createTurnMachine(referee: Referee, store: Store = useGame): Tur
     state().syncRng(rng);
     log({ kind: "roll", source: "player", outcome, draws: rng.draws });
     state().pushLog({ kind: "roll", text: describeRoll(outcome) });
+
+    // AND INTO THE EXCHANGE, which is the belt to `renderRoll`'s braces.
+    //
+    // `renderRoll` in the instruction is the authoritative copy and says so;
+    // this is one line of record that survives independently of how the
+    // instruction is built. When the two were the same channel, a retry that
+    // did not render the instruction's roll was a retry with no roll at all.
+    state().pushTranscript({ role: "roll", text: describeRoll(outcome) });
 
     setStage("resolving", "5-resolution");
     lastRequest = { roll: outcome, step: "5-resolution", entering: false };

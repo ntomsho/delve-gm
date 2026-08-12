@@ -11,15 +11,16 @@
  * than being squeezed.
  */
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { CharacterPanel } from "./CharacterPanel.tsx";
 import { DungeonMap } from "./DungeonMap.tsx";
+import { ActionPill, HoverProvider } from "./hover.tsx";
 import { InputArea } from "./InputArea.tsx";
 import { Narration, type NarrationItem } from "./Narration.tsx";
 import { RoomCard } from "./RoomCard.tsx";
-import { TravelConfirm } from "./TravelConfirm.tsx";
 import { floorplanLayout, pointLayout } from "../../runtime/layout.ts";
 import { placedThings } from "../../runtime/occupancy.ts";
+import { acceptsInput } from "../../runtime/types.ts";
 import { characterView, mapView, roomView, shownRoom } from "../../store/selectors.ts";
 import type { GeneratedDungeon } from "../../runtime/generate.ts";
 import type { RunState } from "../../store/game.ts";
@@ -35,8 +36,6 @@ export interface PlayScreenProps {
 
 export function PlayScreen({ dungeon, run, items, onSubmit, onRoll, onRetry }: PlayScreenProps) {
   const [draft, setDraft] = useState("");
-  /** The door the player clicked, waiting on a yes. */
-  const [going, setGoing] = useState<string>();
 
   // Geometry is fixed for the whole run; only the fog over it changes.
   //
@@ -73,68 +72,78 @@ export function PlayScreen({ dungeon, run, items, onSubmit, onRoll, onRetry }: P
   const busy = run.stage === "thinking" || run.stage === "resolving" || run.stage === "room_entry";
 
   /**
-   * Only the ways out of the room they are standing in, and only when it is
-   * their turn.
+   * The ways out of the room they are standing in — the doors a click may offer
+   * to walk through rather than merely to examine.
    *
-   * A door across the map is a route rather than a step, and phrasing a route
-   * as a sentence the player never wrote is how the map starts saying things
-   * they did not mean. `routeTo` can walk one; deciding what to send is its own
-   * problem and not this session's.
+   * A door across the map is a route rather than a step: `routeTo` will walk one,
+   * but only over ground the player has already crossed, and a far door worth
+   * clicking is by definition one whose far side they have not seen. Rather than
+   * send a sentence the runtime is not tested for, a distant door offers Examine
+   * and the player clicks the ROOM they want to reach. See `wayVerb`.
+   *
+   * `busy` is not tested here — `acting` below is the one gate on whether
+   * anything is offered at all, and a second one would be a second place for it
+   * to be wrong.
    */
-  const travelable = useMemo(() => {
-    if (busy || !room || shown !== run.currentRoomId) return new Set<string>();
+  const reachable = useMemo(() => {
+    if (!room || shown !== run.currentRoomId) return new Set<string>();
     return new Set(room.exits.map((e) => e.connectorId));
-  }, [busy, room, shown, run.currentRoomId]);
+  }, [room, shown, run.currentRoomId]);
 
-  const pending = going ? room?.exits.find((e) => e.connectorId === going) : undefined;
+  /**
+   * A pill answered. Identical to the player having typed the sentence — same
+   * turn path, same heuristic — which is the whole reason the click sends TEXT
+   * rather than a move.
+   */
+  const act = useCallback(
+    (sentence: string) => {
+      setDraft("");
+      onSubmit(sentence);
+    },
+    [onSubmit]
+  );
 
   return (
-    <main className="grid h-screen bg-paper text-ink [grid-template-areas:'map_narr_char''card_narr_char'] [grid-template-columns:320px_minmax(0,1fr)_300px] [grid-template-rows:minmax(0,1fr)_auto] max-[1200px]:[grid-template-areas:'map_card''narr_char'] max-[1200px]:[grid-template-columns:minmax(0,1fr)_296px] max-[1200px]:[grid-template-rows:220px_minmax(0,1fr)]">
-      <div className="flex min-h-0 items-center justify-center border-r border-rule p-4 [grid-area:map] max-[1200px]:border-b">
-        <DungeonMap
-          map={map}
-          className="h-full w-full"
-          travelable={travelable}
-          onDoorClick={setGoing}
-        />
-      </div>
+    // The map and the room card are two drawings of one room, and the provider
+    // is what lets them agree about which thing in it the player is pointing at:
+    // hover a row, the marker lights; hover the marker, the row lights. It also
+    // carries what a click on either one may offer — see `ActionPill`.
+    <HoverProvider acting={acceptsInput(run.stage)} reachable={reachable} onAct={act}>
+      <main className="grid h-screen bg-paper text-ink [grid-template-areas:'map_narr_char''card_narr_char'] [grid-template-columns:320px_minmax(0,1fr)_300px] [grid-template-rows:minmax(0,1fr)_auto] max-[1200px]:[grid-template-areas:'map_card''narr_char'] max-[1200px]:[grid-template-columns:minmax(0,1fr)_296px] max-[1200px]:[grid-template-rows:220px_minmax(0,1fr)]">
+        <div className="flex min-h-0 items-center justify-center border-r border-rule p-4 [grid-area:map] max-[1200px]:border-b">
+          <DungeonMap map={map} className="h-full w-full" />
+        </div>
 
-      <div className="min-h-0 border-r border-rule bg-panel [grid-area:card] max-[1200px]:border-b max-[1200px]:border-r-0">
-        {room && <RoomCard room={room} />}
-      </div>
+        <div className="min-h-0 border-r border-rule bg-panel [grid-area:card] max-[1200px]:border-b max-[1200px]:border-r-0">
+          {room && <RoomCard room={room} />}
+        </div>
 
-      <div className="flex min-h-0 flex-col [grid-area:narr]">
-        <Narration items={items} busy={busy} />
-        <InputArea
-          stage={run.stage}
-          roll={run.pendingRoll}
-          turns={run.turnCount}
-          draft={draft}
-          onDraft={setDraft}
-          onSubmit={(text) => {
-            setDraft("");
-            onSubmit(text);
-          }}
-          onRoll={onRoll}
-          onRetry={onRetry}
-        />
-      </div>
+        <div className="flex min-h-0 flex-col [grid-area:narr]">
+          <Narration items={items} busy={busy} />
+          <InputArea
+            stage={run.stage}
+            roll={run.pendingRoll}
+            turns={run.turnCount}
+            draft={draft}
+            onDraft={setDraft}
+            onSubmit={(text) => {
+              setDraft("");
+              onSubmit(text);
+            }}
+            onRoll={onRoll}
+            onRetry={onRetry}
+          />
+        </div>
 
-      <div className="min-h-0 border-l border-rule [grid-area:char]">
-        <CharacterPanel pc={pc} />
-      </div>
+        <div className="min-h-0 border-l border-rule [grid-area:char]">
+          <CharacterPanel pc={pc} />
+        </div>
 
-      {pending && (
-        <TravelConfirm
-          exit={pending}
-          onCancel={() => setGoing(undefined)}
-          onConfirm={(text) => {
-            setGoing(undefined);
-            setDraft("");
-            onSubmit(text);
-          }}
-        />
-      )}
-    </main>
+        {/* One mount for both panels, portalled to the document like the hover
+            cards. It finds its anchors by attribute, so it does not care which
+            panel raised it nor where in the grid that panel sits. */}
+        <ActionPill />
+      </main>
+    </HoverProvider>
   );
 }

@@ -17,7 +17,7 @@ import { respond, stubReferee } from "./__fixtures__/stub-referee.ts";
 import { PLAYER_ID, type Commit, type Diff } from "./diffs/types.ts";
 import { farSide, isSurfaceExit, touches } from "../engine/index.ts";
 import { useGame } from "../store/game.ts";
-import { shownRoom, theRoom } from "../store/selectors.ts";
+import { needsComposition, shownRoom, theRoom } from "../store/selectors.ts";
 import { acceptsInput } from "./types.ts";
 
 const SEED = 1005;
@@ -43,6 +43,8 @@ const open = (diffs: Diff[] = []): Commit => ({
   nextStep: "1-target",
   diffs,
 });
+
+const theRoomNow = () => state().entities.rooms.find((r) => r.id === state().currentRoomId)!;
 
 /** Describe the room, so an entry can get out of the way. */
 const describeRoom = (): Commit =>
@@ -74,6 +76,103 @@ function script(...replies: (RefereeReply | ((req: RefereeRequest) => RefereeRep
 // ===========================================================================
 // STAGE TRANSITIONS
 // ===========================================================================
+
+/**
+ * Compose everything the room currently owes, so that a re-entry into it has
+ * nothing left to write. `state` first and `composed` second on purpose:
+ * writing `state` opens the description debt and writing `composed` settles
+ * it, which is the order a real room-entry commit uses.
+ */
+const describeAll = (): Commit =>
+  open(
+    needsComposition(state()).flatMap((e) => [
+      { entityId: e.id, path: "state", value: "as found" },
+      { entityId: e.id, path: "composed", value: `${e.name}, as described.` },
+    ])
+  );
+
+// ===========================================================================
+// RE-ENTRY IS FREE. 8a A4.
+// ===========================================================================
+
+/**
+ * A room the player has not affected cannot drift in its retelling, so there
+ * is nothing for a model to add and no reason to pay one. The sweep used to
+ * run inside `assemble`, after the prompt was built — 5 of 11 arrivals in the
+ * 2026-08-10 run were full-price round trips that wrote nothing.
+ */
+describe("re-entering a room that has not changed", () => {
+  it("costs no call at all, and re-shows what they last read", async () => {
+    const s = script(say("You are somewhere.", describeAll()));
+    const m = createTurnMachine(s.referee);
+
+    await m.enterRoom();
+    expect(s.calls).toHaveLength(1);
+
+    await m.enterRoom();
+
+    // The script would have thrown on a second ask; assert it directly, since
+    // that is the whole point of the change.
+    expect(s.calls).toHaveLength(1);
+    expect(state().stage).toBe("awaiting_action");
+    expect(state().step).toBe("1-target");
+
+    // And the player is told where they are, in the words they already have.
+    const arrivals = state().log.filter((l) => l.kind === "arrival");
+    expect(arrivals).toHaveLength(2);
+    expect(arrivals[1].text).toBe(theRoomNow().composed);
+    expect(shownRoom(state())).toBe(state().currentRoomId);
+  });
+
+  it("still costs a call when something in the room has moved on", async () => {
+    // The last thing the sweep reports is a content of the room where the room
+    // has any, and the room itself where it has none — so this picks the more
+    // interesting target without a branch that could quietly pick neither.
+    const owed = needsComposition(state());
+    expect(owed.length).toBeGreaterThan(0);
+    const target = owed.at(-1)!;
+
+    const s = script(
+      say("You are somewhere.", describeAll()),
+      say("It stirs.", open([{ entityId: target.id, path: "state", value: "changed since" }])),
+      say("Here it is again.", describeAll())
+    );
+    const m = createTurnMachine(s.referee);
+
+    await m.enterRoom();
+    await m.submit("watch it");
+    // `state` opened a description debt that nothing has settled.
+    expect(needsComposition(state()).map((e) => e.id)).toEqual([target.id]);
+
+    await m.enterRoom();
+    expect(s.calls).toHaveLength(3);
+    expect(s.calls[2].step).toBe("room-entry");
+  });
+
+  it("does not skip the first entry, when nothing has been described at all", async () => {
+    const s = script(say("You are somewhere.", describeAll()));
+    const m = createTurnMachine(s.referee);
+
+    expect(theRoomNow().composed).toBeUndefined();
+    await m.enterRoom();
+    expect(s.calls).toHaveLength(1);
+  });
+
+  // The free path has to leave the referee's next call indistinguishable from
+  // the paid one — same log, same exchange, same stage.
+  it("puts the re-shown description in the exchange, as a written arrival would", async () => {
+    const s = script(say("You are somewhere.", describeAll()));
+    const m = createTurnMachine(s.referee);
+
+    await m.enterRoom();
+    await m.enterRoom();
+
+    expect(state().transcript.at(-1)).toEqual({
+      role: "referee",
+      text: theRoomNow().composed,
+    });
+  });
+});
 
 describe("stage transitions", () => {
   it("room_entry -> awaiting_action, and an entry is not a turn", async () => {
@@ -160,6 +259,38 @@ describe("stage transitions", () => {
     expect(s.calls[2].roll?.spec.dc).toBe(16);
     expect(state().turnRecords[0].roll).toMatchObject({ kind: "save" });
     expect(state().log.some((l) => l.kind === "roll")).toBe(true);
+  });
+
+  // 8a A1, the second half. The roll used to reach the referee through exactly
+  // one line of `assemble`, and a retry that did not render that line was a
+  // retry with no roll in it. It goes in the exchange as well now, so the
+  // number survives however the instruction is built.
+  it("puts the roll in the exchange, not only in the scrollback", async () => {
+    const s = script(
+      say("Here.", describeRoom()),
+      say("Then swing.", {
+        nextStage: "roll_offered",
+        nextStep: "4-confirm-roll",
+        rollRequest: {
+          kind: "save", ability: "str", bonus: 2, edge: "none",
+          description: "Force the grate.", dc: 16,
+        },
+        diffs: [],
+      }),
+      (req) => say(`Rolled ${req.roll!.total}.`, open())
+    );
+    const m = createTurnMachine(s.referee);
+    await m.enterRoom();
+    await m.submit("force the grate");
+
+    expect(state().transcript.some((e) => e.role === "roll")).toBe(false);
+    await m.roll();
+
+    // The referee saw the roll on the request AND in the exchange it was
+    // handed — the second is what a rebuilt retry prompt cannot drop.
+    const entry = s.calls[2].run.transcript.find((e) => e.role === "roll");
+    expect(entry).toBeDefined();
+    expect(entry!.text).toContain(`= ${s.calls[2].roll!.total}`);
   });
 
   it("-> dead, whatever the referee thought came next", async () => {

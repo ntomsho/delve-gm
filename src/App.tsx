@@ -13,11 +13,18 @@
  * The dev switches still bypass all of that, because interface work against a
  * real dungeon is unbearable if every iteration costs two clicks and a minute:
  *
- *   ?offline=1   the fixture dungeon. Free and instant, for interface work.
- *   ?stub=1      the Phase 3 referee. Spends no tokens at all.
+ *   ?offline=1   the fixture dungeon AND the fixture referee. Spends nothing.
+ *   ?stub=1      the Phase 3 referee on a real dungeon. Generation still costs.
+ *   ?stub=0      with ?offline=1: the fixture dungeon, the real referee.
  *   ?seed=       which dungeon. Same seed, same dungeon.
  *   ?size=1..5   how big. Each region is one content-pass call.
  *   ?level=      how dangerous.
+ *
+ * OFFLINE MEANS OFFLINE, and did not always: it used to swap only the
+ * generator, so the dungeon was free and then room entry called the model
+ * before the player had typed anything. It now implies the stub referee. The
+ * reading and the reasoning are in `switches.ts`, which is a pure function of
+ * the query string so that the logic can be tested rather than trusted.
  *
  * Any one of those present means: skip the front, generate immediately with
  * the first saved character, exactly as this file behaved before. With none of
@@ -45,18 +52,18 @@ import { attach, log, runId } from "./runtime/journal.ts";
 import { randomSeed } from "./runtime/seeds.ts";
 import { httpSink } from "./runtime/journal-http.ts";
 import { MODELS } from "./runtime/llm/models.ts";
+import { readSwitches } from "./switches.ts";
 import type { PlayerCharacter, Size } from "./engine/index.ts";
 
-const params = new URLSearchParams(location.search);
-const OFFLINE = params.get("offline") === "1";
-const STUB = params.get("stub") === "1";
-
-/** Any dev switch at all means the front of the app is not what you came for. */
-const BYPASS = ["seed", "size", "level", "offline", "stub"].some((k) => params.has(k));
-
-const SEED = Number(params.get("seed") ?? 1005);
-const SIZE = (Number(params.get("size") ?? 2) as Size) ?? 2;
-const LEVEL = Number(params.get("level") ?? 1);
+const {
+  offline: OFFLINE,
+  stub: STUB,
+  bypass: BYPASS,
+  seed: SEED,
+  pinnedSeed: PINNED,
+  size: SIZE,
+  level: LEVEL,
+} = readSwitches(location.search);
 
 /**
  * A run started from the front of the app gets a fresh dungeon unless the URL
@@ -64,7 +71,7 @@ const LEVEL = Number(params.get("level") ?? 1);
  * still returns to the same dungeon every time — which is the whole point of
  * it during interface work.
  */
-const seedForNewRun = () => (params.has("seed") ? SEED : randomSeed());
+const seedForNewRun = () => (PINNED ? SEED : randomSeed());
 
 /** Only the part before a run. Once the dungeon exists, that is what decides. */
 type Screen = "characters" | "setup" | "generating";

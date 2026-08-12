@@ -35,6 +35,30 @@ if ((Element.prototype as { hasPointerCapture?: unknown }).hasPointerCapture ===
 }
 
 /**
+ * THE TWO OBSERVERS. jsdom implements neither, and react-tooltip keeps a card
+ * pinned to its anchor with floating-ui's `autoUpdate`, which watches the anchor
+ * for resizes and for layout shifts — a `ResizeObserver` and an
+ * `IntersectionObserver` respectively. Without them, mounting a tooltip throws.
+ *
+ * They observe nothing and never fire, which is honest rather than lazy: jsdom
+ * has no layout, so there is no resize and no shift to report. The tooltip's
+ * POSITION is therefore not under test here and could not be — what is under
+ * test is which anchor opens which card, and what the card says.
+ */
+for (const name of ["ResizeObserver", "IntersectionObserver"] as const) {
+  if ((globalThis as Record<string, unknown>)[name] === undefined) {
+    (globalThis as Record<string, unknown>)[name] = class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+      takeRecords() {
+        return [];
+      }
+    };
+  }
+}
+
+/**
  * React's own switch for `act`. Without it every update warns that it was not
  * wrapped, which is noise that would train the reader to ignore the warning
  * that matters.

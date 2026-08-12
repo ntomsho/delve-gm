@@ -33,7 +33,7 @@
 
 import type { Message, SystemBlock } from "../llm/client.ts";
 import type { GeneratedDungeon } from "../generate.ts";
-import type { RunState } from "../../store/game.ts";
+import type { RunState, TranscriptEntry } from "../../store/game.ts";
 import type { Step } from "../types.ts";
 import type { RolledOutcome } from "../turn.ts";
 import { characterView, needsComposition, roomView } from "../../store/selectors.ts";
@@ -154,12 +154,28 @@ function brief(req: PromptInput): Message {
  * The conversation for the action currently being resolved — a clarification
  * asked and answered, a roll argued over. Cleared the moment a turn closes,
  * which is what keeps it short without anything having to trim it.
+ *
+ * A roll is the player's, so it goes on their side of the exchange — but they
+ * did not *say* it, and a die result introduced as speech is a die result the
+ * referee may argue with. See `turn.ts`: the transcript entry is defence in
+ * depth behind `renderRoll`, not the authoritative copy.
  */
 function exchange(run: RunState): Message[] {
   return run.transcript.slice(-MAX_EXCHANGE).map((e) => ({
-    role: e.role === "player" ? ("user" as const) : ("assistant" as const),
-    content: e.role === "player" ? `The player says: ${e.text}` : e.text,
+    role: e.role === "referee" ? ("assistant" as const) : ("user" as const),
+    content: spoken(e),
   }));
+}
+
+function spoken(e: TranscriptEntry): string {
+  switch (e.role) {
+    case "player":
+      return `The player says: ${e.text}`;
+    case "roll":
+      return `The player rolled: ${e.text}`;
+    case "referee":
+      return e.text;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -177,26 +193,60 @@ function instruction(req: PromptInput): Message {
   return { role: "user", content: [task(req), ``, CLOSE].join("\n") };
 }
 
+/**
+ * A RETRY IS THE SAME TURN, ASKED AGAIN.
+ *
+ * So the reasons are a PREAMBLE and everything the first ask carried follows
+ * them, unchanged. They are never a substitute for it.
+ *
+ * This was an if/else chain whose rejection branch returned early, and the
+ * cost was not obvious: the roll reaches the referee through exactly one line
+ * — `renderRoll`, in the body below — so a retry after a roll was a prompt
+ * with the roll missing from it. A referee at step 5 with a rejection notice,
+ * no number, and an action it has not resolved does the only coherent thing
+ * left and restarts the heuristic, which means offering the same roll a second
+ * time. In the 2026-08-10 playtest the player won a DEX save at 20, had the
+ * commit refused for an unrelated reason, was asked to roll again, got a 9,
+ * and lost what they had already taken.
+ *
+ * That one defect also produced the duplicated establishing paragraph — a
+ * restarted heuristic re-narrates — and the report that the referee "got
+ * completely messed up". It was not confused. It was told nothing.
+ */
 function task(req: PromptInput): string {
-  // A refused commit outranks whatever the turn was about: nothing was applied,
-  // and the same answer a second time ends the turn in `error`.
-  if (req.rejections?.length) {
-    return [
-      `# Your last commit was REFUSED`,
-      ``,
-      `**Nothing was applied.** The world is exactly as the section above describes it. The reasons:`,
-      ``,
-      ...req.rejections.map((r) => `- ${r}`),
-      ``,
-      `Write the turn again with those fixed. Ids must appear verbatim in the sheet or the room above, or have been created earlier in the same commit; \`base\`, \`name\`, \`id\` and \`type\` are never writable; a \`clarifying\` or \`rejected\` commit must carry no diffs at all.`,
-    ].join("\n");
-  }
+  const parts = req.rejections?.length ? [refused(req.rejections), body(req)] : [body(req)];
+  return parts.join("\n\n");
+}
 
+function refused(reasons: string[]): string {
+  return [
+    `# Your last commit was REFUSED`,
+    ``,
+    `**Nothing was applied.** The world is exactly as the section above describes it. The reasons:`,
+    ``,
+    ...reasons.map((r) => `- ${r}`),
+    ``,
+    `Ids must appear verbatim in the sheet or the room above, or have been created earlier in the same commit; \`base\`, \`name\`, \`id\` and \`type\` are never writable; a \`clarifying\` or \`rejected\` commit must carry no diffs at all.`,
+    ``,
+    // Narration is held back until the commit applies, so a refused attempt
+    // reached nobody. A referee that thinks it half-published will write the
+    // second attempt as a continuation of prose the player never read.
+    `**This is the same turn, not a new one.** What you were asked for follows, unchanged — the same step, the same action, the same roll if there was one. Write it again with the reasons above fixed. The player has not seen any of your last attempt: the narration was held back with the commit, so write the whole turn, not a correction to it.`,
+  ].join("\n");
+}
+
+function body(req: PromptInput): string {
   if (req.step === "room-entry") {
     const owed = needsComposition(req.run);
     return [
       `# The player has just walked in here`,
       ``,
+      // THE EMPTY CASE SHOULD NOT REACH HERE. `enterRoom` runs the same sweep
+      // before it builds anything and re-shows the room itself when it comes
+      // back empty (8a A4) — a prompt asking a model to confirm that nothing
+      // happened is the round trip that fix exists to stop paying for. Kept as
+      // a fallback because arriving with no instruction at all is worse, and
+      // because a retry can in principle rebuild this after the world moved.
       owed.length
         ? `These need writing — nothing else does:\n\n${owed
             .map((e) => `- [${e.id}] ${e.name} (${e.type})`)

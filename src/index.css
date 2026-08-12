@@ -43,6 +43,29 @@ body {
   color: var(--color-paper);
 }
 
+/*
+ * ANYTHING THAT RAISES A HOVER CARD IS POINTABLE — map markers, doors, room
+ * outlines, and every row of the room card. Keyed on the attribute `useAnchor`
+ * already puts on all of them, so a new hoverable thing gets the cursor by
+ * being hoverable rather than by remembering to ask.
+ */
+[data-hover-id] {
+  cursor: pointer;
+}
+
+/*
+ * ...except while the map is being dragged, when the whole of it is the
+ * grabbing hand, markers included. A cursor mid-drag should say what the press
+ * is doing, not what the thing underneath it would have done.
+ *
+ * Two attributes deep, so this wins over the rule above on specificity and
+ * neither needs `!important`. The idle `grab` is a utility class on the map's
+ * own box and is inherited by everything in it that has no say of its own.
+ */
+[data-dragging] [data-hover-id] {
+  cursor: grabbing;
+}
+
 /* Paper, not chrome: a thumb the colour of a ruled line on the sheet itself. */
 ::-webkit-scrollbar {
   width: 10px;

@@ -42,9 +42,15 @@ export interface TurnRecord {
   diffsApplied: number;
 }
 
-/** One message in the exchange for the action currently in progress. */
+/**
+ * One message in the exchange for the action currently in progress.
+ *
+ * `roll` is the player's side of it without being something they said. It is
+ * there so the dice are not reachable through a single line of one prompt —
+ * see `assemble.ts`, where losing exactly that line lost a won roll.
+ */
 export interface TranscriptEntry {
-  role: "player" | "referee";
+  role: "player" | "referee" | "roll";
   text: string;
 }
 

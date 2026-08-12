@@ -17,7 +17,7 @@
 import { describe, expect, it } from "vitest";
 import { assemble, CARRIED_TURNS, MAX_EXCHANGE } from "./assemble.ts";
 import { generateOffline, testCharacter } from "../__fixtures__/offline.ts";
-import { exitLabel, roomView } from "../../store/selectors.ts";
+import { exitLabel, needsComposition, roomView } from "../../store/selectors.ts";
 import { useGame, type RunState } from "../../store/game.ts";
 import type { RolledOutcome } from "../turn.ts";
 
@@ -154,6 +154,92 @@ describe("the messages", () => {
       )
     ).toMatchSnapshot();
   });
+
+  // The case that did not exist, which is why the defect below shipped.
+  it("a retry after a roll, which must still hold the roll", () => {
+    expect(
+      scrub(
+        assemble({
+          step: "5-resolution",
+          dungeon,
+          run: fresh(),
+          roll: rolled,
+          rejections: ["inventory[8]: nothing carried at index 8"],
+        }).messages
+      )
+    ).toMatchSnapshot();
+  });
+});
+
+// ===========================================================================
+// 8a A1 — A REFUSED COMMIT MUST NOT THROW THE TURN AWAY
+// ===========================================================================
+
+/**
+ * The reasons are a preamble. They were a substitute, and the substitution
+ * dropped the only line carrying the player's roll — so a retry at step 5 was
+ * a resolution with no number in it, and the referee restarted the heuristic
+ * and offered the same roll again. Seed 15341: a save won at 20, re-rolled to
+ * a 9, and the objective lost with it.
+ *
+ * The property is a superset, asserted line by line rather than by snapshot,
+ * because the thing that must hold is "nothing was dropped" and a snapshot
+ * only tells you something moved.
+ */
+describe("a retry is the original ask, plus the reasons", () => {
+  const last = (p: ReturnType<typeof assemble>) => p.messages.at(-1)!.content as string;
+
+  const shapes = [
+    { name: "a resolution holding a roll", req: { step: "5-resolution" as const, roll: rolled } },
+    { name: "a room entry", req: { step: "room-entry" as const } },
+    { name: "an action in progress", req: { step: "1-target" as const } },
+  ];
+
+  it("drops nothing from any of the three asks", () => {
+    for (const { name, req } of shapes) {
+      const run = fresh();
+      const first = last(assemble({ dungeon, run, ...req }));
+      const retry = last(assemble({ dungeon, run, ...req, rejections: ["x: refused"] }));
+
+      for (const line of first.split("\n")) {
+        if (line.trim() !== "") expect(retry, `${name}: dropped "${line}"`).toContain(line);
+      }
+      expect(retry, name).toContain("x: refused");
+      expect(retry, name).toContain("This is the same turn, not a new one.");
+    }
+  });
+
+  it("still puts the roll and its total in front of the referee", () => {
+    const run = fresh();
+    const retry = last(
+      assemble({
+        step: "5-resolution",
+        dungeon,
+        run,
+        roll: rolled,
+        rejections: ["inventory[8]: nothing carried at index 8"],
+      })
+    );
+
+    // The exact line that vanished, and the number that vanished with it.
+    expect(retry).toContain("## The roll the player just took");
+    expect(retry).toContain("**19**");
+    expect(retry).toContain("Resolve the action at step 5.");
+    // And the reasons come first, so the refusal frames the ask rather than
+    // arriving as a footnote to it.
+    expect(retry.indexOf("REFUSED")).toBeLessThan(retry.indexOf("The roll the player just took"));
+  });
+
+  it("still lists what a room entry owes, so a retry does not compose the wrong things", () => {
+    const run = fresh();
+    const owed = needsComposition(run);
+    expect(owed.length).toBeGreaterThan(0);
+
+    const retry = last(
+      assemble({ step: "room-entry", dungeon, run, rejections: ["base: never writable"] })
+    );
+    for (const e of owed) expect(retry).toContain(e.id);
+  });
 });
 
 describe("the budget", () => {
@@ -189,6 +275,19 @@ describe("the budget", () => {
     expect(brief).toContain("outcome 5");
     expect(brief).toContain(`outcome ${5 - CARRIED_TURNS + 1}`);
     expect(brief).not.toContain("outcome 3");
+  });
+
+  // Defence in depth behind `renderRoll`: the dice should not reach the
+  // referee through one line of one branch of one function ever again.
+  it("carries a roll on the player's side without making it something they said", () => {
+    fresh();
+    useGame.getState().pushTranscript({ role: "roll", text: "DEX save: 17 +3 = 20 — success" });
+
+    const { messages } = assemble({ step: "5-resolution", dungeon, run: useGame.getState().run! });
+
+    expect(messages[1].role).toBe("user");
+    expect(messages[1].content).toBe("The player rolled: DEX save: 17 +3 = 20 — success");
+    expect(messages[1].content).not.toContain("The player says");
   });
 
   it("does not send the scrollback", () => {

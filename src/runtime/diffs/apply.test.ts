@@ -318,9 +318,171 @@ describe("dropping — inventory[i] = null", () => {
     expect(w.entities.items.find((i) => i.id === "sword")!.parentId).toBe(ROOM_B);
   });
 
-  it("refuses a non-null value and an out-of-range index", () => {
-    expect(applyCommit(world, commit({ entityId: PLAYER_ID, path: "inventory[0]", value: "x" })).ok).toBe(false);
-    expect(applyCommit(world, commit({ entityId: PLAYER_ID, path: "inventory[9]", value: null })).ok).toBe(false);
+  it("refuses an out-of-range index, and says how to put something IN", () => {
+    const r = applyCommit(world, commit({ entityId: PLAYER_ID, path: "inventory[9]", value: null }));
+    expect(r.ok).toBe(false);
+    // "nothing carried at index 9" is true and useless. A refusal the referee
+    // cannot act on turns a retry into the same mistake twice — 8a A2.
+    expect(r.rejected[0].reason).toContain("inventory[]");
+    expect(r.rejected[0].reason).toContain("parentId");
+  });
+});
+
+// ===========================================================================
+// PICKING UP — inventory[…] = an item. 8a A2.
+// ===========================================================================
+
+/**
+ * The referee reached for this three times in one playtest to say "they now
+ * have this", and was refused three times. It is the path that most obviously
+ * names where a thing ended up, and stating a destination value is what the
+ * envelope asks for — so the vocabulary was inviting the mistake it refused.
+ */
+describe("picking up — inventory[…] = an item", () => {
+  it("takes an item that already exists in the world, by id", () => {
+    const w = ok(commit({ entityId: PLAYER_ID, path: "inventory[]", value: "dagger" }));
+
+    expect(w.pc.inventory.map((i) => i.id)).toEqual(["sword", "halberd", "shield", "gambeson", "dagger"]);
+    expect(w.pc.inventory.at(-1)!.parentId).toBe("pc-1");
+    // Out of the chest it was in, and out of the world's list — carried once,
+    // not in two places at once.
+    expect(w.entities.items.some((i) => i.id === "dagger")).toBe(false);
+  });
+
+  it("mints a whole new entity, the way the search finds did", () => {
+    const w = ok(
+      commit({
+        entityId: PLAYER_ID,
+        path: "inventory[7]",
+        value: { type: "Item", name: "Iron key", base: "a cold iron key, its bit worn round" },
+      })
+    );
+
+    const key = w.pc.inventory.find((i) => i.name === "Iron key")!;
+    expect(key).toBeDefined();
+    expect(key.id).not.toBe("");
+    expect(key.parentId).toBe("pc-1");
+  });
+
+  // The exact refusal from the run: seven items carried, written to index 8.
+  // An index past the end is not a reason to lose the turn — the inventory is
+  // compacted, so a pickup appends however it was addressed.
+  it("ignores the stated index and appends", () => {
+    const w = ok(commit({ entityId: PLAYER_ID, path: "inventory[8]", value: "dagger" }));
+    expect(w.pc.inventory.at(-1)!.id).toBe("dagger");
+    expect(w.pc.inventory).toHaveLength(5);
+  });
+
+  it("is the same operation as parentId to the player, whichever is written", () => {
+    const viaIndex = ok(commit({ entityId: PLAYER_ID, path: "inventory[]", value: "dagger" }));
+    world = makeWorld();
+    const viaParent = ok(commit({ entityId: "dagger", path: "parentId", value: PLAYER_ID }));
+
+    expect(viaIndex.pc.inventory.map((i) => i.id)).toEqual(viaParent.pc.inventory.map((i) => i.id));
+    expect(viaIndex.entities.items.map((i) => i.id)).toEqual(viaParent.entities.items.map((i) => i.id));
+  });
+
+  it("reports overburdening rather than refusing the pickup", () => {
+    // The fiction has already committed to it by the time the diff lands.
+    const r = applyCommit(
+      world,
+      commit({
+        entityId: PLAYER_ID,
+        path: "inventory[]",
+        value: { type: "Item", name: "Anvil", base: "a blacksmith's anvil", slots: 40 },
+      })
+    );
+
+    expect(r.ok).toBe(true);
+    expect(r.events.some((e) => e.kind === "overburdened")).toBe(true);
+  });
+
+  it("refuses an id that is not an item, and names what it is", () => {
+    const r = applyCommit(world, commit({ entityId: PLAYER_ID, path: "inventory[]", value: "chest" }));
+    expect(r.ok).toBe(false);
+    expect(r.rejected[0].reason).toContain("RoomFeature");
+  });
+
+  it("refuses an id that resolves to nothing at all", () => {
+    expect(
+      applyCommit(world, commit({ entityId: PLAYER_ID, path: "inventory[0]", value: "no-such-thing" })).ok
+    ).toBe(false);
+  });
+
+  it("does not take the same item twice", () => {
+    const w = ok(
+      commit(
+        { entityId: PLAYER_ID, path: "inventory[]", value: "dagger" },
+        { entityId: PLAYER_ID, path: "inventory[]", value: "dagger" }
+      )
+    );
+    expect(w.pc.inventory.filter((i) => i.id === "dagger")).toHaveLength(1);
+  });
+});
+
+// ===========================================================================
+// A CARRIED THING CANNOT BE DISCOVERED. 8a A3.
+// ===========================================================================
+
+/**
+ * The lantern. Told to reveal something found in the stables and told never to
+ * invent an id, the referee reached for the player's own lantern and described
+ * it lying in the straw. Every path it wrote was writable, so the commit was
+ * accepted and the player's belongings became scenery in a room across the
+ * dungeon. `isHidden` on a carried item is the one part of that which cannot
+ * mean anything else.
+ */
+describe("revealing — isHidden on something the player is holding", () => {
+  it("refuses it, and says the found thing is a different thing", () => {
+    const r = applyCommit(world, commit({ entityId: "sword", path: "isHidden", value: false }));
+
+    expect(r.ok).toBe(false);
+    expect(r.rejected[0].reason).toContain("children[]");
+    expect(r.rejected[0].reason).toContain("inventory");
+  });
+
+  // The commit as it actually arrived, at seq 454: prose and a reveal
+  // together. Atomicity is what makes the guard worth having — refusing the
+  // reveal takes the invented description down with it.
+  it("takes the invented prose down with it", () => {
+    const r = applyCommit(
+      world,
+      commit(
+        { entityId: "sword", path: "state", value: "half-buried in old straw" },
+        { entityId: "sword", path: "composed", value: "A sword lies half-buried in the straw." },
+        { entityId: "sword", path: "isHidden", value: false }
+      )
+    );
+
+    expect(r.ok).toBe(false);
+    expect(world.pc.inventory.find((i) => i.id === "sword")!.composed).toBeUndefined();
+  });
+
+  it("still lets a loose item in the world be revealed", () => {
+    const w = ok(commit({ entityId: "dagger", path: "isHidden", value: false }));
+    expect(w.entities.items.find((i) => i.id === "dagger")!.isHidden).not.toBe(true);
+  });
+
+  it("still lets a carried item be described, worn down, and put back", () => {
+    const w = ok(
+      commit(
+        { entityId: "sword", path: "state", value: "notched along the edge" },
+        { entityId: "sword", path: "currentQuality", value: 2 }
+      )
+    );
+    expect(w.pc.inventory.find((i) => i.id === "sword")!.currentQuality).toBe(2);
+  });
+
+  // Putting something down is not concealing it, and the two must not be
+  // confused: `parentId` to the current room is the documented drop.
+  it("still lets a carried item be dropped into the room", () => {
+    const w = ok(commit({ entityId: "sword", path: "parentId", value: ROOM_A }));
+    expect(w.pc.inventory.some((i) => i.id === "sword")).toBe(false);
+    expect(w.entities.items.find((i) => i.id === "sword")!.parentId).toBe(ROOM_A);
+  });
+
+  it("refuses concealing a carried thing too — the sheet shows it either way", () => {
+    expect(applyCommit(world, commit({ entityId: "sword", path: "isHidden", value: true })).ok).toBe(false);
   });
 });
 

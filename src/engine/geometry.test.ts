@@ -377,6 +377,36 @@ describe("placement", () => {
     throw new Error("no room big enough to place in — the corpus is wrong");
   }
 
+  /**
+   * A room with an inside — cells with floor on all four sides.
+   *
+   * `aRoom` picks the first room of any size with two doors, and that one turns
+   * out to be all edge, which is why its "centre" pool is empty too. About a
+   * fifth of block-plan rooms are like that: grown cell by cell out of a
+   * skeleton, they are often a cell or two thick. Rules about the interior need
+   * a room that has one, and they must not silently skip when they cannot find
+   * one — hence the throw.
+   */
+  function aFatRoom(): ReturnType<typeof aRoom> {
+    for (const { plan, graph } of corpus()) {
+      const site = siteRooms(plan, graph);
+      for (const [i, g] of site.geometry.entries()) {
+        const floor = new Set(site.ground[i].cells.map((c) => `${c.x},${c.y}`));
+        const inside = site.ground[i].cells.filter(
+          (c) =>
+            floor.has(`${c.x + 1},${c.y}`) &&
+            floor.has(`${c.x - 1},${c.y}`) &&
+            floor.has(`${c.x},${c.y + 1}`) &&
+            floor.has(`${c.x},${c.y - 1}`)
+        );
+        if (inside.length >= 3 && site.ground[i].doorCells.length >= 2) {
+          return { ground: site.ground[i], geom: g };
+        }
+      }
+    }
+    throw new Error("no room with an interior — the corpus is wrong");
+  }
+
   it("never stands anything in a doorway", () => {
     const { ground, geom } = aRoom();
     const doors = new Set(ground.doorCells.map((c) => `${c.x},${c.y}`));
@@ -486,7 +516,57 @@ describe("placement", () => {
       const p = placeAt(position, ground, geom, rng, { taken: new Set() });
       expect(p!.cells.length, position).toBe(1);
       expect(p!.fixture, "a stocked thing came from no menu").toBeUndefined();
-      expect(p!.position).toBe(position);
+      // The word it was asked for, or `throughout` where that word had no floor
+      // left to give — never a third thing, and never a wall it is not on.
+      expect([position, "throughout"], position).toContain(p!.position);
+    }
+  });
+
+  // 8a A6, the half that made the prose disagree with the drawing: the pool a
+  // word admits can be empty, placement falls back through the whole room, and
+  // the request used to be stored anyway — so the room block and the map hover
+  // both said "along the north wall" about a marker in the middle of the floor.
+  it("does not keep a position word it could not honour", () => {
+    const { ground, geom } = aRoom();
+    const north = wallCells(ground.cells).north;
+    expect(north.length).toBeGreaterThan(0);
+    const blocked = new Set(north.map((c) => `${c.x},${c.y}`));
+
+    for (const p of [
+      placeAt("north wall", ground, geom, new Rng(23), { taken: new Set(blocked) })!,
+      placeFixture({ kind: "pillars", position: "north wall" }, ground, geom, new Rng(23), {
+        taken: new Set(blocked),
+      })!,
+    ]) {
+      expect(p.position).toBe("throughout");
+      for (const c of p.cells) expect(blocked.has(`${c.x},${c.y}`)).toBe(false);
+    }
+  });
+
+  // The reported symptom: debris "scattered across the floor" drawn as marks in
+  // opposite corners, because `spread` is farthest-point sampling and the two
+  // points furthest apart in any room are two of its corners.
+  it("keeps `throughout` off the walls, where the room has an inside", () => {
+    const { ground, geom } = aFatRoom();
+    const floor = new Set(ground.cells.map((c) => `${c.x},${c.y}`));
+    // Stated as the property rather than as the implementation: a cell is
+    // interior when there is floor on all four sides of it.
+    const surrounded = (c: Point) =>
+      floor.has(`${c.x + 1},${c.y}`) &&
+      floor.has(`${c.x - 1},${c.y}`) &&
+      floor.has(`${c.x},${c.y + 1}`) &&
+      floor.has(`${c.x},${c.y - 1}`);
+    expect(ground.cells.some(surrounded), "this room has no inside to test").toBe(true);
+
+    const rng = new Rng(24);
+    for (const kind of FIXTURE_KINDS) {
+      const p = placeFixture({ kind, position: "throughout" }, ground, geom, rng, {
+        taken: new Set(),
+      });
+      // Wall-hugging kinds are moved to a wall on purpose and are not this
+      // rule's business — what the object is outranks the word.
+      if (!p || p.position !== "throughout") continue;
+      for (const c of p.cells) expect(surrounded(c), `${kind} at ${c.x},${c.y}`).toBe(true);
     }
   });
 

@@ -19,7 +19,9 @@
  */
 
 import { useRef, useState } from "react";
-import { color, font } from "../theme.ts";
+import { MAP_TIP, ThingTooltip, useAnchor, useHover } from "./hover.tsx";
+import { roomVerb, thingVerb, wayVerb } from "./verbs.ts";
+import { color } from "../theme.ts";
 import {
   pathMidpoint,
   type LayoutDoor,
@@ -43,6 +45,8 @@ const WALL = 1.4;
 const DOOR = 3.5;
 /** How far the way out reaches into the blank. */
 const OUT = 15;
+/** How much of the way toward the cursor one wheel click takes the view. */
+const PULL = 0.5;
 
 // ---------------------------------------------------------------------------
 // SHAPES
@@ -96,28 +100,29 @@ function doorRect(door: LayoutDoor) {
  *
  * Drawn in graphite rather than ink, so a room's contents sit UNDER its walls in
  * the eye's reading order. Torch is reserved for what the game wants the player
- * to reach for, and a bench is not that.
+ * to reach for, and a bench is not that — EXCEPT while the player is pointing at
+ * its row in the room card, which is the one moment the game does want them to
+ * find it. All six dots light at once, because the six dots are one thing.
  */
-function Fixture({
-  f,
-  onHover,
-}: {
-  f: MapFixtureView;
-  onHover(e: React.MouseEvent, h: Omit<Hover, "x" | "y">): void;
-}) {
+function Fixture({ f }: { f: MapFixtureView }) {
+  const anchor = useAnchor(MAP_TIP);
+  const lit = useHover().hovered === f.id;
+
   return (
     <g
-      onMouseMove={(e) =>
-        onHover(e, { title: f.name || "Something", body: f.composed, note: f.position })
-      }
+      {...anchor(
+        f.id,
+        { title: f.name || "Something", note: f.position, body: f.composed },
+        thingVerb(f.name)
+      )}
     >
       {f.at.map((p, i) => (
         <circle
           key={i}
           cx={p.x}
           cy={p.y}
-          r={f.r / 2}
-          fill={color.graphite}
+          r={lit ? f.r * 0.85 : f.r / 2}
+          fill={lit ? color.torch : color.graphite}
           // A dot is three units across and a cursor is not that accurate, so
           // the mark and the thing you can point at are drawn at two sizes.
           stroke="transparent"
@@ -137,106 +142,90 @@ function outward(at: Point, through: Point): Point {
 }
 
 // ---------------------------------------------------------------------------
-// HOVER
-// ---------------------------------------------------------------------------
-
-interface Hover {
-  title: string;
-  body?: string;
-  note?: string;
-  /** in client coordinates — the tooltip is HTML over the SVG, not in it */
-  x: number;
-  y: number;
-}
-
-/**
- * The hover, as HTML rather than an SVG `<title>`.
- *
- * `composed` is a paragraph. A native tooltip renders it in the system font at
- * the system width after a half-second delay, which for the one piece of prose
- * the player most often wants to re-read is the wrong instrument.
- */
-function Tooltip({ hover }: { hover: Hover }) {
-  return (
-    <div
-      className="pointer-events-none absolute z-10 max-w-[260px] rounded-sm border px-2.5 py-2 shadow-sm"
-      style={{
-        left: hover.x + 14,
-        top: hover.y + 14,
-        background: color.paper,
-        borderColor: color.rule,
-      }}
-    >
-      <div
-        className="text-[12px] font-bold leading-tight"
-        style={{ fontFamily: font.display, color: color.ink }}
-      >
-        {hover.title}
-      </div>
-      {hover.note && (
-        <div
-          className="mt-0.5 text-[9px] uppercase tracking-[0.14em]"
-          style={{ fontFamily: font.mono, color: color.torchDeep }}
-        >
-          {hover.note}
-        </div>
-      )}
-      {hover.body && (
-        <p
-          className="mt-1.5 text-[12px] leading-snug"
-          style={{ fontFamily: font.prose, color: color.graphite }}
-        >
-          {hover.body}
-        </p>
-      )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // THE MAP
 // ---------------------------------------------------------------------------
 
 export interface DungeonMapProps {
   map: MapView;
   className?: string;
-  /**
-   * A door in the room the player is standing in was clicked. Travel is
-   * dispatched through the ordinary turn path, so it has to be confirmed
-   * first — see `TravelConfirm`. Absent means the map is read-only.
-   */
-  onDoorClick?(connectorId: string): void;
-  /** which connector ids may be clicked — the current room's ways out */
-  travelable?: ReadonlySet<string>;
 }
 
-export function DungeonMap({ map, className, onDoorClick, travelable }: DungeonMapProps) {
+/**
+ * WHAT A CLICK DOES lives in `verbs.ts` and `hover.tsx`, not here.
+ *
+ * Every drawn thing carries the one question it offers, and the pill that raises
+ * it is mounted once by `PlayScreen` for both panels. The map used to own a
+ * travel callback and the set of doors it applied to; both are now facts about
+ * the game that the hover context carries, so this component takes a drawing and
+ * nothing else.
+ */
+export function DungeonMap({ map, className }: DungeonMapProps) {
   const rooms = new Map(map.rooms.map((r) => [r.id, r]));
-  const [hover, setHover] = useState<Hover>();
   const [view, setView] = useState<{ x: number; y: number; k: number }>({ x: 0, y: 0, k: 1 });
+  // The drag itself is a ref, because it changes on every pointer move and
+  // nothing renders from it. Whether a drag is HAPPENING is state, because the
+  // cursor renders from it — a grabbing hand for as long as the press is held.
+  const [grabbing, setGrabbing] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   const drag = useRef<{ x: number; y: number; ox: number; oy: number }>(null);
+  const anchor = useAnchor(MAP_TIP);
+  const { hovered } = useHover();
 
   const { w, h } = map.bounds;
   // Pan is in map units, so a drag moves the paper the same distance under the
   // cursor whatever the zoom.
   const viewBox = `${-view.x} ${-view.y} ${w / view.k} ${h / view.k}`;
 
-  const place = (e: { clientX: number; clientY: number }): { x: number; y: number } => {
-    const r = box.current?.getBoundingClientRect();
-    return { x: e.clientX - (r?.left ?? 0), y: e.clientY - (r?.top ?? 0) };
-  };
-
-  const show = (e: React.MouseEvent, h: Omit<Hover, "x" | "y">) =>
-    setHover({ ...h, ...place(e) });
-
+  /**
+   * A wheel zooms, and moves what you are pointing at toward the middle.
+   *
+   * It used to leave the view's top-left corner pinned, so zooming in walked
+   * off toward the corner and whatever you were looking at slid out of frame.
+   * The cursor is the only statement of intent available here — you point at
+   * the room you want a closer look at — so each step takes the view half the
+   * way from where it is centred to what is under the pointer. Half rather than
+   * all of it: one wheel click should not throw the map across the panel, and
+   * two or three clicks put the room in the middle, which is what was asked for.
+   */
   function onWheel(e: React.WheelEvent) {
-    const k = Math.min(6, Math.max(1, view.k * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
-    setView((v) => ({ ...v, k }));
+    const rect = box.current?.getBoundingClientRect();
+    const { clientX, clientY, deltaY } = e;
+
+    setView((v) => {
+      const k = Math.min(6, Math.max(1, v.k * (deltaY < 0 ? 1.15 : 1 / 1.15)));
+      const seen = { w: w / v.k, h: h / v.k }; // the view as it stands
+      const next = { w: w / k, h: h / k }; // the view it is becoming
+      const centre = { x: -v.x + seen.w / 2, y: -v.y + seen.h / 2 };
+
+      // The cursor in map units. With no laid-out box there is nothing to aim
+      // at — before the first layout, and under jsdom — and the middle of the
+      // view stands in for it, which makes the zoom centre-preserving.
+      const aim =
+        rect && rect.width > 0 && rect.height > 0
+          ? {
+              x: -v.x + ((clientX - rect.left) / rect.width) * seen.w,
+              y: -v.y + ((clientY - rect.top) / rect.height) * seen.h,
+            }
+          : centre;
+
+      // Kept on the paper. A zoom should never leave the drawing half out of
+      // frame; a DRAG still may, because pushing the sheet aside is what a drag
+      // is for. That is also what makes zooming all the way out land exactly on
+      // the whole map rather than near it.
+      const corner = (from: number, to: number, span: number, whole: number) =>
+        Math.max(0, Math.min(whole - span, from + (to - from) * PULL - span / 2));
+
+      return {
+        k,
+        x: -corner(centre.x, aim.x, next.w, w),
+        y: -corner(centre.y, aim.y, next.h, h),
+      };
+    });
   }
 
   function onPointerDown(e: React.PointerEvent) {
     drag.current = { x: e.clientX, y: e.clientY, ox: view.x, oy: view.y };
+    setGrabbing(true);
     e.currentTarget.setPointerCapture(e.pointerId);
   }
 
@@ -251,10 +240,18 @@ export function DungeonMap({ map, className, onDoorClick, travelable }: DungeonM
 
   const endDrag = () => {
     drag.current = null;
+    setGrabbing(false);
   };
 
   return (
-    <div ref={box} className={`relative ${className ?? ""}`}>
+    // The map is paper you push around, so it says so at rest and while it is
+    // being pushed. `data-dragging` is what lets the drag beat the markers'
+    // pointer — see the two rules in `index.css`.
+    <div
+      ref={box}
+      data-dragging={grabbing ? "" : undefined}
+      className={`relative ${grabbing ? "cursor-grabbing" : "cursor-grab"} ${className ?? ""}`}
+    >
       <svg
         viewBox={viewBox}
         className="h-full w-full touch-none select-none"
@@ -264,10 +261,7 @@ export function DungeonMap({ map, className, onDoorClick, travelable }: DungeonM
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={endDrag}
-        onPointerLeave={() => {
-          endDrag();
-          setHover(undefined);
-        }}
+        onPointerLeave={endDrag}
         onDoubleClick={() => setView({ x: 0, y: 0, k: 1 })}
       >
         {/* Rooms first, so doors and markers sit on top of the walls. */}
@@ -283,17 +277,23 @@ export function DungeonMap({ map, className, onDoorClick, travelable }: DungeonM
               // look unfilled — a hole in the map rather than a place. What a
               // corridor is comes across through its shape and its prose; the
               // flag stays on `LayoutRoom` for 6c.
-              fill={color.paper}
+              //
+              // A wash rather than a fill while it is being pointed at: the
+              // room is the biggest thing on the map and turning it torch would
+              // drown out every marker standing in it.
+              fill={hovered === r.id ? color.torchWash : color.paper}
               stroke={color.ink}
               strokeWidth={1.4}
               strokeLinejoin="round"
-              onMouseMove={(e) =>
-                show(e, {
+              {...anchor(
+                r.id,
+                {
                   title: r.name ?? "Somewhere",
-                  body: r.composed,
                   note: r.current ? "you are here" : undefined,
-                })
-              }
+                  body: r.composed,
+                },
+                roomVerb(r)
+              )}
             />
           );
         })}
@@ -304,19 +304,12 @@ export function DungeonMap({ map, className, onDoorClick, travelable }: DungeonM
             described to them. Nothing here re-checks that, because a second
             filter is a second place for the rule to be wrong. */}
         {map.fixtures.map((f) => (
-          <Fixture key={f.id} f={f} onHover={show} />
+          <Fixture key={f.id} f={f} />
         ))}
 
         {map.connectors.map((c) =>
           c.door ? (
-            <Door
-              key={c.id}
-              c={c}
-              knownFrom={rooms.get(c.from)?.known === true}
-              clickable={travelable?.has(c.id) === true && onDoorClick !== undefined}
-              onPick={() => onDoorClick?.(c.id)}
-              onHover={show}
-            />
+            <Door key={c.id} c={c} />
           ) : (
             <Link key={c.id} c={c} fromKnown={rooms.get(c.from)?.known === true} />
           )
@@ -337,7 +330,9 @@ export function DungeonMap({ map, className, onDoorClick, travelable }: DungeonM
           ))}
       </svg>
 
-      {hover && <Tooltip hover={hover} />}
+      {/* Portalled to the document, so it is not clipped by this box nor
+          overpainted by the panel below it. See `hover.tsx`. */}
+      <ThingTooltip id={MAP_TIP} float />
     </div>
   );
 }
@@ -351,19 +346,10 @@ export function DungeonMap({ map, className, onDoorClick, travelable }: DungeonM
  * there is a way and see that it is shut, which is the planning information
  * the room card is also giving them.
  */
-function Door({
-  c,
-  knownFrom,
-  clickable,
-  onPick,
-  onHover,
-}: {
-  c: MapConnectorView;
-  knownFrom: boolean;
-  clickable: boolean;
-  onPick(): void;
-  onHover(e: React.MouseEvent, h: Omit<Hover, "x" | "y">): void;
-}) {
+function Door({ c }: { c: MapConnectorView }) {
+  const anchor = useAnchor(MAP_TIP);
+  const { hovered, reachable } = useHover();
+  const lit = hovered === c.id;
   if (!c.known) return null;
   const door = c.door!;
   const rect = doorRect(door);
@@ -376,22 +362,23 @@ function Door({
     : undefined;
 
   return (
+    // No cursor and no click handler of its own. Every door has a hover card and
+    // so takes the pointer from `[data-hover-id]`, and what a click offers is on
+    // the element as an attribute — see `ActionPill`.
     <g
-      onMouseMove={(e) =>
-        onHover(e, {
+      {...anchor(
+        c.id,
+        {
           title: c.name || (c.surface ? "The way out" : "A way through"),
-          body: c.composed,
           note: c.surface
             ? "out of the dungeon — stepping through ends the run"
             : c.blocked
               ? c.requirement
-              : clickable
-                ? "click to go through"
-                : undefined,
-        })
-      }
-      style={{ cursor: clickable ? "pointer" : "default" }}
-      onClick={clickable ? onPick : undefined}
+              : undefined,
+          body: c.composed,
+        },
+        wayVerb(c, reachable.has(c.id))
+      )}
     >
       {/* The door: white, outlined at the same weight as the wall it interrupts,
           so it reads as a leaf set into the wall rather than as a gap. A blocked
@@ -400,8 +387,10 @@ function Door({
       <rect
         {...rect}
         fill={color.door}
-        stroke={c.blocked ? color.torch : color.ink}
-        strokeWidth={WALL}
+        stroke={c.blocked || lit ? color.torch : color.ink}
+        // Heavier while pointed at, since a door is already outlined in torch
+        // when it is blocked and colour alone would say nothing new there.
+        strokeWidth={lit ? WALL * 2 : WALL}
       />
 
       {tail && (
@@ -420,10 +409,9 @@ function Door({
       )}
 
       {/* A generous, invisible hit area. A doorway is ten units across and a
-          cursor is not that accurate. */}
-      {clickable && (
-        <circle cx={door.at.x} cy={door.at.y} r={9} fill="transparent" />
-      )}
+          cursor is not that accurate. On every door now, not only the ones that
+          travel: a door across the map still hovers and still offers Examine. */}
+      <circle cx={door.at.x} cy={door.at.y} r={9} fill="transparent" />
     </g>
   );
 }

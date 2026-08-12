@@ -253,7 +253,28 @@ function candidates(word: PositionWord, ground: RoomGround, geom: RoomGeometry):
       return word === "near the entrance" ? ranked.slice(0, third) : ranked.slice(-third);
     }
 
-    case "throughout":
+    case "throughout": {
+      // THE INTERIOR, not the whole floor — and the difference is the whole of
+      // this case. `spread` is farthest-point sampling, so with a low count it
+      // takes a cell and then the cell furthest from it, which in any room is
+      // a corner. Debris "scattered across the floor" came back drawn as two
+      // marks in opposite corners, which reads as the precise opposite of what
+      // the word means. (8a A6.)
+      //
+      // Dropping the boundary ring costs the sampling nothing it was using
+      // well and takes the corners off the table. A corridor and a room too
+      // small to have an inside fall through to the whole floor, which is the
+      // right answer there: a passage is all edge.
+      const mine = new Set(cells.map(cellKey));
+      const surrounded = (c: Point) =>
+        mine.has(cellKey({ x: c.x + 1, y: c.y })) &&
+        mine.has(cellKey({ x: c.x - 1, y: c.y })) &&
+        mine.has(cellKey({ x: c.x, y: c.y + 1 })) &&
+        mine.has(cellKey({ x: c.x, y: c.y - 1 }));
+      const interior = cells.filter(surrounded);
+      return interior.length ? interior : cells;
+    }
+
     default:
       return cells;
   }
@@ -332,17 +353,28 @@ export function placeFixture(
       : req.position;
 
   const free = (list: Point[]) => list.filter((c) => !blocked.has(cellKey(c)));
+  let position = wanted;
   let pool = free(candidates(wanted, ground, geom));
+
   // Fall back through the room as a whole rather than dropping the fixture: the
   // word was a preference and the thing being there is the decision.
-  if (!pool.length) pool = free(ground.cells);
+  //
+  // THE WORD GOES WITH THE CELLS, THOUGH. `position` is what the prose and the
+  // map hover are allowed to say, and a hearth that could not fit against the
+  // north wall is not on the north wall — keeping the request would have the
+  // room block naming a wall the marker is nowhere near, which is the one
+  // disagreement between the drawing and the writing that 6c exists to stop.
+  if (!pool.length) {
+    pool = free(ground.cells);
+    position = "throughout";
+  }
   if (!pool.length) return undefined;
 
   const [lo, hi] = spec.count;
   const cells = spread(pool, Math.min(rng.range(lo, hi), pool.length), rng);
   for (const c of cells) taken.add(cellKey(c));
 
-  return { cells, position: wanted, fixture: req.kind };
+  return { cells, position, fixture: req.kind };
 }
 
 /**
@@ -364,13 +396,22 @@ export function placeAt(
   const blocked = new Set([...ground.doorCells.map(cellKey), ...taken]);
   const free = (list: Point[]) => list.filter((c) => !blocked.has(cellKey(c)));
 
+  let position = word;
   let pool = free(candidates(word, ground, geom));
-  if (!pool.length) pool = free(ground.cells);
+  // Same as `placeFixture`: once the cells stop coming from the word, the word
+  // stops being something the prose may repeat.
+  if (!pool.length) {
+    pool = free(ground.cells);
+    position = "throughout";
+  }
   // Last resort: share a cell rather than go unplaced. A doorway is still out.
-  if (!pool.length) pool = ground.cells.filter((c) => !ground.doorCells.some((d) => d.x === c.x && d.y === c.y));
+  if (!pool.length) {
+    pool = ground.cells.filter((c) => !ground.doorCells.some((d) => d.x === c.x && d.y === c.y));
+    position = "throughout";
+  }
   if (!pool.length) return undefined;
 
   const cell = rng.pick(pool);
   taken.add(cellKey(cell));
-  return { cells: [cell], position: word };
+  return { cells: [cell], position };
 }

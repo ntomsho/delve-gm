@@ -56,6 +56,11 @@ const WRITABLE: Record<EntityKind, readonly string[]> = {
     "hp.current",
     "conditions[]",
     "conditions[#]",
+    // Both spellings, and they mean what the `conditions` pair immediately
+    // above means: `[]` appends, `[#]` addresses a position. A pickup is an
+    // append however it is written, because the inventory is compacted and has
+    // no positions to hold open — see the handler.
+    "inventory[]",
     "inventory[#]",
     "equipped.weapon",
     "equipped.armor",

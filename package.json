@@ -26,6 +26,7 @@
   "dependencies": {
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
+    "react-tooltip": "^6.0.8",
     "zod": "^4.4.3",
     "zustand": "^5.0.14"
   },

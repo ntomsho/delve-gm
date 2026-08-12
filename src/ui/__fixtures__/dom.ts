@@ -30,8 +30,9 @@ export interface Rendered {
 
 const open: Array<{ root: Root; container: HTMLElement }> = [];
 
-// Left mounted, a component keeps its window listeners — TravelConfirm's Escape
-// handler among them — and the next test in the file gets called twice.
+// Left mounted, a component keeps its window listeners — react-tooltip's
+// click-outside handler among them — and the next test in the file gets a
+// tooltip answering to events it did not fire.
 afterEach(() => {
   while (open.length > 0) {
     const { root, container } = open.pop()!;
@@ -105,6 +106,70 @@ export function fire(
  */
 export function leave(target: Element): void {
   fire(target, "pointerout", { relatedTarget: null });
+}
+
+/**
+ * Let the page catch up: a frame, the timers due within it, and the effects
+ * they schedule.
+ *
+ * A TOOLTIP IS NOT INSTANT, in three separate places, and none of them are
+ * arbitrary: react-tooltip refreshes its document-wide register of anchors on
+ * `requestAnimationFrame`, waits 10ms after opening so the card is in the DOM
+ * before it is shown, and runs closing through a timer so the cursor can cross
+ * the gap between an anchor and the card without it vanishing. Floating-ui then
+ * settles the position over a promise. 25ms clears all four.
+ *
+ * The alternative was fake timers, which would have meant every test that
+ * hovers something also knowing which of those four it is waiting on.
+ */
+const settle = () =>
+  act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  });
+
+/**
+ * The cursor arriving on something, and leaving it.
+ *
+ * TWO EVENTS ON ARRIVAL, because two listeners are watching for two different
+ * things and a real pointer produces both:
+ *
+ *   mouseover    the one that opens a tooltip and lights a row. Both sides
+ *                listen for it rather than for `mouseenter` — React derives
+ *                `onMouseEnter` from it at the root, the same indirection
+ *                `leave` below documents for pointerout, and react-tooltip
+ *                delegates from the document. Neither hears an enter dispatched
+ *                straight at the element.
+ *   pointermove  where the cursor is. A tooltip that follows it — the map's
+ *                does — has nothing to position itself against until a move has
+ *                said, and stays mounted but never shown.
+ */
+export async function hover(target: Element, at: Point = { x: 40, y: 40 }): Promise<void> {
+  // Before, so a component that has only just mounted has been noticed.
+  await settle();
+  fire(target, "mouseover", { relatedTarget: null, clientX: at.x, clientY: at.y });
+  fire(target, "pointermove", { clientX: at.x, clientY: at.y, pointerId: 1 });
+  await settle();
+}
+
+export async function unhover(target: Element): Promise<void> {
+  // `relatedTarget: null` — the cursor left for nowhere, so nothing can be
+  // mistaken for a move within the anchor. Same reason as `leave` above.
+  fire(target, "mouseout", { relatedTarget: null });
+  await settle();
+}
+
+/**
+ * A click, with the page given time either side of it.
+ *
+ * The same waiting `hover` needs and for the same reasons — react-tooltip finds
+ * its anchors on a frame and opens on a timer — plus one of its own: the pill
+ * mounts against `[data-verb]`, and an anchor rendered in the same tick as the
+ * tooltip has not been noticed yet when the click arrives.
+ */
+export async function press(target: Element): Promise<void> {
+  await settle();
+  fire(target, "click");
+  await settle();
 }
 
 /** A pointer press, drag and release, as three events on the same element. */

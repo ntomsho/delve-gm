@@ -212,6 +212,36 @@ function applyProse(ctx: Ctx, entity: IEntity, path: string, value: unknown): bo
     return true;
   }
   if (path === "isHidden") {
+    // YOU CANNOT DISCOVER WHAT IS ALREADY IN YOUR HANDS.
+    //
+    // The one mechanical tell of a whole class of failure, and the reason it
+    // needs a guard and not only a rule: the commit that caused it was
+    // *valid*. Asked to reveal something found in the stables, the referee
+    // needed an entity for a lantern, was told never to invent an id, and so
+    // reached for the nearest plausible one — the player's own lantern, which
+    // it then described as half-buried in the straw of a room they were only
+    // passing through. Every path it wrote is writable on an item, so there
+    // were no grounds to refuse it. (8a A3, seq 454 of the 2026-08-10 run.)
+    //
+    // `isHidden` on a carried thing is the part that cannot be anything else.
+    // Concealment is read only of things standing in a room; the character
+    // sheet renders the whole inventory either way, so the write is inert as
+    // well as incoherent. Refusing it costs nothing legitimate, and it takes
+    // the batch — and the invented prose riding along with it — down too.
+    //
+    // What is deliberately NOT guarded: `parentId` to the room the player is
+    // standing in, which is indistinguishable from putting something down
+    // because it *is* putting something down; and `composed` describing a
+    // carried item as scenery, which is the other half of the tell and is
+    // prose no check can read. SKILL.md rule 3 carries those.
+    if (ctx.world.pc.inventory.some((i) => i.id === entity.id)) {
+      fail(
+        `${entity.name} is in the player's inventory, so it cannot be hidden or revealed — ` +
+          `they are holding it. Something the player has just found is a DIFFERENT thing, ` +
+          `even when they already own one like it: create it with children[] on whatever ` +
+          `holds it and leave this one alone`
+      );
+    }
     // Through the helper: concealing settles the description debt, revealing
     // opens one. See setIsHidden.
     setIsHidden(entity, asBoolean(value, "isHidden"));
@@ -244,19 +274,7 @@ function applyToItem(ctx: Ctx, item: IItem, path: string, value: unknown): void 
       const heldByPlayer = ctx.world.pc.inventory.some((i) => i.id === item.id);
 
       if (target === PLAYER_ID || target === ctx.world.pc.id) {
-        if (heldByPlayer) return; // already carried
-        const i = ctx.world.entities.items.findIndex((x) => x.id === item.id);
-        if (i !== -1) ctx.world.entities.items.splice(i, 1);
-        // Forced: the fiction has already committed to the pickup. Being
-        // overburdened is a condition to report, not a reason to refuse.
-        addItem(ctx.world.pc, item, { force: true });
-        if (isOverburdened(ctx.world.pc)) {
-          ctx.events.push({
-            kind: "overburdened",
-            entityId: ctx.world.pc.id,
-            detail: "carrying more than their slots allow",
-          });
-        }
+        takeIntoInventory(ctx, item);
         return;
       }
 
@@ -342,17 +360,58 @@ function applyToPlayer(ctx: Ctx, path: string, raw: string, value: unknown): voi
     return;
   }
 
-  if (path === "inventory[#]") {
-    const i = indexOf(raw);
-    const item = pc.inventory[i] ?? fail(`nothing carried at index ${i}`);
-    if (value !== null) fail("write null to drop a carried item");
-    // A drop is three consequences from one stated fact: out of the slot, out
-    // of any equipment slot, and onto the floor where the player stands.
-    const removed = removeItem(pc, item.id);
-    if (removed) {
-      removed.parentId = ctx.world.currentRoomId;
-      ctx.world.entities.items.push(removed);
+  // NULL IS A DROP; A VALUE IS A PICKUP.
+  //
+  // This path used to take null and nothing else, and the refusal read
+  // "nothing carried at index 7" — true, and useless. In one playtest the
+  // referee reached for it three times to say "they now have this": twice for
+  // things found by searching, once for a lockbox lifted by telekinesis. It is
+  // the path that most obviously names where a thing ended up, and stating a
+  // destination value is precisely what the envelope asks for, so the
+  // vocabulary was inviting the mistake it then refused. (8a A2.)
+  //
+  // THE INDEX IS ADVISORY ON A PICKUP. The inventory is a compacted list, so
+  // the item goes on the end; honouring a stated position would mean opening
+  // holes in an array whose whole contract is that it has none. `inventory[]`
+  // and `inventory[4]` therefore do the same thing, which is what the
+  // `conditions` pair above already establishes as the convention.
+  if (path === "inventory[#]" || path === "inventory[]") {
+    if (value === null) {
+      if (path === "inventory[]") fail("inventory[] appends; write inventory[i] with null to drop");
+      const i = indexOf(raw);
+      const item =
+        pc.inventory[i] ??
+        fail(
+          `nothing carried at index ${i} to drop — to put something INTO the player's hands, ` +
+            `write that item to inventory[] (an id to move one that exists, an entity to make ` +
+            `one), or set the item's own parentId to "${PLAYER_ID}"`
+        );
+      // A drop is three consequences from one stated fact: out of the slot, out
+      // of any equipment slot, and onto the floor where the player stands.
+      const removed = removeItem(pc, item.id);
+      if (removed) {
+        removed.parentId = ctx.world.currentRoomId;
+        ctx.world.entities.items.push(removed);
+      }
+      return;
     }
+
+    // An id moves something that already exists. Anything else is a spec, and
+    // mints exactly as `children[]` on the player does — same function, so a
+    // thing found by searching cannot arrive half-formed down one route and
+    // whole down the other.
+    if (typeof value === "string") {
+      const entry = requireEntity(ctx, value);
+      if (entry.kind !== "Item" || !entry.entity) {
+        fail(
+          `only an item can be carried; ${JSON.stringify(value)} is a ${entry.kind} — ` +
+            `to make something new, write the entity itself rather than an id`
+        );
+      }
+      takeIntoInventory(ctx, entry.entity as IItem);
+      return;
+    }
+    createEntity(ctx, PLAYER_ID, value);
     return;
   }
 
@@ -380,6 +439,33 @@ function applyToPlayer(ctx: Ctx, path: string, raw: string, value: unknown): voi
   }
 
   fail(`unhandled player path ${JSON.stringify(path)}`);
+}
+
+/**
+ * Into the player's hands, from wherever it was.
+ *
+ * Shared by `item.parentId = <player>` and by `inventory[…] = <id>`, which are
+ * two ways of saying the same thing and were once two different code paths —
+ * one of which worked. Whichever the referee reaches for, the item leaves the
+ * world's list, the equip slots stay coherent, and the slot budget is reported
+ * rather than enforced.
+ *
+ * FORCED, deliberately: the fiction has already committed to the pickup by the
+ * time this runs, so being overburdened is a condition to narrate, not grounds
+ * to refuse a commit and unsay a paragraph.
+ */
+function takeIntoInventory(ctx: Ctx, item: IItem): void {
+  if (ctx.world.pc.inventory.some((i) => i.id === item.id)) return; // already carried
+  const i = ctx.world.entities.items.findIndex((x) => x.id === item.id);
+  if (i !== -1) ctx.world.entities.items.splice(i, 1);
+  addItem(ctx.world.pc, item, { force: true });
+  if (isOverburdened(ctx.world.pc)) {
+    ctx.events.push({
+      kind: "overburdened",
+      entityId: ctx.world.pc.id,
+      detail: "carrying more than their slots allow",
+    });
+  }
 }
 
 function indexOf(raw: string): number {
@@ -410,7 +496,10 @@ function createEntity(ctx: Ctx, holderId: string, value: unknown): void {
       ...(spec.amount ? { amount: spec.amount } : {}),
     };
     if (spec.state) setState(item, spec.state);
-    if (holder.kind === "PlayerCharacter") addItem(ctx.world.pc, item, { force: true });
+    // Through the same door a pickup uses, so something minted straight into
+    // the player's hands reports the slot budget exactly as something taken
+    // off the floor does. It used to call `addItem` here and say nothing.
+    if (holder.kind === "PlayerCharacter") takeIntoInventory(ctx, item);
     else ctx.world.entities.items.push(item);
     ctx.index.set(id, { kind: "Item", entity: item });
   } else {

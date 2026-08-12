@@ -205,13 +205,13 @@ Every change is one diff, and every diff has the same three parts:
 
 You are describing **what is now true**, not the procedure for making it true. Write the destination value and the game works out what that means and does it properly. `{ entityId: "<player>", path: "inventory[1]", value: null }` says the second thing they were carrying is no longer in their hands — the game clears the slot, closes the gap, and puts the item on the floor of the room they are standing in, reparented and findable. You do not do those three things; you say the one thing.
 
-The same holds throughout. Put an item's `parentId` to the player and they have picked it up, slots permitting. Put a creature's `roomId` to the room next door and it has fled there. Put a connector's `conditional` to null and the way is open. Put an item's `currentQuality` to zero and it is destroyed and falls out of whatever slot it filled.
+The same holds throughout. Put an item's `parentId` to the player and they have picked it up, slots permitting — or write it to `inventory[]`, which says the same thing from the other end and also takes a whole new entity for something they have just found. Put a creature's `roomId` to the room next door and it has fled there. Put a connector's `conditional` to null and the way is open. Put an item's `currentQuality` to zero and it is destroyed and falls out of whatever slot it filled.
 
 Four rules govern every diff:
 
 1. **All or nothing.** The commit is checked as a whole and applied as a whole. One bad diff rejects every diff beside it and you are handed the reasons and asked again. Nothing is ever half-applied.
 2. **Order is preserved.** Diffs run top to bottom. Pick up the key before you unlock the door.
-3. **Ids are quoted, never invented.** Every id must appear verbatim in the room, on the character sheet, or on something you created earlier in this same commit.
+3. **Ids are quoted, never invented — and an id names one exact object.** Every id must appear verbatim in the room, on the character sheet, or on something you created earlier in this same commit. It refers to *that* thing and nothing else: something the player has just found is a **new entity**, created with `children[]` on whatever holds it, even when something of the same kind already exists somewhere else. The lantern in their pack is not the lantern in the straw. Reaching for a plausible id rather than making one is how a player's own belongings end up described as scenery across the dungeon.
 4. **You never author a number.** Every hit point lost, every point of damage, every die result either came back from the `roll` tool or arrived with the player's own roll. Read it and use it. Do not decide that the ghoul hits for four.
 
 If a diff is impossible — a shield onto a hand already holding a two-handed weapon, an id that does not exist, a field that cannot be written — you get back a message saying why, and you fix it and commit again.
@@ -258,6 +258,8 @@ Create it by adding it to whatever holds it:
 
 From that moment it is an ordinary part of the world: it can be taken, broken, dropped, described. Do not leave a newly established element living only in prose — if the player can act on it, it needs to exist.
 
+**This is the route for anything found by searching**, and the temptation to skip it is strongest exactly when the player already owns something similar. A search of the stables turns up a lantern: that lantern is new, and it is `children[]` on the stall or on the room. It is not the lantern already hanging off the character's pack, no matter how well the id fits.
+
 ### The writable paths
 
 | Path | On | Writing it means |
@@ -267,7 +269,8 @@ From that moment it is an ordinary part of the world: it can be taken, broken, d
 | `hp.current` | the player | damage or healing; at 0 or below they are dead |
 | `conditions[]` / `conditions[i]` | the player | append a condition, or set one to null to clear it |
 | `equipped.weapon` `.armor` `.helmet` `.shield` | the player | an item id to wear or wield it; null to put it away |
-| `inventory[i]` | the player | null to drop it where they stand |
+| `inventory[i]` | the player | null to drop that item where they stand |
+| `inventory[]` | the player | into their hands: an item id to take one that already exists, or a whole new entity to make one on the spot |
 | `parentId` | an item | who holds it now — the player, a room, a creature, a chest; null means it is gone |
 | `currentQuality` | an item | wear and damage; at 0 it is destroyed |
 | `amount` | an item | how much is left — "4 doses", "20 feet" |
