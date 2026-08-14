@@ -48,7 +48,7 @@ import type { RolledOutcome } from "./turn.ts";
 import type { DiceOutcome } from "./dice.ts";
 import type { Stage, Step } from "./types.ts";
 import type { PlayerCharacter } from "../engine/index.ts";
-import type { RollRequestParsed } from "./llm/schemas.ts";
+import type { RollRequestParsed, ValidationIssue } from "./llm/schemas.ts";
 
 // ---------------------------------------------------------------------------
 // EVENTS
@@ -79,6 +79,31 @@ export type JournalEvent =
       prompt: string;
       response: unknown;
       usage: Usage;
+    }
+  /**
+   * A generation call that came back unusable.
+   *
+   * The `generation` event above is written on SUCCESS, which meant a pass that
+   * never succeeded left no trace but the message on the exception — and since
+   * the chunks run in parallel, not even which one it was. So a failure writes
+   * its own event: which pass, which chunk, which attempt, and what was
+   * actually objected to.
+   *
+   * Both attempts are recorded, not just the last. The first failure and the
+   * failure after the correction are different evidence: the same complaint
+   * twice is a prompt that cannot be satisfied, and two different ones is a
+   * model having a bad day.
+   */
+  | {
+      kind: "generation-error";
+      pass: "dungeon-pass" | "content-pass" | "seams-pass";
+      chunk?: number;
+      attempt: number;
+      willRetry: boolean;
+      message: string;
+      issues: ValidationIssue[];
+      /** the tool input as it arrived, truncated */
+      raw?: string;
     }
   /** the finished world, and the baseline every diff below applies to */
   | { kind: "dungeon"; dungeon: GeneratedDungeon }

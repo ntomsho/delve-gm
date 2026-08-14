@@ -77,6 +77,18 @@ export function render(r: JournalRecord): string | undefined {
     case "error":
       return `\n> [!WARNING]\n> **${r.where}** — ${r.message}`;
 
+    // Unlike `generation`, this one belongs in the transcript: a dungeon that
+    // failed to build has no rooms to read, and this is the whole document.
+    case "generation-error": {
+      const where = `${r.pass}${r.chunk === undefined ? "" : ` chunk ${r.chunk}`}`;
+      const issues = r.issues.map((i) => `> - \`${i.path}\`: ${i.message}`).join("\n");
+      return (
+        `\n> [!WARNING]\n> **${where}, attempt ${r.attempt}** — ${r.message}` +
+        (issues ? `\n>\n${issues}` : "") +
+        `\n>\n> ${r.willRetry ? "Retrying." : "Giving up."}`
+      );
+    }
+
     // In the record only.
     case "generation":
     case "system":

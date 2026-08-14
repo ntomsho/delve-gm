@@ -234,6 +234,28 @@ describe("the transcript", () => {
     expect(text).toContain("player · hp.current = 4");
   });
 
+  it("says which pass failed, which chunk, and what was wrong with it", () => {
+    // The chunks run in parallel, so a transcript saying "a content-pass call
+    // failed" names nothing. CODING-PLAN §6.7.
+    const text = render({
+      kind: "generation-error",
+      pass: "content-pass",
+      chunk: 1,
+      attempt: 2,
+      willRetry: false,
+      message: "response did not match the expected shape",
+      issues: [{ path: "rooms.0.connectors", message: "conn-7 has no entry matching it" }],
+      raw: '{"rooms":[]}',
+      seq: 1,
+      at: "2026-08-06T00:00:00.000Z",
+    })!;
+
+    expect(text).toContain("content-pass chunk 1");
+    expect(text).toContain("attempt 2");
+    expect(text).toContain("conn-7 has no entry matching it");
+    expect(text).toContain("Giving up.");
+  });
+
   it("says plainly when a commit was refused", () => {
     const text = render({
       kind: "commit",

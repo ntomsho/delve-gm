@@ -19,7 +19,8 @@
 import { describe, expect, it } from "vitest";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { createGameSession } from "./session.ts";
+import { createGameSession, describeFailure } from "./session.ts";
+import { ResponseFormatError } from "./llm/json.ts";
 import { generateOffline, testCharacter } from "./__fixtures__/offline.ts";
 import { stubReferee } from "./__fixtures__/stub-referee.ts";
 import type { JournalRecord } from "./journal.ts";
@@ -123,6 +124,41 @@ describe("a session", () => {
     // And it plays on from there rather than starting over.
     await second.submit("I search the floor");
     expect(second.store.getState().run!.log.length).toBeGreaterThan(saved.run.log.length);
+  });
+});
+
+// ---------------------------------------------------------------------------
+
+/**
+ * CODING-PLAN §6.7. "Could not build a dungeon: response did not match the
+ * expected shape" was the whole of what a failed generation said, on the screen
+ * and in the journal, while the error itself was carrying the field-by-field
+ * complaints the entire time.
+ */
+describe("describeFailure", () => {
+  it("puts the validation complaints into the sentence", () => {
+    const text = describeFailure(
+      new ResponseFormatError("response did not match the expected shape", [
+        { path: "rooms.0.name", message: "Required" },
+        { path: "rooms.2.base", message: "Expected string" },
+      ])
+    );
+
+    expect(text).toContain("rooms.0.name: Required");
+    expect(text).toContain("rooms.2.base: Expected string");
+  });
+
+  it("says how many more there are rather than printing all of them", () => {
+    const many = Array.from({ length: 9 }, (_, i) => ({ path: `r.${i}`, message: "Required" }));
+    const text = describeFailure(new ResponseFormatError("bad", many));
+
+    expect(text).toContain("and 6 more");
+    expect(text).not.toContain("r.8");
+  });
+
+  it("leaves an ordinary error alone", () => {
+    expect(describeFailure(new Error("the network is out"))).toBe("the network is out");
+    expect(describeFailure("a string somebody threw")).toBe("a string somebody threw");
   });
 });
 

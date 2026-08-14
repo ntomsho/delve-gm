@@ -51,7 +51,7 @@ import {
   type Size,
   type StockedDungeon,
 } from "../engine/index.ts";
-import { callForJson, type Usage } from "./llm/client.ts";
+import { callForJson, type FailedAttempt, type Usage } from "./llm/client.ts";
 import { contentPassSchema, dungeonPassSchema, seamsPassSchema } from "./llm/schemas.ts";
 import { chunksFor, deriveSeeds, type RunSeeds } from "./seeds.ts";
 import { NO_JOURNAL, type Journal } from "./journal.ts";
@@ -147,6 +147,41 @@ export interface GenerateOptions {
  */
 const GRAPH_ATTEMPTS = 8;
 
+/**
+ * What a failed generation call writes down.
+ *
+ * Curried on the pass — and, for the content pass, the chunk — because that is
+ * exactly what `callForJson` does not know and what a reader of the journal
+ * most needs. The chunks run in parallel, so "a content-pass call failed" is
+ * not an answer.
+ */
+function reportFailure(
+  journal: Journal,
+  pass: "dungeon-pass" | "content-pass" | "seams-pass",
+  chunk?: number
+) {
+  return (r: FailedAttempt): void => {
+    journal.log({
+      kind: "generation-error",
+      pass,
+      ...(chunk !== undefined ? { chunk } : {}),
+      attempt: r.attempt,
+      willRetry: r.willRetry,
+      message: r.message,
+      issues: r.issues,
+      ...(r.raw !== undefined ? { raw: r.raw } : {}),
+    });
+    // And to the console, because the person who hits this in a browser has
+    // devtools open and no journal file within reach.
+    console.warn(
+      `[generate] ${pass}${chunk === undefined ? "" : ` chunk ${chunk}`} ` +
+        `attempt ${r.attempt} failed: ${r.message}` +
+        (r.willRetry ? " — retrying" : " — giving up"),
+      { issues: r.issues, raw: r.raw }
+    );
+  };
+}
+
 export async function generateDungeon(opts: GenerateOptions): Promise<GeneratedDungeon> {
   const { size, signal } = opts;
   const level = opts.level ?? 1;
@@ -169,6 +204,7 @@ export async function generateDungeon(opts: GenerateOptions): Promise<GeneratedD
       toolDescription: "Record the dungeon's name, theme, history, goal, opening prose, and the standing identity of each inhabitant group.",
       messages: [{ role: "user", content: prompt }],
       signal,
+      onAttemptFailed: reportFailure(journal, "dungeon-pass"),
     });
     // The dungeon is written exactly once and cannot be re-examined by playing
     // differently, so what was asked for is worth keeping.
@@ -275,6 +311,7 @@ export async function generateDungeon(opts: GenerateOptions): Promise<GeneratedD
         // Asked here, the omission is a retryable failure; noticed after the
         // pass, it is an unwritten entity nobody can fix. See §1.1.
         check: (v) => contentPassOmissions(payload, v),
+        onAttemptFailed: reportFailure(journal, "content-pass", chunk),
       });
       journal.log({ kind: "generation", pass: "content-pass", chunk, prompt, response: value, usage });
       report({ stage: "writing", chunksDone: ++done, chunksTotal: chunks.length });
@@ -311,6 +348,7 @@ export async function generateDungeon(opts: GenerateOptions): Promise<GeneratedD
       messages: [{ role: "user", content: prompt }],
       signal,
       check: (v) => seamsPassOmissions(seamsPayload, v),
+      onAttemptFailed: reportFailure(journal, "seams-pass"),
     });
     journal.log({ kind: "generation", pass: "seams-pass", prompt, response: value, usage: seamsUsage });
     applySeamsPass(value, seamsPayload, entities);

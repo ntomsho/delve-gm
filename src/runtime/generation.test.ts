@@ -34,7 +34,7 @@ import { validateWritten, type GeneratedDungeon } from "./generate.ts";
 import { chunksFor, deriveSeeds } from "./seeds.ts";
 import { contentPassSchema, dungeonPassSchema, seamsPassSchema } from "./llm/schemas.ts";
 import { extractJson, ResponseFormatError, validate } from "./llm/json.ts";
-import { callForJson } from "./llm/client.ts";
+import { callForJson, type FailedAttempt } from "./llm/client.ts";
 
 // ===========================================================================
 // AN OFFLINE PIPELINE
@@ -631,6 +631,60 @@ describe("chunk completeness", () => {
       queue.push(answered(short().res), answered(short().res));
       await expect(call()).rejects.toThrow(ResponseFormatError);
       expect(sent).toHaveLength(2);
+    });
+
+    // CODING-PLAN §6.7. The `generation` event is written on success, so a pass
+    // that never succeeds used to leave nothing but the word "shape" — no pass,
+    // no chunk, no field, and no response to look at.
+    it("reports every attempt that failed, with what was objected to", async () => {
+      const { dropped } = short();
+      queue.push(answered(short().res), answered(short().res));
+
+      const reports: FailedAttempt[] = [];
+      await expect(
+        callForJson({
+          task: "content-pass",
+          schema: contentPassSchema,
+          toolName: "write_region",
+          toolDescription: "…",
+          messages: [{ role: "user", content: "[the chunk payload]" }],
+          check: (v) => contentPassOmissions(p, v),
+          onAttemptFailed: (r) => reports.push(r),
+        })
+      ).rejects.toThrow(ResponseFormatError);
+
+      // Both, not just the last. The same complaint twice is a prompt that
+      // cannot be satisfied; two different ones is a model having a bad day,
+      // and only having both tells them apart.
+      expect(reports.map((r) => [r.attempt, r.willRetry])).toEqual([
+        [1, true],
+        [2, false],
+      ]);
+      expect(JSON.stringify(reports[0].issues)).toContain(dropped.ref);
+      // The response itself, so the failure can be read rather than guessed at.
+      expect(reports[0].raw).toBeTruthy();
+    });
+
+    it("does not lose the error when the reporter throws", async () => {
+      queue.push(answered(short().res), answered(short().res));
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      await expect(
+        callForJson({
+          task: "content-pass",
+          schema: contentPassSchema,
+          toolName: "write_region",
+          toolDescription: "…",
+          messages: [{ role: "user", content: "[the chunk payload]" }],
+          check: (v) => contentPassOmissions(p, v),
+          onAttemptFailed: () => {
+            throw new Error("the journal is on fire");
+          },
+        })
+      ).rejects.toThrow(ResponseFormatError);
+
+      expect(warn).toHaveBeenCalled();
+      warn.mockRestore();
     });
   });
 

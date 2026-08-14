@@ -329,6 +329,40 @@ export interface JsonCallOptions<T> extends CallOptions {
    * channel, and the same "no partial content" ending if it fails twice.
    */
   check?: (value: T) => ValidationIssue[];
+  /**
+   * EVERY ATTEMPT THAT FAILED, AS IT FAILS.
+   *
+   * Called before the retry and again before the final throw, so a pass that
+   * never succeeds still leaves a record of what it was told and what came
+   * back. Without it the only survivor is the message on the exception, and a
+   * dungeon that failed to generate is a dungeon nobody can look at: the
+   * generation events are written on success, so a pass that never succeeded
+   * writes nothing at all.
+   *
+   * Observed 2026-08-14 on `?stub=1`: one content-pass chunk failed zod twice
+   * and took the whole generation with it, and the journal held four events, of
+   * which the last was the word "shape". See CODING-PLAN §6.7.
+   *
+   * A reporting hook rather than a journal parameter on purpose — this module
+   * has no business knowing what a journal is, and the caller is the one that
+   * knows which pass and which chunk is in flight.
+   *
+   * It must not throw. Whatever is wrong, it is less wrong than losing the
+   * error underneath it.
+   */
+  onAttemptFailed?: (report: FailedAttempt) => void;
+}
+
+export interface FailedAttempt {
+  /** 1 for the first call, 2 for the retry */
+  attempt: number;
+  /** whether another call is about to be made */
+  willRetry: boolean;
+  message: string;
+  /** what zod, or the completeness check, objected to */
+  issues: ValidationIssue[];
+  /** the tool input as it arrived, truncated — undefined if there was no call */
+  raw: string | undefined;
 }
 
 export interface JsonResult<T> {
@@ -401,7 +435,24 @@ export async function callForJson<T>(opts: JsonCallOptions<T>): Promise<JsonResu
       return { value, usage, attempts: attempt };
     } catch (e) {
       const isFormat = e instanceof ResponseFormatError;
-      if (!isFormat || !retry || attempt > 1) throw e;
+      const willRetry = isFormat && retry && attempt <= 1;
+
+      if (isFormat && opts.onAttemptFailed) {
+        // Reporting must not be able to lose the error it is reporting.
+        try {
+          opts.onAttemptFailed({
+            attempt,
+            willRetry,
+            message: e.message,
+            issues: e.issues,
+            raw: e.raw ?? (call ? JSON.stringify(call.input).slice(0, 2000) : undefined),
+          });
+        } catch (reporting) {
+          console.warn("[llm] onAttemptFailed threw; ignoring it:", reporting);
+        }
+      }
+
+      if (!willRetry) throw e;
 
       // One retry, with the specific failures in front of it.
       messages.push(

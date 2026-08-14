@@ -35,7 +35,7 @@
  * every prompt and response, every roll, and every change to the world.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { PlayScreen } from "./ui/play/PlayScreen.tsx";
 import { LoadingScreen } from "./ui/LoadingScreen.tsx";
 import { Characters } from "./ui/Characters.tsx";
@@ -44,7 +44,12 @@ import { RunSetup } from "./ui/RunSetup.tsx";
 import { toItems } from "./ui/play/Narration.tsx";
 import { useGame } from "./store/react.ts";
 import { deleteCharacter, listCharacters, saveCharacter } from "./store/characters.ts";
-import { createGameSession, type RunRequest } from "./runtime/session.ts";
+import {
+  createGameSession,
+  describeFailure,
+  type GameSession,
+  type RunRequest,
+} from "./runtime/session.ts";
 import { type GenerationProgress } from "./runtime/generate.ts";
 import { stubReferee } from "./runtime/__fixtures__/stub-referee.ts";
 import { generateOffline } from "./runtime/__fixtures__/offline.ts";
@@ -78,23 +83,33 @@ export default function App() {
   const [progress, setProgress] = useState<GenerationProgress>();
 
   /**
-   * The run. Made on the first render and never replaced, so the store it owns
-   * is there to subscribe to before there is a dungeon in it.
+   * A session, wired from the switches.
    *
-   * The switches are read into it here, once, and this is the only place they
-   * are: `?stub` and `?offline` choose a referee and a generator, and the
-   * session does not know or care that a query string picked them.
+   * This is the only place the switches are read into anything: `?stub` and
+   * `?offline` choose a referee and a generator, and the session does not know
+   * or care that a query string picked them.
    */
-  const sessionRef = useRef<ReturnType<typeof createGameSession>>(null);
-  sessionRef.current ??= createGameSession({
-    sink: httpSink,
-    onProgress: setProgress,
-    ...(STUB ? { referee: () => stubReferee } : {}),
-    ...(OFFLINE
-      ? { offline: true, generate: async ({ seed, size }) => generateOffline(seed, size) }
-      : {}),
-  });
-  const session = sessionRef.current;
+  const makeSession = (): GameSession =>
+    createGameSession({
+      sink: httpSink,
+      onProgress: setProgress,
+      ...(STUB ? { referee: () => stubReferee } : {}),
+      ...(OFFLINE
+        ? { offline: true, generate: async ({ seed, size }) => generateOffline(seed, size) }
+        : {}),
+    });
+
+  /**
+   * The run in hand. Made on the first render — so the store it owns is there
+   * to subscribe to before there is a dungeon in it — and replaced only when a
+   * failed generation is retried, because a session that has begun refuses to
+   * begin again and a half-generated one is not worth resuming.
+   *
+   * State rather than a ref, because swapping it has to re-render: the
+   * subscription below is to *this* store, and the play screen has to follow
+   * the new one.
+   */
+  const [session, setSession] = useState<GameSession>(makeSession);
 
   const { dungeon, run } = useGame(session.store);
   const [screen, setScreen] = useState<Screen>(BYPASS ? "generating" : "characters");
@@ -102,17 +117,44 @@ export default function App() {
   /** Whoever the player pressed *Send down* on, carried into run setup. */
   const [chosenId, setChosenId] = useState<string>();
   const [error, setError] = useState<string>();
+  /** Held so a failed generation can be tried again on the same seed. */
+  const [lastRequest, setLastRequest] = useState<RunRequest>();
 
-  async function begin(request: RunRequest) {
+  async function start(s: GameSession, request: RunRequest) {
     setScreen("generating");
     try {
-      // A second call is the double-invoke of StrictMode's development mount,
-      // and the session drops it — it would otherwise generate a whole second
-      // dungeon over the top of the first.
-      await session.begin(request);
+      // A second call on the SAME session is the double-invoke of StrictMode's
+      // development mount, and the session drops it — it would otherwise
+      // generate a whole second dungeon over the top of the first.
+      await s.begin(request);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      // `describeFailure` puts the first few validation complaints into the
+      // sentence. The whole error is already on the console and in the journal;
+      // this is the part that fits on a screen.
+      setError(describeFailure(e));
     }
+  }
+
+  async function begin(request: RunRequest) {
+    setLastRequest(request);
+    await start(session, request);
+  }
+
+  /**
+   * Try the same seed again, on a session of its own.
+   *
+   * The same seed on purpose: a generation that failed once usually succeeds on
+   * the second attempt — the failure is a model having a bad round rather than
+   * a dungeon that cannot be built — and if it fails twice on the same seed
+   * that is worth knowing, which a fresh random seed would hide.
+   */
+  function retryGeneration() {
+    if (!lastRequest) return;
+    const next = makeSession();
+    setSession(next);
+    setError(undefined);
+    setProgress(undefined);
+    void start(next, lastRequest);
   }
 
   useEffect(() => {
@@ -134,8 +176,24 @@ export default function App() {
 
   if (error) {
     return (
-      <div className="p-8 font-mono text-sm text-torch">
-        Could not build a dungeon: {error}
+      <div className="p-8 font-mono text-sm text-torch space-y-4 max-w-3xl">
+        <p>Could not build a dungeon: {error}</p>
+        {/* The journal is in out/runs/<run id>/, and without the id on the
+            screen the only way to find it is by guessing at the timestamp. */}
+        {session.runId && (
+          <p className="text-ash">
+            The whole failure is on the console, and in out/runs/{session.runId}/
+          </p>
+        )}
+        {lastRequest && (
+          <button
+            type="button"
+            className="border border-torch px-3 py-1 hover:bg-torch hover:text-ink"
+            onClick={retryGeneration}
+          >
+            Try seed {lastRequest.seed} again
+          </button>
+        )}
       </div>
     );
   }

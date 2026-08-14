@@ -28,6 +28,7 @@
 
 import { createGameStore, type GameStoreApi, type SavedGame } from "../store/game.ts";
 import { createJournal, runId, type Journal, type Sink } from "./journal.ts";
+import { ResponseFormatError } from "./llm/json.ts";
 import { createModelReferee } from "./referee.ts";
 import { createTurnMachine, type Referee, type TurnMachine } from "./turn.ts";
 import { generateDungeon, type GeneratedDungeon, type GenerateOptions } from "./generate.ts";
@@ -93,6 +94,24 @@ export interface GameSession {
   submit(text: string): Promise<void>;
   roll(): Promise<void>;
   retry(): Promise<void>;
+}
+
+/**
+ * An error, said usefully.
+ *
+ * "response did not match the expected shape" is what a `ResponseFormatError`
+ * says on its own, and on a screen it is worth nothing: it names no pass, no
+ * chunk, and no field. The issues are right there on the error, so the first
+ * few of them go into the message — enough to tell a prompt problem from a bad
+ * roll of the dice without opening anything.
+ */
+export function describeFailure(e: unknown): string {
+  const message = e instanceof Error ? e.message : String(e);
+  if (!(e instanceof ResponseFormatError) || e.issues.length === 0) return message;
+
+  const shown = e.issues.slice(0, 3).map((i) => `${i.path}: ${i.message}`);
+  const rest = e.issues.length - shown.length;
+  return `${message} — ${shown.join("; ")}${rest > 0 ? `, and ${rest} more` : ""}`;
 }
 
 export function createGameSession(opts: SessionOptions = {}): GameSession {
@@ -175,11 +194,17 @@ export function createGameSession(opts: SessionOptions = {}): GameSession {
           ...(opts.signal ? { signal: opts.signal } : {}),
         });
       } catch (e) {
+        // `generation-error` above already holds the issues and the raw
+        // response for each attempt; this is the run-level "and so it stopped".
         journal!.log({
           kind: "error",
           where: "session:generate",
-          message: e instanceof Error ? e.message : String(e),
+          message: describeFailure(e),
         });
+        // The object, not the string. Whoever is looking at this has devtools
+        // open and the journal file out of reach, and everything that makes the
+        // failure legible — the zod issues, the response — is on the error.
+        console.error("[session] generation failed:", e);
         throw e;
       }
 

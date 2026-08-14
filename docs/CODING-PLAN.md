@@ -1514,9 +1514,9 @@ the same thing from its own config. Vite in SSR mode already does it.
 - **A purity sweep** in `session.test.ts` over every file in `src/runtime` and
   `src/store`: no `from "react"`, and no bare `from "zustand"`. The engine has had its
   equivalent since Phase 0; the runtime never did, which is how the rule became untrue.
-- 787 tests, build clean.
+- 787 tests, build clean; 793 after §6.7.
 
-### 6.7 Carried out of Phase 9 🔴 **a generation failure says almost nothing**
+### 6.7 A generation failure said almost nothing ✅ **FIXED**
 
 Observed in the browser on `?stub=1`, 2026-08-14: **"Could not build a dungeon: response
 did not match the expected shape"**, and nothing else — on the screen or in the console.
@@ -1540,18 +1540,45 @@ What is missing is everything that would let you *fix* it:
 - **Anything in the console.** `App.tsx` catches, takes `e.message`, and renders a
   string. The error object never reaches devtools.
 
-**The fix, in four pieces:**
+**Shipped, in four pieces:**
 
-1. `onAttemptFailed?: (e: ResponseFormatError, attempt: number) => void` on
-   `JsonCallOptions`. `callForJson` calls it before each retry and before the final
-   throw; `client.ts` stays journal-free and the caller supplies what it knows.
-2. A `{ kind: "generation-error"; pass; chunk?; attempt; message; issues; raw }` journal
-   event, written from `generate.ts`, which is the only place that knows which pass and
-   which chunk is in flight.
-3. `session.begin`'s catch keeps `issues` and `raw` when the error is a
-   `ResponseFormatError`, and `console.error`s the object rather than the string.
-4. The error screen names the **run id** — the journal is in `out/runs/<id>/` and there
-   is currently no way to find it but the timestamp — and offers a retry.
+1. `onAttemptFailed?: (report: FailedAttempt) => void` on `JsonCallOptions`.
+   `callForJson` calls it before each retry and again before the final throw, so both
+   attempts are recorded — the same complaint twice is a prompt that cannot be
+   satisfied, two different ones is a model having a bad round, and only having both
+   tells them apart. A reporting hook rather than a journal parameter: `client.ts` has
+   no business knowing what a journal is, and the caller is the one that knows which
+   pass is in flight. It is wrapped, because reporting must not be able to lose the
+   error underneath it.
+2. A `{ kind: "generation-error"; pass; chunk?; attempt; willRetry; message; issues;
+   raw }` event, written from `generate.ts` by a `reportFailure(journal, pass, chunk)`
+   curried on the two things `callForJson` cannot know. It goes to the console as well,
+   because whoever hits this in a browser has devtools open and no journal file within
+   reach. `journal-render.ts` renders it into the transcript — unlike `generation`,
+   which is record-only, because a dungeon that failed to build has no rooms to read
+   and this is the whole document.
+3. `describeFailure(e)` in `session.ts` puts the first three validation complaints into
+   the sentence and says how many more there are; `session.begin` logs that and
+   `console.error`s the error OBJECT, not the string.
+4. The error screen names the run id — the journal is in `out/runs/<id>/` and the only
+   way to find it was to guess at the timestamp — and offers **Try seed N again**, on a
+   fresh session, because a session that has begun refuses to begin twice. The same
+   seed on purpose: a second failure on the same seed is worth knowing and a fresh
+   random one would hide it.
+
+What it produces now, from a dungeon-pass response that failed twice:
+
+```
+response did not match the expected shape — name: Invalid input: expected string,
+received undefined; theme: …, and 3 more
+```
+
+plus two `generation-error` events carrying every issue and the raw response, the same
+two on the console, and a `> [!WARNING]` block per attempt in `transcript.md`.
+
+**Not covered by a test:** the error screen itself. `App.test.tsx` mounts on
+`?offline=1`, the switches are read at module scope, and there is no seam to inject a
+generation failure through — so the retry button and the run id are verified by eye.
 
 **This is also the argument for Phase 10's split generation.** One bad chunk killing a
 whole dungeon is only tolerable because a request cannot resume; once each chunk is its
@@ -1611,9 +1638,7 @@ Everything else settled through Phase 7 is either in §2 or in the code.
 
 **Open out of Phase 9**, and worth doing before the server work rather than after:
 
-- **A generation failure is undebuggable** — §6.7. Four small pieces, none of them
-  architectural, and every one of them is something you will want the first time a
-  playtester reports a failed dungeon rather than a developer with the tab still open.
+- ~~A generation failure is undebuggable~~ — §6.7, **done**. Nothing left open.
 
 **Open in Phase 8**, none of it blocking the rest of 8a, which is fully specified:
 
