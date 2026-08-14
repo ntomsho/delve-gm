@@ -13,12 +13,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createModelReferee, postOf } from "./referee.ts";
 import { generateOffline, testCharacter } from "./__fixtures__/offline.ts";
-import { useGame } from "../store/game.ts";
+import { createGameStore } from "../store/game.ts";
 import { dcFromDefense, pcArmorDefense } from "../engine/index.ts";
 import type { RefereeRequest } from "./turn.ts";
 import type { Step } from "./types.ts";
 
 const dungeon = generateOffline(1005, 1);
+
+/** This file's own store — see the note atop `store/game.ts`. */
+const useGame = createGameStore();
 
 // ---------------------------------------------------------------------------
 // A MODEL THAT SAYS WHAT IT IS TOLD TO
@@ -66,7 +69,7 @@ const request = (over: Partial<RefereeRequest> = {}): RefereeRequest => ({
   ...over,
 });
 
-const referee = (maxRounds = 4) => createModelReferee({ maxRounds });
+const referee = (maxRounds = 4) => createModelReferee({ store: useGame, maxRounds });
 
 // ---------------------------------------------------------------------------
 

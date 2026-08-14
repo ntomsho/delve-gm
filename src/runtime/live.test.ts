@@ -9,9 +9,13 @@
  * that do not exist, a playbook that reads well and instructs badly — none of
  * those fail a canned test.
  *
- * So: skipped unless asked for.
+ * So: skipped unless asked for. This is a Windows project — PowerShell has no
+ * inline env-var prefix, so the bash form of these lines does not run here.
  *
- *     LIVE=1 npx vitest run src/runtime/live.test.ts
+ *     PowerShell:  $env:LIVE = "1"; npx vitest run src/runtime/live.test.ts
+ *     bash:        LIVE=1 npx vitest run src/runtime/live.test.ts
+ *
+ * `$env:` persists for the rest of the shell session; `$env:LIVE = $null` clears it.
  *
  * The dungeon is the offline fixture, so the only calls are the turns —
  * generation is proved out separately and costs a minute of real work.
@@ -19,7 +23,8 @@
  * It asserts the shape of what came back and prints the prose, because whether
  * the prose is any GOOD is a judgement no assertion can make. Read it.
  *
- *     LIVE=1 LIVE_OUT=out/turn.md npx vitest run src/runtime/live.test.ts
+ *     $env:LIVE = "1"; $env:LIVE_OUT = "out/turn.md"
+ *     npx vitest run src/runtime/live.test.ts
  *
  * `LIVE_OUT` writes the transcript to a file, which is worth knowing about
  * because vitest captures stdout and a passing test shows you none of it —
@@ -30,13 +35,9 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import { configureTransport } from "./llm/client.ts";
-import { attach, log, runId } from "./journal.ts";
-import { fileSink } from "../dev/journal-fs.ts";
-import { MODELS } from "./llm/models.ts";
-import { createModelReferee } from "./referee.ts";
-import { createTurnMachine } from "./turn.ts";
+import { dirFor, fileSink } from "../dev/journal-fs.ts";
+import { createGameSession } from "./session.ts";
 import { generateOffline, testCharacter } from "./__fixtures__/offline.ts";
-import { useGame } from "../store/game.ts";
 
 const LIVE = process.env.LIVE === "1";
 const SEED = 1005;
@@ -58,34 +59,22 @@ describe.skipIf(!LIVE)("a real model refereeing a real turn", () => {
       baseUrl: "https://api.anthropic.com",
       headers: { "x-api-key": apiKey(), "anthropic-version": "2023-06-01" },
     });
-    useGame.getState().reset();
+  });
 
-    // The run writes itself down, same as a browser run does — this is also the
-    // only automated check that the journal survives a real turn.
-    const id = runId(SEED);
-    journalDir = resolve(process.cwd(), "out/runs", id);
-    attach(fileSink(journalDir));
-
-    const character = testCharacter();
-    log({
-      kind: "run",
-      runId: id,
-      seed: SEED,
-      size: 1,
-      level: 1,
-      offline: true,
-      models: MODELS,
-      character,
-    });
-
-    const dungeon = generateOffline(SEED, 1);
-    log({ kind: "dungeon", dungeon });
-    useGame.getState().start(dungeon, character);
+  /**
+   * A whole run in one object, exactly as the app and the CLI build one: the
+   * fixture dungeon so only the turns cost anything, the real referee, and the
+   * journal on disk — which is also the only automated check that the journal
+   * survives a real turn.
+   */
+  const session = createGameSession({
+    offline: true,
+    generate: async ({ seed, size }) => generateOffline(seed, size),
+    sink: (id) => fileSink((journalDir = dirFor(id))),
   });
 
   it("walks into a room, then acts in it", { timeout: 180_000 }, async () => {
-    const machine = createTurnMachine(createModelReferee());
-    const state = () => useGame.getState().run!;
+    const state = () => session.store.getState().run!;
 
     const report: string[] = [];
     const say = (s: string) => {
@@ -94,7 +83,8 @@ describe.skipIf(!LIVE)("a real model refereeing a real turn", () => {
       if (process.env.LIVE_OUT) writeFileSync(process.env.LIVE_OUT, report.join("\n\n"));
     };
 
-    await machine.enterRoom();
+    // Generates (from the fixture), starts the run, and describes the room.
+    await session.begin({ seed: SEED, size: 1, level: 1, character: testCharacter() });
 
     const room = () => state().entities.rooms.find((r) => r.id === state().currentRoomId)!;
 
@@ -115,7 +105,7 @@ describe.skipIf(!LIVE)("a real model refereeing a real turn", () => {
     expect(state().log.length, "the player was told nothing on arrival").toBeGreaterThan(0);
 
     const before = state().log.length;
-    await machine.submit("I look carefully around the room, taking my time.");
+    await session.submit("I look carefully around the room, taking my time.");
 
     say(
       "=== THE TURN ===\n" +
@@ -129,7 +119,7 @@ describe.skipIf(!LIVE)("a real model refereeing a real turn", () => {
     // throws the dice, and the referee resolves what they said. This is the
     // path with the most moving parts and the one worth spending a call on.
     const beforeRoll = state().log.length;
-    await machine.submit("I climb down into the chasm, as far as I can get.");
+    await session.submit("I climb down into the chasm, as far as I can get.");
 
     say(
       "=== A RISKY ACTION ===\n" +
@@ -146,7 +136,7 @@ describe.skipIf(!LIVE)("a real model refereeing a real turn", () => {
       expect(spec.dc).toBeGreaterThan(0);
 
       const beforeResolve = state().log.length;
-      await machine.roll();
+      await session.roll();
 
       say(
         "=== RESOLVED ===\n" +

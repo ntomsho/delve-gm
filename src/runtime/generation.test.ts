@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   applyContentPass,
   applyDungeonPass,
@@ -7,6 +7,8 @@ import {
   buildContentPassPayload,
   buildDungeonPassPayload,
   buildSeamsPassPayload,
+  contentPassOmissions,
+  seamsPassOmissions,
   DungeonPassError,
   generateBlueprint,
   generateBlueprintSeed,
@@ -32,6 +34,7 @@ import { validateWritten, type GeneratedDungeon } from "./generate.ts";
 import { chunksFor, deriveSeeds } from "./seeds.ts";
 import { contentPassSchema, dungeonPassSchema, seamsPassSchema } from "./llm/schemas.ts";
 import { extractJson, ResponseFormatError, validate } from "./llm/json.ts";
+import { callForJson } from "./llm/client.ts";
 
 // ===========================================================================
 // AN OFFLINE PIPELINE
@@ -367,6 +370,281 @@ describe("connector ownership", () => {
 
     applyContentPass(res, payload, entities, blueprint, stocked, new Rng(stocked.seed));
     expect(entities.connectors.find((c) => c.id === seam.ref)!.base).toBeUndefined();
+  });
+
+  // 8f. One R2 dungeon held "The Residue", "The Cutlass", "The ledger" and
+  // "unmarked ledger" at once, because a name arrives in whatever register the
+  // model's sentence was in. Normalised once, at the top of the apply, so a
+  // twelfth assignment site cannot miss it.
+  it("capitalises every name it was handed, and touches nothing else", () => {
+    const seeds = deriveSeeds(1005);
+    const blueprint = generateBlueprintSeed(2, seeds.blueprintSeed, 1);
+    const { dungeon } = generateBlueprint(seeds.graphSeed, { chunks: chunksFor(2) }, true);
+    const stocked = stockDungeon(dungeon, blueprint, { level: 1, seed: seeds.stockSeed });
+    const entities = runEntitiesPass(stocked, blueprint, new Rng(stocked.seed));
+
+    const payload = buildContentPassPayload(stocked, blueprint, entities, 0, "[fiction]");
+    const res = fakeContentPass(payload);
+    // Lower-case it all, the way a model writing mid-sentence does.
+    for (const r of res.rooms) {
+      r.name = r.name.toLowerCase();
+      for (const e of r.entities ?? []) e.name = e.name.toLowerCase();
+      for (const c of r.connectors ?? []) c.name = c.name.toLowerCase();
+    }
+    const written = res.rooms[0];
+
+    applyContentPass(res, payload, entities, blueprint, stocked, new Rng(stocked.seed));
+
+    const room = entities.rooms.find((r) => r.name?.toLowerCase() === written.name)!;
+    expect(room.name![0]).toBe(room.name![0].toUpperCase());
+    for (const w of written.entities ?? []) {
+      const e = [...entities.features, ...entities.items, ...entities.hazards].find((x) => x.id === w.ref);
+      if (e?.name) expect(e.name[0]).toBe(e.name[0].toUpperCase());
+    }
+    // On a copy: the response is what the journal recorded, and a record that
+    // disagrees with the call it records is worse than a lower-case name.
+    expect(written.name).toBe(written.name.toLowerCase());
+  });
+});
+
+// ===========================================================================
+// A WELL-FORMED ANSWER THAT LEAVES SOMETHING OUT
+// ===========================================================================
+// The one live defect out of Phase 1, §1.1. A chunk answering five of six
+// connectors is valid JSON against a valid schema, so zod passes it, apply
+// applies it, and nothing notices until `validateWritten` sweeps at the end —
+// after the pass is over and the one retry has gone unspent. These are the
+// assertions that the question gets asked while the retry is still there to
+// take.
+
+describe("chunk completeness", () => {
+  const payloadsOf = (seed: number, size: Size) => {
+    const seeds = deriveSeeds(seed);
+    const blueprint = generateBlueprintSeed(size, seeds.blueprintSeed, 1);
+    const { dungeon } = generateBlueprint(seeds.graphSeed, { chunks: chunksFor(size) }, true);
+    const stocked = stockDungeon(dungeon, blueprint, { level: 1, seed: seeds.stockSeed });
+    const entities = runEntitiesPass(stocked, blueprint, new Rng(stocked.seed));
+    const chunks = [...new Set(stocked.rooms.map((r) => r.chunk))].sort((a, b) => a - b);
+    return {
+      stocked,
+      entities,
+      payloads: chunks.map((c) => buildContentPassPayload(stocked, blueprint, entities, c, "[fiction]")),
+    };
+  };
+
+  const { payloads } = payloadsOf(1005, 3);
+
+  /** The first payload holding the thing this test is about to delete. */
+  const holding = (has: (p: ContentPassPayload) => boolean): ContentPassPayload => {
+    const p = payloads.find(has);
+    // A fixture lookup that returns early when it finds nothing asserts nothing
+    // and passes. If a seed reroll ever empties one of these, this is what says
+    // so instead of the suite going quietly green.
+    expect(p, "no chunk in this dungeon carries what the test needs").toBeDefined();
+    return p!;
+  };
+
+  it("says nothing about an answer that covered everything", () => {
+    // Across every chunk, and the fake is a complete answer by construction —
+    // so this is also the assertion that the check does not fire on the shape
+    // the pipeline actually produces.
+    for (const p of payloads) expect(contentPassOmissions(p, fakeContentPass(p))).toEqual([]);
+
+    // And the payloads really did ask for all four things, so the emptiness
+    // above is a pass rather than an absence of anything to check.
+    const rooms = payloads.flatMap((p) => p.rooms);
+    expect(rooms.flatMap((r) => r.entities).length).toBeGreaterThan(0);
+    expect(rooms.flatMap((r) => r.connectors.filter((c) => !c.seam)).length).toBeGreaterThan(0);
+    expect(rooms.flatMap((r) => r.encounters).length).toBeGreaterThan(0);
+    expect(rooms.filter((r) => r.goal).length).toBe(1);
+  });
+
+  it("names a room that never came back", () => {
+    const p = payloads[0];
+    const res = fakeContentPass(p);
+    const dropped = res.rooms.pop()!;
+
+    const out = contentPassOmissions(p, res);
+    expect(out).toHaveLength(1);
+    expect(out[0].message).toContain(dropped.ref);
+    expect(out[0].path).toBe(`rooms.${dropped.ref}`);
+  });
+
+  // THE ONE THAT WAS SEEN LIVE: a connector between two rooms in the same
+  // chunk, so not a seam, simply left out of an otherwise well-formed response.
+  it("names a connector left out of a room that did come back", () => {
+    const p = holding((x) => x.rooms.some((r) => r.connectors.some((c) => !c.seam)));
+    const room = p.rooms.find((r) => r.connectors.some((c) => !c.seam))!;
+    const res = fakeContentPass(p);
+    const written = res.rooms.find((r) => r.ref === room.ref)!;
+    const dropped = written.connectors!.pop()!;
+
+    const out = contentPassOmissions(p, res);
+    expect(out).toHaveLength(1);
+    expect(out[0].message).toContain(dropped.ref);
+    expect(out[0].path).toBe(`rooms.${room.ref}.connectors`);
+  });
+
+  it("says nothing about a seam, which the chunk is told not to write", () => {
+    const p = holding((x) => x.rooms.some((r) => r.connectors.some((c) => c.seam)));
+    // `fakeContentPass` already omits every seam, so a clean report here is the
+    // whole assertion: the check agrees with HARD RULE 1 rather than demanding
+    // back the one thing the instructions forbid.
+    expect(contentPassOmissions(p, fakeContentPass(p))).toEqual([]);
+  });
+
+  it("names a missing entity", () => {
+    const p = holding((x) => x.rooms.some((r) => r.entities.length > 0));
+    const room = p.rooms.find((r) => r.entities.length > 0)!;
+    const res = fakeContentPass(p);
+    const dropped = res.rooms.find((r) => r.ref === room.ref)!.entities!.pop()!;
+
+    const out = contentPassOmissions(p, res);
+    expect(out).toHaveLength(1);
+    expect(out[0].message).toContain(dropped.ref);
+  });
+
+  it("names the goal the goal room did not write", () => {
+    const p = holding((x) => x.rooms.some((r) => r.goal));
+    const room = p.rooms.find((r) => r.goal)!;
+    const res = fakeContentPass(p);
+    delete res.rooms.find((r) => r.ref === room.ref)!.goal;
+
+    const out = contentPassOmissions(p, res);
+    expect(out).toHaveLength(1);
+    expect(out[0].path).toBe(`rooms.${room.ref}.goal`);
+  });
+
+  // An encounter is up to two entities and each is separately omittable, so
+  // each is asked about separately: a response can carry the encounter, write
+  // the rank and file, and drop the named leader standing in front of them.
+  //
+  // Two tests rather than one because an encounter holding BOTH is a roll — a
+  // people group needs `undefinedUnderlings` for a mass to sit beside its named
+  // members — and pinning the pair to a seed would make this suite depend on
+  // stocking's draw order for no gain.
+  it("names an encounter that came back without its mass", () => {
+    const p = holding((x) => x.rooms.some((r) => r.encounters.some((e) => e.group)));
+    const room = p.rooms.find((r) => r.encounters.some((e) => e.group))!;
+    const en = room.encounters.find((e) => e.group)!;
+
+    const res = fakeContentPass(p);
+    delete res.rooms.find((r) => r.ref === room.ref)!.encounters!.find((e) => e.ref === en.ref)!.group;
+
+    const out = contentPassOmissions(p, res);
+    expect(out).toHaveLength(1);
+    expect(out[0].path).toBe(`rooms.${room.ref}.encounters.${en.ref}.group`);
+  });
+
+  it("names a specimen dropped from an encounter that did come back", () => {
+    const p = holding((x) => x.rooms.some((r) => r.encounters.some((e) => e.distinct.length > 0)));
+    const room = p.rooms.find((r) => r.encounters.some((e) => e.distinct.length > 0))!;
+    const en = room.encounters.find((e) => e.distinct.length > 0)!;
+
+    const res = fakeContentPass(p);
+    const written = res.rooms.find((r) => r.ref === room.ref)!.encounters!.find((e) => e.ref === en.ref)!;
+    const dropped = written.distinct!.pop()!;
+
+    const out = contentPassOmissions(p, res);
+    expect(out).toHaveLength(1);
+    expect(out[0].path).toBe(`rooms.${room.ref}.encounters.${en.ref}.distinct`);
+    expect(out[0].message).toContain(dropped.kind);
+  });
+
+  // Matched on kind AND member, the same join apply makes to find a specimen's
+  // keywords — so a specimen returned under a member id nobody asked about has
+  // lost its rolls just as surely as one that never came back.
+  it("names a specimen returned under a member id that was not asked for", () => {
+    const p = holding((x) => x.rooms.some((r) => r.encounters.some((e) => e.distinct.some((d) => d.member))));
+    const room = p.rooms.find((r) => r.encounters.some((e) => e.distinct.some((d) => d.member)))!;
+    const en = room.encounters.find((e) => e.distinct.some((d) => d.member))!;
+
+    const res = fakeContentPass(p);
+    const written = res.rooms.find((r) => r.ref === room.ref)!.encounters!.find((e) => e.ref === en.ref)!;
+    written.distinct!.find((d) => d.member)!.member = "somebody-else";
+
+    const out = contentPassOmissions(p, res);
+    expect(out).toHaveLength(1);
+    expect(out[0].message).toContain("has no entry matching it");
+  });
+
+  // The point of asking early. Stubbed at `fetch`, so the real client, the real
+  // schema and the real retry policy are all in the path — what this asserts is
+  // that an omission is spent as a retry rather than discovered afterwards.
+  describe("through the client", () => {
+    let queue: unknown[] = [];
+    let sent: { messages: { role: string; content: unknown }[] }[] = [];
+
+    beforeEach(() => {
+      queue = [];
+      sent = [];
+      vi.stubGlobal("fetch", async (_url: string, init: { body: string }) => {
+        sent.push(JSON.parse(init.body));
+        const next = queue.shift();
+        if (next === undefined) {
+          return { ok: false, status: 400, statusText: "no canned response left", text: async () => "" };
+        }
+        return { ok: true, json: async () => next };
+      });
+    });
+
+    afterEach(() => vi.unstubAllGlobals());
+
+    const answered = (res: ContentPassResponse) => ({
+      content: [{ type: "tool_use", id: "t1", name: "write_region", input: res }],
+      stop_reason: "tool_use",
+      usage: { input_tokens: 100, output_tokens: 40 },
+    });
+
+    const p = payloads.find((x) => x.rooms.some((r) => r.connectors.some((c) => !c.seam)))!;
+    const short = () => {
+      const res = fakeContentPass(p);
+      const room = res.rooms.find((r) => (r.connectors ?? []).length > 0)!;
+      return { res, dropped: room.connectors!.pop()! };
+    };
+
+    const call = () =>
+      callForJson({
+        task: "content-pass",
+        schema: contentPassSchema,
+        toolName: "write_region",
+        toolDescription: "Name and write every room, entity, connector, and creature group in this region.",
+        messages: [{ role: "user", content: "[the chunk payload]" }],
+        check: (v) => contentPassOmissions(p, v),
+      });
+
+    it("takes the retry, and names the missing ref in it", async () => {
+      const { res, dropped } = short();
+      queue.push(answered(res), answered(fakeContentPass(p)));
+
+      const { value, attempts } = await call();
+
+      expect(attempts).toBe(2);
+      expect(contentPassOmissions(p, value)).toEqual([]);
+      // The retry is only productive if the reasons name the way through — 8a
+      // A2. Here that means the id of the connector that did not come back.
+      expect(JSON.stringify(sent[1].messages)).toContain(dropped.ref);
+      expect(sent).toHaveLength(2);
+    });
+
+    it("throws rather than applying a chunk that left it out twice", async () => {
+      queue.push(answered(short().res), answered(short().res));
+      await expect(call()).rejects.toThrow(ResponseFormatError);
+      expect(sent).toHaveLength(2);
+    });
+  });
+
+  it("names a way through the seams pass left out", () => {
+    const { stocked, entities } = payloadsOf(1005, 3);
+    const payload = buildSeamsPassPayload(stocked, entities, "[fiction]");
+    expect(payload.seams.length).toBeGreaterThan(0);
+    expect(seamsPassOmissions(payload, fakeSeamsPass(payload))).toEqual([]);
+
+    const res = fakeSeamsPass(payload);
+    const dropped = res.connectors.pop()!;
+    const out = seamsPassOmissions(payload, res);
+    expect(out).toHaveLength(1);
+    expect(out[0].message).toContain(dropped.ref);
   });
 });
 

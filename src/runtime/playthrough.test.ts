@@ -15,7 +15,10 @@ import { applyCommit } from "./diffs/apply.ts";
 import { PLAYER_ID, type Commit, type Diff, type World } from "./diffs/types.ts";
 import { roomIndex } from "./occupancy.ts";
 import { CountingRng } from "./rng.ts";
-import { loadGame, saveDungeon, saveRun, useGame } from "../store/game.ts";
+import { createGameStore, loadGame, saveDungeon, saveRun } from "../store/game.ts";
+/** This file's own store — see the note atop `store/game.ts`. */
+const useGame = createGameStore();
+
 import { memoryStore } from "../store/persist.ts";
 import { attackRoll, resolveBase, saveRoll, type ICreature } from "../engine/index.ts";
 import { validateWritten } from "./generate.ts";

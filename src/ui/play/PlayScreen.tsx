@@ -13,7 +13,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { CharacterPanel } from "./CharacterPanel.tsx";
-import { DungeonMap } from "./DungeonMap.tsx";
+import { DungeonMap, MapHeader } from "./DungeonMap.tsx";
 import { ActionPill, HoverProvider } from "./hover.tsx";
 import { InputArea } from "./InputArea.tsx";
 import { Narration, type NarrationItem } from "./Narration.tsx";
@@ -110,8 +110,11 @@ export function PlayScreen({ dungeon, run, items, onSubmit, onRoll, onRetry }: P
     // carries what a click on either one may offer — see `ActionPill`.
     <HoverProvider acting={acceptsInput(run.stage)} reachable={reachable} onAct={act}>
       <main className="grid h-screen bg-paper text-ink [grid-template-areas:'map_narr_char''card_narr_char'] [grid-template-columns:320px_minmax(0,1fr)_300px] [grid-template-rows:minmax(0,1fr)_auto] max-[1200px]:[grid-template-areas:'map_card''narr_char'] max-[1200px]:[grid-template-columns:minmax(0,1fr)_296px] max-[1200px]:[grid-template-rows:220px_minmax(0,1fr)]">
-        <div className="flex min-h-0 items-center justify-center border-r border-rule p-4 [grid-area:map] max-[1200px]:border-b">
-          <DungeonMap map={map} className="h-full w-full" />
+        <div className="flex min-h-0 flex-col border-r border-rule p-4 [grid-area:map] max-[1200px]:border-b">
+          <MapHeader name={dungeon.pass.name} map={map} />
+          <div className="flex min-h-0 flex-1 items-center justify-center">
+            <DungeonMap map={map} className="h-full w-full" />
+          </div>
         </div>
 
         <div className="min-h-0 border-r border-rule bg-panel [grid-area:card] max-[1200px]:border-b max-[1200px]:border-r-0">

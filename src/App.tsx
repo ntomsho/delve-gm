@@ -39,21 +39,19 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { PlayScreen } from "./ui/play/PlayScreen.tsx";
 import { LoadingScreen } from "./ui/LoadingScreen.tsx";
 import { Characters } from "./ui/Characters.tsx";
+import { CreateCharacter } from "./ui/create/CreateCharacter.tsx";
 import { RunSetup } from "./ui/RunSetup.tsx";
 import { toItems } from "./ui/play/Narration.tsx";
-import { useGame } from "./store/game.ts";
-import { listCharacters } from "./store/characters.ts";
-import { createTurnMachine, type TurnMachine } from "./runtime/turn.ts";
-import { createModelReferee } from "./runtime/referee.ts";
-import { generateDungeon, type GenerationProgress } from "./runtime/generate.ts";
+import { useGame } from "./store/react.ts";
+import { deleteCharacter, listCharacters, saveCharacter } from "./store/characters.ts";
+import { createGameSession, type RunRequest } from "./runtime/session.ts";
+import { type GenerationProgress } from "./runtime/generate.ts";
 import { stubReferee } from "./runtime/__fixtures__/stub-referee.ts";
 import { generateOffline } from "./runtime/__fixtures__/offline.ts";
-import { attach, log, runId } from "./runtime/journal.ts";
 import { randomSeed } from "./runtime/seeds.ts";
 import { httpSink } from "./runtime/journal-http.ts";
-import { MODELS } from "./runtime/llm/models.ts";
 import { readSwitches } from "./switches.ts";
-import type { PlayerCharacter, Size } from "./engine/index.ts";
+import type { PlayerCharacter } from "./engine/index.ts";
 
 const {
   offline: OFFLINE,
@@ -74,61 +72,46 @@ const {
 const seedForNewRun = () => (PINNED ? SEED : randomSeed());
 
 /** Only the part before a run. Once the dungeon exists, that is what decides. */
-type Screen = "characters" | "setup" | "generating";
-
-interface Begin {
-  seed: number;
-  size: Size;
-  level: number;
-  character: PlayerCharacter;
-}
+type Screen = "characters" | "create" | "setup" | "generating";
 
 export default function App() {
-  const { dungeon, run } = useGame();
-  const machine = useRef<TurnMachine>(null);
-  const started = useRef(false);
+  const [progress, setProgress] = useState<GenerationProgress>();
+
+  /**
+   * The run. Made on the first render and never replaced, so the store it owns
+   * is there to subscribe to before there is a dungeon in it.
+   *
+   * The switches are read into it here, once, and this is the only place they
+   * are: `?stub` and `?offline` choose a referee and a generator, and the
+   * session does not know or care that a query string picked them.
+   */
+  const sessionRef = useRef<ReturnType<typeof createGameSession>>(null);
+  sessionRef.current ??= createGameSession({
+    sink: httpSink,
+    onProgress: setProgress,
+    ...(STUB ? { referee: () => stubReferee } : {}),
+    ...(OFFLINE
+      ? { offline: true, generate: async ({ seed, size }) => generateOffline(seed, size) }
+      : {}),
+  });
+  const session = sessionRef.current;
+
+  const { dungeon, run } = useGame(session.store);
   const [screen, setScreen] = useState<Screen>(BYPASS ? "generating" : "characters");
   const [characters, setCharacters] = useState<PlayerCharacter[]>();
-  const [progress, setProgress] = useState<GenerationProgress>();
+  /** Whoever the player pressed *Send down* on, carried into run setup. */
+  const [chosenId, setChosenId] = useState<string>();
   const [error, setError] = useState<string>();
 
-  async function begin({ seed, size, level, character }: Begin) {
-    // Guards the double-invoke of StrictMode's development mount. It mattered
-    // in Phase 3 because two room entries would describe the same room twice;
-    // it matters more now, because it would generate the whole dungeon twice.
-    if (started.current) return;
-    started.current = true;
+  async function begin(request: RunRequest) {
     setScreen("generating");
-    const turn = createTurnMachine(STUB ? stubReferee : createModelReferee());
-    machine.current = turn;
-
-    const id = runId(seed);
-    attach(httpSink(id));
-
     try {
-      // First line of the file, before anything can go wrong — a run that
-      // fails during generation is a run worth reading.
-      log({
-        kind: "run",
-        runId: id,
-        seed,
-        size,
-        level,
-        offline: OFFLINE,
-        models: MODELS,
-        character,
-      });
-
-      const gd = OFFLINE
-        ? generateOffline(seed, size)
-        : await generateDungeon({ seed, size, level, onProgress: setProgress });
-
-      useGame.getState().start(gd, character);
-      await turn.enterRoom();
+      // A second call is the double-invoke of StrictMode's development mount,
+      // and the session drops it — it would otherwise generate a whole second
+      // dungeon over the top of the first.
+      await session.begin(request);
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      log({ kind: "error", where: "app", message });
-      setError(message);
+      setError(e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -145,7 +128,7 @@ export default function App() {
   const items = useMemo(() => {
     if (!run) return [];
     const name = (id: string) => run.entities.rooms.find((r) => r.id === id)?.name ?? "Somewhere";
-    const pass = useGame.getState().dungeon?.pass;
+    const pass = session.store.getState().dungeon?.pass;
     return toItems(run.log, name, pass && { name: pass.name, objective: pass.goal.summary });
   }, [run?.log]);
 
@@ -158,13 +141,45 @@ export default function App() {
   }
 
   if (screen === "characters") {
-    return <Characters characters={characters} onStartRun={() => setScreen("setup")} />;
+    return (
+      <Characters
+        characters={characters}
+        onStartRun={(pc) => {
+          setChosenId(pc.id);
+          setScreen("setup");
+        }}
+        onCreate={() => setScreen("create")}
+        onDelete={(pc) =>
+          void (async () => {
+            await deleteCharacter(pc.id);
+            setCharacters(await listCharacters());
+          })()
+        }
+      />
+    );
+  }
+
+  if (screen === "create") {
+    return (
+      <CreateCharacter
+        onCancel={() => setScreen("characters")}
+        onSave={(pc) =>
+          void (async () => {
+            await saveCharacter(pc);
+            setCharacters(await listCharacters());
+            setChosenId(pc.id);
+            setScreen("characters");
+          })()
+        }
+      />
+    );
   }
 
   if (screen === "setup") {
     return (
       <RunSetup
         characters={characters ?? []}
+        initialId={chosenId}
         onBack={() => setScreen("characters")}
         onConfirm={({ size, level, character }) =>
           void begin({ seed: seedForNewRun(), size, level, character })
@@ -182,9 +197,9 @@ export default function App() {
       dungeon={dungeon}
       run={run}
       items={items}
-      onSubmit={(text) => void machine.current?.submit(text)}
-      onRoll={() => void machine.current?.roll()}
-      onRetry={() => void machine.current?.retry()}
+      onSubmit={(text) => void session.submit(text)}
+      onRoll={() => void session.roll()}
+      onRetry={() => void session.retry()}
     />
   );
 }

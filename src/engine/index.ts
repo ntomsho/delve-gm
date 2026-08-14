@@ -108,12 +108,31 @@ export type {
   PlayerCharacter,
   CharacterAbilities,
   CharacterTraits,
+  CreationMode,
   EquippedSlots,
   EquipSlot,
   EquipCheck,
   EquipOutcome,
   SlotReport,
 } from "./dungeon-character.ts";
+
+// --- character creation ----------------------------------------------------
+// The Knave tables, and the dice and rules that roll on them. `CLOTHING` and
+// `MISFORTUNES` are declared in dungeon-blueprint too and mean different
+// tables there (36-entry Maze Rats NPC lists), so the Knave ones are namespaced
+// rather than star-exported into a collision.
+export * from "./character-creation.ts";
+export * as knave from "./knave-tables.ts";
+export { WEAPON_CLASSES, weaponClass, weaponsIn } from "./knave-tables.ts";
+export type {
+  ArmorKey,
+  ArmorStat,
+  GearEntry,
+  Spell,
+  WeaponClass,
+  WeaponClassKey,
+  WeaponStat,
+} from "./knave-tables.ts";
 
 // --- the floorplan ---------------------------------------------------------
 // `Point` and `Rect` are declared here; nothing else in the engine has them.

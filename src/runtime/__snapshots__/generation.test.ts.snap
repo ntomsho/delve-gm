@@ -53,6 +53,21 @@ Two hard rules about direction:
 - Do not invent an exit, a window, or a level change that is not listed. The ways
   out are exactly the connectors given.
 
+And two about the ways out, both of them because base is IMMUTABLE and there is
+no later pass that can correct it:
+- DO NOT COUNT THEM IN THE ROOM'S BASE. "Four ways out: east, south, and two to
+  the west" stops being true the first time one is opened, barred, collapsed or
+  found, and the description cannot be rewritten to catch up -- so the number goes
+  on being read aloud to the player long after it is wrong. The map draws the ways
+  out and the game lists them fresh every turn. Describe the room; let the
+  counting be done by something that is allowed to change its mind.
+- A CONCEALED way is NOT part of the room's description. Write what it physically
+  is on the connector itself -- that is the text the player reads on FINDING it --
+  and keep it out of the room's base entirely, not even as a hint or a draught. A
+  room whose standing description mentions the crack in the west wall has no
+  secret door in it, because that description is read out on arrival. Where a
+  concealed way is meant to be findable, procgen lists a clue as its own entity.
+
 Feet are given so the prose can be concrete. Round them, compare them to
 something, or ignore them -- but do not contradict them.
 

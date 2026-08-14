@@ -39,14 +39,14 @@ a small chamber, about 10 by 35 feet -- long and narrow, running north-south, cl
 The compass here is the MAP's, not the party's: north is north wherever they are facing. Say "the north wall"; never "on your left", which you have no way to know.
 
 ### In it
-- [«id-2»] the rubble — RoomFeature · near the way in (NEVER ENCOUNTERED)
+- [«id-2»] The rubble — RoomFeature · near the way in (NEVER ENCOUNTERED)
     base: The rubble of the drowned mint, scaled with mineral crust.
-- [«id-3»] the pillars — RoomFeature · spread through the room (NEVER ENCOUNTERED)
+- [«id-3»] The pillars — RoomFeature · spread through the room (NEVER ENCOUNTERED)
     base: The pillars of the drowned mint, scaled with mineral crust.
 
 ### Ways out
-- [«id-4»] "the mint's stair — out of the dungeon" — A broad flight of worn limestone steps rising out of the water toward the surface. · in the east wall, toward the south end · LEADS OUT OF THE DUNGEON — the way they came in, and the way home. Walking through it ENDS THE RUN: commit nextStage "departed"
-- [«id-5»] "a low arch" — a low arch of fitted stone, its keystone dropped an inch · in the north wall, at the middle · leads to [«id-6»], somewhere they have not been
+- [«id-4»] "The mint's stair — out of the dungeon" — A broad flight of worn limestone steps rising out of the water toward the surface. · in the east wall, toward the south end · LEADS OUT OF THE DUNGEON — the way they came in, and the way home. Walking through it ENDS THE RUN: commit nextStage "departed"
+- [«id-5»] "A low arch" — a low arch of fitted stone, its keystone dropped an inch · in the north wall, at the middle · leads to [«id-6»], somewhere they have not been
 ",
     "role": "user",
   },
@@ -104,14 +104,14 @@ a small chamber, about 10 by 35 feet -- long and narrow, running north-south, cl
 The compass here is the MAP's, not the party's: north is north wherever they are facing. Say "the north wall"; never "on your left", which you have no way to know.
 
 ### In it
-- [«id-2»] the rubble — RoomFeature · near the way in (NEVER ENCOUNTERED)
+- [«id-2»] The rubble — RoomFeature · near the way in (NEVER ENCOUNTERED)
     base: The rubble of the drowned mint, scaled with mineral crust.
-- [«id-3»] the pillars — RoomFeature · spread through the room (NEVER ENCOUNTERED)
+- [«id-3»] The pillars — RoomFeature · spread through the room (NEVER ENCOUNTERED)
     base: The pillars of the drowned mint, scaled with mineral crust.
 
 ### Ways out
-- [«id-4»] "the mint's stair — out of the dungeon" — A broad flight of worn limestone steps rising out of the water toward the surface. · in the east wall, toward the south end · LEADS OUT OF THE DUNGEON — the way they came in, and the way home. Walking through it ENDS THE RUN: commit nextStage "departed"
-- [«id-5»] "a low arch" — a low arch of fitted stone, its keystone dropped an inch · in the north wall, at the middle · leads to [«id-6»], somewhere they have not been
+- [«id-4»] "The mint's stair — out of the dungeon" — A broad flight of worn limestone steps rising out of the water toward the surface. · in the east wall, toward the south end · LEADS OUT OF THE DUNGEON — the way they came in, and the way home. Walking through it ENDS THE RUN: commit nextStage "departed"
+- [«id-5»] "A low arch" — a low arch of fitted stone, its keystone dropped an inch · in the north wall, at the middle · leads to [«id-6»], somewhere they have not been
 ",
     "role": "user",
   },
@@ -172,14 +172,14 @@ a small chamber, about 10 by 35 feet -- long and narrow, running north-south, cl
 The compass here is the MAP's, not the party's: north is north wherever they are facing. Say "the north wall"; never "on your left", which you have no way to know.
 
 ### In it
-- [«id-2»] the rubble — RoomFeature · near the way in (NEVER ENCOUNTERED)
+- [«id-2»] The rubble — RoomFeature · near the way in (NEVER ENCOUNTERED)
     base: The rubble of the drowned mint, scaled with mineral crust.
-- [«id-3»] the pillars — RoomFeature · spread through the room (NEVER ENCOUNTERED)
+- [«id-3»] The pillars — RoomFeature · spread through the room (NEVER ENCOUNTERED)
     base: The pillars of the drowned mint, scaled with mineral crust.
 
 ### Ways out
-- [«id-4»] "the mint's stair — out of the dungeon" — A broad flight of worn limestone steps rising out of the water toward the surface. · in the east wall, toward the south end · LEADS OUT OF THE DUNGEON — the way they came in, and the way home. Walking through it ENDS THE RUN: commit nextStage "departed"
-- [«id-5»] "a low arch" — a low arch of fitted stone, its keystone dropped an inch · in the north wall, at the middle · leads to [«id-6»], somewhere they have not been
+- [«id-4»] "The mint's stair — out of the dungeon" — A broad flight of worn limestone steps rising out of the water toward the surface. · in the east wall, toward the south end · LEADS OUT OF THE DUNGEON — the way they came in, and the way home. Walking through it ENDS THE RUN: commit nextStage "departed"
+- [«id-5»] "A low arch" — a low arch of fitted stone, its keystone dropped an inch · in the north wall, at the middle · leads to [«id-6»], somewhere they have not been
 ",
     "role": "user",
   },
@@ -250,14 +250,14 @@ a small chamber, about 10 by 35 feet -- long and narrow, running north-south, cl
 The compass here is the MAP's, not the party's: north is north wherever they are facing. Say "the north wall"; never "on your left", which you have no way to know.
 
 ### In it
-- [«id-2»] the rubble — RoomFeature · near the way in (NEVER ENCOUNTERED)
+- [«id-2»] The rubble — RoomFeature · near the way in (NEVER ENCOUNTERED)
     base: The rubble of the drowned mint, scaled with mineral crust.
-- [«id-3»] the pillars — RoomFeature · spread through the room (NEVER ENCOUNTERED)
+- [«id-3»] The pillars — RoomFeature · spread through the room (NEVER ENCOUNTERED)
     base: The pillars of the drowned mint, scaled with mineral crust.
 
 ### Ways out
-- [«id-4»] "the mint's stair — out of the dungeon" — A broad flight of worn limestone steps rising out of the water toward the surface. · in the east wall, toward the south end · LEADS OUT OF THE DUNGEON — the way they came in, and the way home. Walking through it ENDS THE RUN: commit nextStage "departed"
-- [«id-5»] "a low arch" — a low arch of fitted stone, its keystone dropped an inch · in the north wall, at the middle · leads to [«id-6»], somewhere they have not been
+- [«id-4»] "The mint's stair — out of the dungeon" — A broad flight of worn limestone steps rising out of the water toward the surface. · in the east wall, toward the south end · LEADS OUT OF THE DUNGEON — the way they came in, and the way home. Walking through it ENDS THE RUN: commit nextStage "departed"
+- [«id-5»] "A low arch" — a low arch of fitted stone, its keystone dropped an inch · in the north wall, at the middle · leads to [«id-6»], somewhere they have not been
 ",
     "role": "user",
   },
@@ -322,14 +322,14 @@ a small chamber, about 10 by 35 feet -- long and narrow, running north-south, cl
 The compass here is the MAP's, not the party's: north is north wherever they are facing. Say "the north wall"; never "on your left", which you have no way to know.
 
 ### In it
-- [«id-2»] the rubble — RoomFeature · near the way in (NEVER ENCOUNTERED)
+- [«id-2»] The rubble — RoomFeature · near the way in (NEVER ENCOUNTERED)
     base: The rubble of the drowned mint, scaled with mineral crust.
-- [«id-3»] the pillars — RoomFeature · spread through the room (NEVER ENCOUNTERED)
+- [«id-3»] The pillars — RoomFeature · spread through the room (NEVER ENCOUNTERED)
     base: The pillars of the drowned mint, scaled with mineral crust.
 
 ### Ways out
-- [«id-4»] "the mint's stair — out of the dungeon" — A broad flight of worn limestone steps rising out of the water toward the surface. · in the east wall, toward the south end · LEADS OUT OF THE DUNGEON — the way they came in, and the way home. Walking through it ENDS THE RUN: commit nextStage "departed"
-- [«id-5»] "a low arch" — a low arch of fitted stone, its keystone dropped an inch · in the north wall, at the middle · leads to [«id-6»], somewhere they have not been
+- [«id-4»] "The mint's stair — out of the dungeon" — A broad flight of worn limestone steps rising out of the water toward the surface. · in the east wall, toward the south end · LEADS OUT OF THE DUNGEON — the way they came in, and the way home. Walking through it ENDS THE RUN: commit nextStage "departed"
+- [«id-5»] "A low arch" — a low arch of fitted stone, its keystone dropped an inch · in the north wall, at the middle · leads to [«id-6»], somewhere they have not been
 ",
     "role": "user",
   },
@@ -339,8 +339,8 @@ The compass here is the MAP's, not the party's: north is north wherever they are
 These need writing — nothing else does:
 
 - [«id-1»] The Cavern (Room)
-- [«id-2»] the rubble (RoomFeature)
-- [«id-3»] the pillars (RoomFeature)
+- [«id-2»] The rubble (RoomFeature)
+- [«id-3»] The pillars (RoomFeature)
 
 Describe the arrival. Change nothing but \`state\` and \`composed\`.
 

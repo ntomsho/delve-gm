@@ -304,6 +304,42 @@ describe("describeGeometry", () => {
     }
   });
 
+  // 8f. The sentence COUNTS the ways out, and a count is the one thing a reader
+  // cannot half-believe: a concealed way inside it is a concealed way described.
+  // The runtime hands in the concealed ids; the content pass hands in nothing,
+  // because it is the pass that writes what the concealed way physically is.
+  it("leaves out the ways it is asked to leave out", () => {
+    let checked = 0;
+    for (const { plan, graph } of corpus()) {
+      for (const g of roomGeometry(plan, graph)) {
+        const doors = g.exits.filter((x) => x.connectorId !== null);
+        if (doors.length === 0) continue;
+        checked++;
+
+        const all = describeGeometry(g);
+        const one = describeGeometry(g, { omit: new Set([doors[0].connectorId!]) });
+        const none = describeGeometry(g, { omit: new Set(doors.map((x) => x.connectorId!)) });
+
+        // The room is the same room; only the count moves. Sliced at the clause
+        // rather than at the word, because a room with one door loses the whole
+        // clause and there is then no word to slice at.
+        const head = (s: string) => (s.includes(". Ways out:") ? s.slice(0, s.indexOf(". Ways out:")) : s);
+        expect(head(one)).toBe(head(all));
+        expect(one).not.toBe(all);
+
+        // Omitting every door leaves the clause off entirely — unless the way
+        // out of the dungeon is in this room, which has a null id and is never
+        // omittable: it is the one door the player has certainly been through.
+        const surface = g.exits.some((x) => x.connectorId === null);
+        expect(none.includes("Ways out:")).toBe(surface);
+
+        // An id that is not this room's changes nothing.
+        expect(describeGeometry(g, { omit: new Set(["not-a-connector-here"]) })).toBe(all);
+      }
+    }
+    expect(checked, "no room in the corpus had a door").toBeGreaterThan(0);
+  });
+
   it("never uses a relative direction", () => {
     // The compass is map-absolute and the party's facing is unknown. A relative
     // word here would be a lie the moment they walk back through.

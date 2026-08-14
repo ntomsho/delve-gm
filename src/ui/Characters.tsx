@@ -1,75 +1,103 @@
 /**
  * CHARACTERS — the landing screen, and the only one outside a run.
  *
- * Two doors: make a character, or take one into a dungeon. One of them is shut
- * until Phase 5, and the design brief is specific about how that should read —
- * *not yet*, rather than broken or locked behind an accomplishment. So the
- * button is plainly disabled with a plain sentence next to it, and there is no
- * padlock anywhere on this screen.
+ * Two doors: make a character, or take one into a dungeon. Both are open now;
+ * the "not yet" copy that stood in for creation through Phase 4.5 is gone with
+ * the thing it apologised for.
  *
- * The cards are read-only. Loading and deleting arrive with creation, because
- * all three are the same Phase 5 work and a delete button over a stock of
- * exactly one seeded character would be a trap rather than a feature.
+ * A row is a person, not a record: the name, one sentence of who they are, and
+ * the four numbers that decide whether they come back. The prose line is built
+ * from the same eleven traits the referee reads, by the same function the
+ * confirm step used — so the character you approved and the character listed
+ * here describe themselves the same way.
+ *
+ * DELETING IS REAL AND UNDOABLE ONLY BY ROLLING ANOTHER, so it asks. It is also
+ * what finally makes the empty state reachable — `CODING-PLAN.md` §1.2 item 13
+ * has been carrying that as a designed-but-unreachable screen since 4.5.
+ *
+ * DEFERRED, not dropped: the design plan's IN A RUN / DIED · ROOM 3 badges and
+ * the epitaph. Those need per-character run state that nothing stores yet, and
+ * a badge computed from a field nobody writes would be worse than no badge.
  */
 
+import { useState } from "react";
 import {
   pcArmorDefense,
   slotCapacity,
   slotsUsed,
   type PlayerCharacter,
 } from "../engine/index.ts";
-
-const LABEL = "font-mono text-[9px] tracking-[0.16em] text-graphite uppercase";
+import { Button } from "./create/shared.tsx";
+import { describePerson } from "./person.ts";
 
 const ABILITIES = ["str", "dex", "con", "int", "wis", "cha"] as const;
 
-/** The traits that read as a person at a glance. The other seven are on the sheet. */
-const AT_A_GLANCE = ["physique", "face", "virtue", "vice", "background"] as const;
-
-function CharacterCard({ pc }: { pc: PlayerCharacter }) {
+function Row({
+  pc,
+  onSend,
+  onDelete,
+}: {
+  pc: PlayerCharacter;
+  onSend: () => void;
+  onDelete: () => void;
+}) {
+  const [confirming, setConfirming] = useState(false);
   const used = slotsUsed(pc);
   const capacity = slotCapacity(pc);
 
   return (
-    <li className="border border-rule bg-paper px-6 py-5">
-      <div className="flex items-baseline justify-between gap-4">
-        <h2 className="font-display text-[19px] font-bold leading-tight text-ink">{pc.name}</h2>
-        <span className={LABEL}>Level {pc.level}</span>
+    <li className="grid items-start gap-6 border-b border-rule py-6 sm:grid-cols-[minmax(0,1fr)_auto]">
+      <div>
+        <div className="flex flex-wrap items-baseline gap-3">
+          <h2 className="font-prose text-[26px] font-semibold leading-tight text-ink">{pc.name}</h2>
+          {pc.mode === "hardcore" ? (
+            <span className="border border-torch px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.14em] text-torch">
+              Hardcore
+            </span>
+          ) : null}
+        </div>
+
+        <p className="mt-1.5 max-w-[56ch] font-prose text-[16px] leading-relaxed text-graphite">
+          {describePerson(pc.traits)}
+        </p>
+
+        <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1.5 font-mono text-[11px] text-graphite">
+          <span>LVL {pc.level}</span>
+          <span>
+            HP {pc.hp.current}/{pc.hp.max}
+          </span>
+          <span>
+            {ABILITIES.map((k) => `${k.toUpperCase()} ${pc.abilities[k] >= 0 ? "+" : ""}${pc.abilities[k]}`).join(" ")}
+          </span>
+          <span>ARMOR DEF {pcArmorDefense(pc)}</span>
+          <span className={used > capacity ? "text-torch" : undefined}>
+            {used}/{capacity} SLOTS
+          </span>
+        </div>
       </div>
 
-      <p className="mt-1.5 font-prose text-[13px] italic leading-snug text-graphite">
-        {AT_A_GLANCE.map((t) => pc.traits[t]).join(" · ")}
-      </p>
-
-      <div className="mt-4 flex flex-wrap items-baseline gap-x-6 gap-y-2 font-mono text-[11px]">
-        <span>
-          <span className="text-graphite">HP </span>
-          <span className="text-ink">
-            {pc.hp.current}/{pc.hp.max}
-          </span>
-        </span>
-
-        {ABILITIES.map((k) => (
-          <span key={k}>
-            <span className="uppercase text-graphite">{k} </span>
-            <span className="text-ink">
-              {pc.abilities[k] >= 0 ? "+" : ""}
-              {pc.abilities[k]}
-            </span>
-          </span>
-        ))}
-
-        <span>
-          <span className="text-graphite">ARMOR DEF </span>
-          <span className="text-ink">{pcArmorDefense(pc)}</span>
-        </span>
-
-        <span>
-          <span className="text-graphite">SLOTS </span>
-          <span className={used > capacity ? "text-torch" : "text-ink"}>
-            {used}/{capacity}
-          </span>
-        </span>
+      <div className="flex flex-col items-stretch gap-2">
+        <Button tone="secondary" onClick={onSend} className="px-5 py-2.5 text-[12px]">
+          Send down
+        </Button>
+        {confirming ? (
+          <div className="flex gap-2">
+            <Button
+              tone="ghost"
+              onClick={onDelete}
+              className="flex-1 border-torch px-3 py-2.5 text-[12px] text-torch hover:border-torch hover:text-torch-deep"
+            >
+              Really
+            </Button>
+            <Button tone="ghost" onClick={() => setConfirming(false)} className="flex-1 px-3 py-2.5 text-[12px]">
+              Keep
+            </Button>
+          </div>
+        ) : (
+          <Button tone="ghost" onClick={() => setConfirming(true)} className="px-5 py-2.5 text-[12px]">
+            Delete
+          </Button>
+        )}
       </div>
     </li>
   );
@@ -78,59 +106,56 @@ function CharacterCard({ pc }: { pc: PlayerCharacter }) {
 export function Characters({
   characters,
   onStartRun,
+  onCreate,
+  onDelete,
 }: {
   characters?: PlayerCharacter[];
-  onStartRun: () => void;
+  onStartRun: (pc: PlayerCharacter) => void;
+  onCreate: () => void;
+  onDelete: (pc: PlayerCharacter) => void;
 }) {
   return (
     <main className="min-h-screen bg-desk text-ink">
-      <div className="mx-auto w-full max-w-[720px] px-8 py-16">
+      <div className="mx-auto w-full max-w-[880px] px-10 pb-20 pt-16">
         <header>
-          <h1 className="font-display text-[26px] font-bold leading-tight text-ink">Characters</h1>
-          <p className={`${LABEL} mt-1.5`}>Who you have to send in</p>
+          <div className="font-mono text-[10px] uppercase tracking-[0.26em] text-graphite">Knave 1.0</div>
+          <h1 className="mt-2.5 font-prose text-[46px] font-semibold leading-none text-ink">Characters</h1>
+          <div className="mt-5 h-0.5 bg-ink" />
         </header>
 
         {/* One frame against an in-memory array, a real wait against a
             database. The line is here so the second case does not need a new
             screen when it arrives. */}
         {characters === undefined ? (
-          <p className="mt-10 font-prose text-[14px] italic text-pencil">Reading the roll…</p>
+          <p className="mt-10 font-prose text-[15px] italic text-pencil">Reading the roll…</p>
         ) : characters.length === 0 ? (
-          // Currently unreachable — creation is off and the stock is seeded.
-          // The designed empty state is deferred with the flow that can cause it.
-          <p className="mt-10 font-prose text-[15px] italic text-graphite">
-            Nobody yet.
-          </p>
+          <div className="px-0 pb-14 pt-20 text-center">
+            <p className="mx-auto max-w-[34ch] font-prose text-[26px] italic leading-snug text-graphite">
+              No one here yet. It takes about four minutes to make someone, and they
+              probably won't last much longer than that.
+            </p>
+            <Button tone="primary" onClick={onCreate} className="mt-8 px-8 py-3.5 text-[15px]">
+              Roll one up
+            </Button>
+          </div>
         ) : (
-          <ul className="mt-8 space-y-3">
-            {characters.map((pc) => (
-              <CharacterCard key={pc.id} pc={pc} />
-            ))}
-          </ul>
+          <>
+            <ul className="flex flex-col">
+              {characters.map((pc) => (
+                <Row
+                  key={pc.id}
+                  pc={pc}
+                  onSend={() => onStartRun(pc)}
+                  onDelete={() => onDelete(pc)}
+                />
+              ))}
+            </ul>
+
+            <Button tone="primary" onClick={onCreate} className="mt-9 px-7 py-3.5 text-[14px]">
+              Roll up a new one
+            </Button>
+          </>
         )}
-
-        <div className="mt-10 flex flex-wrap items-center gap-4 border-t border-rule-faint pt-8">
-          <button
-            type="button"
-            onClick={onStartRun}
-            disabled={!characters?.length}
-            className="bg-torch px-5 py-2.5 font-mono text-[11px] uppercase tracking-[0.14em] text-paper transition-colors hover:bg-torch-deep disabled:bg-rule disabled:text-pencil"
-          >
-            Start a new run
-          </button>
-
-          <button
-            type="button"
-            disabled
-            className="cursor-not-allowed border border-rule-faint px-5 py-2.5 font-mono text-[11px] uppercase tracking-[0.14em] text-pencil"
-          >
-            New character
-          </button>
-
-          <p className="font-prose text-[13px] italic text-graphite">
-            Rolling one up comes next. For now there is one to take in.
-          </p>
-        </div>
       </div>
     </main>
   );

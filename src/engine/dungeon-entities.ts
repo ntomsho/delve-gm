@@ -472,6 +472,28 @@ export function resolveBase(e: IEntity, reg: TemplateRegistry): string | undefin
   return reg.groups[blueprintId]?.base ?? reg.creatures[blueprintId]?.base;
 }
 
+/**
+ * A player-visible name, in the case a player-visible name is written in.
+ *
+ * Names are minted by a model in two places — the content pass when it writes
+ * the dungeon, and the referee when it creates something mid-run — and both
+ * produce whatever register the surrounding sentence was in. One R2 dungeon
+ * held "The Residue", "The Cutlass", "The ledger" and "unmarked ledger" at the
+ * same time. A name is a label, and a label is capitalised.
+ *
+ * FIRST LETTER ONLY, and the rest is left exactly as written. "an iron door"
+ * becomes "An iron door" and not "An Iron Door": title case would have to know
+ * which words are part of a proper name, and it is wrong more often than the
+ * lower-case first letter it set out to fix. Normalised where names are MINTED
+ * rather than where they are drawn, because `definite()` in `verbs.ts` rewrites
+ * a name into the middle of a sentence and a display-side fix would have to
+ * fight it.
+ */
+export function properName(name: string): string {
+  const s = name.trim();
+  return s === "" ? s : s[0].toUpperCase() + s.slice(1);
+}
+
 /** The display name for a creature that takes its identity from a group. */
 export function resolveName(e: IEntity, reg: TemplateRegistry): string {
   if (e.name) return e.name;

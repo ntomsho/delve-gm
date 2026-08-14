@@ -62,12 +62,25 @@ export interface EquippedSlots {
 
 export type EquipSlot = keyof EquippedSlots;
 
+/**
+ * Which set of creation rules made this character -- dice, swaps, points and
+ * rerolls. See `character-creation.ts` for the table. Declared here rather than
+ * there because `PlayerCharacter` carries it and that module already imports
+ * this one; the other direction would be a cycle.
+ *
+ * Optional: the test character and anything made before Phase 5 has no mode,
+ * and a missing one means nothing more interesting than "we do not know".
+ */
+export type CreationMode = "normal" | "hardcore";
+
 export interface PlayerCharacter {
   /** entity id -- inventory items point their parentId here */
   id: string;
   name: string;
   /** Knave: level sets the ceiling on ability bonuses. */
   level: number;
+  /** How they were rolled up. Identity, and never writable at runtime. */
+  mode?: CreationMode;
   hp: { current: number; max: number };
   /** the six Knave abilities as BONUSES; the defense of each is bonus + 10 */
   abilities: CharacterAbilities;

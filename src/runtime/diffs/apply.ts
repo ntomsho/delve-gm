@@ -25,6 +25,7 @@ import {
   isOverburdened,
   makeId,
   maxHp,
+  properName,
   removeItem,
   setComposed,
   setIsHidden,
@@ -99,6 +100,14 @@ interface Ctx {
   events: WorldEvent[];
   /** ref -> minted id, so a commit can reference what it just created */
   refs: Map<string, string>;
+  /**
+   * What the player was carrying BEFORE this batch touched anything.
+   *
+   * `world` is the draft, so it answers "is this carried now", which is a
+   * different question and the wrong one for any guard about what the turn
+   * found. See the `isHidden` guard in `applyProse`.
+   */
+  carriedAtStart: ReadonlySet<string>;
 }
 
 const asNumber = (v: unknown, what: string): number =>
@@ -212,7 +221,7 @@ function applyProse(ctx: Ctx, entity: IEntity, path: string, value: unknown): bo
     return true;
   }
   if (path === "isHidden") {
-    // YOU CANNOT DISCOVER WHAT IS ALREADY IN YOUR HANDS.
+    // YOU CANNOT DISCOVER WHAT YOU WALKED IN CARRYING.
     //
     // The one mechanical tell of a whole class of failure, and the reason it
     // needs a guard and not only a rule: the commit that caused it was
@@ -223,23 +232,37 @@ function applyProse(ctx: Ctx, entity: IEntity, path: string, value: unknown): bo
     // passing through. Every path it wrote is writable on an item, so there
     // were no grounds to refuse it. (8a A3, seq 454 of the 2026-08-10 run.)
     //
-    // `isHidden` on a carried thing is the part that cannot be anything else.
-    // Concealment is read only of things standing in a room; the character
-    // sheet renders the whole inventory either way, so the write is inert as
-    // well as incoherent. Refusing it costs nothing legitimate, and it takes
-    // the batch — and the invented prose riding along with it — down too.
+    // `isHidden` on a thing they already had is the part that cannot be
+    // anything else. Concealment is read only of things standing in a room;
+    // the character sheet renders the whole inventory either way, so the write
+    // is inert as well as incoherent. Refusing it costs nothing legitimate,
+    // and it takes the batch — and the invented prose riding along with it —
+    // down too.
+    //
+    // THE QUESTION IS ABOUT THE TURN, NOT ABOUT THIS INSTANT, and reading the
+    // draft got that wrong for a whole class of legitimate commit. A pickup
+    // that also reveals is two diffs — `parentId` to the player, `isHidden`
+    // false — and the second one arrives with the first already applied to the
+    // draft, so a guard reading `world` refuses a ledger for being in an
+    // inventory the diff above it put the ledger in. Atomicity then took the
+    // pickup down with the reveal, and the retry read its own refusal as "they
+    // already have it" and committed nothing at all, three turns running.
+    // (8a A8, the Bookyard in the 2026-08-12 run.) `carriedAtStart` is the
+    // state the batch began in, which is what "already had it" ever meant.
     //
     // What is deliberately NOT guarded: `parentId` to the room the player is
     // standing in, which is indistinguishable from putting something down
     // because it *is* putting something down; and `composed` describing a
     // carried item as scenery, which is the other half of the tell and is
     // prose no check can read. SKILL.md rule 3 carries those.
-    if (ctx.world.pc.inventory.some((i) => i.id === entity.id)) {
+    if (ctx.carriedAtStart.has(entity.id)) {
       fail(
-        `${entity.name} is in the player's inventory, so it cannot be hidden or revealed — ` +
-          `they are holding it. Something the player has just found is a DIFFERENT thing, ` +
-          `even when they already own one like it: create it with children[] on whatever ` +
-          `holds it and leave this one alone`
+        `${entity.name} was already in the player's inventory when this turn began, so it ` +
+          `cannot be hidden or revealed — they walked in holding it. Something the player ` +
+          `has just found is a DIFFERENT thing, even when they already own one like it: ` +
+          `create it with children[] on whatever holds it and leave this one alone. ` +
+          `(Picking up something concealed IS allowed: set parentId to the player and ` +
+          `isHidden to false in the same commit.)`
       );
     }
     // Through the helper: concealing settles the description debt, revealing
@@ -482,7 +505,8 @@ function createEntity(ctx: Ctx, holderId: string, value: unknown): void {
     // generation.
     fail(`cannot create a ${String(spec.type)}; only Item and RoomFeature`);
   }
-  const name = asString(spec.name, "the new entity's name");
+  // Capitalised here, at the mint, not where it is drawn — see `properName`.
+  const name = properName(asString(spec.name, "the new entity's name"));
   const base = asString(spec.base, "the new entity's base");
   const holder = requireEntity(ctx, holderId);
   const resolvedHolder = resolveId(ctx, holderId);
@@ -643,7 +667,16 @@ export function applyCommit(world: World, commit: Commit): ApplyOutcome {
   }
 
   const draft: World = structuredClone(world);
-  const ctx: Ctx = { world: draft, index: indexWorld(draft), events: [], refs: new Map() };
+  const ctx: Ctx = {
+    world: draft,
+    index: indexWorld(draft),
+    events: [],
+    refs: new Map(),
+    // Off the ORIGINAL, before a single diff has run. The ids are the same
+    // either side of the clone, so this could be read from the draft too — it
+    // is read here because that is what the field means.
+    carriedAtStart: new Set(world.pc.inventory.map((i) => i.id)),
+  };
   const applied: Diff[] = [];
 
   // The goal LATCHES. A referee that mentions it once and then forgets cannot

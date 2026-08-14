@@ -109,17 +109,20 @@ setup and buys nothing.
 
 ## Present the confirmation post
 
+**This post is the terms of the bet, stated before it is taken.** It stops at the moment of attempt — the instant *before* the hand closes on the thing, the blade starts to move, the foot leaves the ledge. Nothing in it has happened yet. So do not write the attempt, do not write what it disturbs, and do not write how it comes out: the dice have not been thrown, and prose the player has read is prose the game is committed to. Narrating the attempt is step 5's, once there is a result to narrate.
+
 Tell the player, in a post:
 
-- what their action is — confirm its nature,
-- the roll they are about to make — an attack roll, or a save on the chosen ability,
-- their bonus to that roll,
-- whether it carries advantage or disadvantage,
-- for an attack, anything still to clarify: the weapon, whether they strike to deal damage or to stunt, and — if they have advantage — how they will use it.
+- **what they are about to attempt** — the action confirmed in the fiction, and what makes it uncertain;
+- **where an edge came from, whenever there is one.** The screen prints `ADVANTAGE` or `DISADVANTAGE` as a bare word; only you know what bought it. Name the thing in the fiction it came from — the lamps they put out two turns ago, the door they wedged, the wet stone underfoot, the arm they are favouring. A player who cannot see that their preparation paid stops preparing, and one who cannot see where a disadvantage came from cannot argue it away or do something about it. This is the other half of the rule below: a factor worth naming is worth advantage, and an advantage worth giving is worth naming.
+- **why this ability, unless it is obvious** — and it usually is. A leap is Dexterity and a heaved portcullis is Strength; saying so is noise. But where the fit is a judgement, a clause settles it: Wisdom to hold their nerve rather than Dexterity to move faster, Intelligence rather than Charisma against a thing that is arguing in bad faith, Constitution because what threatens them is the cold and not the climb. It tells the player what kind of attempt you have understood this to be, which is what lets them say "no, I meant —" before the dice rather than after.
+- **for an attack, whatever is still open**: the weapon, whether they strike to deal damage or to attempt a stunt, and — if they have advantage — how they mean to spend it.
+
+**The values are the screen's; the reasons are yours.** The interface prints the offer directly beneath your post, built from the `rollRequest` you commit — `DEX SAVE · +3 · ADVANTAGE`, and `description` as the line above the Roll button. So the numbers and the labels want no restating: "Make a Dexterity save — DC 16. Roll 1d20+3" is a sentence the screen has already written, without the leak and without the chance of disagreeing with itself. What the screen cannot say is **why** — what bought the edge, why this ability and not another, what makes the attempt uncertain at all — and that is what the post is for. If the offer is missing something the player needs in order to decide, it belongs in the `rollRequest`, never in a second copy of it.
 
 **Never show the difficulty of the roll** — not the DC, not the target's defense. You may say in plain terms that something looks like a long shot, and you may name what is working against them; never the number.
 
-**Do not name anything working *for* them unless you are giving them advantage.** "The hasp is half eaten with rust", "you have the higher ground", "it is favouring the leg you opened" — a player reads any of those as the roll being softened, and if the roll was not softened you have quietly told them the difficulty is lower than it is. So the rule is: if a factor is worth mentioning, it is worth advantage. If it is not worth advantage, leave it out and let the odds speak for themselves.
+**Do not name anything working *for* them unless you are giving them advantage.** "The hasp is half eaten with rust", "you have the higher ground", "it is favouring the leg you opened" — a player reads any of those as the roll being softened, and if the roll was not softened you have quietly told them the difficulty is lower than it is. So the rule is: if a factor is worth mentioning, it is worth advantage. If it is not worth advantage, leave it out and let the odds speak for themselves. **And it binds in both directions** — the factor you did pay advantage for is the one you must name, per the post's second bullet. Naming without paying misleads them; paying without naming hides the fact that thinking works.
 
 ## Then end the turn on it
 

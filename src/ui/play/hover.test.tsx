@@ -207,7 +207,9 @@ describe("clicking a room card row", () => {
     // The name as the game holds it, with an article a sentence can carry. The
     // player never has to guess which of two similar things the referee will take
     // them to mean, because the words came off the thing they clicked.
-    expect(onAct).toHaveBeenCalledWith(expect.stringContaining(thing.name.replace(/^an? /i, "")));
+    // Whatever article the name arrived with, `definite` normalises; the words
+    // that distinguish this thing from the next one survive intact.
+    expect(onAct).toHaveBeenCalledWith(expect.stringContaining(thing.name.replace(/^(an?|the) /i, "")));
     expect(onAct).toHaveBeenCalledWith(expect.stringMatching(/^I examine the /));
   });
 

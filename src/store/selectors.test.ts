@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { generateOffline, testCharacter } from "../runtime/__fixtures__/offline.ts";
-import { newRun, useGame } from "./game.ts";
+import { createGameStore, newRun } from "./game.ts";
+/** This file's own store — see the note atop `store/game.ts`. */
+const useGame = createGameStore();
+
 import {
   characterView, exitLabel, mapView, needsComposition, roomView, UNARMORED_DEFENSE,
 } from "./selectors.ts";
@@ -619,20 +622,82 @@ describe("mapView over the floorplan", () => {
 // rooms, and the player is the only one in a position to notice.
 
 describe("roomView geometry", () => {
+  const sited = () => {
+    const corridors = new Set(dungeon.stocked.rooms.filter((r) => r.isCorridor).map((r) => r.index));
+    return siteRooms(dungeon.blockplan!, dungeon.graph, { isCorridor: (i) => corridors.has(i) });
+  };
+
   it("gives the room the same sentence the content pass was given", () => {
     const run = freshRun();
     const view = roomView(run, dungeon)!;
     expect(view.geometry, "no geometry on a dungeon that drew").toBeDefined();
 
+    // The one carve-out is concealment, below — so this room having no concealed
+    // way is what makes the two sentences comparable, and saying so is what
+    // stops this test passing for the wrong reason if a seed ever gives it one.
+    const here = run.entities.connectors.filter((c) => c.endpointA === view.id || c.endpointB === view.id);
+    expect(here.some((c) => c.isHidden === true)).toBe(false);
+
     // Rebuilt independently here, from the plan, rather than compared against a
     // string literal — a literal would only prove that this test and the code
     // were written on the same afternoon.
-    const corridors = new Set(dungeon.stocked.rooms.filter((r) => r.isCorridor).map((r) => r.index));
-    const site = siteRooms(dungeon.blockplan!, dungeon.graph, {
-      isCorridor: (i) => corridors.has(i),
-    });
     const i = dungeon.graph.rooms.findIndex((r) => r.entityId === view.id);
-    expect(view.geometry).toBe(describeGeometry(site.geometry[i]));
+    expect(view.geometry).toBe(describeGeometry(sited().geometry[i]));
+  });
+
+  // 8f. Three sources tell the referee how many ways out a room has and they
+  // disagreed: the ways-out list filtered concealed connectors, the geometry
+  // sentence counted every one of them, and R2's arrival post duly announced
+  // four ways out of a room with three and described the concealed fissure as
+  // one of them. The sentence is a count, and a count cannot be half-believed.
+  describe("a concealed way out", () => {
+    /** The first room in this dungeon that has one, with a run standing in it. */
+    const withSecret = () => {
+      const run = freshRun();
+      const secret = run.entities.connectors.find((c) => c.isHidden === true && !isSurfaceExit(c));
+      expect(secret, "no concealed way in this dungeon").toBeDefined();
+      run.currentRoomId = secret!.endpointA;
+      return { run, secret: secret! };
+    };
+
+    it("is not counted in the sentence, for either reader", () => {
+      const { run, secret } = withSecret();
+      const i = dungeon.graph.rooms.findIndex((r) => r.entityId === run.currentRoomId);
+      const unfiltered = describeGeometry(sited().geometry[i]);
+
+      // Both views, and the referee's especially: it is shown the secret way in
+      // the list below, where it is marked, and must not meet it again in a
+      // sentence that presents it as one more door.
+      for (const opts of [{}, { includeHidden: true }]) {
+        const view = roomView(run, dungeon, undefined, opts)!;
+        expect(view.geometry).not.toBe(unfiltered);
+        expect(view.geometry).toBe(describeGeometry(sited().geometry[i], { omit: new Set([secret.id]) }));
+      }
+    });
+
+    it("comes back into the count the moment the player finds it", () => {
+      const { run, secret } = withSecret();
+      const hidden = roomView(run, dungeon)!.geometry;
+      secret.isHidden = false;
+      const found = roomView(run, dungeon)!.geometry;
+
+      expect(found).not.toBe(hidden);
+      const i = dungeon.graph.rooms.findIndex((r) => r.entityId === run.currentRoomId);
+      expect(found).toBe(describeGeometry(sited().geometry[i]));
+    });
+
+    it("is marked on the exit the referee is shown, and absent from the player's", () => {
+      const { run, secret } = withSecret();
+
+      const referee = roomView(run, dungeon, undefined, { includeHidden: true })!;
+      const shown = referee.exits.find((x) => x.connectorId === secret.id);
+      expect(shown?.isHidden).toBe(true);
+      // And nothing else in the room is marked by accident.
+      expect(referee.exits.filter((x) => x.isHidden)).toHaveLength(1);
+
+      const player = roomView(run, dungeon)!;
+      expect(player.exits.find((x) => x.connectorId === secret.id)).toBeUndefined();
+    });
   });
 
   it("tells every way out which wall it is in, the surface exit included", () => {

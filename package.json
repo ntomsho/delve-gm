@@ -12,7 +12,9 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "generate": "node src/dev/cli-generate.ts",
-    "generate:dry": "node src/dev/cli-generate.ts --dry"
+    "generate:dry": "node src/dev/cli-generate.ts --dry",
+    "play": "node src/dev/cli-play.ts",
+    "play:offline": "node src/dev/cli-play.ts --offline"
   },
   "repository": {
     "type": "git",

@@ -13,6 +13,7 @@ import {
   setState,
   setComposed,
   needsComposition,
+  properName,
   type PlayerCharacter,
   type IItem,
   type IEntity,
@@ -268,5 +269,33 @@ describe("composition staleness", () => {
     setState(e, "overturned");
     setComposed(e, "The desk lies on its side.");
     expect(needsComposition(e)).toBe(false);
+  });
+});
+
+// ===========================================================================
+// NAMES  (8f: a player-visible name is a label, and a label is capitalised)
+// ===========================================================================
+
+describe("properName", () => {
+  it("raises the first letter", () => {
+    expect(properName("unmarked ledger")).toBe("Unmarked ledger");
+  });
+
+  it("leaves the rest of the name exactly as written", () => {
+    // Not title case: which words belong to a proper name is not knowable here,
+    // and guessing is wrong more often than the lower-case letter it set out to
+    // fix.
+    expect(properName("iron keyring of the Warden")).toBe("Iron keyring of the Warden");
+    expect(properName("The Cutlass")).toBe("The Cutlass");
+  });
+
+  it("is a no-op on what is already right, and on what has no letter to raise", () => {
+    expect(properName("Wendy Wilberforce")).toBe("Wendy Wilberforce");
+    expect(properName("3 coins")).toBe("3 coins");
+    expect(properName("")).toBe("");
+  });
+
+  it("trims, so a stray space cannot hide the first letter", () => {
+    expect(properName("  brass key ")).toBe("Brass key");
   });
 });

@@ -74,16 +74,19 @@ function Segmented<T extends number>({
 
 export function RunSetup({
   characters,
+  initialId,
   onConfirm,
   onBack,
 }: {
   characters: PlayerCharacter[];
+  /** Whoever the player pressed *Send down* on. Falls back to the first. */
+  initialId?: string;
   onConfirm: (opts: { size: Size; level: number; character: PlayerCharacter }) => void;
   onBack: () => void;
 }) {
   const [size, setSize] = useState<Size>(2);
   const [level, setLevel] = useState(1);
-  const [characterId, setCharacterId] = useState(characters[0]?.id);
+  const [characterId, setCharacterId] = useState(initialId ?? characters[0]?.id);
 
   const character = characters.find((c) => c.id === characterId);
 

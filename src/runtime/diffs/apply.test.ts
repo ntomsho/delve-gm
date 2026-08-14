@@ -486,6 +486,78 @@ describe("revealing — isHidden on something the player is holding", () => {
   });
 });
 
+// ===========================================================================
+// PICKING UP SOMETHING CONCEALED. 8a A8 — the regression A3 introduced.
+// ===========================================================================
+
+/**
+ * The ledger. Found on the library shelves, and taking it is the obvious pair:
+ * `parentId` to the player, `isHidden` to false. The guard above read the
+ * DRAFT, so by the time the reveal was checked the pickup beside it had already
+ * put the ledger in the inventory — and it refused a commit for a state it had
+ * itself just produced. Atomicity took the pickup down too, and the retry read
+ * "it is in their inventory" as "nothing left to do" and committed nothing at
+ * all. Three turns to pick up one book.
+ *
+ * The guard asks about the state the turn STARTED in, which is what "they were
+ * already holding it" ever meant.
+ */
+describe("picking up something concealed — 8a A8", () => {
+  /** A hidden thing standing in the room, on the chest. */
+  beforeEach(() => {
+    world.entities.items.push(item("ledger", { parentId: "chest", isHidden: true }));
+  });
+
+  it("takes it and reveals it in one commit", () => {
+    const w = ok(
+      commit(
+        { entityId: "ledger", path: "parentId", value: PLAYER_ID },
+        { entityId: "ledger", path: "isHidden", value: false }
+      )
+    );
+
+    const held = w.pc.inventory.find((i) => i.id === "ledger");
+    expect(held).toBeDefined();
+    expect(held!.isHidden).not.toBe(true);
+  });
+
+  // The referee writes the pair in whichever order it thinks of them, and a
+  // guard that only tolerates one of the two orders is the same bug wearing a
+  // different hat.
+  it("in either order", () => {
+    const w = ok(
+      commit(
+        { entityId: "ledger", path: "isHidden", value: false },
+        { entityId: "ledger", path: "parentId", value: PLAYER_ID }
+      )
+    );
+    expect(w.pc.inventory.find((i) => i.id === "ledger")!.isHidden).not.toBe(true);
+  });
+
+  // A3's case, restated against the fixture this block adds, so the two live
+  // side by side: what the turn FOUND may be revealed, what it walked in
+  // carrying may not.
+  it("still refuses a reveal of something carried before the turn began", () => {
+    const r = applyCommit(
+      world,
+      commit(
+        { entityId: "ledger", path: "parentId", value: PLAYER_ID },
+        { entityId: "sword", path: "isHidden", value: false }
+      )
+    );
+    expect(r.ok).toBe(false);
+    expect(r.rejected[0].reason).toContain("when this turn began");
+  });
+
+  // A2's second half: a refusal that does not name the way through is what
+  // sent the R2 retry off in the first place.
+  it("names the pickup as the way through when it does refuse", () => {
+    const r = applyCommit(world, commit({ entityId: "sword", path: "isHidden", value: false }));
+    expect(r.rejected[0].reason).toContain("parentId");
+    expect(r.rejected[0].reason).toContain("same commit");
+  });
+});
+
 describe("equipping — routed through the resolving form, not written", () => {
   it("taking up a two-hander puts the shield away by itself", () => {
     world = ok(commit({ entityId: PLAYER_ID, path: "equipped.shield", value: "shield" }));
@@ -893,9 +965,21 @@ describe("children[] — newly established things", () => {
       })
     );
     expect(r.ok).toBe(true);
-    const created = r.world!.entities.items.find((i) => i.name === "iron keyring")!;
+    const created = r.world!.entities.items.find((i) => i.name === "Iron keyring")!;
     expect(created.parentId).toBe("ghoul");
     expect(r.events.some((e) => e.kind === "entity-created")).toBe(true);
+  });
+
+  // 8f. The name arrives in whatever register the sentence around it was in,
+  // and it is going to be set beside "Iron chest" in the room card. Capitalised
+  // at the mint, first letter only — see `properName`.
+  it("capitalises the name it was handed", () => {
+    const w = ok(commit({
+      entityId: "ghoul",
+      path: "children[]",
+      value: { type: "Item", name: "unmarked ledger of the warden", base: "a thin ledger" },
+    }));
+    expect(w.entities.items.map((i) => i.name)).toContain("Unmarked ledger of the warden");
   });
 
   it("puts a created feature in the room its holder is in", () => {
@@ -904,7 +988,7 @@ describe("children[] — newly established things", () => {
       path: "children[]",
       value: { type: "RoomFeature", name: "scratched tally", base: "marks gouged into the wall" },
     }));
-    expect(w.entities.features.find((f) => f.name === "scratched tally")!.roomId).toBe(ROOM_B);
+    expect(w.entities.features.find((f) => f.name === "Scratched tally")!.roomId).toBe(ROOM_B);
   });
 
   it("a ref lets a later diff in the same commit address it", () => {
@@ -918,7 +1002,7 @@ describe("children[] — newly established things", () => {
         { entityId: "keys", path: "parentId", value: PLAYER_ID },
       )
     );
-    expect(w.pc.inventory.map((i) => i.name)).toContain("iron keyring");
+    expect(w.pc.inventory.map((i) => i.name)).toContain("Iron keyring");
   });
 
   it("creating into the player's hands works", () => {
@@ -927,7 +1011,7 @@ describe("children[] — newly established things", () => {
       path: "children[]",
       value: { type: "Item", name: "torn map", base: "a scrap of vellum" },
     }));
-    expect(w.pc.inventory.map((i) => i.name)).toContain("torn map");
+    expect(w.pc.inventory.map((i) => i.name)).toContain("Torn map");
   });
 
   it("refuses a half-formed spec", () => {

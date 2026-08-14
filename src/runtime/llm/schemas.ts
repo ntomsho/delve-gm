@@ -9,7 +9,7 @@
 
 import { z } from "zod";
 import type { DungeonPassResponse } from "../../engine/dungeon-pass.ts";
-import type { ContentPassResponse } from "../../engine/dungeon-content-pass.ts";
+import type { ContentPassResponse, Omission } from "../../engine/dungeon-content-pass.ts";
 import type { SeamsPassResponse } from "../../engine/dungeon-seams-pass.ts";
 import type { Diff, EntitySpec } from "../diffs/types.ts";
 import type { Stage, Step } from "../types.ts";
@@ -346,6 +346,12 @@ type Assignable<A extends B, B> = [A, B];
 export type DungeonPassMatchesEngine = Assignable<DungeonPassParsed, DungeonPassResponse>;
 export type ContentPassMatchesEngine = Assignable<ContentPassParsed, ContentPassResponse>;
 export type SeamsPassMatchesEngine = Assignable<SeamsPassParsed, SeamsPassResponse>;
+
+// The engine reports what a response left out (`contentPassOmissions`) without
+// importing this file — it does not depend on the runtime. This is the proof
+// that what it reports is what `callForJson`'s `check` consumes, so the two
+// cannot drift into needing a translation step nobody wrote.
+export type OmissionIsAnIssue = Assignable<Omission, ValidationIssue>;
 
 export type CommitParsed = z.infer<typeof commitSchema>;
 

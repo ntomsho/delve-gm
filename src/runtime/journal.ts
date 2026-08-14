@@ -25,13 +25,20 @@
  * reconstructed from the file. That is why entities are not snapshotted per
  * turn — it would be megabytes to say what a dozen diffs already say.
  *
- * NO SINK, NO COST. The default sink is nothing at all: `log` returns on the
+ * NO SINK, NO COST. The default journal is nothing at all: `log` returns on the
  * first line and the 302 tests that do not want a journal do not get one. A
- * sink is attached by whoever owns the run — the app, the CLI, the live check.
+ * sink is chosen by whoever owns the run — the app, the CLI, the live check.
  *
  * IT MUST NEVER BREAK A TURN. A journal that throws would take the game down
  * with it over a file handle, so every write is wrapped and a failing sink is
  * reported once and then ignored.
+ *
+ * ONE JOURNAL PER RUN. This was a module singleton until Phase 9 — one `sink`,
+ * one sequence counter, one set of steps already written — which is invisible
+ * in a browser tab, where there is one run, and wrong everywhere else. A server
+ * process holds several runs at once, and a singleton would interleave them
+ * into one numbered stream and hand every run whichever sink attached last. So
+ * a journal is an object now, made per run and carried alongside the store.
  */
 
 import type { GeneratedDungeon } from "./generate.ts";
@@ -129,57 +136,61 @@ export interface Sink {
 }
 
 // ---------------------------------------------------------------------------
-// THE SINGLETON
+// THE JOURNAL
 // ---------------------------------------------------------------------------
 
-let sink: Sink | undefined;
-let seq = 0;
-let broken = false;
-
-/** Start journalling. Resets the sequence — one attach, one run. */
-export function attach(s: Sink): void {
-  sink = s;
-  seq = 0;
-  broken = false;
-}
-
-export function detach(): void {
-  sink = undefined;
-}
-
-export function journalling(): boolean {
-  return sink !== undefined;
-}
-
-export function log(event: JournalEvent): void {
-  if (!sink || broken) return;
-  try {
-    sink.write({ ...event, seq: ++seq, at: new Date().toISOString() });
-  } catch (e) {
-    // Once. A sink that is going to fail will fail on every event, and a
-    // console full of the same message is how a real error gets missed.
-    broken = true;
-    console.warn("[journal] writing failed; journalling is off for this run:", e);
-  }
+export interface Journal {
+  log(event: JournalEvent): void;
+  /** the standing instructions for a step, written the first time it is used */
+  logSystem(step: Step, blocks: SystemBlock[]): void;
 }
 
 /**
- * The playbook for a step, written the first time that step is used.
+ * A journal for one run.
  *
- * Tracked here rather than at the call site because "have I already written
- * this" is a property of the journal, not of the referee.
+ * With no sink it is the no-op every test gets: `log` returns on the first
+ * line, nothing is allocated, nothing is stamped.
  */
-const written = new Set<Step>();
+export function createJournal(sink?: Sink): Journal {
+  let seq = 0;
+  let broken = false;
 
-export function logSystem(step: Step, blocks: SystemBlock[]): void {
-  if (!sink || written.has(step)) return;
-  written.add(step);
-  log({ kind: "system", step, blocks });
+  /**
+   * Steps whose playbook has already been written. Tracked on the journal
+   * rather than at the call site because "have I already written this" is a
+   * property of the journal, not of the referee — and it is per run, because
+   * two runs each want their own copy of the instructions they were played
+   * under.
+   */
+  const written = new Set<Step>();
+
+  function log(event: JournalEvent): void {
+    if (!sink || broken) return;
+    try {
+      sink.write({ ...event, seq: ++seq, at: new Date().toISOString() });
+    } catch (e) {
+      // Once. A sink that is going to fail will fail on every event, and a
+      // console full of the same message is how a real error gets missed.
+      broken = true;
+      console.warn("[journal] writing failed; journalling is off for this run:", e);
+    }
+  }
+
+  return {
+    log,
+    logSystem(step, blocks) {
+      if (!sink || written.has(step)) return;
+      written.add(step);
+      log({ kind: "system", step, blocks });
+    },
+  };
 }
 
-export function resetSystemCache(): void {
-  written.clear();
-}
+/**
+ * The journal for a run that is not being journalled — shared, so the default
+ * costs one reference rather than an object per turn machine.
+ */
+export const NO_JOURNAL: Journal = createJournal();
 
 /** A name for this run's directory: sortable, and says which seed it was. */
 export function runId(seed: number): string {

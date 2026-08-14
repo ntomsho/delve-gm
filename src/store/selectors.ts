@@ -39,6 +39,7 @@ import {
 } from "../engine/index.ts";
 import { EQUIP_SLOTS, farSide, heldItem, isSurfaceExit, itemSummary, touches } from "../engine/index.ts";
 import { describeGeometry, exitPhrase, positionPhrase, siteRooms } from "../engine/index.ts";
+import type { RoomGeometry } from "../engine/index.ts";
 import { directContents, heldItems } from "../runtime/occupancy.ts";
 import {
   pointLayout,
@@ -188,6 +189,15 @@ export interface ExitView {
   /** the way they walked in by — first in the list, and set apart from it */
   cameFrom: boolean;
   /**
+   * The player has not found it yet.
+   *
+   * Only ever true under `includeHidden`, since without it a concealed way is
+   * filtered out of this list entirely — so on anything the player looks at
+   * this is false throughout, and it exists for the one reader that is shown
+   * concealed things and must not describe them.
+   */
+  isHidden: boolean;
+  /**
    * Which wall of THIS room it cuts, and where along it — "the east wall,
    * toward the north end". The same phrase the content pass was given when it
    * wrote the room, so the referee and the prose already on the page agree.
@@ -266,6 +276,15 @@ export function roomView(
   // pass used rather than from a copy of what that function once said.
   const drawn = geometryOf(dungeon, roomId);
 
+  // CONCEALED WAYS ARE NOT COUNTED IN THE SENTENCE. The geometry line says how
+  // many ways out there are and which walls they are in, and it is read by the
+  // referee and rendered beside prose the player will read. A secret door
+  // included in that count is a secret door described. It comes back the moment
+  // `isHidden` goes false, which is exactly when the player has found it.
+  const concealed = new Set(
+    e.connectors.filter((c) => touches(c, roomId) && c.isHidden === true).map((c) => c.id)
+  );
+
   const exits: ExitView[] = e.connectors
     .filter((c) => touches(c, roomId))
     .filter(visible)
@@ -287,6 +306,12 @@ export function roomView(
         // Only in the room they are actually standing in. Asked about anywhere
         // else, the way they last came in by is a fact about a different room.
         cameFrom: roomId === run.currentRoomId && c.id === run.arrivedVia,
+        // Only reachable with `includeHidden`, which is prompt assembly — where
+        // the referee has to know a secret way is there without being free to
+        // mention it. Rendered as the same NOT YET FOUND mark a concealed thing
+        // standing in the room carries, because it means the same thing and
+        // reading it twice two ways is how one of them gets missed.
+        isHidden: c.isHidden === true,
         // The surface exit is on no graph edge, so the geometry knows it by its
         // missing far end rather than by an id — the same join `mapView` makes.
         wall: drawn?.walls.get(isSurfaceExit(c) ? null : c.id),
@@ -304,7 +329,7 @@ export function roomView(
     contents,
     exits,
     fiction: dungeon.dungeonContext,
-    geometry: drawn?.line,
+    geometry: drawn && describeGeometry(drawn.geometry, { omit: concealed }),
   };
 }
 
@@ -317,12 +342,23 @@ export function roomView(
  * never written again — so a WeakMap keyed on the dungeon is a cache that
  * cannot go stale and cannot leak.
  */
-const SITED = new WeakMap<GeneratedDungeon, Map<string, { line: string; walls: Map<string | null, string> }>>();
+/**
+ * The GEOMETRY is memoised, not the sentence it renders to.
+ *
+ * The drawing is write-once and the walls with it, but which ways out are
+ * concealed is run state — a secret door found on turn nine has to start being
+ * counted — so the sentence is rendered per call against the concealed set of
+ * the moment. `describeGeometry` is a map over four or five exits; the siting
+ * pass it is memoising is the expensive half.
+ */
+const SITED = new WeakMap<GeneratedDungeon, Map<string, SitedRoom>>();
 
-function geometryOf(
-  dungeon: GeneratedDungeon,
-  roomId: string
-): { line: string; walls: Map<string | null, string> } | undefined {
+interface SitedRoom {
+  geometry: RoomGeometry;
+  walls: Map<string | null, string>;
+}
+
+function geometryOf(dungeon: GeneratedDungeon, roomId: string): SitedRoom | undefined {
   if (!dungeon.blockplan) return undefined;
   let byRoom = SITED.get(dungeon);
   if (!byRoom) {
@@ -335,7 +371,7 @@ function geometryOf(
     });
     for (const [i, g] of site.geometry.entries()) {
       byRoom.set(dungeon.graph.rooms[i].entityId, {
-        line: describeGeometry(g),
+        geometry: g,
         walls: new Map(g.exits.map((x) => [x.connectorId, exitPhrase(x)])),
       });
     }

@@ -478,7 +478,25 @@ const OUTLINE_WORD: Record<Outline, string> = {
   ragged: "ragged, nothing like a rectangle",
 };
 
-export function describeGeometry(g: RoomGeometry): string {
+export interface DescribeOptions {
+  /**
+   * Connector ids to leave out of the ways-out clause.
+   *
+   * WHAT THIS IS FOR: a concealed way. The sentence counts doors and says which
+   * walls they are in, and a count is not something a reader can partially
+   * believe — told "two off the west wall" about a room with one visible door
+   * and one secret one, the referee describes both, and a secret door that gets
+   * described is not a secret door. So the runtime hands in the concealed ones
+   * and they are simply not there to be counted.
+   *
+   * The CONTENT PASS passes nothing and sees them all, deliberately: it is the
+   * pass that writes what the concealed way physically is, and it cannot write
+   * about a door it was never told about.
+   */
+  omit?: ReadonlySet<string>;
+}
+
+export function describeGeometry(g: RoomGeometry, opts: DescribeOptions = {}): string {
   // Proportion is a CLAUSE and not an adjective on the noun, because the band
   // names do not survive being used as one: "a small moderate chamber" reads as
   // a typo, and "a small long and narrow chamber" reads as two mistakes.
@@ -487,6 +505,9 @@ export function describeGeometry(g: RoomGeometry): string {
 
   const byWall = new Map<Wall, GeometryExit[]>();
   for (const x of g.exits) {
+    // The way out of the dungeon has a null id and is never omitted: it is the
+    // one door the player has certainly been through.
+    if (x.connectorId !== null && opts.omit?.has(x.connectorId)) continue;
     const list = byWall.get(x.wall);
     if (list) list.push(x);
     else byWall.set(x.wall, [x]);

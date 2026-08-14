@@ -40,9 +40,9 @@ import {
 import type { GeneratedDungeon } from "./generate.ts";
 import type { Commit, WorldEvent } from "./diffs/types.ts";
 import { acceptsInput, isTerminal, type RollSpec, type Stage, type Step } from "./types.ts";
-import { useGame, type GameStore, type RunState } from "../store/game.ts";
+import type { GameStore, RunState } from "../store/game.ts";
 import { needsComposition, theRoom } from "../store/selectors.ts";
-import { log } from "./journal.ts";
+import { NO_JOURNAL, type Journal } from "./journal.ts";
 
 // ---------------------------------------------------------------------------
 // THE SEAM
@@ -166,12 +166,13 @@ const CLOSING_STAGES: readonly Stage[] = ["awaiting_action", "dead", "goal_met"]
  * illegal — and those belong with it.
  */
 function logCommit(
+  journal: Journal,
   commit: Commit,
   result: { ok: boolean; reasons: string[] },
   retry: boolean,
   events: WorldEvent[]
 ): void {
-  log({
+  journal.log({
     kind: "commit",
     commit,
     ok: result.ok,
@@ -181,13 +182,26 @@ function logCommit(
   });
 }
 
+/**
+ * The store, declared by what this file uses of it. Structural on purpose: the
+ * turn machine never imports zustand, and a test can hand it any object with a
+ * `getState`.
+ */
 type Store = { getState(): GameStore };
+
+export interface TurnDeps {
+  /** the run this machine drives — see `createGameStore` */
+  store: Store;
+  /** where the run writes itself down. Omitted means it does not. */
+  journal?: Journal;
+}
 
 /** For the move record. Falls back to the id so a record is never blank. */
 const roomName = (r: RunState, id: string): string =>
   theRoom(r.entities.rooms.find((x) => x.id === id)?.name || id);
 
-export function createTurnMachine(referee: Referee, store: Store = useGame): TurnMachine {
+export function createTurnMachine(referee: Referee, deps: TurnDeps): TurnMachine {
+  const { store, journal = NO_JOURNAL } = deps;
   const state = () => store.getState();
   const run = (): RunState | undefined => state().run;
 
@@ -199,7 +213,7 @@ export function createTurnMachine(referee: Referee, store: Store = useGame): Tur
   const setStage = (stage: Stage, step: Step) => {
     const from = run()?.stage;
     state().setStage(stage, step);
-    log({ kind: "stage", ...(from ? { from } : {}), to: stage, step });
+    journal.log({ kind: "stage", ...(from ? { from } : {}), to: stage, step });
   };
 
   /**
@@ -221,7 +235,7 @@ export function createTurnMachine(referee: Referee, store: Store = useGame): Tur
     }
 
     let result = state().commit(reply.commit);
-    logCommit(reply.commit, result, false, state().lastEvents);
+    logCommit(journal, reply.commit, result, false, state().lastEvents);
 
     // One more ask, with the reasons in front of it. Beyond that the turn is
     // unfinishable and the software says so rather than the referee.
@@ -233,7 +247,7 @@ export function createTurnMachine(referee: Referee, store: Store = useGame): Tur
         return;
       }
       result = state().commit(reply.commit);
-      logCommit(reply.commit, result, true, state().lastEvents);
+      logCommit(journal, reply.commit, result, true, state().lastEvents);
       if (!result.ok) {
         fail(before.step, new Error(result.reasons.join("; ")));
         return;
@@ -257,7 +271,7 @@ export function createTurnMachine(referee: Referee, store: Store = useGame): Tur
     const moved = !entering && after.currentRoomId !== before.currentRoomId;
 
     if (!moved && reply.narration.trim() !== "") {
-      log({
+      journal.log({
         kind: "narration",
         text: reply.narration,
         arrival: entering,
@@ -314,7 +328,7 @@ export function createTurnMachine(referee: Referee, store: Store = useGame): Tur
       (reply.commit.diffs.length > 0 || isTerminal(after.stage));
 
     if (closed) {
-      log({
+      journal.log({
         kind: "turn",
         turn: after.turnCount + 1,
         action: req.input ?? "(continued)",
@@ -351,10 +365,10 @@ export function createTurnMachine(referee: Referee, store: Store = useGame): Tur
   function fail(step: Step, e: unknown): void {
     const message = e instanceof Error ? e.message : String(e);
     console.warn("[turn] the referee could not finish:", e);
-    log({ kind: "error", where: `turn:${step}`, message });
+    journal.log({ kind: "error", where: `turn:${step}`, message });
     const from = run()?.stage;
     state().setStage("error", step);
-    log({ kind: "stage", ...(from ? { from } : {}), to: "error", step });
+    journal.log({ kind: "stage", ...(from ? { from } : {}), to: "error", step });
   }
 
   /** The last thing asked, so `retry` can ask it again after an error. */
@@ -387,7 +401,7 @@ export function createTurnMachine(referee: Referee, store: Store = useGame): Tur
     // sweep already implies there is something to re-show. Checked anyway: the
     // alternative to being wrong here is an arrival with no prose at all.
     if (shown !== undefined && needsComposition(r).length === 0) {
-      log({ kind: "narration", text: shown, arrival: true, roomId: r.currentRoomId });
+      journal.log({ kind: "narration", text: shown, arrival: true, roomId: r.currentRoomId });
       state().pushLog({ kind: "arrival", text: shown, roomId: r.currentRoomId });
       // Onto the referee's side of the exchange as well, exactly as a written
       // arrival lands there — the next call should not be able to tell which
@@ -408,7 +422,7 @@ export function createTurnMachine(referee: Referee, store: Store = useGame): Tur
     const dungeon = state().dungeon;
     if (!r || !dungeon || !acceptsInput(r.stage) || text.trim() === "") return;
 
-    log({ kind: "player", text });
+    journal.log({ kind: "player", text });
     state().pushLog({ kind: "player", text });
     state().pushTranscript({ role: "player", text });
 
@@ -430,7 +444,7 @@ export function createTurnMachine(referee: Referee, store: Store = useGame): Tur
     const rng = state().rng();
     const outcome = resolveSpec(rng, r.pendingRoll);
     state().syncRng(rng);
-    log({ kind: "roll", source: "player", outcome, draws: rng.draws });
+    journal.log({ kind: "roll", source: "player", outcome, draws: rng.draws });
     state().pushLog({ kind: "roll", text: describeRoll(outcome) });
 
     // AND INTO THE EXCHANGE, which is the belt to `renderRoll`'s braces.

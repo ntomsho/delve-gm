@@ -15,21 +15,27 @@ it is and §2 below does not say.
 | Phase | State |
 |---|---|
 | 0 Scaffold | ✅ built |
-| 1 Headless generation | ✅ built, runs live — one open defect, §1.1 |
+| 1 Headless generation | ✅ built, runs live — the §1.1 defect is fixed |
 | 2 State and rules | ✅ built |
 | 2.5 UI shell | ✅ built |
 | 3 Turn loop against a stub | ✅ built (`__fixtures__/stub-referee.ts`, `offline.ts`) |
 | 4 Real model | ✅ built — a full run completed 2026-08-10 |
-| 4.5 The way in | ✅ built (`Characters.tsx`, `RunSetup.tsx`); creation door still disabled |
-| 5 Character creation | ❌ **not built** — §3 |
+| 4.5 The way in | ✅ built (`Characters.tsx`, `RunSetup.tsx`); the creation door opened with Phase 5 |
+| 5 Character creation | ✅ built — §3 |
 | 6 Maps | ✅ built (6a → 6c.4), with the carried gaps in §1.2 |
 | 7 Dev affordances | ⚠️ **partial** — §4 |
-| 8 Playtest refinements | ⚠️ **started** — 8a is done bar one regression, the 8b hover items and the click-verb pill are built; §5 is the rest, and the bulk of the remaining work |
+| 8 Playtest refinements | ⚠️ **started** — 8a is done bar A7 and A9, the 8b hover items, the click-verb pill and four of the 8b interface fixes are built, 8f's capitalisation has landed, and the exit-count item is closed bar its step-file line; §5 is the rest, and the bulk of the remaining work |
+| 9 The seam | ✅ built — §6. First of the server migration, and it contains no server |
 
 553 tests, two vitest projects, build clean as of `5feed17`. 593 and still clean after the
-8b hover work; **630 and still clean after the click-verb pill**.
+8b hover work; 630 and still clean after the click-verb pill; 640 and still clean after
+A8, the room-card exits, the growing input box and 8f's capitalisation; 662 and still
+clean after the §1.1 completeness check and the concealed-exit fix; 730 after Phase 5;
+**750 and still clean after the hit point floors, the weapon classes and the swap undo**;
+**787 after Phase 9**, which added the session, the two-runs-at-once check, a mounted-app
+test and a per-file purity sweep over the runtime.
 
-### 1.1 The one live defect carried out of generation
+### 1.1 The live defect carried out of generation ✅ **FIXED**
 
 **A chunk response that omits a ref is not a schema error.** Found on the 6c.4 live run
 (`--seed 4201 --size 3`): three of ~90 written things came back unwritten, and the
@@ -38,15 +44,29 @@ the seams pass was never going to catch it. The chunk simply left it out of an
 otherwise well-formed response.
 
 The retry policy is "on zod failure, retry that chunk once". A response answering with
-five of six connectors is valid JSON against a valid schema. It passes, and nothing
-notices until `validateWritten` sweeps at the end, by which point the pass is over and
-there is no retry left to take.
+five of six connectors is valid JSON against a valid schema. It passed, and nothing
+noticed until `validateWritten` swept at the end, by which point the pass was over and
+there was no retry left to take. A **Phase 1 exit-criterion failure** — "no empty `base`
+on any room, connector, creature, feature, item, or hazard".
 
-This is a **Phase 1 exit-criterion failure** — "no empty `base` on any room, connector,
-creature, feature, item, or hazard". The cheap fix is a completeness check on each
-chunk response before it is accepted: every ref the payload asked about must be
-present. That turns an omission into exactly the zod-shaped failure the retry already
-handles. **Not yet done.**
+**Shipped as the cheap fix specified here**, in three pieces:
+
+- `contentPassOmissions(payload, res)` in `dungeon-content-pass.ts` — pure, engine-side,
+  and the only thing that can ask the question, because only the payload knows what was
+  asked for and the schema never sees the payload. It reports missing rooms, entities,
+  owned connectors, encounters, an encounter's mass, a distinct specimen (matched on
+  `kind` **and** `member`, the same join apply makes for keywords), and a goal room that
+  wrote no goal. `seamsPassOmissions` is the same question for the seams pass, which
+  already computed `missing` — but *after* applying, when the call was spent.
+- `JsonCallOptions.check` in `llm/client.ts`, run after zod and raising a
+  `ResponseFormatError`, so an omission is treated as exactly what it is: a schema-shaped
+  failure taking the retry that already existed, with the missing refs in the feedback.
+- **Deliberately not checked**: fixtures, promoted details, and the seam connectors
+  carried as context — the model chose those, so there is nothing it can have left out.
+  HARD RULE 1 tells it not to return a seam at all.
+
+`Omission` is structurally a `ValidationIssue` without the engine importing the runtime;
+`OmissionIsAnIssue` in `schemas.ts` is the drift guard, beside the other three.
 
 ### 1.2 Gaps carried forward from Phase 6, all deliberate
 
@@ -89,9 +109,9 @@ handles. **Not yet done.**
     that exists today — all of them happen with the player watching — and wrong for a
     thief carrying something off. The snapshot arrives with creature markers, not
     before: a field nothing reads correctly is worse than a documented gap.
-13. **The empty-character-stock state is unreachable**, because creation is disabled
-    until Phase 5. It is written but not designed, and it gets designed with the flow
-    that can cause it.
+13. ~~**The empty-character-stock state is unreachable**~~ ✅ **CLOSED by Phase 5.**
+    Deleting the last character reaches it, and it is designed rather than merely
+    survived — an invitation to roll one up, with the door beside it. See §3.
 
 ---
 
@@ -144,6 +164,11 @@ interface RunSeeds {
   seams pass at the end, with both rooms in front of it.
 - On zod failure, retry that chunk **once** with the validation errors appended. On a
   second failure, throw. No partial content.
+- **An answer that is well-formed and incomplete is a failure too.** Every ref the
+  payload asked about must come back, checked by `contentPassOmissions` /
+  `seamsPassOmissions` through `callForJson`'s `check` before the response is accepted —
+  so it costs the same one retry and throws the same way. See §1.1 for what is and is
+  not asked for.
 - **The block plan runs inside stocking**, between corridor designation and identity:
   `stockDungeon` takes a `layout` hook and `generate.ts` supplies it. Anything that
   generates without the hook leaves `RoomStock.sizeClass` unset, which silently disables
@@ -367,6 +392,13 @@ Entry composes bottom-up, contents then room. It never rolls, starts combat, spr
 hazard, or changes anything but prose. **Hidden features stay hidden** — they surface
 only as clues, and a directed look is what turns a clue into the thing itself.
 
+**A concealed way out is shown to the referee three times and must read the same way in
+all three.** It is in the ways-out list under `includeHidden` — marked `NOT YET FOUND BY
+THE PLAYER`, the same words a concealed thing standing in the room carries — it is left
+out of the geometry sentence's count entirely, and it is not drawn on the map. The
+referee has to know it is there to be found, and must not be able to mention it without
+noticing that it is doing so.
+
 ### 2.10 The map, and what it may show
 
 - The map component consumes a `Layout`, never `dungeon.rooms[].pos` directly.
@@ -478,7 +510,17 @@ Restated from CLAUDE.md, plus the mechanisms that enforce them.
   by the dev proxy. The CLI path is Node and reads the key directly; that is not the
   rule being soft, it is there being no browser to keep it out of.
 - Skill markdown loads via `?raw`. A test asserts every `steps/…` path named in
-  `SKILL.md` resolves to a real file.
+  `SKILL.md` resolves to a real file. **`?raw` is a bundler feature** — Vite and vitest
+  understand it, plain `node` does not, so anything reaching the referee outside a
+  bundler registers the hook in `dev/raw-md.ts` first. See §6.5.
+- **No module holds one of anything a run owns.** The store, the journal and the turn
+  machine are made per run and carried, never imported: `createGameStore`,
+  `createJournal`, `createGameSession`. A singleton is correct for exactly one situation
+  — a browser tab, with one run in it — and wrong in every process that serves two.
+  See §6.
+- `src/store/react.ts` is the only module below `src/ui` and `App.tsx` that imports
+  React. `store/game.ts` imports `zustand/vanilla`, not `zustand`, because the package's
+  own entry point re-exports `zustand/react`.
 - **Two vitest projects, split on the file extension.** `.test.ts` is headless,
   `.test.tsx` is jsdom. The extension is the whole of the rule.
   `src/ui/__fixtures__/jsdom-setup.ts` supplies entry points jsdom lacks
@@ -497,92 +539,182 @@ Restated from CLAUDE.md, plus the mechanisms that enforce them.
 
 ---
 
-## 3. Phase 5 — Character creation
+## 3. Phase 5 — Character creation ✅ **BUILT**
 
-**Not built.** Unblocked — everything below is transcribed from `docs/Knave 1.0.pdf`.
-Needs Phase 2 (rolls) and nothing else, so it can slot anywhere. `Characters.tsx`
-already has the door, disabled.
+Six steps, back-navigable, nothing written until the last button. The two screens
+came from the design plan artifact (`fbad10ad`), the rules from the author, and
+the numbers from `docs/Knave 1.0.pdf`. Where the artifact and the author's rules
+disagreed the rules won — the artifact's abilities step still says three dice and
+reroll-all-or-none, and its point-buy panel still says nine points and nothing
+above +3.
 
-`src/engine/character-creation.ts`, pure and seeded:
+### 3.1 The two modes
 
-```ts
-export function rollAbilities(rng: Rng): CharacterAbilities;   // 3d6 keep LOWEST die, x6
-export function swapAbilities(a: CharacterAbilities, x: Ability, y: Ability): CharacterAbilities;
-export const POINT_BUY: { budget: number; min: number; max: number };
-export function validatePointBuy(a: CharacterAbilities): string[];
-export function rollTraits(rng: Rng): CharacterTraits;         // the eleven
-export function rollTrait(k: keyof CharacterTraits, rng: Rng): string;  // individual reroll
-export function rollHp(rng: Rng): number;                      // d8, starting AND max
-export function rollStartingGear(rng: Rng): IItem[];
-export function startingCopper(rng: Rng): number;              // 3d6 x 20
-export const SHOP: ShopEntry[];                                // slot cost is first-class
-```
+Normal is the generous read and hardcore is close to the book. `CREATION_RULES`
+in `character-creation.ts` is the whole of the difference, and nothing else in
+the flow branches on the mode:
 
-**Abilities.** Roll 3d6 per ability *in order*, the **lowest** die is the bonus, defense
-is bonus + 10. Knave then allows swapping the scores of **two** abilities after rolling
-— worth having, since it is the one place the player gets agency in the rolled path.
+| | normal | hardcore | Knave 1.0 as printed |
+|---|---|---|---|
+| ability dice | 2d6, keep lowest | 3d6, keep lowest | 3d6, keep lowest |
+| swaps | 2 | 1 | 1 |
+| point buy | 10 points | 7 points | — not in the book |
+| rerolls | 3 | 0 | — not in the book |
+| hit points | 2d8, floor 9 | 1d8, floor 5 | d8, no floor |
 
-**Starting gear.** Everyone gets 2 days of rations and one weapon of their choice, then
-rolls once on Armor, once on Helmets and Shields, **twice** on Dungeoneering Gear, and
-once each on General Gear 1 and General Gear 2.
+**The hit point floors are the sharpest departure from the book**, and the reason is the
+one Knave's own note gives when it suggests letting a PC reroll below 5: a level 1
+character on 1 HP is not a hard start, it is a character who does not get to play. Normal
+takes two dice and floors at 9; hardcore keeps the single die and floors at 5. `rollHp`
+returns the dice, the raw total and a `floored` flag, so the screen can say *the rule
+caught you* rather than print a number the dice never showed.
 
-| Table | Result |
-|---|---|
-| Armor (d20) | 1-3 none · 4-14 Gambeson · 15-19 Brigandine · 20 Chain |
-| Helmets and Shields (d20) | 1-13 none · 14-16 Helmet · 17-19 Shield · 20 both |
+**A swap can be given back.** Undo refunds it rather than costing a second, because trying
+an arrangement out and disliking it is not a decision worth charging for — only keeping one
+is. `swapAbilities` is its own inverse, so the history is the pairs and not copies of the
+spread. **A reroll clears the history and hands every swap back**: new dice land on the
+cards, and the pairs an undo would restore no longer hold what they held.
 
-Armor stat lines — **these are the first real producers of `IItem.armor`**, and so the
-first real exercise of the `armorType` field that shipped in Phase 0:
+**Mode is step 0, and changing it starts the character again.** It rewrites four
+numbers across three later steps, so a control that quietly did that from a
+header would be worse than a screen. The reset is not tidiness: a switch that
+kept the sheet would let a player roll hit points under normal, bank the 8, and
+arrive as a hardcore character who never spent a reroll. `mode` is stored on
+`PlayerCharacter` and joins the never-writable list in `diffs/paths.ts`.
 
-| Item | `armorType` | defense | slots | quality | cost (cp) |
-|---|---|---|---|---|---|
-| Gambeson | `body` | 12 | 1 | 3 | 60 |
-| Brigandine | `body` | 13 | 2 | 4 | 500 |
-| Chain | `body` | 14 | 3 | 5 | 1200 |
-| Half Plate | `body` | 15 | 4 | 6 | 4000 |
-| Full Plate | `body` | 16 | 5 | 7 | 8000 |
-| Helmet | `helmet` | 1 (flat +1) | 1 | 1 | 40 |
-| Shield | `shield` | 1 (flat +1) | 1 | 1 | 40 |
+**Point buy.** Every ability starts at +1 and raising one to *v* costs
+`floor(v / 2)` — so +2 and +3 are a point each and +4 is two more. A single
+ability caps at **+4** at level 1. Rolling may exceed that and is allowed to;
+the cap is on what a player may *choose*, not on what the dice may give.
 
-Weapons, as `IItem.weapon`:
+### 3.2 One reroll budget, spent from three screens
 
-| Class | damage | hands | slots | quality | cost |
-|---|---|---|---|---|---|
-| Dagger, cudgel, sickle, staff… | d6 | 1 | 1 | 3 | 5 |
-| Spear, sword, mace, axe, flail… | d8 | 1 | 2 | 3 | 10 |
-| Halberd, war hammer, long sword, battle axe… | d10 | 2 | 3 | 2 | 20 |
-| Sling | d4 (ranged) | 1 | 1 | 3 | 5 |
-| Bow | d6 (ranged) | 2 | 2 | 3 | 15 |
-| Crossbow | d8 (ranged) | 2 | 3 | 3 | 60 |
+Abilities, hit points and starting gear all draw on it. **Traits do not** — they
+are flavour, and a player fishing for a face they believe in is not taking
+anything from the game. **Hit points do**, because an unlimited d8 is an 8.
 
-The d10 class is **2 hands**, which is what makes `canEquip`'s shield conflict bite in
-ordinary play rather than as an edge case.
+Every reroll costs exactly one, including reroll-all: one ability or all six, one
+gear table or all six, the same price. Both are deliberate — the budget is about
+how many times you may change your mind, not how much you change at once.
 
-**Traits.** All eleven tables (physique, face, skin, hair, clothing, virtue, vice,
-speech, background, misfortunes, alignment) are in the PDF as d20 tables — alignment is
-1-5 Law / 6-15 Neutrality / 16-20 Chaos. **Check `dungeon-blueprint.ts` first**: the
-Maze Rats character tables feeding `genNpc` overlap heavily, and duplicating a table
-that already exists is how the two drift apart. Reuse where the lists match, transcribe
-only the gaps.
+The counter lives in the create header, not on the step, because it is one budget
+spent from three places and the player has to see it before spending. At zero, and
+for every hardcore character, the buttons are plainly disabled — the same *not
+yet* treatment the brief demanded of the creation door, and never a padlock.
+Hardcore is not a special case anywhere: it starts at 0 and hits the same
+`rerollsLeft <= 0` a normal character hits on their fourth press.
 
-**Shop.** The Item Costs page gives ~90 entries in copper. Slot cost is not printed per
-item for most gear (the book's rule is "most items take 1 slot"), so default to 1 and
-carry the explicit slot counts for armor and weapons above. Per the brief, the shop UI
-shows slot cost at least as prominently as price.
+### 3.3 The tables
 
-**UI**, per the brief: five steps, back-navigable, nothing committed until the end;
-per-trait reroll (not just reroll-all) on step 2; the slot meter visible from the moment
-anything is carried, reading as a budget being spent.
+`src/engine/knave-tables.ts`, transcribed from the PDF. Tables and stat lines
+only, no dice — so a transcription error is a diff in a file with no behaviour.
 
-Character library in local storage, separate from run state — `store/characters.ts` is
-already async against an array and is the only module that should have to change. This
-doubles as the dev quick-start, so build the "load character → skip creation" path in
-the same session. **It also makes the empty-stock state reachable** (§1.2 item 13), so
-that state gets designed here.
+**The Maze Rats tables were checked first, as this section used to instruct, and
+they do not overlap.** Those are 36-entry NPC tables on different axes;
+`MISFORTUNES` (36) against Knave's Misfortunes (20), `CLOTHING` (36) against
+Knave's Clothing (20), `BACKGROUNDS` = `UNDERWORLD_NPCS` (36) against Knave's
+Background (20), and no counterpart at all for physique, face, skin, hair,
+virtue, vice, speech or alignment. Reusing one would have changed both the
+entries and the distribution. The finding is in the file header so the question
+is not reopened.
 
-**Tests:** ability distribution over 10k seeded rolls; point-buy validation edges; every
-equipment table roll produces a legal `IItem` including a valid `armorType`; slot
-arithmetic against `slotCapacity`.
+**Two tables are house-ruled**, written out per face rather than as bands so the
+divergence is visible rather than arithmetic:
+
+| | printed | ours |
+|---|---|---|
+| Armor (d20) | 1-3 none · 4-14 Gambeson · 15-19 Brigandine · 20 Chain | **1-5 none + 1 random spellbook** · **6-14** Gambeson · 15-19 Brigandine · 20 Chain |
+| Helmets & Shields (d20) | 1-13 none · 14-16 Helmet · 17-19 Shield · 20 both | **1-5 1 random spellbook** · **6-11** Helmet · **12-19** Shield · 20 both |
+
+The armor trade is the one the book itself suggests a line above the table —
+*"allow new PCs to roll a random spell in exchange for not starting with any
+armor"*. The hundred level-less spells are transcribed with it, feeding the
+`spellBook` field that has been on `IItem` since Phase 0. Spell **90 is printed
+as Summon Idol**, out of the alphabetical run the rest of the list keeps;
+preserved as printed, like the duplicate "Tinker" in `dungeon-blueprint.ts`.
+
+Armor and weapon stat lines come off the Item Costs page. Note the d10 class is
+**quality 3**; the table this section used to carry said 2, and the PDF wins.
+
+**Weapons are a class and then a name, and only the class is mechanical.**
+`WEAPON_CLASSES` carries the six the book prices — Light d6, Medium d8, Heavy
+d10, Sling d4, Bow d6, Crossbow d8 — and every name inside a class has that
+class's damage, hands, slots, quality and cost. So the picker asks for the class
+first and treats the name as fiction laid on top; the three ranged classes are
+their own single weapon and skip the second question rather than asking it with
+one answer. `WEAPONS` is the flattening, and `weaponsIn` is what builds it.
+
+### 3.4 Starting gear
+
+Two days of rations and one weapon of the player's choice, free, on both paths.
+
+**Rolled:** one roll each on Armor, Helmets & Shields, General Gear 1 and General
+Gear 2, and **two** on Dungeoneering Gear. A `GearSlot` is one die and a
+`GearGroup` is what it produced — a list, because 20 on Helmets & Shields is a
+helmet *and* a shield. That shape is what makes a per-table reroll possible.
+
+**Bought:** 3d6 × 20 copper and no gear rolls, carried as a `Copper` item costing
+0 slots. **The shop is a later session**; until it exists, buying is thinner than
+rolling and is meant to read as a real choice rather than a free one.
+
+**A shield beside a two-hander stays carried rather than worn.** `canEquip`
+refuses that pair, and a character who arrived failing `validateEquipment` would
+have the applier complaining on the first commit of the run.
+
+**Capacity is not enforced at creation.** A rolled kit may exceed CON defense;
+`isOverburdened` reports it and the meter shows it in torchlight past the rule.
+Refusing would mean silently dropping something the dice gave.
+
+### 3.5 What the screens do
+
+`src/ui/create/`, one file per step, all of it on `theme.ts`'s tokens rather than
+the artifact's inline hex.
+
+**Rolls carry their dice where the dice are the player's business** — `2d6 → 4 2`
+under every ability, `2d8 → 1 7 = 8, raised to 9` under the hit points. A screen
+re-deriving those would be inventing numbers. **The gear tables are the
+exception**: `GearGroup.d20` is still what the band tests are written against,
+but it is not printed, because a table result is not a number the player is being
+asked to check the way an ability's d6s are. What matters there is what you are
+carrying and what it costs you in slots.
+
+**`CreateCharacter` takes an optional `seed`.** The app omits it, so every visit
+is a new person; the tests pin it, because otherwise they assert against whatever
+six abilities turned up and the swap tests go quiet on the roughly one run in
+nine hundred where all six match. Same affordance as `?seed` on a dungeon, for
+the same reason.
+
+**What you review is what is saved.** `preview` is a real `PlayerCharacter` built
+by `finishCharacter`, and the save button hands that exact object to the store.
+There is no second construction that could disagree with the sheet.
+
+**One RNG for the whole session**, seeded from `randomSeed()` and held in a ref,
+so a reroll advances the stream rather than restarting it. Nothing in the flow
+calls `Math.random`.
+
+**There is no "you have overspent" guard**, and there should not be: `canRaise`
+disables the + that would do it and the − stops at +1, so an illegal spread is
+unreachable from the screen. `validatePointBuy` is where that rule is written
+down and it is asserted directly in `character-creation.test.ts`. A branch that
+can never run would be a lie about what the interface checks.
+
+`Characters.tsx` was rebuilt to the artifact's library screen — name, one
+sentence of who they are, the numbers, Send down and Delete. `describePerson` in
+`ui/person.ts` is shared with the confirm step, so a player meets the same
+description they approved. Deleting asks first, and is what makes the empty state
+reachable at last.
+
+### 3.6 Deliberately not in this pass
+
+- **The shop.** Next session. The copper is rolled and carried; nothing spends it.
+- **Persistence.** `store/characters.ts` gained `saveCharacter` and
+  `deleteCharacter` against the same in-memory array, so **a character does not
+  survive a reload**. What the record looks like and what happens to one saved
+  against an older shape are their own decision, and making it badly now would be
+  harder to undo than making it later.
+- **The library card's run-state badges** — the artifact's `IN A RUN`,
+  `DIED · ROOM 3`, and the epitaph. Those need per-character run state nothing
+  stores, and a badge computed from a field nobody writes is worse than no badge.
 
 ---
 
@@ -592,8 +724,8 @@ Partly done. What remains:
 
 - ~~Seed in the URL~~ ✅ `?seed` `?size` `?level` `?offline` `?stub`, read in `App.tsx`;
   any of them bypasses the front page.
-- ~~Quick-start PC~~ ✅ the hardcoded test character. The library half arrives with
-  Phase 5.
+- ~~Quick-start PC~~ ✅ the hardcoded test character, and since Phase 5 anyone the
+  player rolled up this session. Surviving a reload is still open — §3.6.
 - ~~`callLog` written from day one~~ ✅ `referee.ts` writes it; `turn.ts` deliberately
   does not, because it cannot know what model answered.
 - **Call log viewer.** ❌ Nothing renders `run.callLog`.
@@ -609,7 +741,7 @@ Partly done. What remains:
 
 ---
 
-## 5. Phase 8 — Playtest refinements ⚠️ **8a nearly done, the rest planned**
+## 5. Phase 8 — Playtest refinements ⚠️ **8a done bar A7 and A9, the rest planned**
 
 This phase is **the author's playtest feedback, sorted by what actually causes each
 symptom** — which is not how it was reported, because several unrelated-looking
@@ -625,9 +757,8 @@ named run's `journal.jsonl`; where it cites a line number, that is the rendered
 | **R1** `out/runs/2026-08-10T00-32-05-seed15341/` | 2026-08-10, seed 15341, size 1, level 1 — The Drowned Aviary. **Complete: start to finish, goal met.** Eleven rooms explored, features searched, a spell cast, the objective stolen, and out. Four commits refused in the whole session, three of them one bug wearing two hats. |
 | **R2** `out/runs/2026-08-12T01-32-27-seed218356/` | 2026-08-12, seed 218356, size 2, level 1 — The Relish Quarry. **Eight turns, three rooms, abandoned mid-run.** Ran against the 8a fixes and the 8b interface work, so what it found is what those did not cover — and one regression they introduced. Almost all of it is talking: the first playtest that leaned on creatures rather than on locks and levers, and it is why 8e grew. |
 
-Six sessions. **8a stays first in ordering.** A1–A4 and A6 are fixed, A5 is cut, A7 and
-the two new items A8–A9 are open — and A8 is a regression the 8a work itself introduced,
-so it is the first thing to fix.
+Six sessions. **8a stays first in ordering.** A1–A4, A6 and A8 are fixed, A5 is cut, and
+A7 and A9 are open.
 
 ---
 
@@ -642,12 +773,13 @@ thing, the machine would not let the referee say so, and they had to do it again
 |---|---|---|
 | **A1** | A refused commit threw away the roll | ✅ `task()` in `assemble.ts` is a preamble plus an unconditional body, so a retry carries the roll, the room-entry `owed` list and the "player has acted" framing. The roll also lands in `run.transcript` as a third role. §2.8. |
 | **A2** | `inventory[i]` is how the model says "they now have this" | ✅ `inventory[…]` reads its value: null drops, an id moves, an object mints. `takeIntoInventory` is the one door and a pickup is forced. §2.6. |
-| **A3** | The referee attached invented things to ids off the character sheet — *the lantern* | ✅ `SKILL.md` rule 3 gained its missing half (an id names one exact object), and `isHidden` on a carried item is refused. **This is the guard A8 says is now misfiring.** §2.5, §2.6. |
+| **A3** | The referee attached invented things to ids off the character sheet — *the lantern* | ✅ `SKILL.md` rule 3 gained its missing half (an id names one exact object), and `isHidden` on a carried item is refused. **A8 narrowed this guard to what the player was carrying when the turn began** — see below. §2.5, §2.6. |
 | **A4** | Re-entering an unchanged room still cost a model call | ✅ The staleness sweep is hoisted into `enterRoom()`; an empty sweep re-shows `room.composed` and spends nothing. Five of R1's eleven arrivals were paid for and discarded. §2.9. |
 | **A5** | A multi-cell fixture drew as several separate things | ❌ **Cut, author's call.** One berths entity across two cells, drawn one mark per cell so a colonnade reads as a row. It needed a per-kind spread/no-spread decision that was not worth the session. Weighed and dropped, not missed. |
 | **A6** | Debris in a corner | ✅ Not the wall fallback — the sampler. `throughout` now resolves to the room's interior, and a position word that could not be honoured is no longer kept. §2.11. |
+| **A8** | A pickup that also reveals refused itself | ✅ `carriedAtStart` on the applier's `Ctx`, taken off the world before the batch runs; the `isHidden` guard asks it rather than the draft. A3's case still refuses. The refusal now names the pickup as the way through. |
 
-Three still open.
+Two still open.
 
 #### A7. The layout shifts when the room changes
 
@@ -658,9 +790,16 @@ in order: the room card growing or losing a section (occupants, ways out) betwee
 the map re-centring; a scrollbar appearing. Fix by reserving the space rather than by
 chasing the specific element.
 
-#### A8. A pickup that also reveals refuses itself. 🔴 **REGRESSION FROM A3 — FIX FIRST**
+#### A8. A pickup that also reveals refuses itself. ✅ **FIXED**
 
 *"I had to pick up a ledger twice."* Three times, in fact, and the applier did it.
+
+**Shipped as specified below.** `Ctx.carriedAtStart` is a set of inventory ids taken off
+the world before the first diff runs, and the `isHidden` guard reads it instead of
+`ctx.world.pc.inventory`. The refusal now says *"was already in the player's inventory when
+this turn began"* and states the allowed pair. `apply.test.ts` carries the R2 commit in both
+orderings, A3's commit still refused, and an assertion on the wording. **A9 is what is left
+of the ledger — the refused commit is fixed, the doubled post is not.** The reasoning:
 
 R2, the Bookyard. The player reads a ledger found on the library shelves; the referee mints
 it correctly with `children[]` on the Rebel Library feature. The player says **"Keep the
@@ -727,8 +866,9 @@ Two candidate fixes and they are not exclusive:
 
 Prefer 1. Note that the confirmation-post instruction in `steps/3-standard.md` is what the
 model was confused about — it read the post as narration of the attempt, wrote it, then
-found the instruction that says a confirmation post states terms. **That wording is an 8c
-item and fixing it reduces how often this fires, but it does not fix this**; a referee is
+found the instruction that says a confirmation post states terms. **That wording has since
+been fixed under 8c** — the post now stops at the moment of attempt, said once at the head
+of the section — **which reduces how often this fires and does not fix it**; a referee is
 allowed to change its mind mid-response and the player should never see it happen.
 
 ---
@@ -792,21 +932,29 @@ has to know what the other is drawing, and each renders alone in a test.
   If that is it, the fix is to release capture and treat a press that never moved as a
   click, or to stop capturing until the pointer has actually travelled a few pixels.
   Whatever the cause, the regression test has to go through the map's own pointer handlers.
-- 🔴 **The room card's two exit sections are the wrong way round and misnamed.** Swap them
-  and rename: **"You came in from"** and **"Exits"**, in that order. Today `RoomCard.tsx:184`
-  draws *"Behind you"* first and *"Other ways out"* second — the label changes to *"Exits"*
-  only when nothing came before it. The order the *data* is in is right and stays right
-  (`byUsefulness` in `selectors.ts:348` puts the way in first), this is the presentation
-  of it. `screens.test.ts:57` asserts the old strings and moves with them.
-- 🔴 **The player's input box does not grow.** `InputArea.tsx:194` is a `rows={1}`
-  textarea with `resize-none`, so a long action scrolls its own first line out of sight
-  while it is being typed. It should grow with the content up to a maximum — six or so
-  lines — and scroll only past that. Auto-size on the content, not on a key handler.
-- **A header for the map section.** Proposed, since the question was asked: **the
-  dungeon's name** (`dungeon.pass.name` — "The Relish Quarry") with **rooms explored /
-  total** beside it. The name is currently written by the Dungeon Pass and shown to the
-  player nowhere, which is a waste of the one piece of prose that names the whole place;
-  and explored-count is the only progress signal a dungeon crawl naturally has.
+- ✅ **The room card's two exit sections were the wrong way round and misnamed.** **Swapped
+  and renamed: "Exits" first, then the rule, then "You came in from".** The author settled
+  the ambiguity in the original note — it said "swap" and then listed the other order — in
+  favour of the swap: where they can go is the question a player standing in a room is
+  asking, and the way back is a decision to be found rather than the first thing under the
+  contents. The *data* order is untouched (`byUsefulness` in `selectors.ts:348`), this was
+  the presentation of it. `screens.test.ts` moved with the strings, and its ordering
+  assertion inverted with them.
+- ✅ **The player's input box grows.** A `useLayoutEffect` in `InputArea.tsx` sizes the
+  textarea off its own `scrollHeight` — `height: auto` first, so it can shrink as well as
+  grow — capped at six lines measured from the box's computed `lineHeight`, scrolling past
+  that. Keyed on the draft rather than on a key handler, so typing, pasting, Escape and the
+  post-send clear are all one path. **No unit test**: jsdom does not lay out, `scrollHeight`
+  is 0 there, and the effect no-ops on that deliberately.
+- ✅ **A header for the map section.** **Built as proposed**: `MapHeader` in
+  `DungeonMap.tsx`, the dungeon's name (`dungeon.pass.name`) left and `n/m explored`
+  right, with the map cell in `PlayScreen` now a column rather than a centred box. A
+  sibling of the map and not part of it, so it does not pan and zoom away with the paper.
+  The count is `map.rooms.filter(known)` — **the same field the fog is drawn from**, so
+  the number and the drawing under it cannot disagree — and it counts corridors, which are
+  rooms you walk into and read a description of like any other. The name was written by
+  the Dungeon Pass and shown once above the opening, then scrolled away for the rest of
+  the run.
 - **A compass rose.** Not decoration — see 8c. The prose is being held to absolute
   directions, and the map should state which way north is rather than assume it.
 - **Floating labels on explored rooms.** Room names on the map itself, fog permitting.
@@ -817,8 +965,15 @@ has to know what the other is drawing, and each renders alone in a test.
   player was promised they would get to watch; it currently renders as the least prominent
   thing in the scrollback.
 - **Auto-centre the map on the new room** when the player moves.
-- **A turn tracker**, top right of the stage area. `run.turnCount` already exists and is
-  already ticked correctly by `turn.ts:311`; nothing renders it.
+- ✅ **A turn tracker**, top right of the stage area — the stage header row in
+  `InputArea.tsx`, which was already `justify-between` with the stage name alone in it.
+  **It shows the turn IN PROGRESS**, `turnCount + 1`, because `turnCount` is closed turns
+  and the number the player is living through is one more — which is also the number
+  `assemble.ts:139` puts in front of the referee, and the two should not be off by one
+  from each other when a player is reading both. **Absent at a terminal stage**, where
+  there is no turn in progress and `EndOfRun` states the closed count a few lines below;
+  two numbers labelled "turn" and one apart would be worse than no tracker.
+  `InputArea.test.tsx` is new and jsdom, per the extension rule in `vite.config.ts`.
 
 ---
 
@@ -870,24 +1025,46 @@ geometry sentence behind it, which is 8f's territory.
   and shows the cause: the Residue Way's arrival post says *"Four ways lead out"* and then
   names three, and it describes the concealed fissure to the Oubliette as one of them.
 
-  Three sources tell the referee how many exits a room has, and **they disagree**:
+  Three sources tell the referee how many exits a room has, and **they disagreed**:
 
   1. the **ways-out list**, which is correct — `roomView` filters concealed connectors
      (`selectors.ts:271`) and flags the one they came in by;
-  2. the **geometry sentence**, which counts every connector in `g.exits` with no
-     concealment filter at all (`dungeon-geometry.ts:494`) — so it says *"one off the north
-     wall, two off the west wall"* about a room with a hidden way;
+  2. the **geometry sentence**, which counted every connector in `g.exits` with no
+     concealment filter at all — so it said *"one off the north wall, two off the west
+     wall"* about a room with a hidden way;
   3. the room's own **`base`**, written by the content pass off that same unfiltered
      sentence, which in R2 opens *"Four ways out: east, south, and two to the west."*
      `base` is immutable and binds the referee, so **no step file can fix this** — the
      referee is being obedient.
 
-  Fix in that order: filter concealed exits out of the geometry sentence for the runtime
-  reader (the content pass legitimately needs them all — it writes the concealed one), stop
-  the content pass writing counts into `base` at all, and only then add the step-file line
-  about mentioning the way in last and outside the count. **The fog leak is the serious
-  half**: a concealed way should not be describable, and today the geometry line hands it
-  over. See 8f.
+  ✅ **(2) is fixed, and so is a fourth source nobody had counted.** `describeGeometry`
+  takes `{ omit }` and `roomView` hands it every concealed connector touching the room, so
+  the count is what a person standing there can see; the way out of the dungeon has a null
+  id and is never omittable. The memo in `selectors.ts` now holds the `RoomGeometry` rather
+  than the rendered line, because concealment is run state — a secret door found on turn
+  nine has to start being counted, and a baked sentence could not. **The content pass still
+  passes nothing and sees them all**, deliberately: it is the pass that writes what the
+  concealed way physically is.
+
+  **The fourth source was the ways-out list itself.** A concealed *item* carries
+  `NOT YET FOUND BY THE PLAYER` (`render.ts:113`); a concealed **connector** carried
+  nothing — `ExitView` had no such field — and prompt assembly passes `includeHidden:
+  true`, so a secret door reached the referee formatted identically to an open one. That is
+  R2's fissure. `ExitView.isHidden` now exists and `render.ts` marks it in the same words,
+  plus *do not count it among the ways out*.
+
+  ✅ **(3) is fixed.** `CONTENT_PASS_INSTRUCTIONS`
+  gained two rules under the direction pair, both argued from `base` being immutable and
+  there being no later pass that can correct it: **do not count the ways out in the room's
+  base**, because the number stops being true the first time one is opened, barred or
+  found and the description cannot catch up; and **a concealed way is not part of the
+  room's description**, not even as a hint or a draught, because that description is read
+  out on arrival — it is written on the connector, which is the text the player reads on
+  *finding* it, and a findable concealed way already has a clue entity of its own.
+
+  **Still open:** the step-file line about mentioning the way in last and outside the
+  count. That was ordered last on purpose and now has a room block it can be written
+  against.
 
 **Reuse and register**
 
@@ -902,17 +1079,46 @@ geometry sentence behind it, which is 8f's territory.
   everything traversed. A short list of banned constructions in the information handler is
   the cheap fix; the better one is to say what an inspection paragraph is *for* so it stops
   reaching for a stock gesture to open with.
-- **The roll announcement does not belong in the narration.** *"You need to cast this
-  without being noticed. Make a Dexterity save—DC 16. Roll 1d20+3."* The interface renders
-  the roll offer from `rollRequest`; the prose should end at the moment of attempt. Anything
-  the offer is missing should be added to `RollSpec`, not smuggled into the post. **This
-  also fixes a rules leak**: `SKILL.md:196` forbids stating the DC to the player, and that
-  paragraph states it.
-- 🔴 **What a confirmation post is for needs saying once, plainly.** R2 seq 145 shows the
-  referee writing the post as narration of the attempt, catching itself, and rewriting it
-  as a statement of terms — *"Wait—I should not write that post yet"*. `steps/3-standard.md`
-  says both things a paragraph apart. One unambiguous statement of what the post contains
-  and where the prose stops. **This reduces how often A9 fires and does not fix it.**
+- ✅ **The roll announcement does not belong in the narration.** *"You need to cast this
+  without being noticed. Make a Dexterity save—DC 16. Roll 1d20+3."* **And the step file was
+  asking for it**: `3-standard.md` listed "the roll they are about to make", "their bonus"
+  and "whether it carries advantage" as things the confirmation post must say — while
+  `RollOffer` (`InputArea.tsx:59`) has always rendered exactly those beneath the post from
+  the committed `rollRequest`, and `SKILL.md:194` says it does. So the referee was obeying
+  an instruction to duplicate the interface, and the DC rode along on the duplicate.
+  **Fixed, and the line is drawn between the VALUES and the REASONS** — not between
+  mechanics and fiction, which was the first cut and the wrong one. The screen prints
+  `DEX SAVE · +3 · ADVANTAGE`: the bare fact, no cause. So the numbers and the labels want
+  no restating, and the post must still carry what the screen cannot say —
+
+  1. **where an edge came from**, whenever there is one. A player who cannot see that their
+     preparation paid stops preparing, and one who cannot see where a disadvantage came
+     from cannot argue it away. This is the standing "do not name anything working *for*
+     them unless you are giving them advantage" rule read from its other end, and that rule
+     now says so: naming without paying misleads, paying without naming hides the fact that
+     thinking works.
+  2. **why this ability, unless it is obvious** — and it usually is; a leap is Dex and a
+     heaved portcullis is Str. Where the fit is a judgement (Wis to hold their nerve rather
+     than Dex to move faster), a clause tells the player what kind of attempt the referee
+     understood this to be, in time for them to say "no, I meant —" before the dice.
+
+  Anything the offer is missing still goes into `rollRequest` — whose `description` is the
+  line shown above the Roll button — rather than into a second copy that can drift out of
+  step with it.
+- ✅ **What a confirmation post is for, said once, plainly.** R2 seq 145 shows the referee
+  writing the post as narration of the attempt, catching itself, and rewriting it as a
+  statement of terms — *"Wait—I should not write that post yet"*. The one statement it
+  needed, now at the head of the section: **the post stops at the moment of attempt** — the
+  instant before the hand closes, the blade moves, the foot leaves the ledge — because the
+  dice have not been thrown and narrating the attempt is step 5's, once there is a result to
+  narrate. **This reduces how often A9 fires and does not fix it.**
+
+  **`4-confirm-and-roll.md` carried the same instruction a file away** and moved with it:
+  a re-presented roll says what changed and why — an edge the player has just argued into
+  existence is one they earned, and naming what bought it is how they find out the argument
+  worked — rather than the numbers again. Two step files telling the referee to restate the
+  terms is exactly the "says both things a paragraph apart" problem, one paragraph further
+  out.
 - **Room names and their descriptions must agree.** A room called "The Laboratory" whose
   description was not of a laboratory. Needs diagnosis before a fix — the name comes from
   the rolled `identity` and the description from the content pass, so either the
@@ -1058,7 +1264,7 @@ the player did. Three things to settle:
   exception, and it earns it by being the alternative to death.
 - **Whether a follower is an entity or a new concept.** Almost certainly a creature whose
   `activity` says it is following, with `roomId` written to wherever the player went — no
-  party, no second sheet, no shared inventory. §8 non-goals says one PC and that still
+  party, no second sheet, no shared inventory. §9 non-goals says one PC and that still
   holds; a follower is scenery that walks, not a second character.
 - **What the map does.** A follower is a creature and creature markers do not exist
   (§1.2.12), so it will be invisible on the drawing until they do. Acceptable; note it.
@@ -1141,16 +1347,27 @@ these with a prompt.**
   to the §2.4 rule to be worth stating there rather than a hole in it. Settle in session:
   whether the placeholder is a second field or the `name` itself, and what happens on
   reload for a creature that was named mid-run (it persists — it is a normal field write).
-- **Item names come through in lower case.** R2's *"unmarked ledger"*, and the generated
-  entities are already inconsistent — *"The Residue"*, *"The Cutlass"*, *"The ledger"*,
-  *"The mirror"* in one dungeon. Player-visible names should be capitalised, always.
+- ✅ **Item names came through in lower case.** R2's *"unmarked ledger"*, and the generated
+  entities were inconsistent — *"The Residue"*, *"The Cutlass"*, *"The ledger"*, *"The
+  mirror"* in one dungeon.
 
-  **Two sites and it needs both**, because names are minted in two places: the content pass
-  when it writes the dungeon, and `createEntity` (`apply.ts:485`) when the referee mints
-  something mid-run. Normalise there rather than in the renderer — a display-side fix would
-  have to fight `definite()` in `verbs.ts`, which lowercases nothing and deliberately turns
-  *"an iron door"* into *"the iron door"* for a sentence. Capitalise the first letter, leave
-  the rest alone, and add the rule to `SKILL.md` so the model stops producing them.
+  `properName` in `dungeon-entities.ts` raises the first letter and leaves the rest alone —
+  not title case, which would have to know which words belong to somebody's actual name.
+  **Four mint sites, not the two this said**, and the extra two are why the walk exists:
+  `createEntity` (`apply.ts`) for what the referee mints mid-run; `applyContentPass`, where
+  a dozen assignment sites made per-site normalising a trap, so the whole response is walked
+  once at the top and every `name` key capitalised on a clone (the raw response is what the
+  journal recorded); plus `applySeamsPass`, which names the cross-chunk connectors, and
+  `applyDungeonPass`, whose group name **is** a creature's display name through
+  `resolveName`. `SKILL.md`'s creation section carries the rule and its example was
+  teaching the opposite.
+
+  **One thing this needed that the note said it would not.** `definite()` in `verbs.ts` was
+  to be left alone, and it could not be: a name carrying its own article is now stored as
+  *"The pillars"*, and dropping that into a sentence verbatim gives *"I examine The
+  pillars."* `definite` now normalises **the article and only the article** — any leading
+  `a`/`an`/`the` leaves as a lower-case `the`, and the rest of the name is untouched, since
+  *"I examine the wendy wilberforce"* would be a worse sentence than the one being fixed.
 - **The goal is stated in terms of a named NPC who is not in the goal room, and who is in
   two rooms at once.** *"Wendy appears to be the goal entity for the dungeon, but she showed
   up in the 3rd room. I thought we had something in place to make sure the goal was found
@@ -1202,40 +1419,203 @@ decision.
 
 ---
 
-## 6. Order of remaining work
+## 6. Phase 9 — The seam ✅ **BUILT**
+
+The first phase of the server migration, and it contains no server. Its whole job is
+that **the runtime stops depending on there being exactly one of everything**, because
+a browser tab holds one run and a request handler holds many. Nothing here is visible
+to a player: same game, same turns, same journal.
+
+### 6.1 What was singleton, and what it is now
+
+| Was | Is |
+|---|---|
+| `useGame`, a module-level store in `store/game.ts` | `createGameStore(): GameStoreApi` |
+| `sink` / `seq` / `broken` / `written`, module state in `runtime/journal.ts` | `createJournal(sink?): Journal`, plus the shared no-op `NO_JOURNAL` |
+| the run lifecycle, inside `App.tsx`'s `begin` | `createGameSession()` in `runtime/session.ts` |
+
+`turn.ts` and `referee.ts` already took the store as a parameter — that foresight is
+why this was cheap — but both **defaulted to the singleton**, so nothing was forced to
+say which run it meant. The defaults are gone. `createTurnMachine(referee, { store,
+journal })` and `createModelReferee({ store, journal })` now require a store, and both
+declare it structurally (`{ getState(): GameStore }`) so neither imports zustand.
+
+The journal is optional everywhere and defaults to `NO_JOURNAL`, which is what keeps
+**NO SINK, NO COST** true: the hundreds of tests that do not want a journal did not
+have to change, and none of them allocate one.
+
+### 6.2 `store/game.ts` imports `zustand/vanilla`
+
+The package's own entry point is `export * from 'zustand/vanilla'; export * from
+'zustand/react';` — so importing `"zustand"` pulled React into the import graph of
+every module that touched game state, the turn machine and the referee included. It
+worked, and it made the rule that the runtime is renderer-free untrue in fact.
+
+`src/store/react.ts` is now the only module below `src/ui` and `App.tsx` that imports
+React: one hook, `useGame(store, selector?)`, over `zustand/react`'s `useStore`.
+
+### 6.3 `GameSession`
+
+One object per run: its store, its journal, its referee, its turn machine, and the
+sequence that gets from a seed to a player standing in the first room.
 
 ```
-  8a A8      — the pickup/reveal regression. HOURS, NOT A SESSION. DO IT FIRST.
-  §1.1 chunk completeness check  — small, independent, do it whenever
+createGameSession({ referee?, sink?, generate?, offline?, onProgress?, signal?, maxRounds? })
+  → { store, runId, begin(request), resume(saved, runId?), enterRoom, submit, roll, retry }
+```
+
+Three decisions worth keeping:
+
+- **`sink` is a factory taking the run id**, because the id is derived from the seed and
+  the seed does not arrive until `begin`.
+- **`referee` is a factory taking `{ store, journal }`**, because the real one needs both
+  and they belong to the session. A fixture that needs neither is `() => stubReferee`.
+- **A second `begin` is ignored.** That was a `useRef` guard in `App.tsx` against
+  StrictMode's double mount; it belongs on the session, where it also covers a retried
+  handler. Generating over the top of a run in progress is worse than doing nothing.
+
+`resume(saved, runId?)` sets a store from a `SavedGame` without generating — the shape
+a request handler needs when the run comes back out of a database.
+
+### 6.4 The dungeon baseline moved
+
+`generate.ts` used to write the `{ kind: "dungeon" }` event. The session writes it now,
+immediately after `run`. The journal's claim is that the dungeon plus the commits is a
+complete history, and a dungeon that did not come through `generateDungeon` — the
+offline fixture, and later a dungeon loaded from a row — used to leave the journal with
+no world in it at all.
+
+### 6.5 `?raw` markdown does not load under Node 🔴 **the one real surprise**
+
+The playbook is markdown imported with Vite's `?raw` suffix (`prompts/loader.ts`). Vite
+understands it and so does vitest, which is why prompt assembly was always testable
+headlessly. **`node` does not**, so anything reaching the referee could not run outside
+a bundler. Invisible while the only thing that played a turn was a browser tab, and the
+first wall you hit playing one from a terminal.
+
+`dev/raw-md.ts` registers a synchronous module hook that teaches Node the same trick —
+no build step, the markdown stays the source of truth, nothing generated and nothing
+that can go stale. `cli-play.ts` is ten lines that register it and then `await import`
+the real CLI, because a static import would be hoisted above the registration.
+
+**This is a Phase 10 constraint, not a solved problem.** A serverless bundler will need
+the same thing from its own config. Vite in SSR mode already does it.
+
+### 6.6 What proves it
+
+- **`dev/cli-play.ts`** plays a whole run from a terminal — generation, room entry,
+  turns, the roll cycle, a journal in `out/runs/<id>/`. `npm run play` /
+  `npm run play:offline`. Piped stdin works, so a run can be scripted.
+- **`runtime/session.test.ts`** runs two sessions at once on different seeds and checks
+  that neither can reach the other: separate dungeons, separate draw counts, separate
+  journals each numbered from one. This is the test the phase exists for.
+- **`App.test.tsx`** mounts the app on `?offline=1` and plays a turn, which is the only
+  cover on the wiring between the session, the store subscription and the switches.
+- **A purity sweep** in `session.test.ts` over every file in `src/runtime` and
+  `src/store`: no `from "react"`, and no bare `from "zustand"`. The engine has had its
+  equivalent since Phase 0; the runtime never did, which is how the rule became untrue.
+- 787 tests, build clean.
+
+### 6.7 Carried out of Phase 9 🔴 **a generation failure says almost nothing**
+
+Observed in the browser on `?stub=1`, 2026-08-14: **"Could not build a dungeon: response
+did not match the expected shape"**, and nothing else — on the screen or in the console.
+
+The journal (`out/runs/2026-08-14T14-18-37-seed1005/`) had four events: the run,
+`dungeon-pass`, `content-pass` chunk 0, then the error. So one content-pass chunk came
+back failing zod, retried once, failed again, and took the whole generation down with
+it — two other passes' worth of tokens thrown away. **The same switches succeeded twenty
+minutes later** (`15-26-35`, "The Turning House"), so this is a transient model failure
+of the §1.1 family, not a broken build.
+
+What is missing is everything that would let you *fix* it:
+
+- **Which chunk.** The `error` event carries `where: "session:generate"` and a message.
+  Chunks run in parallel, so "one of them" is all you get.
+- **What zod objected to.** `ResponseFormatError` already carries `issues` and `raw`
+  (`llm/json.ts`), and every layer above drops both on the floor.
+- **The failed attempts at all.** `journal.log({ kind: "generation" })` only fires on
+  success, so a pass that never succeeded leaves no prompt and no response — the exact
+  two things §1.1 says are worth keeping because the dungeon is written once.
+- **Anything in the console.** `App.tsx` catches, takes `e.message`, and renders a
+  string. The error object never reaches devtools.
+
+**The fix, in four pieces:**
+
+1. `onAttemptFailed?: (e: ResponseFormatError, attempt: number) => void` on
+   `JsonCallOptions`. `callForJson` calls it before each retry and before the final
+   throw; `client.ts` stays journal-free and the caller supplies what it knows.
+2. A `{ kind: "generation-error"; pass; chunk?; attempt; message; issues; raw }` journal
+   event, written from `generate.ts`, which is the only place that knows which pass and
+   which chunk is in flight.
+3. `session.begin`'s catch keeps `issues` and `raw` when the error is a
+   `ResponseFormatError`, and `console.error`s the object rather than the string.
+4. The error screen names the **run id** — the journal is in `out/runs/<id>/` and there
+   is currently no way to find it but the timestamp — and offers a retry.
+
+**This is also the argument for Phase 10's split generation.** One bad chunk killing a
+whole dungeon is only tolerable because a request cannot resume; once each chunk is its
+own request, the retry is the chunk rather than the run.
+
+---
+
+### 6.8 Deliberately not in this pass
+
+No Postgres, no Hono, no Vercel, no auth, no BYOK, no model catalogue, no run lock, and
+no splitting generation across requests. `store/characters.ts` is still the in-memory
+array — §8 still carries "whether a made character survives a reload", and Phase 11 is
+where that gets settled.
+
+---
+
+## 7. Order of remaining work
+
+```
   Phase 8a rest (A7, A9) ─┐
                 8b ─┐     │
                 8c ─┼─────┴─ independent of each other, any order or in parallel
                 8d ─┤
                 8e ─┤
                 8f ─┘
-  Phase 5   — needs Phase 2 (rolls), otherwise independent; slots anywhere
   Phase 7   — the three remaining affordances, independent
+  The shop  — the other half of Phase 5's equipment step; §3.6
 ```
 
-**A8 first, and it is not a session** — it is a regression the 8a work introduced, it
-refuses a commit the player is entitled to, and every playtest until it is fixed will spend
-turns on it. Then 8a's remainder, for the same reason 8a led before: a machine that cannot
-finish a turn makes every other item hard to see.
+**A8 is done** — it led this list because it refused a commit the player was entitled to,
+and every playtest until it was fixed spent turns on it. **8a's remainder still goes first**,
+for the same reason 8a led before: a machine that cannot finish a turn makes every other
+item hard to see. Of what is left there, **A9 is the one with teeth** — A8's refusal is
+gone, but the doubled post it produced was a second defect and is untouched.
 
-**Two soft orderings among the rest.** 8f's exit-count fix (the geometry sentence and the
-room `base`) should land before 8c writes step-file rules about exits, or 8c will be
-writing instructions for a room block that is about to change. And 8e's creature work reads
+**Two soft orderings among the rest.** 8f's exit-count fix had to land before 8c writes
+step-file rules about exits, or 8c would be writing instructions for a room block that was
+about to change. **It has landed** — the geometry sentence no longer counts a concealed
+way, the ways-out list marks one, and the content pass no longer writes counts or concealed
+ways into a room's `base` — so the step-file line is now unblocked. And 8e's creature work reads
 much better after 8f's `properNamed`, since "who is this person" and "what do they do about
 what was just said" are the same scene.
 
 ---
 
-## 7. What is still open
+## 8. What is still open
 
-Nothing is open outside Phase 8. Everything settled through Phase 7 is either in §2 or in
-the code.
+**Open outside Phase 8**, both from Phase 5 and both named in §3.6:
 
-**Open in Phase 8**, none of it blocking A8 or the rest of 8a, which are fully specified:
+- **The shop.** The Item Costs page is ~90 entries and `knave-tables.ts` already carries
+  costs for everything the gear tables can produce. Per the brief, slot cost shows at least
+  as prominently as price.
+- **Whether a made character survives a reload**, and what the stored record looks like.
+  `store/characters.ts` is still the only module that has to change.
+
+Everything else settled through Phase 7 is either in §2 or in the code.
+
+**Open out of Phase 9**, and worth doing before the server work rather than after:
+
+- **A generation failure is undebuggable** — §6.7. Four small pieces, none of them
+  architectural, and every one of them is something you will want the first time a
+  playtester reports a failed dungeon rather than a developer with the tab still open.
+
+**Open in Phase 8**, none of it blocking the rest of 8a, which is fully specified:
 
 - Whether narration moves onto the commit or the last text block simply wins (8a A9).
   **Prefer the commit; say so out loud when choosing the cheap one.**
@@ -1266,8 +1646,16 @@ the code.
 
 ---
 
-## 8. Non-goals for this prototype
+## 9. Non-goals for this prototype
 
 No multiplayer, no party (one PC). No leveling. No between-dungeon persistence beyond saved
 characters. No light or ration clocks yet, though `turnCount` exists for them. No mobile
 layout — desktop-first, must not break at tablet width.
+
+**And no retrofitting.** A dungeon generated by an earlier build is disposable: this is
+still development, there is no installed base, and a fix that applies from the next
+generation onward is a finished fix. Nothing here gets a migration path, a back-compat
+branch, or a caveat explaining what old saves keep. This is **not** licence to drop a
+field a *current* generation run can legitimately leave unset — `blockplan` is null
+whenever the plan does not draw (§2.10), which is a live supported case and not legacy
+data.

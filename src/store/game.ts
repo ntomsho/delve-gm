@@ -11,10 +11,21 @@
  * everything in them just to record that the player lost two hit points.
  *
  * The store owns no React. Everything below is plain state plus functions, so
- * the turn machine and its tests never need a renderer.
+ * the turn machine and its tests never need a renderer. That is why the import
+ * below is `zustand/vanilla` and not `zustand`: the package's own entry point
+ * re-exports `zustand/react`, so importing it pulled React into the import
+ * graph of every module that touches game state — the turn machine and the
+ * referee included. `src/store/react.ts` holds the one binding that does.
+ *
+ * ONE STORE PER RUN. There was a module-level `useGame` here until Phase 9, and
+ * a singleton is the right shape for exactly one situation: a browser tab, with
+ * one run in it. A process serving several runs at once would have them
+ * overwrite each other's entities, stage, and — worst, because it is silent —
+ * each other's `rngDraws`. So the store is made by a factory now, and whoever
+ * owns a run holds its store.
  */
 
-import { create } from "zustand";
+import { createStore, type StateCreator, type StoreApi } from "zustand/vanilla";
 import type { GeneratedDungeon } from "../runtime/generate.ts";
 import type { RollSpec, Stage, Step } from "../runtime/types.ts";
 import type { Commit, World, WorldEvent } from "../runtime/diffs/types.ts";
@@ -255,7 +266,18 @@ function endingOf(commit: Commit, world: World, died: boolean): Stage {
   return commit.nextStage;
 }
 
-export const useGame = create<GameStore>((set, get) => ({
+/**
+ * A store, as everything that is not React sees it: `getState`, `setState`,
+ * `subscribe`. The turn machine and the referee take one of these and declare
+ * it structurally, so neither of them imports zustand at all.
+ */
+export type GameStoreApi = StoreApi<GameStore>;
+
+export function createGameStore(): GameStoreApi {
+  return createStore<GameStore>(init);
+}
+
+const init: StateCreator<GameStore> = (set, get) => ({
   dungeon: undefined,
   run: undefined,
   lastEvents: [],
@@ -348,7 +370,7 @@ export const useGame = create<GameStore>((set, get) => ({
   reset() {
     set({ dungeon: undefined, run: undefined, lastEvents: [] });
   },
-}));
+});
 
 // ---------------------------------------------------------------------------
 // SAVE / LOAD

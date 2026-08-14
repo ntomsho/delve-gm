@@ -14,26 +14,45 @@
  * about for `turnCount`. One `await` against an array costs nothing today and
  * buys the swap for free later.
  *
- * Saving and deleting are not here yet: character creation is disabled until
- * Phase 5, so there is no way to make a character that would need saving, and
- * an unused write path is a thing that rots before it is ever called.
+ * Saving and deleting arrived with Phase 5, and they write to the same array.
+ * **A character does not survive a reload.** That is deliberate for this pass:
+ * serialising them is its own decision — what the record looks like, what
+ * happens to one saved against an older shape — and making that decision badly
+ * now would be harder to undo than making it later. So a character made this
+ * session can be taken into a run this session, and the seeded one comes back
+ * either way.
  */
 
 import type { PlayerCharacter } from "../engine/index.ts";
 import { testCharacter } from "../runtime/__fixtures__/offline.ts";
 
 /**
- * The whole stock, for now. Seeded from the fixture rather than created by the
- * player, which is why the one occupant is called Testy and has +3 in
- * everything — this is scaffolding standing in for Phase 5, not a pregenerated
- * character anyone chose.
+ * The stock. Seeded with the fixture, which is why the first occupant is called
+ * Testy and has +3 in everything — that one is scaffolding and the dev
+ * quick-start, not a character anyone rolled up.
  */
-const SEEDED: PlayerCharacter[] = [testCharacter()];
+const STOCK: PlayerCharacter[] = [testCharacter()];
 
 export async function listCharacters(): Promise<PlayerCharacter[]> {
-  return SEEDED;
+  return [...STOCK];
 }
 
 export async function getCharacter(id: string): Promise<PlayerCharacter | undefined> {
-  return SEEDED.find((c) => c.id === id);
+  return STOCK.find((c) => c.id === id);
+}
+
+/** Add a newly made character, or replace one with the same id. */
+export async function saveCharacter(pc: PlayerCharacter): Promise<PlayerCharacter> {
+  const i = STOCK.findIndex((c) => c.id === pc.id);
+  if (i === -1) STOCK.push(pc);
+  else STOCK[i] = pc;
+  return pc;
+}
+
+/** Remove one. Returns whether there was anything to remove. */
+export async function deleteCharacter(id: string): Promise<boolean> {
+  const i = STOCK.findIndex((c) => c.id === id);
+  if (i === -1) return false;
+  STOCK.splice(i, 1);
+  return true;
 }

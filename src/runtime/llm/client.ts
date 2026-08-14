@@ -27,6 +27,7 @@
 import { z } from "zod";
 import { MAX_TOKENS, modelFor, type Task } from "./models.ts";
 import { ResponseFormatError, validate } from "./json.ts";
+import type { ValidationIssue } from "./schemas.ts";
 import { canBeStrict, fitStrict, toolSchema, type ToolSchema } from "./tool-schema.ts";
 
 const PATH = "/v1/messages";
@@ -314,6 +315,20 @@ export interface JsonCallOptions<T> extends CallOptions {
    * failure surfaces; there is no partial-content fallback.
    */
   retryOnInvalid?: boolean;
+  /**
+   * THE CHECK THE SCHEMA CANNOT MAKE: did the response answer what was asked?
+   *
+   * Zod validates shape, and it is handed the response alone — so a payload
+   * asking about six connectors and a response carrying five is a valid object
+   * and passes. Only the caller holds the payload, so only the caller can ask
+   * the completeness question, and it asks it here rather than after the call so
+   * the answer arrives while the one retry is still unspent.
+   *
+   * Anything returned is raised as a `ResponseFormatError`, which is to say it
+   * is treated exactly as a schema failure: the same retry, the same feedback
+   * channel, and the same "no partial content" ending if it fails twice.
+   */
+  check?: (value: T) => ValidationIssue[];
 }
 
 export interface JsonResult<T> {
@@ -374,7 +389,16 @@ export async function callForJson<T>(opts: JsonCallOptions<T>): Promise<JsonResu
           "the response was cut off at max_tokens; the object is incomplete"
         );
       }
-      return { value: validate(opts.schema, call.input), usage, attempts: attempt };
+      const value = validate(opts.schema, call.input);
+      const missing = opts.check?.(value) ?? [];
+      if (missing.length > 0) {
+        throw new ResponseFormatError(
+          "the response is well-formed but does not answer everything it was asked",
+          missing,
+          JSON.stringify(call.input).slice(0, 2000)
+        );
+      }
+      return { value, usage, attempts: attempt };
     } catch (e) {
       const isFormat = e instanceof ResponseFormatError;
       if (!isFormat || !retry || attempt > 1) throw e;

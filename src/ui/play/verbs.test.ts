@@ -51,9 +51,13 @@ describe("naming a thing inside a sentence", () => {
     expect(definite("a cracked font")).toBe("the cracked font");
   });
 
-  it("leaves a name that brought its own article alone", () => {
+  // Names are capitalised at the mint (8f), so a name that carries its own
+  // article carries a capital one, and the sentence wants it lower. Only the
+  // article moves — "Sunken Vestibule" is somebody's name for the place.
+  it("lowers the article on a name that brought its own", () => {
+    expect(definite("The stair up")).toBe("the stair up");
+    expect(definite("The Sunken Vestibule")).toBe("the Sunken Vestibule");
     expect(definite("the stair up")).toBe("the stair up");
-    expect(definite("The Sunken Vestibule")).toBe("The Sunken Vestibule");
   });
 
   it("gives an article to a name with none", () => {

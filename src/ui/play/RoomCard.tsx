@@ -176,23 +176,14 @@ export function RoomCard({ room }: { room: RoomView }) {
         </div>
       )}
 
-      {/* The way they walked in by, on its own above the rule. A player who has
-          just arrived somewhere asks two things — what is here, and how do I get
-          back — and the second should not have to be hunted for in a list. */}
-      {behind.length > 0 && (
-        <div className="mt-3">
-          <div className={`${LABEL} mb-1.5`}>Behind you</div>
-          <ul className="space-y-1">
-            {behind.map((e) => (
-              <Exit key={e.connectorId} exit={e} />
-            ))}
-          </ul>
-        </div>
-      )}
-
+      {/* WHERE THEY CAN GO, THEN WHERE THEY HAVE BEEN.
+          A player standing in a room asks two things — what is here, and where
+          can I go next — and the way they walked in by is neither. It stays on
+          the card, named and set apart below the rule, because deciding to turn
+          back is a real decision and it should not have to be hunted for; it
+          just stops being the first thing under the contents. */}
       <div className="mt-3">
-        {behind.length > 0 && <div className="mb-3 h-px bg-rule" />}
-        <div className={`${LABEL} mb-1.5`}>{behind.length > 0 ? "Other ways out" : "Exits"}</div>
+        <div className={`${LABEL} mb-1.5`}>Exits</div>
         <ul className="space-y-1">
           {ahead.map((e) => (
             <Exit key={e.connectorId} exit={e} />
@@ -204,6 +195,18 @@ export function RoomCard({ room }: { room: RoomView }) {
           )}
         </ul>
       </div>
+
+      {behind.length > 0 && (
+        <div className="mt-3">
+          <div className="mb-3 h-px bg-rule" />
+          <div className={`${LABEL} mb-1.5`}>You came in from</div>
+          <ul className="space-y-1">
+            {behind.map((e) => (
+              <Exit key={e.connectorId} exit={e} />
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Portalled to the document. The card is the narrowest panel on the
           sheet and a hover on a row near its edge would otherwise be cut off by

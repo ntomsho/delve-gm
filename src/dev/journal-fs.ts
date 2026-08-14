@@ -13,9 +13,21 @@ import { join, resolve } from "node:path";
 import { render } from "../runtime/journal-render.ts";
 import { runId, type JournalRecord, type Sink } from "../runtime/journal.ts";
 
-/** `out/runs/<timestamp>-seed<n>`. Gitignored, alongside the generation dumps. */
+/**
+ * Where a run's journal goes, given the id it is being kept under. Gitignored,
+ * alongside the generation dumps.
+ *
+ * Takes the id rather than the seed because a session chooses its id once, at
+ * `begin`, and `runId` is stamped with the time — asking for it twice would
+ * name two directories.
+ */
+export function dirFor(runId: string, root = "out/runs"): string {
+  return resolve(process.cwd(), root, runId);
+}
+
+/** `out/runs/<timestamp>-seed<n>`, for a caller with a seed and no session. */
 export function runDir(seed: number, root = "out/runs"): string {
-  return resolve(process.cwd(), root, runId(seed));
+  return dirFor(runId(seed), root);
 }
 
 export function fileSink(dir: string): Sink {

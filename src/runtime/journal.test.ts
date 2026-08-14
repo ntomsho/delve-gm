@@ -8,14 +8,11 @@
  * to opt out of.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import {
-  attach,
-  detach,
-  log,
-  logSystem,
-  resetSystemCache,
+  createJournal,
   runId,
+  type Journal,
   type JournalEvent,
   type JournalRecord,
 } from "./journal.ts";
@@ -23,12 +20,16 @@ import { render } from "./journal-render.ts";
 import { createTurnMachine } from "./turn.ts";
 import { stubReferee } from "./__fixtures__/stub-referee.ts";
 import { generateOffline, testCharacter } from "./__fixtures__/offline.ts";
-import { useGame } from "../store/game.ts";
+import { createGameStore } from "../store/game.ts";
 import { MODELS } from "./llm/models.ts";
 
 const dungeon = generateOffline(1005, 1);
 
+/** This file's own store — see the note atop `store/game.ts`. */
+const useGame = createGameStore();
+
 let written: JournalRecord[];
+let journal: Journal;
 
 const kinds = () => written.map((r) => r.kind);
 const only = <K extends JournalRecord["kind"]>(kind: K) =>
@@ -36,40 +37,57 @@ const only = <K extends JournalRecord["kind"]>(kind: K) =>
 
 beforeEach(() => {
   written = [];
-  resetSystemCache();
-  attach({ write: (r) => written.push(r) });
+  journal = createJournal({ write: (r) => written.push(r) });
   useGame.getState().reset();
   useGame.getState().start(dungeon, testCharacter());
 });
 
-afterEach(detach);
+/** The machine under test drives this file's store and writes to its journal. */
+const machineFor = (referee: typeof stubReferee) =>
+  createTurnMachine(referee, { store: useGame, journal });
 
 // ---------------------------------------------------------------------------
 
 describe("with no sink", () => {
   it("does nothing at all", () => {
-    detach();
-    log({ kind: "player", text: "this goes nowhere" });
+    createJournal().log({ kind: "player", text: "this goes nowhere" });
     expect(written).toHaveLength(0);
   });
 
   it("does not throw when a sink does", () => {
-    attach({
+    const onFire = createJournal({
       write() {
         throw new Error("the disk is on fire");
       },
     });
     // A journal that takes the game down with it is worse than no journal.
-    expect(() => log({ kind: "player", text: "x" })).not.toThrow();
-    expect(() => log({ kind: "player", text: "y" })).not.toThrow();
+    expect(() => onFire.log({ kind: "player", text: "x" })).not.toThrow();
+    expect(() => onFire.log({ kind: "player", text: "y" })).not.toThrow();
+  });
+
+  // The point of the whole exercise: two runs in one process, and neither can
+  // see the other's events or share its sequence.
+  it("keeps two journals apart", () => {
+    const a: JournalRecord[] = [];
+    const b: JournalRecord[] = [];
+    const ja = createJournal({ write: (r) => a.push(r) });
+    const jb = createJournal({ write: (r) => b.push(r) });
+
+    ja.log({ kind: "player", text: "mine" });
+    jb.log({ kind: "player", text: "theirs" });
+    ja.log({ kind: "player", text: "mine again" });
+
+    expect(a.map((r) => r.seq)).toEqual([1, 2]);
+    expect(b.map((r) => r.seq)).toEqual([1]);
+    expect(b[0]).toMatchObject({ kind: "player", text: "theirs" });
   });
 });
 
 describe("every event", () => {
   it("is numbered in order and stamped", () => {
-    log({ kind: "player", text: "one" });
-    log({ kind: "player", text: "two" });
-    log({ kind: "player", text: "three" });
+    journal.log({ kind: "player", text: "one" });
+    journal.log({ kind: "player", text: "two" });
+    journal.log({ kind: "player", text: "three" });
 
     expect(written.map((r) => r.seq)).toEqual([1, 2, 3]);
     expect(Date.parse(written[0].at)).not.toBeNaN();
@@ -77,9 +95,9 @@ describe("every event", () => {
 
   it("writes the standing instructions once per step, not once per call", () => {
     const blocks = [{ type: "text" as const, text: "the playbook" }];
-    logSystem("1-target", blocks);
-    logSystem("1-target", blocks);
-    logSystem("5-resolution", blocks);
+    journal.logSystem("1-target", blocks);
+    journal.logSystem("1-target", blocks);
+    journal.logSystem("5-resolution", blocks);
 
     expect(only("system").map((r) => r.step)).toEqual(["1-target", "5-resolution"]);
   });
@@ -89,7 +107,7 @@ describe("every event", () => {
 
 describe("a turn, end to end", () => {
   it("records the arrival, the input, the change, and every stage between", async () => {
-    const machine = createTurnMachine(stubReferee);
+    const machine = machineFor(stubReferee);
 
     await machine.enterRoom();
     await machine.submit("I search the floor");
@@ -116,7 +134,7 @@ describe("a turn, end to end", () => {
   });
 
   it("records a refused commit with the applier's reasons, and the retry", async () => {
-    const machine = createTurnMachine(stubReferee);
+    const machine = machineFor(stubReferee);
     await machine.enterRoom();
     // The stub's `cheat` branch writes `name`, which is never writable, and
     // says the same thing again when asked — so the turn ends in `error`.
@@ -132,7 +150,7 @@ describe("a turn, end to end", () => {
   });
 
   it("records the player's own roll with the dice and the difficulty", async () => {
-    const machine = createTurnMachine(stubReferee);
+    const machine = machineFor(stubReferee);
     await machine.enterRoom();
     // "climb", not "force the door" — the stub checks for a door first and
     // asks which one, which is a clarification and not a roll.

@@ -166,6 +166,14 @@ export function renderRoom(room: RoomView): string {
             // resolve to the same door for both of you. Not on the surface exit,
             // whose own line already says it in more words.
             x.cameFrom && !x.surface ? `THE WAY THEY CAME IN` : undefined,
+            // The same words a concealed thing standing in the room carries —
+            // see `renderEntity`. Without it a secret door arrived here dressed
+            // exactly like an open one, and the room's ways-out list is the
+            // thing the referee counts when it writes "three ways lead out".
+            x.isHidden
+              ? `NOT YET FOUND BY THE PLAYER — do not describe it, do not count it ` +
+                `among the ways out, and do not hint at it except through a clue they find`
+              : undefined,
             x.blocked ? `BLOCKED: ${x.requirement ?? "something is in the way"}` : undefined,
             x.surface
               ? `LEADS OUT OF THE DUNGEON — the way they came in, and the way home. ` +

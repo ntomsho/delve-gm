@@ -61,6 +61,7 @@ import type {
   StockedConnector,
   StockedDungeon,
 } from "./dungeon-rooms-loop.ts";
+import { properName } from "./dungeon-entities.ts";
 import type {
   CreatureStats,
   ICreature,
@@ -930,6 +931,21 @@ Two hard rules about direction:
 - Do not invent an exit, a window, or a level change that is not listed. The ways
   out are exactly the connectors given.
 
+And two about the ways out, both of them because base is IMMUTABLE and there is
+no later pass that can correct it:
+- DO NOT COUNT THEM IN THE ROOM'S BASE. "Four ways out: east, south, and two to
+  the west" stops being true the first time one is opened, barred, collapsed or
+  found, and the description cannot be rewritten to catch up -- so the number goes
+  on being read aloud to the player long after it is wrong. The map draws the ways
+  out and the game lists them fresh every turn. Describe the room; let the
+  counting be done by something that is allowed to change its mind.
+- A CONCEALED way is NOT part of the room's description. Write what it physically
+  is on the connector itself -- that is the text the player reads on FINDING it --
+  and keep it out of the room's base entirely, not even as a hint or a draught. A
+  room whose standing description mentions the crack in the west wall has no
+  secret door in it, because that description is read out on arrival. Where a
+  concealed way is meant to be findable, procgen lists a clue as its own entity.
+
 Feet are given so the prose can be concrete. Round them, compare them to
 something, or ignore them -- but do not contradict them.
 
@@ -1076,6 +1092,131 @@ with no "as drawn" line. NEVER put a count, a dimension, or a coordinate in any
 of them: "kind" and "position" are words off the lists and nothing else.`;
 
 // ===========================================================================
+// COMPLETENESS
+// ===========================================================================
+
+/**
+ * One thing the payload asked for that the response did not answer.
+ *
+ * Structurally a `ValidationIssue` (src/runtime/llm/schemas.ts) without being
+ * one: the engine does not import from the runtime. The guard that keeps the
+ * two shapes together lives on the runtime side, beside the other three.
+ */
+export interface Omission {
+  path: string;
+  message: string;
+}
+
+/**
+ * EVERYTHING THIS CHUNK WAS ASKED ABOUT AND DID NOT WRITE.
+ *
+ * A response answering five of six connectors is valid JSON against a valid
+ * schema. Zod checks shape, and nothing about the shape says how many connectors
+ * there should be -- so the omission passes, the chunk applies, and the gap
+ * surfaces only when `validateWritten` sweeps at the end, by which point the pass
+ * is over and the one retry has gone unspent. That is how a live run finished
+ * with three of ~90 written things unwritten, one of them a connector between two
+ * rooms in the same chunk, which no seam could explain.
+ *
+ * This turns an omission into exactly the zod-shaped failure the retry already
+ * knows how to take. It lives here rather than in the schema because only the
+ * PAYLOAD knows what was asked for, and the schema never sees the payload.
+ *
+ * WHAT IS DELIBERATELY NOT CHECKED, all for one reason -- the model chose, so
+ * there is nothing it can have left out: fixtures, promoted details, and the
+ * seam connectors carried as context, which HARD RULE 1 tells it not to return.
+ */
+export function contentPassOmissions(
+  payload: ContentPassPayload,
+  res: ContentPassResponse
+): Omission[] {
+  const out: Omission[] = [];
+  const roomByRef = new Map((res.rooms ?? []).map((r) => [r.ref, r]));
+
+  const absent = (want: readonly string[], got: readonly string[]): string[] => {
+    const have = new Set(got);
+    return want.filter((ref) => !have.has(ref));
+  };
+
+  for (const brief of payload.rooms) {
+    const rr = roomByRef.get(brief.ref);
+    if (!rr) {
+      out.push({
+        path: `rooms.${brief.ref}`,
+        message: `room ${brief.ref} was listed and is missing from the response entirely`,
+      });
+      continue;
+    }
+    const at = `rooms.${brief.ref}`;
+
+    for (const ref of absent(
+      brief.entities.map((e) => e.ref),
+      (rr.entities ?? []).map((e) => e.ref)
+    )) {
+      out.push({
+        path: `${at}.entities`,
+        message: `entity ${ref} was listed and is not in the response; every listed entity must be written exactly once`,
+      });
+    }
+
+    for (const ref of absent(
+      brief.connectors.filter((c) => !c.seam).map((c) => c.ref),
+      (rr.connectors ?? []).map((c) => c.ref)
+    )) {
+      out.push({
+        path: `${at}.connectors`,
+        message: `connector ${ref} was listed and is not in the response; a way out with no form is one the game cannot describe when a player walks up to it`,
+      });
+    }
+
+    if (brief.goal && !rr.goal) {
+      out.push({
+        path: `${at}.goal`,
+        message: `this room is the GOAL room and no "goal" was written for it`,
+      });
+    }
+
+    const written = new Map((rr.encounters ?? []).map((e) => [e.ref, e]));
+    for (const en of brief.encounters) {
+      const er = written.get(en.ref);
+      if (!er) {
+        out.push({
+          path: `${at}.encounters`,
+          message: `encounter ${en.ref} was listed and is not in the response`,
+        });
+        continue;
+      }
+      // The mass and the specimens become separate entities, so each is
+      // separately omittable: a response can carry the encounter, write the rank
+      // and file, and quietly drop the named leader standing in front of them.
+      if (en.group && !er.group) {
+        out.push({
+          path: `${at}.encounters.${en.ref}.group`,
+          message: `encounter ${en.ref} lists a group of ${en.group.count} and the response wrote no "group" for it`,
+        });
+      }
+      for (const d of en.distinct) {
+        // Matched on kind AND member, which is the same join `applyContentPass`
+        // makes to find a specimen's keywords. A specimen returned under a
+        // member id that was not asked for loses its rolls as surely as one that
+        // never came back at all, so both are worth the retry.
+        const found = (er.distinct ?? []).some((x) => x.kind === d.kind && x.member === d.member);
+        if (found) continue;
+        out.push({
+          path: `${at}.encounters.${en.ref}.distinct`,
+          message:
+            `encounter ${en.ref} lists a distinct ${d.kind}` +
+            (d.member ? ` (member ${d.member})` : "") +
+            ` and the response has no entry matching it`,
+        });
+      }
+    }
+  }
+
+  return out;
+}
+
+// ===========================================================================
 // APPLY
 // ===========================================================================
 
@@ -1086,14 +1227,51 @@ export interface ContentApplyResult {
 
 /** Every entity carries the procgen rolls behind it, keyed by source table. */
 
+/**
+ * EVERY NAME IN THE RESPONSE, CAPITALISED, IN ONE PLACE.
+ *
+ * A dozen sites below lift `name` off the response and onto an entity — rooms,
+ * written entities, fixtures, promotions, connectors, groups, distinct
+ * specimens, the goal — and normalising at each of them means the thirteenth
+ * one, whenever it is written, ships lower-case names again. This is the
+ * chokepoint instead: past here, no name in `res` is unnormalised.
+ *
+ * Keyed on the field NAME, which is safe because every `name` in
+ * `ContentPassResponse` is a thing the player reads. What is deliberately not
+ * touched: `kind` and `form` and `position`, which are vocabulary the code
+ * matches on and would break if their case moved.
+ *
+ * On a copy. The raw response is what the journal recorded and what a replay
+ * reads back; rewriting it underneath them would make the record disagree with
+ * the call it is a record of.
+ */
+function withProperNames(res: ContentPassResponse): ContentPassResponse {
+  const copy = structuredClone(res);
+  const walk = (node: unknown): void => {
+    if (Array.isArray(node)) {
+      for (const v of node) walk(v);
+      return;
+    }
+    if (node === null || typeof node !== "object") return;
+    const rec = node as Record<string, unknown>;
+    for (const [k, v] of Object.entries(rec)) {
+      if (k === "name" && typeof v === "string") rec[k] = properName(v);
+      else walk(v);
+    }
+  };
+  walk(copy);
+  return copy;
+}
+
 export function applyContentPass(
-  res: ContentPassResponse,
+  raw: ContentPassResponse,
   payload: ContentPassPayload,
   ep: EntityPassResult,
   bp: DungeonBlueprintSeed,
   sd: StockedDungeon,
   rng: Rng
 ): ContentApplyResult {
+  const res = withProperNames(raw);
   const roomById = new Map(ep.rooms.map((r) => [r.id, r]));
   const roomByRef = new Map(sd.rooms.map((r) => [`room_${r.index}`, r.roomId]));
   const mobById = new Map(sd.mobiles.map((m) => [m.id, m]));

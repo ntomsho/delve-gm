@@ -6,7 +6,7 @@
  *
  *   base, name, id, type, keywords, blueprintId, narrative.*, stats.hitDice,
  *   stats.modifiers, slots, quality, endpointA, endpointB,
- *   and on the player: abilities, traits, level, hp.max
+ *   and on the player: abilities, traits, level, mode, hp.max
  *
  * `base` is identity — what a thing IS, as against how it currently stands. If
  * something changed enough that its base would need rewriting, that is not an

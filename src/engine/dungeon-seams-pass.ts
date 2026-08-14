@@ -22,9 +22,14 @@
  * after the serial applies, with both rooms written and in front of the model.
  */
 
-import { CONNECTOR_HEIGHT, CONNECTOR_NAMING, type ConnectorResponse } from "./dungeon-content-pass.ts";
+import {
+  CONNECTOR_HEIGHT,
+  CONNECTOR_NAMING,
+  type ConnectorResponse,
+  type Omission,
+} from "./dungeon-content-pass.ts";
 import type { EntityPassResult } from "./dungeon-entities-pass.ts";
-import { isSurfaceExit } from "./dungeon-entities.ts";
+import { isSurfaceExit, properName } from "./dungeon-entities.ts";
 import type { StockedDungeon } from "./dungeon-rooms-loop.ts";
 
 // ===========================================================================
@@ -177,6 +182,32 @@ const SEAMS_PASS_SCHEMA = `Return JSON only, no prose outside it:
 }`;
 
 // ===========================================================================
+// COMPLETENESS
+// ===========================================================================
+
+/**
+ * Every way through that was listed and did not come back.
+ *
+ * The same hole `contentPassOmissions` closes, in the pass that has always been
+ * able to see it: `applySeamsPass` already reports `missing`, but it reports it
+ * AFTER applying, when the call is spent and there is no retry left to take.
+ * Asked before the response is accepted, the same question buys the retry.
+ *
+ * A seam that never comes back is the worst-placed gap in the dungeon: it is by
+ * definition a way between two regions, so a player meets it while crossing from
+ * one to the other, and it has no form for the referee to describe.
+ */
+export function seamsPassOmissions(payload: SeamsPassPayload, res: SeamsPassResponse): Omission[] {
+  const written = new Set((res.connectors ?? []).map((c) => c.ref));
+  return payload.seams
+    .filter((s) => !written.has(s.ref))
+    .map((s) => ({
+      path: `connectors.${s.ref}`,
+      message: `way through ${s.ref} (${s.a.name} to ${s.b.name}) was listed and is not in the response`,
+    }));
+}
+
+// ===========================================================================
 // APPLY
 // ===========================================================================
 
@@ -206,7 +237,10 @@ export function applySeamsPass(
     if (!listed.has(cr.ref)) continue;
     const conn = connectorById.get(cr.ref);
     if (!conn) continue;
-    conn.name = cr.name;
+    // A connector is named in the room card's Exits list, beside the ones the
+    // content pass named — so it is capitalised on the same rule. See
+    // `properName`.
+    conn.name = properName(cr.name);
     (conn as { base?: string }).base = cr.form;
     conn.keywords = {};
     // A gated way keeps its placeholder condition when none came back: it must

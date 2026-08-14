@@ -59,8 +59,8 @@ import { modelFor, type Task } from "./llm/models.ts";
 import { PLAYER_ID, type Commit } from "./diffs/types.ts";
 import type { RollSpec } from "./types.ts";
 import type { Referee, RefereeReply, RefereeRequest } from "./turn.ts";
-import { useGame, type GameStore } from "../store/game.ts";
-import { log, logSystem } from "./journal.ts";
+import type { GameStore } from "../store/game.ts";
+import { NO_JOURNAL, type Journal } from "./journal.ts";
 
 // ---------------------------------------------------------------------------
 // THE TOOLS
@@ -264,10 +264,17 @@ function problemsWith(c: CommitParsed): string[] {
 // THE LOOP
 // ---------------------------------------------------------------------------
 
+/**
+ * The store, declared by what this file uses of it. Structural on purpose, so
+ * the referee never imports zustand — see the note atop `store/game.ts`.
+ */
 type Store = { getState(): GameStore };
 
 export interface ModelRefereeOptions {
-  store?: Store;
+  /** the run this referee answers for — see `createGameStore` */
+  store: Store;
+  /** where the run writes itself down. Omitted means it does not. */
+  journal?: Journal;
   /**
    * How many model calls one turn may take. Four is room to narrate, roll,
    * read, and commit, with one spare for a correction — and a hard stop on a
@@ -277,14 +284,14 @@ export interface ModelRefereeOptions {
   signal?: AbortSignal;
 }
 
-export function createModelReferee(opts: ModelRefereeOptions = {}): Referee {
-  const store = opts.store ?? useGame;
+export function createModelReferee(opts: ModelRefereeOptions): Referee {
+  const { store, journal = NO_JOURNAL } = opts;
   const maxRounds = opts.maxRounds ?? 4;
 
   return async function referee(req: RefereeRequest): Promise<RefereeReply> {
     const task: Task = req.step === "room-entry" ? "room-entry" : "turn-loop";
     const prompt = assemble(req);
-    logSystem(req.step, prompt.system);
+    journal.logSystem(req.step, prompt.system);
     const messages: Message[] = [...prompt.messages];
     /** whether any dice have been thrown for this turn — see unearnedDamage */
     let rolled = false;
@@ -320,6 +327,7 @@ export function createModelReferee(opts: ModelRefereeOptions = {}): Referee {
         signal: opts.signal,
         step: req.step,
         store,
+        journal,
       });
 
       const rolls = turn.toolUses.filter((t) => t.name === "roll");
@@ -367,7 +375,7 @@ export function createModelReferee(opts: ModelRefereeOptions = {}): Referee {
 
       if (rolls.length > 0) {
         const answers = rolls.map((r) =>
-          answerRoll(store, r, (batch) => playersOwnDice(req, batch))
+          answerRoll(store, journal, r, (batch) => playersOwnDice(req, batch))
         );
 
         // A batch that was refused threw nothing: no dice, no provenance, and
@@ -527,6 +535,7 @@ type RollResult = { id: string; content: string; isError?: boolean };
  */
 function answerRoll(
   store: Store,
+  journal: Journal,
   call: ToolUse,
   guard: (batch: RollBatchParsed) => string[]
 ): { result: RollResult; threw: boolean } {
@@ -557,7 +566,7 @@ function answerRoll(
   const rng = store.getState().rng();
   const outcomes = rollBatch(rng, batch.rolls);
   store.getState().syncRng(rng);
-  log({ kind: "roll", source: "referee", requested: batch.rolls, outcomes, draws: rng.draws });
+  journal.log({ kind: "roll", source: "referee", requested: batch.rolls, outcomes, draws: rng.draws });
 
   return {
     result: {
@@ -580,15 +589,16 @@ async function call(
   args: Parameters<typeof callWithTools>[0] & {
     step: RefereeRequest["step"];
     store: Store;
+    journal: Journal;
     round: number;
   }
 ) {
-  const { step, store, round, ...rest } = args;
+  const { step, store, journal, round, ...rest } = args;
   const started = Date.now();
 
   // What was actually sent, minus the system blocks — those are written once
   // per step per run rather than repeated on every call.
-  log({ kind: "prompt", step, messages: rest.messages });
+  journal.log({ kind: "prompt", step, messages: rest.messages });
 
   const logCall = (usage: Usage, error?: string) =>
     store.getState().logCall({
@@ -604,7 +614,7 @@ async function call(
   try {
     const turn = await callWithTools(rest);
     logCall(turn.usage);
-    log({
+    journal.log({
       kind: "response",
       step,
       round,
@@ -617,7 +627,7 @@ async function call(
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     logCall({ inputTokens: 0, outputTokens: 0 }, message);
-    log({ kind: "error", where: `referee:${step}`, message });
+    journal.log({ kind: "error", where: `referee:${step}`, message });
     throw e;
   }
 }

@@ -2,7 +2,10 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   characterKey, dungeonKey, memoryStore, runKey, type KeyValueStore,
 } from "./persist.ts";
-import { listSaves, loadGame, newRun, saveDungeon, saveRun, useGame } from "./game.ts";
+import { createGameStore, listSaves, loadGame, newRun, saveDungeon, saveRun } from "./game.ts";
+/** This file's own store — see the note atop `store/game.ts`. */
+const useGame = createGameStore();
+
 import { shownRoom } from "./selectors.ts";
 import { CountingRng } from "../runtime/rng.ts";
 import { die } from "../engine/index.ts";

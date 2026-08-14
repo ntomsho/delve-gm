@@ -18,7 +18,10 @@ import { describe, expect, it } from "vitest";
 import { assemble, CARRIED_TURNS, MAX_EXCHANGE } from "./assemble.ts";
 import { generateOffline, testCharacter } from "../__fixtures__/offline.ts";
 import { exitLabel, needsComposition, roomView } from "../../store/selectors.ts";
-import { useGame, type RunState } from "../../store/game.ts";
+import { createGameStore, type RunState } from "../../store/game.ts";
+/** This file's own store — see the note atop `store/game.ts`. */
+const useGame = createGameStore();
+
 import type { RolledOutcome } from "../turn.ts";
 
 const dungeon = generateOffline(1005, 1);
@@ -339,6 +342,37 @@ describe("what the referee is told that the player is not", () => {
     );
     expect(label).toBe(`${exit.name} to ${beyond.name}`);
     expect(brief()).toContain(`"${label}"`);
+  });
+
+  // 8f. A concealed WAY OUT used to arrive here dressed exactly like an open
+  // one: `renderEntity` marks a concealed thing standing in a room, and nothing
+  // marked a door. The referee then counted it among the ways out and described
+  // it, which is the one thing a secret door must not survive.
+  it("marks a concealed way out, and does not count it in the drawing", () => {
+    const run = fresh();
+    const secret = run.entities.connectors.find((c) => c.isHidden === true && c.endpointB !== null);
+    // No guard-and-return: a fixture with no secret way makes this test a lie,
+    // and the right answer is to hear about it rather than pass.
+    expect(secret, "no concealed way in the fixture dungeon").toBeDefined();
+    run.currentRoomId = secret!.endpointA;
+
+    const brief = assemble({ step: "1-target", dungeon, run }).messages[0].content as string;
+
+    // Listed, because the referee has to know it is there to be found...
+    expect(brief).toContain(secret!.id);
+    // ...marked, so it knows not to say so...
+    const line = brief.split("\n").find((l) => l.includes(secret!.id))!;
+    expect(line).toContain("NOT YET FOUND BY THE PLAYER");
+    expect(line).toContain("do not count it among the ways out");
+
+    // ...and absent from the count in the drawing, which is where R2's "four
+    // ways lead out" came from in a room the panel showed three ways out of.
+    const drawn = brief.slice(brief.indexOf("### As drawn on the map"));
+    const ways = drawn.slice(drawn.indexOf("Ways out:"), drawn.indexOf("\n", drawn.indexOf("Ways out:")));
+    const visible = roomView(run, dungeon, run.currentRoomId)!.exits;
+    const counted = ["no", "one", "two", "three", "four", "five", "six", "seven", "eight"];
+    const said = [...ways.matchAll(/(\w+) off the/g)].reduce((n, m) => n + counted.indexOf(m[1]), 0);
+    expect(said).toBe(visible.length);
   });
 
   it("gives every creature's defenses, so a difficulty can be set", () => {

@@ -56,18 +56,26 @@ const EXAMINE = "Examine?";
  * A name with a definite article, whatever it arrived with.
  *
  * Names are written by the content pass in the form they read best standing
- * alone — "an iron door", "the stair up", "Kennel" — and an action naming one
+ * alone — "An iron door", "The stair up", "Kennel" — and an action naming one
  * wants the definite form of it: "I examine the iron door", never "an iron
- * door". A name that brought its own "the" keeps it; anything else is given one.
+ * door". Whichever article a name brought, it leaves with a lower-case "the";
+ * a name with none is given one.
+ *
+ * THE ARTICLE'S CASE IS THE PART THAT MOVES, and only the article. Names are
+ * capitalised where they are minted (8f, `properName`), so "the pillars" is
+ * stored as "The pillars" and dropping it into a sentence verbatim would read
+ * "I examine The pillars." The rest of the name is never touched: which of its
+ * words are part of somebody's actual name is not knowable here, and "I examine
+ * the wendy wilberforce" is a worse sentence than the one this fixes.
+ *
  * `theRoom` in `selectors.ts` is the display-side half of this and deliberately
  * leaves an indefinite article alone, because a LABEL should read as it was
  * written; a sentence should not.
  */
 export function definite(name: string): string {
   const whole = name.trim();
-  const indefinite = /^(an?)\s+/i.exec(whole);
-  if (indefinite !== null) return `the ${whole.slice(indefinite[0].length)}`;
-  return /^the\s/i.test(whole) ? whole : `the ${whole}`;
+  const article = /^(an?|the)\s+/i.exec(whole);
+  return article === null ? `the ${whole}` : `the ${whole.slice(article[0].length)}`;
 }
 
 /**

@@ -42,11 +42,11 @@ The player may argue for a better roll or change their action. If they can artic
 - **changing the equipment** they use,
 - or otherwise changing the nature of the action — including **which stat** the roll uses or **which target** they roll against.
 
-Apply the change (recompute bonus, edge, DC or target, or weapon as needed), then present the updated roll and ask them to confirm it. A weak or unfounded reason earns no change — say so plainly and leave the roll as it stood.
+Apply the change (recompute bonus, edge, DC or target, or weapon as needed), then put the amended `rollRequest` back on the table and ask them to confirm it. The interface re-renders the terms from it, so your post says **what changed and why** — not the numbers over again. A weak or unfounded reason earns no change — say so plainly and leave the roll as it stood.
 
 Argument is the late half of the same ledger step 3 keeps under "pay for what they set up", and it pays at the same rates: a good reason that leans on something real buys advantage, and a reason good enough that the risk is simply gone takes the roll off the table and lets the action happen. What it never buys is a lower number you keep to yourself — either the edge changes or nothing does.
 
-Keep the difficulty hidden throughout. Re-present the bonus and the edge; never the DC or the target's defense. A qualitative "this still looks like a long shot" is fine; a number is not. And as in step 3: **do not name a factor working in their favour unless it is buying them advantage** — mentioning one while the terms stand unchanged tells them the roll got easier when it did not.
+Keep the difficulty hidden throughout: never the DC, never the target's defense. A qualitative "this still looks like a long shot" is fine; a number is not. The bonus and the edge need no restating either — the offer beneath your post carries them, amended, the moment you commit it. **What does need saying is why they moved**: an edge the player has just argued into existence is one they earned, and naming what bought it is how they find out the argument worked. As in step 3, the values are the screen's and the reasons are yours. And also as in step 3: **do not name a factor working in their favour unless it is buying them advantage** — mentioning one while the terms stand unchanged tells them the roll got easier when it did not.
 
 ## The loop
 

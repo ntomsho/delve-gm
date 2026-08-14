@@ -142,6 +142,45 @@ function outward(at: Point, through: Point): Point {
 }
 
 // ---------------------------------------------------------------------------
+// THE HEADER
+// ---------------------------------------------------------------------------
+
+/**
+ * What this place is called, and how much of it has been seen.
+ *
+ * The name is the Dungeon Pass's one piece of prose that names the whole
+ * dungeon, and until now it was shown once above the opening and then scrolled
+ * away for the rest of the run. The map is where a player looks to ask "where
+ * am I", so it is where the answer to "where is this" belongs.
+ *
+ * The count is the only progress signal a dungeon crawl naturally has. It is
+ * counted off `known` — the same field the fog is drawn from — so the number and
+ * the drawing under it cannot disagree, and it counts every place on the plan,
+ * corridors included, because those are rooms you walk into and read a
+ * description of like any other.
+ *
+ * Not part of `DungeonMap`: that component takes a drawing and pans and zooms
+ * it, and a header that scrolled out of frame with the paper would be a worse
+ * header. They are siblings in the map cell instead.
+ */
+export function MapHeader({ name, map }: { name: string; map: MapView }) {
+  const explored = map.rooms.filter((r) => r.known).length;
+
+  return (
+    <header className="mb-2 flex shrink-0 items-baseline justify-between gap-3">
+      {name && (
+        <h2 className="truncate font-display text-[14px] font-bold leading-tight text-ink">
+          {name}
+        </h2>
+      )}
+      <span className="shrink-0 font-mono text-[9px] uppercase tracking-[0.16em] text-graphite">
+        {explored}/{map.rooms.length} explored
+      </span>
+    </header>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // THE MAP
 // ---------------------------------------------------------------------------
 

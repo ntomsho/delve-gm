@@ -418,7 +418,9 @@ describe("clicking a thing on the map", () => {
     const r = inPlay(twoRooms());
     await press(r.all("svg > path")[0]);
     expect(pill()!.textContent).toBe("Examine?");
-    expect(pill()!.getAttribute("data-sends")).toBe("I look around The Sunken Vestibule.");
+    // "The Sunken Vestibule" on the map, "the Sunken Vestibule" in a sentence —
+    // `definite` moves the article and nothing else.
+    expect(pill()!.getAttribute("data-sends")).toBe("I look around the Sunken Vestibule.");
   });
 
   it("sends the sentence the button was showing, once, on a press", async () => {

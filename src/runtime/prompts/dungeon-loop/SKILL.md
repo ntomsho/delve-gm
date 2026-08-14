@@ -251,10 +251,12 @@ Create it by adding it to whatever holds it:
 
 ```
 { entityId: "<the guard>", path: "children[]", value: {
-    type: "Item", name: "iron keyring",
+    type: "Item", name: "Iron keyring",
     base: "<what it is — fixed identity, nothing that will stop being true>",
     state: "<what is true of it right now>" } }
 ```
+
+**A `name` is a label and starts with a capital.** "Iron keyring", "Unmarked ledger", "Wendy Wilberforce" — not "iron keyring". It is set beside the other things in the room card and on the character sheet, where a lower-case entry reads as a mistake. Only the first letter: "Iron keyring", never "Iron Keyring". The `base` beneath it is a sentence and stays one.
 
 From that moment it is an ordinary part of the world: it can be taken, broken, dropped, described. Do not leave a newly established element living only in prose — if the player can act on it, it needs to exist.
 

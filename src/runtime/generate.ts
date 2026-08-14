@@ -29,6 +29,8 @@ import {
   buildContentPassPayload,
   buildDungeonPassPayload,
   buildSeamsPassPayload,
+  contentPassOmissions,
+  seamsPassOmissions,
   generateBlueprint,
   generateBlueprintSeed,
   blockPlanValid,
@@ -52,7 +54,7 @@ import {
 import { callForJson, type Usage } from "./llm/client.ts";
 import { contentPassSchema, dungeonPassSchema, seamsPassSchema } from "./llm/schemas.ts";
 import { chunksFor, deriveSeeds, type RunSeeds } from "./seeds.ts";
-import { log } from "./journal.ts";
+import { NO_JOURNAL, type Journal } from "./journal.ts";
 
 // ---------------------------------------------------------------------------
 // PROGRESS
@@ -128,6 +130,8 @@ export interface GenerateOptions {
   level?: number;
   onProgress?: ProgressFn;
   signal?: AbortSignal;
+  /** where the generation writes itself down. Omitted means it does not. */
+  journal?: Journal;
 }
 
 // ---------------------------------------------------------------------------
@@ -148,6 +152,7 @@ export async function generateDungeon(opts: GenerateOptions): Promise<GeneratedD
   const level = opts.level ?? 1;
   const seeds = deriveSeeds(opts.seed);
   const report = opts.onProgress ?? (() => {});
+  const journal = opts.journal ?? NO_JOURNAL;
 
   const blueprint = generateBlueprintSeed(size, seeds.blueprintSeed, level);
 
@@ -167,7 +172,7 @@ export async function generateDungeon(opts: GenerateOptions): Promise<GeneratedD
     });
     // The dungeon is written exactly once and cannot be re-examined by playing
     // differently, so what was asked for is worth keeping.
-    log({ kind: "generation", pass: "dungeon-pass", prompt, response: value, usage });
+    journal.log({ kind: "generation", pass: "dungeon-pass", prompt, response: value, usage });
     return { result: applyDungeonPass(value, payload), usage };
   })();
 
@@ -266,8 +271,12 @@ export async function generateDungeon(opts: GenerateOptions): Promise<GeneratedD
         toolDescription: "Name and write every room, entity, connector, and creature group in this region.",
         messages: [{ role: "user", content: prompt }],
         signal,
+        // A chunk that answers five of six connectors is well-formed and wrong.
+        // Asked here, the omission is a retryable failure; noticed after the
+        // pass, it is an unwritten entity nobody can fix. See §1.1.
+        check: (v) => contentPassOmissions(payload, v),
       });
-      log({ kind: "generation", pass: "content-pass", chunk, prompt, response: value, usage });
+      journal.log({ kind: "generation", pass: "content-pass", chunk, prompt, response: value, usage });
       report({ stage: "writing", chunksDone: ++done, chunksTotal: chunks.length });
       return { chunk, payload, value, usage };
     })
@@ -301,8 +310,9 @@ export async function generateDungeon(opts: GenerateOptions): Promise<GeneratedD
       toolDescription: "Name and write every way through between the regions of the dungeon.",
       messages: [{ role: "user", content: prompt }],
       signal,
+      check: (v) => seamsPassOmissions(seamsPayload, v),
     });
-    log({ kind: "generation", pass: "seams-pass", prompt, response: value, usage: seamsUsage });
+    journal.log({ kind: "generation", pass: "seams-pass", prompt, response: value, usage: seamsUsage });
     applySeamsPass(value, seamsPayload, entities);
     usage = {
       inputTokens: usage.inputTokens + seamsUsage.inputTokens,
@@ -325,10 +335,11 @@ export async function generateDungeon(opts: GenerateOptions): Promise<GeneratedD
     usage,
   };
 
-  // The baseline. Every diff in the rest of the journal is a delta from this,
-  // which is what makes the file a complete history rather than a highlight
-  // reel — any moment in the run can be rebuilt from here plus the commits.
-  log({ kind: "dungeon", dungeon: result });
+  // The `dungeon` event is written by the SESSION rather than here. It is the
+  // baseline every later diff is a delta from, so a run needs it whatever
+  // produced the dungeon — including the offline fixture, which does not come
+  // through this function at all and used to leave the journal with no world
+  // in it.
   return result;
 }
 

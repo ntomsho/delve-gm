@@ -11,17 +11,27 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createTurnMachine, type RefereeReply, type RefereeRequest } from "./turn.ts";
+import { createTurnMachine as machineFor, type Referee, type RefereeReply, type RefereeRequest } from "./turn.ts";
 import { generateOffline, testCharacter } from "./__fixtures__/offline.ts";
 import { respond, stubReferee } from "./__fixtures__/stub-referee.ts";
 import { PLAYER_ID, type Commit, type Diff } from "./diffs/types.ts";
 import { farSide, isSurfaceExit, touches } from "../engine/index.ts";
-import { useGame } from "../store/game.ts";
+import { createGameStore } from "../store/game.ts";
 import { needsComposition, shownRoom, theRoom } from "../store/selectors.ts";
 import { acceptsInput } from "./types.ts";
 
 const SEED = 1005;
 const dungeon = generateOffline(SEED, 1);
+
+/**
+ * One store for this file, made once rather than imported. Every test below
+ * resets it in `beforeEach`, which is what the module singleton used to give
+ * them for free — see the note atop `store/game.ts` for why it no longer does.
+ */
+const useGame = createGameStore();
+
+/** The machine under test always drives that store, and is not journalled. */
+const createTurnMachine = (referee: Referee) => machineFor(referee, { store: useGame });
 
 const state = () => useGame.getState().run!;
 
@@ -928,10 +938,12 @@ describe("the stub referee", () => {
     expect(state().stage).toBe("awaiting_action");
     expect(state().turnCount).toBe(1);
 
-    // children[] with a ref, addressed twice in the same commit.
+    // children[] with a ref, addressed twice in the same commit. The stub asks
+    // for "brass key" and gets "Brass key" — a name is capitalised at the mint
+    // (8f), and this is the whole of what the referee sees of that rule.
     await m.submit("search the floor");
-    expect(state().pc.inventory.some((i) => i.name === "brass key")).toBe(true);
-    expect(state().entities.items.some((i) => i.name === "tin box")).toBe(true);
+    expect(state().pc.inventory.some((i) => i.name === "Brass key")).toBe(true);
+    expect(state().entities.items.some((i) => i.name === "Tin box")).toBe(true);
 
     // A move, and the entry it causes.
     const was = state().currentRoomId;

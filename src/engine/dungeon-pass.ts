@@ -29,6 +29,7 @@ import {
   type DungeonBlueprintSeed,
   type Size,
 } from "./dungeon-blueprint.ts";
+import { properName } from "./dungeon-entities.ts";
 import type { GroupTemplate } from "./dungeon-entities.ts";
 
 // ===========================================================================
@@ -277,7 +278,10 @@ export function applyDungeonPass(
   }
 
   const groups: Record<string, GroupTemplate> = {};
-  for (const g of res.groups) groups[g.id] = { id: g.id, name: g.name, base: g.base };
+  // A group's name IS a creature's display name — `resolveName` falls through
+  // to it for every instance that has no name of its own — so it is capitalised
+  // on the same rule as everything else the player reads. See `properName`.
+  for (const g of res.groups) groups[g.id] = { id: g.id, name: properName(g.name), base: g.base };
 
   return { dungeonContext: renderDungeonContext(res), groups, pass: res };
 }

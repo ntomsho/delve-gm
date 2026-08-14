@@ -47,15 +47,10 @@ Right now it holds exactly one occupant, the test character — Testy, level 1,
 15/15, +3 across the board, sword and chain. It is seeded in code, not created by
 the player.
 
-**Character creation is disabled in this pass.** The door has to be visible,
-because it is half of what this screen is for, but it does not open until Phase 5.
-It must read as *not yet*, not as broken and not as locked behind an
-accomplishment. Say plainly that it is coming; do not invent a padlock.
-
-A consequence worth naming: with creation off and the list seeded, **the empty
-state is currently unreachable**. It is still specified — an empty list is an
-invitation to roll one up — but it is dormant, and building it is not part of
-this pass.
+**Character creation opened with Phase 5**, and the *not yet* copy that stood in
+for it is gone with the thing it apologised for. Deleting a character is real,
+which means **the empty state is reachable at last** — an empty list is an
+invitation to roll one up, and it is now designed rather than merely survived.
 
 ### 2. Run setup
 
@@ -97,9 +92,19 @@ the static-mock deliverable the rest of this brief describes.
 
 Multi-step, back-navigable, nothing committed until the end.
 
-1. **Abilities.** Six abilities — STR, DEX, CON, INT, WIS, CHA — stored as bonuses, typically +1 to +3 at level 1. Each has a *defense* of bonus + 10, always shown alongside. Two modes the player picks between: **roll** (with a reroll-all, not per-ability) and **point buy**.
+**Amended after this brief's first pass, and the amendments won where they
+disagree — see `CODING-PLAN.md` §3.** There are now two rule sets, normal and
+hardcore, chosen on a step of their own in front of the five below; rerolls are
+a budget rather than an unlimited affordance, so the reroll-all named in step 1
+is per-ability *as well*, and both cost the same one; the point-buy numbers here
+are superseded; **step 3's single d8 is now 2d8 floored at 9**, or one d8 floored
+at 5 under hardcore, because a level 1 character on 1 HP does not get to play;
+and **step 4 asks for a weapon class before it asks for a name**, since the class
+is the whole of the mechanical choice and the name is fiction on top of it.
+
+1. **Abilities.** Six abilities — STR, DEX, CON, INT, WIS, CHA — stored as bonuses, typically +1 to +3 at level 1. Each has a *defense* of bonus + 10, always shown alongside. Two modes the player picks between: **roll** and **point buy**.
 2. **Traits.** Eleven rolled descriptors — physique, face, skin, hair, clothing, virtue, vice, speech, background, misfortunes, alignment. Each is a short phrase, e.g. "Bony", "Broken nose", "Ashen", "Cropped", "Fashionable". Presented as a sheet the player can accept or reroll individually. This is where the character becomes a person; give it more room than a form deserves.
-3. **Hit points.** A single d8 roll. This is both starting and maximum HP. A 1 here is a real and funny problem.
+3. **Hit points.** A d8 roll — see the amendment above for how many and what the floor is. This is both starting and maximum HP.
 4. **Equipment.** Everyone starts with 2 days of rations and one weapon of their choice. Armor and gear are then **rolled** on tables — or the player can opt out and shop instead with 3d6×20 copper pieces. Both paths need to exist. The shopping interface must show **slot cost** as prominently as price, because slots are the real constraint.
 5. **Name and confirm.** Full sheet review, then save.
 

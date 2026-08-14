@@ -15,14 +15,14 @@
  * interface should say so.
  */
 
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { STAGE_HINT, STAGE_NAME, STAGE_TONE } from "../theme.ts";
-import { acceptsInput, type Stage, type RollSpec } from "../../runtime/types.ts";
+import { acceptsInput, isTerminal, type Stage, type RollSpec } from "../../runtime/types.ts";
 
 export interface InputAreaProps {
   stage: Stage;
   roll?: RollSpec;
-  /** closed turns, for the end-of-run card */
+  /** CLOSED turns — the tracker adds the one in progress, the end card does not */
   turns: number;
   /** kept across an error so a retry costs the player nothing */
   draft: string;
@@ -30,6 +30,23 @@ export interface InputAreaProps {
   onSubmit(text: string): void;
   onRoll(): void;
   onRetry(): void;
+}
+
+/**
+ * How tall the box is allowed to get before it starts scrolling instead.
+ *
+ * Six lines: enough for the longest action anyone actually types, short enough
+ * that the narration above it is never squeezed off the screen. Measured from
+ * the box's OWN line height rather than written in pixels, so it follows the
+ * type scale — the fallback is `text-[15px] leading-relaxed`, which is what the
+ * textarea is set in, for the case where there is nothing to measure.
+ */
+const MAX_LINES = 6;
+const FALLBACK_LINE_HEIGHT = 15 * 1.625;
+
+function maxHeight(el: HTMLTextAreaElement): number {
+  const measured = Number.parseFloat(getComputedStyle(el).lineHeight);
+  return MAX_LINES * (Number.isFinite(measured) && measured > 0 ? measured : FALLBACK_LINE_HEIGHT);
 }
 
 const EDGE_LABEL: Record<RollSpec["edge"], string> = {
@@ -155,6 +172,28 @@ export function InputArea(props: InputAreaProps) {
     if (open) box.current?.focus();
   }, [open, stage]);
 
+  // THE BOX GROWS WITH WHAT IS IN IT.
+  //
+  // A `rows={1}` textarea scrolls its own first line out of sight while a long
+  // action is still being typed, which is the one moment a player most wants to
+  // read back what they wrote.
+  //
+  // Sized off the CONTENT rather than off a key handler, because the draft
+  // changes in four ways — typing, pasting, Escape clearing it, and the store
+  // emptying it after a send — and only one of those is a keystroke. Measuring
+  // needs `height: auto` first: `scrollHeight` on an element already stretched
+  // to fit its text is the height it currently has, so it can grow and never
+  // shrink.
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    el.style.height = "auto";
+    // Zero means nothing has been laid out — jsdom, or a box that is not on the
+    // screen. Leaving the height alone is the only safe answer.
+    if (el.scrollHeight === 0) return;
+    el.style.height = `${Math.min(el.scrollHeight, maxHeight(el))}px`;
+  }, [draft, stage]);
+
   const send = () => {
     const text = draft.trim();
     if (text && open) onSubmit(text);
@@ -169,6 +208,24 @@ export function InputArea(props: InputAreaProps) {
         >
           {STAGE_NAME[stage]}
         </span>
+        {/*
+         * THE TURN IN PROGRESS, not the turns behind.
+         *
+         * `turnCount` is closed turns, so the number the player is living
+         * through is one more — which is also the number `assemble.ts` puts in
+         * front of the referee, and the two should never be off by one from each
+         * other when a player is reading both.
+         *
+         * Gone at a terminal stage: the run has no turn in progress, and the
+         * end-of-run card states the closed count a few lines below. Two
+         * different numbers labelled "turn" on one screen would be worse than
+         * no tracker at all.
+         */}
+        {!isTerminal(stage) && (
+          <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-pencil">
+            Turn {turns + 1}
+          </span>
+        )}
       </div>
 
       {stage === "roll_offered" && roll && <RollOffer roll={roll} onRoll={onRoll} />}
@@ -204,7 +261,7 @@ export function InputArea(props: InputAreaProps) {
             }
             if (e.key === "Escape") onDraft("");
           }}
-          className="flex-1 resize-none bg-transparent font-prose text-[15px] leading-relaxed text-ink outline-none disabled:cursor-not-allowed"
+          className="flex-1 resize-none overflow-y-auto bg-transparent font-prose text-[15px] leading-relaxed text-ink outline-none disabled:cursor-not-allowed"
           aria-label={STAGE_NAME[stage]}
         />
         {open && (
