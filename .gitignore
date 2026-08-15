@@ -21,3 +21,6 @@ npm-debug.log*
 # Built by `npm run build:api` from src/server/vercel.ts. Not source —
 # `api/` holds only the bundle, so Vercel has no TypeScript there to build.
 api/
+
+.vercel
+.env*

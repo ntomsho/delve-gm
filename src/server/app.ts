@@ -131,6 +131,36 @@ export function createApp(): Hono {
   });
 
   /**
+   * A generation pass whose journal is written WHETHER OR NOT IT SUCCEEDS.
+   *
+   * This was the hole. A pass that throws never reached `appendDungeonEvents`,
+   * so a failed dungeon left the three `generation-error` events on the floor —
+   * the exact records §6.7 was built to keep, gone again the moment the runtime
+   * moved to a server. The console had them; the database did not, and the
+   * console belongs to whoever was tailing the function.
+   *
+   * Safe to write on failure here, unlike a turn: the sequence belongs to the
+   * DUNGEON, and a retry reads `lastDungeonSeq` and appends after these rather
+   * than colliding with them. A turn's events are dropped on a throw for that
+   * exact reason — see the note in `playTurn`.
+   *
+   * The structure pass cannot use this: when IT fails there is no dungeon row
+   * for the events to belong to. The console is the only record of that one.
+   */
+  async function journalled<T>(
+    dungeonId: string,
+    work: (journal: ReturnType<typeof createJournal>) => Promise<T>
+  ): Promise<T> {
+    const { sink, events } = repo.collectingSink();
+    const journal = createJournal(sink, await repo.lastDungeonSeq(dungeonId));
+    try {
+      return await work(journal);
+    } finally {
+      await repo.appendDungeonEvents(dungeonId, events);
+    }
+  }
+
+  /**
    * One region. The client fires these in parallel, which is the parallelism
    * the single-process pipeline always had — it has just moved up a layer.
    *
@@ -144,12 +174,10 @@ export function createApp(): Hono {
       throw new HTTPException(404, { message: `no region ${chunk} in that dungeon` });
     }
 
-    const { sink, events } = repo.collectingSink();
-    const journal = createJournal(sink, await repo.lastDungeonSeq(partial.id));
-    const result = await generateChunk(partial, chunk, { journal });
-
+    const result = await journalled(partial.id, (journal) =>
+      generateChunk(partial, chunk, { journal })
+    );
     await repo.saveChunk(partial.id, result);
-    await repo.appendDungeonEvents(partial.id, events);
 
     return c.json({ chunk, done: true });
   });
@@ -166,19 +194,16 @@ export function createApp(): Hono {
     if (stored.status === "complete") return c.json({ dungeonId: stored.id, already: true });
 
     const results = await repo.listChunks(stored.id);
-    const { sink, events } = repo.collectingSink();
-    const journal = createJournal(sink, await repo.lastDungeonSeq(stored.id));
-
-    const complete = await finishGeneration(stored.doc, results, { journal });
-
-    // The baseline every later diff is a delta from. Written here, once per
-    // dungeon rather than once per run: it carries the whole world, and a copy
-    // per run is what would fill a 500MB tier.
-    journal.log({ kind: "dungeon", dungeon: complete });
+    const complete = await journalled(stored.id, async (journal) => {
+      const done = await finishGeneration(stored.doc, results, { journal });
+      // The baseline every later diff is a delta from. Written here, once per
+      // dungeon rather than once per run: it carries the whole world, and a
+      // copy per run is what would fill a 500MB tier.
+      journal.log({ kind: "dungeon", dungeon: done });
+      return done;
+    });
 
     await repo.completeDungeon(complete);
-    await repo.appendDungeonEvents(stored.id, events);
-
     return c.json({ dungeonId: complete.id });
   });
 

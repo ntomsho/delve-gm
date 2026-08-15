@@ -26,6 +26,7 @@ it is and §2 below does not say.
 | 7 Dev affordances | ⚠️ **partial** — §4 |
 | 8 Playtest refinements | ⚠️ **started** — 8a is done bar A7 and A9, the 8b hover items, the click-verb pill and four of the 8b interface fixes are built, 8f's capitalisation has landed, and the exit-count item is closed bar its step-file line; §5 is the rest, and the bulk of the remaining work |
 | 9 The seam | ✅ built — §6. First of the server migration, and it contains no server |
+| 10 Server and database | ✅ built and deployed — §7. https://aidungeon.vercel.app |
 
 553 tests, two vitest projects, build clean as of `5feed17`. 593 and still clean after the
 8b hover work; 630 and still clean after the click-verb pill; 640 and still clean after
@@ -1602,14 +1603,13 @@ where that gets settled.
 
 ---
 
-## 7. Phase 10 — Server and database ⚠️ **10a in progress**
+## 7. Phase 10 — Server and database ✅ **BUILT AND DEPLOYED**
 
 The runtime moves to a server and the client becomes a view of it. Split in two,
 because it is too big for one session:
 
 - **10a** the API, run locally against Supabase. Everything but deployment.
-- **10b** deploy: the Vercel project, env vars, the keepalive cron. The build config and
-  the bundle are done — what is left needs the Vercel account.
+- **10b** deploy. ✅ **https://aidungeon.vercel.app** — 2026-08-15.
 
 **No auth, no BYOK, no model choice.** One player. Those are Phases 11 and 12, and the
 tables here carry no ownership columns yet.
@@ -1819,7 +1819,37 @@ now proxies `/api` to the API beside it, so the browser sees one origin in devel
 exactly as it will in production. `journal-http.ts` is deleted. Run both:
 `npm run api` and `npm run dev`.
 
-### 7.8 `?raw`, answered
+### 7.8 Deployed
+
+**https://aidungeon.vercel.app**, project `aidungeon` on `nicks-projects-2712a019`.
+`ANTHROPIC_API_KEY` and `DATABASE_URL` are set for production and preview, both marked
+Sensitive. A cron hits `/api/health` at 06:00 UTC on Mondays and Thursdays, which is what
+keeps Supabase from pausing the project after seven days of quiet — Hobby allows one
+trigger a day, and twice a week is enough to close a seven-day gap.
+
+**A whole run was played on the deployed API**, which is the thing that proves the key,
+the region and the 300s ceiling all at once: "The Menagerie", six rooms, the arrival
+written by a model inside a Vercel function.
+
+**And the first region failed, which was the more useful half.** Two attempts, 117
+seconds, both refused by zod — `rooms: Invalid input: expected array, received string`,
+which is §6.7's diagnostics saying exactly what went wrong instead of the word "shape".
+The retry succeeded in 83 seconds and **the 15-second structure pass was not redone**.
+That is the split from §7.3 doing precisely what it was built for, in production, on its
+first real failure.
+
+**One bug the failure exposed.** A generation pass that throws never reached
+`appendDungeonEvents`, so the `generation-error` events were dropped — the exact records
+§6.7 exists to keep, lost again the moment the runtime moved to a server. The console had
+them; the database did not, and the console belongs to whoever happened to be tailing the
+function. Fixed with a `journalled()` helper whose `finally` writes the events either way.
+Safe here and not in a turn, because the sequence belongs to the dungeon and a retry
+appends after them rather than colliding.
+
+The structure pass is the one exception and cannot be fixed: when IT fails there is no
+dungeon row for the events to hang on, so the console really is the only record.
+
+### 7.9 `?raw`, answered
 
 The API is built with **Vite in SSR mode** into a single bundled `api/index.js` with the
 markdown inlined. Vercel deploys the prebuilt file; the same bundle runs under plain
