@@ -1264,7 +1264,7 @@ the player did. Three things to settle:
   exception, and it earns it by being the alternative to death.
 - **Whether a follower is an entity or a new concept.** Almost certainly a creature whose
   `activity` says it is following, with `roomId` written to wherever the player went — no
-  party, no second sheet, no shared inventory. §9 non-goals says one PC and that still
+  party, no second sheet, no shared inventory. §10 non-goals says one PC and that still
   holds; a follower is scenery that walks, not a second character.
 - **What the map does.** A follower is a creature and creature markers do not exist
   (§1.2.12), so it will be invisible on the drawing until they do. Acceptable; note it.
@@ -1498,8 +1498,15 @@ no build step, the markdown stays the source of truth, nothing generated and not
 that can go stale. `cli-play.ts` is ten lines that register it and then `await import`
 the real CLI, because a static import would be hoisted above the registration.
 
-**This is a Phase 10 constraint, not a solved problem.** A serverless bundler will need
-the same thing from its own config. Vite in SSR mode already does it.
+**Answered in 10a.** `npm run build:api` bundles `src/server/vercel.ts` with Vite in SSR
+mode into `api/index.js`, prose inlined — 507kB, verified running under plain `node` with
+no hook and no `?raw` left in it. `api/` holds nothing but the bundle, on purpose: Vercel
+scans that directory for entrypoints, and a `.ts` beside the bundle is an invitation for
+it to build the source with the bundler that cannot read `?raw`.
+
+`dev/raw-md.ts` (§6.5) solves the same problem the other way, for `node` running the
+TypeScript directly. Both exist because both cases are real: the CLI runs from source and
+the deployment runs from a bundle.
 
 ### 6.6 What proves it
 
@@ -1590,12 +1597,239 @@ own request, the retry is the chunk rather than the run.
 
 No Postgres, no Hono, no Vercel, no auth, no BYOK, no model catalogue, no run lock, and
 no splitting generation across requests. `store/characters.ts` is still the in-memory
-array — §8 still carries "whether a made character survives a reload", and Phase 11 is
+array — §9 still carries "whether a made character survives a reload", and Phase 11 is
 where that gets settled.
 
 ---
 
-## 7. Order of remaining work
+## 7. Phase 10 — Server and database ⚠️ **10a in progress**
+
+The runtime moves to a server and the client becomes a view of it. Split in two,
+because it is too big for one session:
+
+- **10a** the API, run locally against Supabase. Everything but deployment.
+- **10b** deploy: the Vercel project, env vars, the keepalive cron. The build config and
+  the bundle are done — what is left needs the Vercel account.
+
+**No auth, no BYOK, no model choice.** One player. Those are Phases 11 and 12, and the
+tables here carry no ownership columns yet.
+
+### 7.1 The hosting decision, settled
+
+| | |
+|---|---|
+| Client | the existing Vite SPA, static |
+| API | one catch-all Vercel Node function running **Hono** |
+| DB | **Supabase Postgres** over the Supavisor transaction pooler (6543) |
+
+Hono in one catch-all rather than a file per route for two reasons: it runs as a plain
+Node server locally, so local dev and production exercise the same code, and moving off
+Vercel later is a deploy change rather than a rewrite.
+
+Fluid compute bills **active CPU** and pauses on I/O, so a turn that is 195 seconds of
+waiting on Anthropic is nearly free. The constraint that actually binds is the **300s
+Hobby ceiling per invocation**, and it is what shapes §7.3.
+
+**The project is `aidungeon` (`ytgmygcuqtvxzcxygtib`), us-east-1** — chosen to match
+Vercel Hobby's `iad1`, because the latency that matters is function↔database.
+
+### 7.2 What Phase 9 did not anticipate
+
+**The journal restarts its sequence on every request** — the one genuine bug. A session
+is built fresh per request, so `createJournal` counts from 1 again, and
+`journal_events` has primary key `(run_id, seq)`. The second turn's first event collides
+with the first turn's. And the failure is the quiet kind: the journal wraps every write
+and reports once, per *IT MUST NEVER BREAK A TURN*, so a collision does not fail the
+turn — it silently stops journalling, which is the exact thing the journal exists to
+prevent. Fix: `createJournal(sink, startSeq)`, and the handler reads
+`coalesce(max(seq), 0)` as it builds the session. Postgres assigning `seq` was
+considered and rejected: `seq` is part of `JournalRecord`, which the renderer and the
+transcript both read.
+
+**Compare-and-swap on `runs.version` is the correctness mechanism.** Every write carries
+`where version = $n`. Two turns that overlap both read version N; the first writes N+1
+and the second finds no row to update and is rejected. That covers the stale second tab
+as well, which is the same failure arriving slowly. `journal_events` rows go in the
+**same transaction** as the `runs` update, so a rejected turn leaves nothing behind and
+the journal can never describe a turn the state does not have.
+
+A **version rather than the stage** the client thinks it is on: a client that names its
+own stage can name a flattering one and be handed a roll it never earned. An integer is
+opaque, so there is nothing to forge toward.
+
+**`runs.locked_until` is an optimisation, not a correctness mechanism** — an earlier
+draft of this section had it backwards. The compare-and-swap already makes concurrent
+turns safe. The lock only stops a duplicate request spending a whole referee
+conversation on a turn that is going to be rejected at the write. Worth having; a
+double-click should not cost tokens. An expiry rather than a boolean so a function that
+dies mid-turn does not wedge the run.
+
+An in-process lock cannot do this job: Vercel runs N instances that share no memory, so
+a `Map<runId, Promise>` exists N times and guards nothing.
+
+### 7.3 Generation splits into three, and it is not a rewrite
+
+No request may hold more than one model call. Generation is N+2 calls, so it becomes
+three endpoints — and the split is cheap because of a fact in the existing pipeline:
+**every content-pass payload is built before any apply runs** (`generate.ts:288`). The
+payloads do not depend on the applies, so they can be rebuilt at apply time from
+persisted state, and only the *responses* need storing.
+
+```
+generateStructure(opts)                     → GeneratedDungeon  (status: partial)
+generateChunk(partial, chunk, opts)         → ContentPassResponse
+finishGeneration(partial, responses, opts)  → GeneratedDungeon  (status: complete)
+```
+
+`generateDungeon` becomes a thin composition of the three, so the browser and CLI paths
+are unchanged and every existing generation test still covers them. **applyContentPass
+still runs serially in ascending chunk order** — the CLAUDE.md rule moves house intact,
+into `finishGeneration`.
+
+This is better than what it replaces, not a compromise: generation becomes resumable, a
+failure at chunk 3 does not redo chunks 1 and 2, and the loading screen gets honest
+per-step progress with no SSE machinery.
+
+**Proved, not assumed.** `generation.test.ts` runs the split path twice from one
+structure — once in memory, once with the partial put through `JSON.stringify` first,
+which is what a Postgres row does to it — and compares what was written. They agree
+exactly, modulo the ids of entities that applying CREATES, which are `randomUUID` by
+design. That is the test that matters: `entities.registry` holds shared object
+references, a round trip breaks that sharing, and if applying had ever depended on it
+this is where it would have shown. It does not.
+
+Two things the test had to be built around, both of which are the pipeline working as
+designed rather than obstacles: the dungeon-pass prompt cannot be precomputed, because
+it names inhabitant groups by unseeded id; and the seams prompt cannot either, because
+it is built after the regions are applied and quotes rooms that now have names.
+
+### 7.4 Endpoints
+
+Generation addresses the **dungeon**, play addresses the **run** — the same split
+`persist.ts` already makes between write-once and per-commit.
+
+```
+POST /api/dungeons                    → { dungeonId, chunks }      1 model call
+POST /api/dungeons/:id/chunks/:n      → { done }                   1 model call, fired in parallel
+POST /api/dungeons/:id/finish         → { dungeonId }              1 model call
+POST /api/runs   { dungeonId, character }                          → run
+POST /api/runs/:id/enter | /turn | /roll | /retry                  1 turn each
+GET  /api/runs · /api/runs/:id · /:id/journal.jsonl · /:id/transcript.md
+```
+
+### 7.5 The schema
+
+Applied as `phase_10a_initial_schema`. `characters` · `dungeons` (doc jsonb,
+partial|complete) · `generation_chunks` (pk `dungeon_id, chunk`) · `runs` (state jsonb,
+version, locked_until) · `journal_events` (pk `run_id, seq`).
+
+RLS is **on with no policies at all**. The API is the only writer and reaches Postgres
+over a direct connection, which RLS does not apply to; this is the backstop for the
+other door, so anything that ever picks up the anon key gets nothing rather than
+everything. Phase 11 adds ownership and real policies.
+
+### 7.6 Where 10a stands
+
+| | |
+|---|---|
+| the generation split | ✅ §7.3, with the round-trip proof |
+| `createJournal(sink, startSeq)` | ✅ plus `SessionOptions.startSeq` |
+| `src/server/db.ts` | ✅ one pool, transaction pooler, `prepare: false` |
+| `src/server/repo.ts` | ✅ every statement the server runs |
+| `src/server/app.ts` | ✅ every route, on Hono |
+| `src/server/dev.ts` | ✅ `npm run api`, the same app on `@hono/node-server` |
+| `src/runtime/remote-session.ts` | ✅ the client half, with its own tests |
+| the client on HTTP | ✅ App picks local or remote; `store/characters.ts` is the database |
+| `vercel.json` + `npm run build:api` | ✅ built and run; the deploy itself is 10b |
+
+**A whole run went through the API on 2026-08-15.** Character saved and listed; the three
+generation requests at 17s, 50s and 0.3s; "The Drift Hotel", six rooms; a room entry and a
+turn; a stale turn refused with **409** and the current version handed back; the journal
+read out of Postgres as 17 events with a contiguous sequence, and a 27KB transcript.
+`runs still locked: 0` afterwards, which is the release path in `commitTurn` doing its job.
+
+**Every id column had to become `text`.** `characters.id` rejected the seeded fixture
+("pc-1" — `PlayerCharacter.id` is declared `string`, and the fixture is in every test in
+the repo); then `dungeons.id` rejected `dungeon_rx`, because a dungeon's id is
+`dungeon_<seed in base 36>` (`dungeon-blueprint.ts:786`) and is derived on purpose, since
+the same seed must name the same dungeon. Both migrations were the same mistake made
+twice: the schema was written from what a row usually looks like rather than from the type
+of the thing being stored. It cost one wasted structure call to find the second one.
+
+**Generation is journalled against the DUNGEON, not the run.** It happens across three
+requests before a run exists — the player has not chosen a character yet — so
+`journal_events.run_id` had nothing to point at. `dungeon_events` holds those, and
+`readJournal` concatenates the two streams and renumbers on the way out: how the world
+was built, then how it was played, which is also the order they happened in. It also
+settles the size worry from the original planning — the `dungeon` baseline event carries
+the whole world and is now written **once per dungeon** rather than once per run.
+
+**Hono, and what it is for.** A router plus middleware built on Web-standard
+`Request`/`Response`, which is the shape Vercel's runtime hands you and the shape Express
+is not. Ten routes is hand-rollable; what tips it is path parameters, one error handler,
+and CORS — the client will be on another origin in 10b. `@hono/node-server` runs the same
+app locally, so local development exercises production code rather than a parallel
+implementation that drifts.
+
+**The SQL is verified, the driver binding is not.** Every statement in `repo.ts` was run
+against the real database inside a rolled-back transaction: the lock acquires when free,
+refuses when held, and acquires again after its expiry; the compare-and-swap accepts at
+the right version and is **rejected** at a stale one, leaving the state untouched; the
+`unnest` insert writes a turn's events in one statement; a replayed event does not
+overwrite the one already at that sequence. What has not run is the TypeScript — that
+needs `DATABASE_URL`, which is a secret and lives in `.env.local`.
+
+**`prepare: false` is not a tuning knob.** Transaction mode hands out a different backend
+connection per transaction and a prepared statement belongs to one, so leaving
+postgres.js on its default would produce "prepared statement s1 already exists" under
+load and never once in development.
+
+**The pool is a module-level singleton, deliberately** — the opposite of the rule the
+store and the journal follow (§6.1). Those hold per-run state and a singleton lets two
+runs see each other. A pool holds no run state; it is a socket cache, and one per request
+would spend a TCP and TLS handshake on every turn.
+
+### 7.7 What the client became
+
+`PlayableSession` — store, `begin`, `enterRoom`, `submit`, `roll`, `retry` — has two
+implementations, and `App.tsx` cannot tell which it holds. `createGameSession` is the
+whole runtime in process; `createRemoteSession` holds a store and posts.
+
+**`?offline` and `?stub` stay local**, deliberately. Interface work should not need
+Postgres running, and a fixture dungeon refereed by a keyword table costs nothing and
+answers instantly. `LOCAL = OFFLINE || STUB` is the whole of that decision.
+
+**The client sends what the player typed and the version it last saw. Nothing else.**
+`remote-session.test.ts` asserts the request body is exactly `{ text, version }` —
+because a client that quietly grew a `stage` field would break the security posture
+without breaking anything visible.
+
+**A 409 is not an error the player sees.** Stale or busy, the session re-reads the run
+and shows what is actually true, so a second tab catches up rather than showing a
+failure.
+
+**`store/characters.ts` is the database**, and it was the only file that had to change —
+which is what its header promised in Phase 5. That also settles §3.6's open question:
+the stored record is the sheet, whole, in a jsonb column, because `PlayerCharacter` is
+already the serialisable thing that goes in and out of a run. A sheet stored before a
+field existed reads back without it, exactly as a save from before `fiction` did.
+
+**Two Vite shims are gone**: the journal middleware and the Anthropic proxy. `vite.config.ts`
+now proxies `/api` to the API beside it, so the browser sees one origin in development
+exactly as it will in production. `journal-http.ts` is deleted. Run both:
+`npm run api` and `npm run dev`.
+
+### 7.8 `?raw`, answered
+
+The API is built with **Vite in SSR mode** into a single bundled `api/index.js` with the
+markdown inlined. Vercel deploys the prebuilt file; the same bundle runs under plain
+`node` locally. `dev/raw-md.ts` (§6.5) stays the CLI's story, and no codegen step is
+needed. `vite.config.ts` loses the `journal()` middleware and the `/api/anthropic`
+proxy — the API owns both now.
+
+---
+
+## 8. Order of remaining work
 
 ```
   Phase 8a rest (A7, A9) ─┐
@@ -1624,7 +1858,7 @@ what was just said" are the same scene.
 
 ---
 
-## 8. What is still open
+## 9. What is still open
 
 **Open outside Phase 8**, both from Phase 5 and both named in §3.6:
 
@@ -1671,7 +1905,7 @@ Everything else settled through Phase 7 is either in §2 or in the code.
 
 ---
 
-## 9. Non-goals for this prototype
+## 10. Non-goals for this prototype
 
 No multiplayer, no party (one PC). No leveling. No between-dungeon persistence beyond saved
 characters. No light or ration clocks yet, though `turnCount` exists for them. No mobile

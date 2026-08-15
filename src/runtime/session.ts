@@ -61,6 +61,15 @@ export interface SessionOptions {
    */
   sink?: (runId: string) => Sink;
   /**
+   * How many events this run has already written.
+   *
+   * Zero for a run that is starting. For one being picked up — a handler that
+   * has just loaded a turn's worth of state out of a row — it is the last
+   * sequence in storage, so this session's events carry on from there instead
+   * of colliding with the last session's. See `createJournal`.
+   */
+  startSeq?: number;
+  /**
    * The generator. Overridden by the offline fixture and by tests; `offline`
    * beside it is what the journal records about the run, and the two are set
    * together because they are one decision.
@@ -73,14 +82,35 @@ export interface SessionOptions {
   maxRounds?: number;
 }
 
-export interface GameSession {
-  /** what the interface subscribes to, and what a handler serialises */
+/**
+ * A run the interface can play, however it is actually being played.
+ *
+ * The two implementations are this file — the whole runtime, in process — and
+ * `remote-session.ts`, which posts to the server and holds nothing but a store.
+ * `App.tsx` takes one of these and cannot tell which it has, so `?offline` and
+ * `?stub` still work with no server running while a real run goes over HTTP.
+ */
+export interface PlayableSession {
+  /** what the interface subscribes to */
   readonly store: GameStoreApi;
+  /**
+   * Where this run wrote itself down, when that is a place a person can go
+   * look. The in-process session names a directory under `out/runs`; a run
+   * played through the server does not have one, because its journal is in
+   * Postgres and the error screen has nothing useful to say about that.
+   */
+  readonly runId?: string | undefined;
+  /** Build a dungeon, start the run, and describe the first room. */
+  begin(request: RunRequest): Promise<void>;
+  enterRoom(): Promise<void>;
+  submit(text: string): Promise<void>;
+  roll(): Promise<void>;
+  retry(): Promise<void>;
+}
+
+export interface GameSession extends PlayableSession {
   /** undefined until `begin` or `resume` — it is derived from the seed */
   readonly runId: string | undefined;
-
-  /** Generate a dungeon, start the run, and describe the first room. */
-  begin(request: RunRequest): Promise<void>;
   /**
    * Pick up a run that already exists, from a save or from a database row.
    *
@@ -89,11 +119,6 @@ export interface GameSession {
    * and there is nothing in a save to recover the original from.
    */
   resume(saved: SavedGame, runId?: string): void;
-
-  enterRoom(): Promise<void>;
-  submit(text: string): Promise<void>;
-  roll(): Promise<void>;
-  retry(): Promise<void>;
 }
 
 /**
@@ -132,7 +157,7 @@ export function createGameSession(opts: SessionOptions = {}): GameSession {
    */
   function wire(runId: string): void {
     id = runId;
-    journal = createJournal(opts.sink?.(runId));
+    journal = createJournal(opts.sink?.(runId), opts.startSeq ?? 0);
     const referee =
       opts.referee?.({ store, journal }) ??
       createModelReferee({

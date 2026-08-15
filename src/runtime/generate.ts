@@ -45,6 +45,7 @@ import {
   stockDungeon,
   type Dungeon,
   type DungeonBlueprintSeed,
+  type ContentPassResponse,
   type DungeonPassResponse,
   type EntityPassResult,
   type BlockPlan,
@@ -182,7 +183,74 @@ function reportFailure(
   };
 }
 
-export async function generateDungeon(opts: GenerateOptions): Promise<GeneratedDungeon> {
+/**
+ * Options for a pass that already has a partial dungeon in hand — it does not
+ * need the seed, the size or the level, because those are on the partial.
+ */
+export type PassOptions = Pick<GenerateOptions, "signal" | "journal" | "onProgress">;
+
+/** One content-pass response, as it came back and before it is applied. */
+export interface ChunkResult {
+  chunk: number;
+  value: ContentPassResponse;
+  usage: Usage;
+}
+
+/** The regions of a dungeon, ascending. One content-pass call each. */
+export function chunksOf(partial: GeneratedDungeon): number[] {
+  return [...new Set(partial.stocked.rooms.map((r) => r.chunk))].sort((a, b) => a - b);
+}
+
+/**
+ * The drawing, read back as words.
+ *
+ * Derived rather than persisted — the plan is the durable thing and this is one
+ * function over it, so the vocabulary can change without a migration. Which
+ * also means a partial that has been round-tripped through a database recovers
+ * it without having had to store it.
+ */
+function siteOf(partial: GeneratedDungeon) {
+  if (!partial.blockplan) return undefined;
+  const corridors = new Set(
+    partial.stocked.rooms.filter((r) => r.isCorridor).map((r) => r.index)
+  );
+  return siteRooms(partial.blockplan, partial.graph, { isCorridor: (i) => corridors.has(i) });
+}
+
+/**
+ * A region's payload, built from the partial.
+ *
+ * Rebuilt rather than persisted, and it must be built from UNAPPLIED entities:
+ * a payload says what a region needs written, and entities that have been
+ * written no longer need writing. So `finishGeneration` builds every payload
+ * before it applies anything — which is what the single-process pipeline always
+ * did, it just kept them in a local instead.
+ */
+function contentPayload(partial: GeneratedDungeon, chunk: number) {
+  return buildContentPassPayload(
+    partial.stocked,
+    partial.blueprint,
+    partial.entities,
+    chunk,
+    partial.dungeonContext,
+    siteOf(partial)
+  );
+}
+
+// ---------------------------------------------------------------------------
+// STEP 1: STRUCTURE  (one model call)
+// ---------------------------------------------------------------------------
+
+/**
+ * Everything knowable before a room is written: the graph, the drawing, the
+ * stocking, the entities, and the standing fiction.
+ *
+ * Comes back as a `GeneratedDungeon` whose entities are UNWRITTEN — no names,
+ * no prose. That is a real state now rather than a moment inside a function,
+ * because the steps below happen in separate HTTP requests and this is what is
+ * persisted between them.
+ */
+export async function generateStructure(opts: GenerateOptions): Promise<GeneratedDungeon> {
   const { size, signal } = opts;
   const level = opts.level ?? 1;
   const seeds = deriveSeeds(opts.seed);
@@ -266,99 +334,18 @@ export async function generateDungeon(opts: GenerateOptions): Promise<GeneratedD
       }
 
       const entities = runEntitiesPass(stocked, blueprint, new Rng(stocked.seed));
-      // The drawing, read back as words. Derived rather than persisted — the
-      // plan is the durable thing and this is one function over it, so the
-      // vocabulary can change without a migration.
-      const corridors = new Set(stocked.rooms.filter((r) => r.isCorridor).map((r) => r.index));
-      const site = siteRooms(plan, dungeon, { isCorridor: (i) => corridors.has(i) });
-      return { dungeon, stocked, entities, plan, site };
+      return { dungeon, stocked, entities, plan };
     }
   })();
 
-  const [
-    { result: fictionResult, usage: fictionUsage },
-    { dungeon, stocked, entities, plan, site },
-  ] = await Promise.all([fiction, structure]);
+  const [{ result: fictionResult, usage }, { dungeon, stocked, entities, plan }] =
+    await Promise.all([fiction, structure]);
 
   // The Dungeon Pass wrote the inhabitant bases; they belong on the registry,
   // which is the thing that gets persisted alongside the entities.
   Object.assign(entities.registry.groups, fictionResult.groups);
 
-  // --- the content pass: generate in parallel, apply in order --------------
-  const chunks = [...new Set(stocked.rooms.map((r) => r.chunk))].sort((a, b) => a - b);
-  let done = 0;
-  report({ stage: "writing", chunksDone: 0, chunksTotal: chunks.length });
-
-  const generated = await Promise.all(
-    chunks.map(async (chunk) => {
-      const payload = buildContentPassPayload(
-        stocked,
-        blueprint,
-        entities,
-        chunk,
-        fictionResult.dungeonContext,
-        site
-      );
-      const prompt = renderContentPassPrompt(payload);
-      const { value, usage } = await callForJson({
-        task: "content-pass",
-        schema: contentPassSchema,
-        toolName: "write_region",
-        toolDescription: "Name and write every room, entity, connector, and creature group in this region.",
-        messages: [{ role: "user", content: prompt }],
-        signal,
-        // A chunk that answers five of six connectors is well-formed and wrong.
-        // Asked here, the omission is a retryable failure; noticed after the
-        // pass, it is an unwritten entity nobody can fix. See §1.1.
-        check: (v) => contentPassOmissions(payload, v),
-        onAttemptFailed: reportFailure(journal, "content-pass", chunk),
-      });
-      journal.log({ kind: "generation", pass: "content-pass", chunk, prompt, response: value, usage });
-      report({ stage: "writing", chunksDone: ++done, chunksTotal: chunks.length });
-      return { chunk, payload, value, usage };
-    })
-  );
-
-  // SERIAL, ascending. Apply is pure and cheap; ordering it costs nothing and
-  // is what keeps concurrent mutation of `entities` out of the picture.
-  let usage: Usage = fictionUsage;
-  for (const g of generated.sort((a, b) => a.chunk - b.chunk)) {
-    applyContentPass(g.value, g.payload, entities, blueprint, stocked, new Rng(stocked.seed + g.chunk));
-    usage = {
-      inputTokens: usage.inputTokens + g.usage.inputTokens,
-      outputTokens: usage.outputTokens + g.usage.outputTokens,
-    };
-  }
-
-  // --- the seams: the ways between chunks ----------------------------------
-  //
-  // LAST, and alone, because it is the only pass that needs the others finished.
-  // A connector joining two chunks cannot be written by either of them — see the
-  // header in dungeon-seams-pass.ts — so it waits here until both its rooms have
-  // names and descriptions, and is written once with both in front of it.
-  const seamsPayload = buildSeamsPassPayload(stocked, entities, fictionResult.dungeonContext);
-  if (seamsPayload.seams.length > 0) {
-    report({ stage: "joining" });
-    const prompt = renderSeamsPassPrompt(seamsPayload);
-    const { value, usage: seamsUsage } = await callForJson({
-      task: "seams-pass",
-      schema: seamsPassSchema,
-      toolName: "write_ways_through",
-      toolDescription: "Name and write every way through between the regions of the dungeon.",
-      messages: [{ role: "user", content: prompt }],
-      signal,
-      check: (v) => seamsPassOmissions(seamsPayload, v),
-      onAttemptFailed: reportFailure(journal, "seams-pass"),
-    });
-    journal.log({ kind: "generation", pass: "seams-pass", prompt, response: value, usage: seamsUsage });
-    applySeamsPass(value, seamsPayload, entities);
-    usage = {
-      inputTokens: usage.inputTokens + seamsUsage.inputTokens,
-      outputTokens: usage.outputTokens + seamsUsage.outputTokens,
-    };
-  }
-
-  const result: GeneratedDungeon = {
+  return {
     id: blueprint.id,
     seeds,
     size,
@@ -372,13 +359,160 @@ export async function generateDungeon(opts: GenerateOptions): Promise<GeneratedD
     blockplan: plan,
     usage,
   };
+}
 
-  // The `dungeon` event is written by the SESSION rather than here. It is the
-  // baseline every later diff is a delta from, so a run needs it whatever
-  // produced the dungeon — including the offline fixture, which does not come
-  // through this function at all and used to leave the journal with no world
-  // in it.
-  return result;
+// ---------------------------------------------------------------------------
+// STEP 2: ONE REGION  (one model call, and nothing mutated)
+// ---------------------------------------------------------------------------
+
+/**
+ * Write one region of the dungeon.
+ *
+ * PURE WITH RESPECT TO THE PARTIAL. It reads it to build the payload and hands
+ * back what came in; it applies nothing. That is what lets the regions be
+ * called in parallel — from separate requests, on separate machines — and
+ * applied serially afterwards, which is the rule in CLAUDE.md.
+ */
+export async function generateChunk(
+  partial: GeneratedDungeon,
+  chunk: number,
+  opts: PassOptions = {}
+): Promise<ChunkResult> {
+  const journal = opts.journal ?? NO_JOURNAL;
+  const payload = contentPayload(partial, chunk);
+  const prompt = renderContentPassPrompt(payload);
+
+  const { value, usage } = await callForJson({
+    task: "content-pass",
+    schema: contentPassSchema,
+    toolName: "write_region",
+    toolDescription: "Name and write every room, entity, connector, and creature group in this region.",
+    messages: [{ role: "user", content: prompt }],
+    ...(opts.signal ? { signal: opts.signal } : {}),
+    // A chunk that answers five of six connectors is well-formed and wrong.
+    // Asked here, the omission is a retryable failure; noticed after the
+    // pass, it is an unwritten entity nobody can fix. See §1.1.
+    check: (v) => contentPassOmissions(payload, v),
+    onAttemptFailed: reportFailure(journal, "content-pass", chunk),
+  });
+
+  journal.log({ kind: "generation", pass: "content-pass", chunk, prompt, response: value, usage });
+  return { chunk, value, usage };
+}
+
+// ---------------------------------------------------------------------------
+// STEP 3: APPLY, AND JOIN  (one model call)
+// ---------------------------------------------------------------------------
+
+/**
+ * Apply what the regions wrote, then write the ways between them.
+ *
+ * The applies are SERIAL and ASCENDING — see CLAUDE.md. Apply is pure and
+ * cheap, so ordering it costs nothing and is what keeps concurrent mutation of
+ * `entities` out of the picture.
+ *
+ * `entities` is mutated in place, which is why the result spreads `partial`:
+ * the object handed in IS the object written to, and a caller that reloaded the
+ * partial from a row a moment ago owns it outright.
+ */
+export async function finishGeneration(
+  partial: GeneratedDungeon,
+  results: readonly ChunkResult[],
+  opts: PassOptions = {}
+): Promise<GeneratedDungeon> {
+  const report = opts.onProgress ?? (() => {});
+  const journal = opts.journal ?? NO_JOURNAL;
+  const { blueprint, stocked, entities } = partial;
+
+  // A region that was never written would otherwise be discovered as an
+  // unwritten entity at the end of a pass nobody can rerun.
+  const missing = chunksOf(partial).filter((c) => !results.some((r) => r.chunk === c));
+  if (missing.length > 0) {
+    throw new Error(`cannot finish generation: region ${missing.join(", ")} was never written`);
+  }
+
+  // EVERY PAYLOAD FIRST, THEN EVERY APPLY. A payload built after an earlier
+  // region had been applied would describe a different job from the one its
+  // response was answering.
+  const ordered = [...results].sort((a, b) => a.chunk - b.chunk);
+  const withPayloads = ordered.map((r) => ({ ...r, payload: contentPayload(partial, r.chunk) }));
+
+  let usage = partial.usage;
+  for (const g of withPayloads) {
+    applyContentPass(g.value, g.payload, entities, blueprint, stocked, new Rng(stocked.seed + g.chunk));
+    usage = {
+      inputTokens: usage.inputTokens + g.usage.inputTokens,
+      outputTokens: usage.outputTokens + g.usage.outputTokens,
+    };
+  }
+
+  // --- the seams: the ways between chunks ----------------------------------
+  //
+  // LAST, and alone, because it is the only pass that needs the others finished.
+  // A connector joining two chunks cannot be written by either of them — see the
+  // header in dungeon-seams-pass.ts — so it waits here until both its rooms have
+  // names and descriptions, and is written once with both in front of it.
+  const seamsPayload = buildSeamsPassPayload(stocked, entities, partial.dungeonContext);
+  if (seamsPayload.seams.length > 0) {
+    report({ stage: "joining" });
+    const prompt = renderSeamsPassPrompt(seamsPayload);
+    const { value, usage: seamsUsage } = await callForJson({
+      task: "seams-pass",
+      schema: seamsPassSchema,
+      toolName: "write_ways_through",
+      toolDescription: "Name and write every way through between the regions of the dungeon.",
+      messages: [{ role: "user", content: prompt }],
+      ...(opts.signal ? { signal: opts.signal } : {}),
+      check: (v) => seamsPassOmissions(seamsPayload, v),
+      onAttemptFailed: reportFailure(journal, "seams-pass"),
+    });
+    journal.log({ kind: "generation", pass: "seams-pass", prompt, response: value, usage: seamsUsage });
+    applySeamsPass(value, seamsPayload, entities);
+    usage = {
+      inputTokens: usage.inputTokens + seamsUsage.inputTokens,
+      outputTokens: usage.outputTokens + seamsUsage.outputTokens,
+    };
+  }
+
+  return { ...partial, entities, usage };
+}
+
+// ---------------------------------------------------------------------------
+// THE WHOLE THING, IN ONE PROCESS
+// ---------------------------------------------------------------------------
+
+/**
+ * The three steps above, composed.
+ *
+ * This is what the browser and the CLI call and what every generation test
+ * exercises. The server calls the three separately, because no one Vercel
+ * invocation may hold more than one model call — but it is the same pipeline,
+ * and this composition is what keeps that true rather than aspirational.
+ */
+export async function generateDungeon(opts: GenerateOptions): Promise<GeneratedDungeon> {
+  const report = opts.onProgress ?? (() => {});
+  const pass: PassOptions = {
+    ...(opts.signal ? { signal: opts.signal } : {}),
+    ...(opts.journal ? { journal: opts.journal } : {}),
+    ...(opts.onProgress ? { onProgress: opts.onProgress } : {}),
+  };
+
+  const partial = await generateStructure(opts);
+
+  // --- the content pass: generate in parallel, apply in order --------------
+  const chunks = chunksOf(partial);
+  let done = 0;
+  report({ stage: "writing", chunksDone: 0, chunksTotal: chunks.length });
+
+  const results = await Promise.all(
+    chunks.map(async (chunk) => {
+      const result = await generateChunk(partial, chunk, pass);
+      report({ stage: "writing", chunksDone: ++done, chunksTotal: chunks.length });
+      return result;
+    })
+  );
+
+  return finishGeneration(partial, results, pass);
 }
 
 // ---------------------------------------------------------------------------

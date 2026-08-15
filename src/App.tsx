@@ -47,14 +47,14 @@ import { deleteCharacter, listCharacters, saveCharacter } from "./store/characte
 import {
   createGameSession,
   describeFailure,
-  type GameSession,
+  type PlayableSession,
   type RunRequest,
 } from "./runtime/session.ts";
+import { createRemoteSession } from "./runtime/remote-session.ts";
 import { type GenerationProgress } from "./runtime/generate.ts";
 import { stubReferee } from "./runtime/__fixtures__/stub-referee.ts";
-import { generateOffline } from "./runtime/__fixtures__/offline.ts";
+import { generateOffline, testCharacter } from "./runtime/__fixtures__/offline.ts";
 import { randomSeed } from "./runtime/seeds.ts";
-import { httpSink } from "./runtime/journal-http.ts";
 import { readSwitches } from "./switches.ts";
 import type { PlayerCharacter } from "./engine/index.ts";
 
@@ -76,6 +76,27 @@ const {
  */
 const seedForNewRun = () => (PINNED ? SEED : randomSeed());
 
+/**
+ * The switches that mean "do not touch the server".
+ *
+ * Either one keeps the whole run in the browser. `?stub` still generates for
+ * real, which is a model call — but it is one this page makes through the API
+ * only when it is NOT local, and locally it has no key to make it with. So a
+ * local run means a local dungeon too: `?stub` alone is `?stub` plus the
+ * fixture, which is what it always effectively was during interface work.
+ */
+const LOCAL = OFFLINE || STUB;
+
+/**
+ * The dev quick-start character.
+ *
+ * It used to be seeded into `store/characters.ts`, which is a database now —
+ * and handing every visitor somebody called Testy with +3 in everything is a
+ * different proposition from handing one to a developer with `?offline` in the
+ * URL. So the fixture lives with the fixtures and appears only on a local run.
+ */
+const localCharacters = () => [testCharacter()];
+
 /** Only the part before a run. Once the dungeon exists, that is what decides. */
 type Screen = "characters" | "create" | "setup" | "generating";
 
@@ -83,21 +104,28 @@ export default function App() {
   const [progress, setProgress] = useState<GenerationProgress>();
 
   /**
-   * A session, wired from the switches.
+   * A session, and which KIND of session, decided here and nowhere else.
    *
-   * This is the only place the switches are read into anything: `?stub` and
-   * `?offline` choose a referee and a generator, and the session does not know
-   * or care that a query string picked them.
+   * A real run is played by the server: this holds a store, posts what the
+   * player did, and shows what came back. `?offline` and `?stub` are played in
+   * the browser, exactly as they were before there was a server — that is the
+   * whole point of them. Interface work should not need Postgres running, and a
+   * fixture dungeon refereed by a keyword table costs nothing and answers
+   * instantly.
+   *
+   * Both satisfy `PlayableSession`, so everything below this line is the same
+   * either way.
    */
-  const makeSession = (): GameSession =>
-    createGameSession({
-      sink: httpSink,
-      onProgress: setProgress,
-      ...(STUB ? { referee: () => stubReferee } : {}),
-      ...(OFFLINE
-        ? { offline: true, generate: async ({ seed, size }) => generateOffline(seed, size) }
-        : {}),
-    });
+  const makeSession = (): PlayableSession =>
+    LOCAL
+      ? createGameSession({
+          onProgress: setProgress,
+          ...(STUB ? { referee: () => stubReferee } : {}),
+          ...(OFFLINE
+            ? { offline: true, generate: async ({ seed, size }) => generateOffline(seed, size) }
+            : {}),
+        })
+      : createRemoteSession({ onProgress: setProgress });
 
   /**
    * The run in hand. Made on the first render — so the store it owns is there
@@ -109,7 +137,7 @@ export default function App() {
    * subscription below is to *this* store, and the play screen has to follow
    * the new one.
    */
-  const [session, setSession] = useState<GameSession>(makeSession);
+  const [session, setSession] = useState<PlayableSession>(makeSession);
 
   const { dungeon, run } = useGame(session.store);
   const [screen, setScreen] = useState<Screen>(BYPASS ? "generating" : "characters");
@@ -120,7 +148,7 @@ export default function App() {
   /** Held so a failed generation can be tried again on the same seed. */
   const [lastRequest, setLastRequest] = useState<RunRequest>();
 
-  async function start(s: GameSession, request: RunRequest) {
+  async function start(s: PlayableSession, request: RunRequest) {
     setScreen("generating");
     try {
       // A second call on the SAME session is the double-invoke of StrictMode's
@@ -159,7 +187,7 @@ export default function App() {
 
   useEffect(() => {
     void (async () => {
-      const cs = await listCharacters();
+      const cs = LOCAL ? localCharacters() : await listCharacters();
       setCharacters(cs);
       if (BYPASS && cs[0]) {
         void begin({ seed: SEED, size: SIZE, level: LEVEL, character: cs[0] });
@@ -178,13 +206,14 @@ export default function App() {
     return (
       <div className="p-8 font-mono text-sm text-torch space-y-4 max-w-3xl">
         <p>Could not build a dungeon: {error}</p>
-        {/* The journal is in out/runs/<run id>/, and without the id on the
-            screen the only way to find it is by guessing at the timestamp. */}
-        {session.runId && (
-          <p className="text-ash">
-            The whole failure is on the console, and in out/runs/{session.runId}/
-          </p>
-        )}
+        {/* Locally the journal is a directory, and without the id on the
+            screen the only way to find it is by guessing at the timestamp. A
+            remote run has no directory: its journal is in the database, and a
+            generation that failed has no run row to point at yet either. */}
+        <p className="text-ash">
+          The whole failure is on the console
+          {session.runId ? `, and in out/runs/${session.runId}/` : ""}
+        </p>
         {lastRequest && (
           <button
             type="button"

@@ -65,6 +65,19 @@ describe("with no sink", () => {
     expect(() => onFire.log({ kind: "player", text: "y" })).not.toThrow();
   });
 
+  // A run picked up again — the second HTTP request into it, where the session
+  // is rebuilt from a row and the events have to carry on from where storage
+  // left off rather than restart on top of them. See CODING-PLAN §7.2.
+  it("carries on from a sequence already written", () => {
+    const later: JournalRecord[] = [];
+    const resumed = createJournal({ write: (r) => later.push(r) }, 12);
+
+    resumed.log({ kind: "player", text: "the next thing they did" });
+    resumed.log({ kind: "narration", text: "and what came of it", arrival: false });
+
+    expect(later.map((r) => r.seq)).toEqual([13, 14]);
+  });
+
   // The point of the whole exercise: two runs in one process, and neither can
   // see the other's events or share its sequence.
   it("keeps two journals apart", () => {

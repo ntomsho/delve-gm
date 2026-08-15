@@ -30,7 +30,14 @@ import {
   type SeamsPassResponse,
   type Size,
 } from "../engine/index.ts";
-import { validateWritten, type GeneratedDungeon } from "./generate.ts";
+import {
+  chunksOf,
+  finishGeneration,
+  generateChunk,
+  generateStructure,
+  validateWritten,
+  type GeneratedDungeon,
+} from "./generate.ts";
 import { chunksFor, deriveSeeds } from "./seeds.ts";
 import { contentPassSchema, dungeonPassSchema, seamsPassSchema } from "./llm/schemas.ts";
 import { extractJson, ResponseFormatError, validate } from "./llm/json.ts";
@@ -925,5 +932,169 @@ describe("prompt snapshots", () => {
         renderContentPassPrompt(buildContentPassPayload(sd, bp, ep, 0, "[dungeon context]", site))
       )
     ).toMatchSnapshot();
+  });
+});
+
+// ===========================================================================
+// THE PIPELINE, SPLIT ACROSS REQUESTS  (Phase 10a)
+// ===========================================================================
+//
+// No Vercel invocation may hold more than one model call, so generation is
+// three endpoints rather than one function: structure, then a region at a time,
+// then apply-and-join. `generateDungeon` composes the same three, which is what
+// keeps the browser and the CLI on one code path.
+//
+// THE THING THIS ACTUALLY PROVES is that the partial can go through a database
+// and come back. The split is worth nothing if a `GeneratedDungeon` that has
+// been through `JSON.stringify` writes a different dungeon from the one held in
+// memory — object identity inside `entities.registry` is shared, and a round
+// trip breaks that sharing. If applying ever depended on it, this is where it
+// shows.
+
+describe("generation split across requests", () => {
+  const SEED = 1005;
+  const SIZE = 2 as Size;
+
+  /** Content-pass answers, keyed by the exact prompt they answer. */
+  let answers: Map<string, unknown>;
+  /**
+   * Whose entities the seams pass is about to read.
+   *
+   * THE SEAMS PROMPT CANNOT BE PRECOMPUTED, and that is the pass working as
+   * designed: it is built after the regions have been applied, quoting rooms
+   * that now have names and descriptions. So it is answered live, off whatever
+   * `finishGeneration` has just finished writing to.
+   */
+  let finishing: GeneratedDungeon | undefined;
+  let calls: number;
+
+  const toolReply = (name: string, input: unknown) => ({
+    content: [{ type: "tool_use", id: `t${calls}`, name, input }],
+    stop_reason: "tool_use",
+    usage: { input_tokens: 100, output_tokens: 40 },
+  });
+
+  const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g;
+
+  beforeEach(() => {
+    answers = new Map();
+    finishing = undefined;
+    calls = 0;
+
+    vi.stubGlobal("fetch", async (_url: string, init: { body: string }) => {
+      calls++;
+      const body = JSON.parse(init.body);
+      const prompt = body.messages[0].content as string;
+      const tool = body.tools[0].name as string;
+
+      // THE DUNGEON PASS IS ANSWERED OFF THE PROMPT, not from a table. Its
+      // payload names the inhabitant groups by id, and ids are `randomUUID` by
+      // design (see seeds.ts) — so there is no computing the prompt ahead of
+      // the call to key a lookup by. Everything after it addresses a structure
+      // that already exists, so those ids are fixed and a table works.
+      if (tool === "establish_dungeon") {
+        const ids = [...new Set(prompt.match(UUID) ?? [])];
+        return { ok: true, json: async () => toolReply(tool, fakeDungeonPass(ids)) };
+      }
+
+      if (tool === "write_ways_through") {
+        if (!finishing) throw new Error("the seams pass ran with no partial in hand");
+        const payload = buildSeamsPassPayload(
+          finishing.stocked,
+          finishing.entities,
+          finishing.dungeonContext
+        );
+        return { ok: true, json: async () => toolReply(tool, fakeSeamsPass(payload)) };
+      }
+
+      const answer = answers.get(prompt) as { name: string; input: unknown } | undefined;
+      if (!answer) {
+        return { ok: false, status: 400, statusText: `no canned answer for that ${tool} prompt`, text: async () => "" };
+      }
+      return { ok: true, json: async () => toolReply(answer.name, answer.input) };
+    });
+  });
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  /** Every region and the seams, answered against a partial that now exists. */
+  function answerTheRest(partial: GeneratedDungeon): void {
+    const site = partial.blockplan
+      ? siteRooms(partial.blockplan, partial.graph, {
+          isCorridor: (i) =>
+            partial.stocked.rooms.find((r) => r.index === i)?.isCorridor === true,
+        })
+      : undefined;
+
+    for (const chunk of chunksOf(partial)) {
+      const payload = buildContentPassPayload(
+        partial.stocked,
+        partial.blueprint,
+        partial.entities,
+        chunk,
+        partial.dungeonContext,
+        site
+      );
+      answers.set(renderContentPassPrompt(payload), {
+        name: "write_region",
+        input: fakeContentPass(payload),
+      });
+    }
+  }
+
+  /** Finish a partial, with the seams stub pointed at it. */
+  async function finish(target: GeneratedDungeon) {
+    const results = await Promise.all(chunksOf(target).map((c) => generateChunk(target, c)));
+    finishing = target;
+    return finishGeneration(target, results);
+  }
+
+  it("writes the same dungeon whether or not the partial went through a database", async () => {
+    const partial = await generateStructure({ seed: SEED, size: SIZE, level: 1 });
+    answerTheRest(partial);
+
+    // Before either branch runs, and before anything is applied: this is the
+    // row the server would have written and read back.
+    const roundTripped: GeneratedDungeon = JSON.parse(JSON.stringify(partial));
+
+    const inMemory = await finish(partial);
+    const throughTheDb = await finish(roundTripped);
+
+    expect(validateWritten(throughTheDb)).toEqual([]);
+
+    // COMPARED AS THEY WOULD BE STORED, and with ids blanked.
+    //
+    // Serialised because `JSON.stringify` drops keys whose value is `undefined`
+    // — a stocking seed carries several — so the in-memory object has
+    // properties the round-tripped one does not, and reading either gives
+    // `undefined` regardless. That is not the comparison being weakened: it is
+    // the form the server persists and reads back.
+    //
+    // Ids blanked because applying a region CREATES entities — a goal item,
+    // among others — and `makeId` is `randomUUID` by design, so two runs of the
+    // same work agree on everything except identity. seeds.ts says so, and the
+    // determinism tests above take the same view.
+    const stored = (gd: GeneratedDungeon) =>
+      JSON.parse(
+        JSON.stringify(gd.entities).replace(
+          /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g,
+          "<id>"
+        )
+      );
+    expect(stored(throughTheDb)).toEqual(stored(inMemory));
+    expect(throughTheDb.usage).toEqual(inMemory.usage);
+  });
+
+  it("refuses to finish with a region missing", async () => {
+    const partial = await generateStructure({ seed: SEED, size: SIZE, level: 1 });
+    answerTheRest(partial);
+
+    const chunks = chunksOf(partial);
+    expect(chunks.length).toBeGreaterThan(1);
+    const some = await Promise.all(chunks.slice(0, -1).map((c) => generateChunk(partial, c)));
+
+    // Discovered here, where it can be retried, rather than as an unwritten
+    // entity at the end of a pass nobody can rerun. §1.1.
+    await expect(finishGeneration(partial, some)).rejects.toThrow(/region .* was never written/);
   });
 });

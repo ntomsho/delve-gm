@@ -6,7 +6,10 @@
   },
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "api": "node src/server/dev.ts",
+    "build": "tsc --noEmit && vite build && vite build --config vite.api.config.ts",
+    "build:client": "vite build",
+    "build:api": "vite build --config vite.api.config.ts",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -26,6 +29,9 @@
   },
   "homepage": "https://github.com/ntomsho/aidungeon#readme",
   "dependencies": {
+    "@hono/node-server": "^2.1.1",
+    "hono": "^4.13.2",
+    "postgres": "^3.4.9",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-tooltip": "^6.0.8",

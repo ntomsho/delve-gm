@@ -22,8 +22,9 @@ import { renderDom } from "./ui/__fixtures__/dom.ts";
 // whatever the URL said when the bundle loaded.
 history.replaceState({}, "", "/?offline=1");
 
-// The journal posts to the dev server, which is not here. `httpSink` already
-// swallows the failure, but a warning per turn makes the output unreadable.
+// `?offline=1` is played entirely in the browser and talks to nothing, but a
+// stray fetch reaching a server that is not here would fail noisily. Stubbed so
+// a failure in this test means the wiring broke, not that a socket did.
 vi.stubGlobal("fetch", async () => ({ ok: true, json: async () => ({}) }));
 
 // jsdom has no layout, so it has no `scrollIntoView` — which the scrollback

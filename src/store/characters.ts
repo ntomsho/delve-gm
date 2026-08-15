@@ -2,57 +2,68 @@
  * WHERE CHARACTERS LIVE
  * =====================
  *
- * One module, one job: hand out the saved characters. Today that is an array
- * with the test character in it. Later it is a database, and when it is, this
- * is the only file that changes — nothing above it knows or asks where a
- * character came from.
+ * One module, one job: hand out the saved characters. It was an array with the
+ * test character in it; **as of Phase 10 it is the database**, and this file is
+ * the only one that changed — nothing above it knew or asked where a character
+ * came from, which is what the header here promised in Phase 5 and is now the
+ * receipt for it.
  *
- * The functions are async now, before there is anything to await. That is
- * deliberate. A database is async, and a component tree built on the
- * assumption that reading a character is free has to be unpicked a screen at a
- * time when that stops being true — the same retrofit BUILD-PLAN §6 warns
- * about for `turnCount`. One `await` against an array costs nothing today and
- * buys the swap for free later.
+ * The functions were made async before there was anything to await, and that is
+ * why: a component tree built on the assumption that reading a character is
+ * free would have had to be unpicked a screen at a time when that stopped being
+ * true. One `await` against an array cost nothing then and bought the swap for
+ * free now.
  *
- * Saving and deleting arrived with Phase 5, and they write to the same array.
- * **A character does not survive a reload.** That is deliberate for this pass:
- * serialising them is its own decision — what the record looks like, what
- * happens to one saved against an older shape — and making that decision badly
- * now would be harder to undo than making it later. So a character made this
- * session can be taken into a run this session, and the seeded one comes back
- * either way.
+ * **A character survives a reload now**, which settles the open question
+ * CODING-PLAN §3.6 left deliberately unanswered — what the stored record looks
+ * like, and what happens to one saved against an older shape. The record is the
+ * sheet, whole, in a jsonb column: `PlayerCharacter` is already the serialisable
+ * thing that goes in and out of a run, so there is no second shape to keep in
+ * step and no migration to write when the sheet grows a field. A sheet stored
+ * before a field existed reads back without it, exactly as a save from before
+ * `fiction` did — see `worldOf` in game.ts.
+ *
+ * THE SEEDED FIXTURE IS GONE from here. `testCharacter()` is the dev
+ * quick-start and belongs to the fixtures; a shared database that hands every
+ * visitor somebody called Testy with +3 in everything is a different thing
+ * entirely. `?offline` and `?stub` still get it — see App.tsx.
  */
 
 import type { PlayerCharacter } from "../engine/index.ts";
-import { testCharacter } from "../runtime/__fixtures__/offline.ts";
 
-/**
- * The stock. Seeded with the fixture, which is why the first occupant is called
- * Testy and has +3 in everything — that one is scaffolding and the dev
- * quick-start, not a character anyone rolled up.
- */
-const STOCK: PlayerCharacter[] = [testCharacter()];
+const BASE = "/api/characters";
+
+async function json<T>(res: Response, what: string): Promise<T> {
+  if (!res.ok) throw new Error(`could not ${what} (${res.status})`);
+  return (await res.json()) as T;
+}
 
 export async function listCharacters(): Promise<PlayerCharacter[]> {
-  return [...STOCK];
+  return json(await fetch(BASE), "read the characters");
 }
 
 export async function getCharacter(id: string): Promise<PlayerCharacter | undefined> {
-  return STOCK.find((c) => c.id === id);
+  const all = await listCharacters();
+  return all.find((c) => c.id === id);
 }
 
 /** Add a newly made character, or replace one with the same id. */
 export async function saveCharacter(pc: PlayerCharacter): Promise<PlayerCharacter> {
-  const i = STOCK.findIndex((c) => c.id === pc.id);
-  if (i === -1) STOCK.push(pc);
-  else STOCK[i] = pc;
-  return pc;
+  return json(
+    await fetch(BASE, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(pc),
+    }),
+    "save the character"
+  );
 }
 
 /** Remove one. Returns whether there was anything to remove. */
 export async function deleteCharacter(id: string): Promise<boolean> {
-  const i = STOCK.findIndex((c) => c.id === id);
-  if (i === -1) return false;
-  STOCK.splice(i, 1);
-  return true;
+  const { deleted } = await json<{ deleted: boolean }>(
+    await fetch(`${BASE}/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    "delete the character"
+  );
+  return deleted;
 }

@@ -175,9 +175,19 @@ export interface Journal {
  *
  * With no sink it is the no-op every test gets: `log` returns on the first
  * line, nothing is allocated, nothing is stamped.
+ *
+ * `startSeq` IS WHAT MAKES A RUN SURVIVE BEING PUT DOWN. In a browser one
+ * journal sees a whole run and counting from zero is right. On a server there
+ * is no continuous anything: a session is built per request, plays one turn,
+ * and dies — so a journal that always started at zero would number the second
+ * turn's events 1, 2, 3 again, on top of the first turn's. Against a table keyed
+ * `(run_id, seq)` that is a collision, and the failure would be the quiet kind:
+ * every write here is wrapped, per IT MUST NEVER BREAK A TURN, so the turn would
+ * succeed and the journalling would simply stop. Whoever builds the session
+ * passes the last sequence already stored.
  */
-export function createJournal(sink?: Sink): Journal {
-  let seq = 0;
+export function createJournal(sink?: Sink, startSeq = 0): Journal {
+  let seq = startSeq;
   let broken = false;
 
   /**
