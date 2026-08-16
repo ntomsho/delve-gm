@@ -2020,7 +2020,52 @@ the middleware: `/api/health` 200, `GET /api/characters` 401, **`POST
 a garbage bearer 401, and an `Origin: https://evil.example` preflight answered
 with no `access-control-allow-origin` at all.
 
-### 8.8 Deliberately not in this pass
+### 8.8 Deployed, and what deploying taught us 🔴
+
+**Production probed after the deploy, and the hole is shut:** `/api/health` 200,
+`GET /api/characters` 401, **`POST /api/dungeons` 401 — refused before a token is
+spent** — a forged bearer 401, and an `Origin: https://evil.example` preflight
+answered with no `access-control-allow-origin` at all.
+
+**A GIT PUSH DOES NOT DEPLOY THIS PROJECT, AND NEVER HAS.** The push of this
+phase triggered a build that failed in 130ms:
+
+```
+Error: The pattern "api/index.js" defined in `functions` doesn't match
+any Serverless Functions inside the `api` directory.
+```
+
+`api/` is gitignored — correctly, per §7.9: it holds only the bundle, so Vercel
+has no TypeScript there to build with the bundler that cannot read `?raw`. But
+that means the GitHub clone has no `api/index.js`, and Vercel validates the
+`functions` glob **against the clone, before `buildCommand` runs** — so the file
+`npm run build` is about to produce does not exist yet at the moment it is
+checked. There is an identical 1s failure from the day before, so this has been
+true since 10b; 10b reached production by `vercel --prod` from the author's
+machine, which uploads the local tree including the built bundle and so matches
+the pattern.
+
+**`vercel build --prod` locally does not work either**, but for an unrelated
+reason: the function packaging step dies with
+`EISDIR: illegal operation on a directory, readlink 'api\index.js'` on Windows,
+leaving `.vercel/output` with a `static/` and no `functions/`. The bundle itself
+is a perfectly ordinary file; this is the CLI on this platform.
+
+**So the deploy command is `npx vercel --prod`**, and it is the only one that
+works today. Unresolved, and worth settling before anyone else ever deploys this:
+
+1. **Commit `api/index.js`.** Git push starts working, the pattern matches the
+   clone, and `buildCommand` regenerates it anyway. Costs a 516kB generated file
+   in the repository that churns on every build.
+2. **Leave it CLI-only** and write the command down where somebody will find it.
+   Costs nothing and means the GitHub integration is permanently lying — every
+   push shows a failed deploy.
+
+Neither is obviously right; (1) is recommended, because a repository whose main
+branch cannot deploy itself is a trap for the next person, and that person is
+the author in six months.
+
+### 8.9 Deliberately not in this pass
 
 - **Browse and duplicate someone else's dungeon, and the generation cache.** The
   schema is ready for both — `DungeonSummary`, `dungeon_key`, `dungeons_cache_idx`
