@@ -17,7 +17,8 @@
     "generate": "node src/dev/cli-generate.ts",
     "generate:dry": "node src/dev/cli-generate.ts --dry",
     "play": "node src/dev/cli-play.ts",
-    "play:offline": "node src/dev/cli-play.ts --offline"
+    "play:offline": "node src/dev/cli-play.ts --offline",
+    "test:db": "node --env-file=.env.local ./node_modules/vitest/vitest.mjs run --config vite.db.config.ts"
   },
   "repository": {
     "type": "git",
@@ -30,7 +31,9 @@
   "homepage": "https://github.com/ntomsho/aidungeon#readme",
   "dependencies": {
     "@hono/node-server": "^2.1.1",
+    "@supabase/supabase-js": "^2.112.3",
     "hono": "^4.13.2",
+    "jose": "^6.2.9",
     "postgres": "^3.4.9",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",

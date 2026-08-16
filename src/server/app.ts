@@ -26,6 +26,7 @@
 import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
+import { currentUser, requireUser, type AuthEnv } from "./auth.ts";
 import {
   chunksOf,
   finishGeneration,
@@ -67,14 +68,41 @@ function configureAnthropic(): void {
   });
 }
 
-export function createApp(): Hono {
-  configureAnthropic();
-  const app = new Hono();
+/**
+ * Who may call this API from a browser.
+ *
+ * Was a bare `cors()` — any origin at all — which was survivable while there
+ * was nothing behind it worth taking. Now there are accounts, and an open CORS
+ * policy means any page the player visits can spend their tokens with their
+ * session. `CORS_ORIGINS` exists so a preview deployment or an itch.io embed is
+ * an environment variable rather than a redeploy.
+ */
+function allowedOrigins(): string[] {
+  const extra = (process.env.CORS_ORIGINS ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s !== "");
+  return ["https://aidungeon.vercel.app", "http://localhost:5173", ...extra];
+}
 
-  // The client is served from a different origin in production — and could be
-  // served from itch.io later — so this is not optional. Phase 11 narrows it
-  // to known origins once there are accounts to protect.
-  app.use("/api/*", cors());
+export function createApp(): Hono<AuthEnv> {
+  configureAnthropic();
+  const app = new Hono<AuthEnv>();
+
+  app.use("/api/*", cors({ origin: allowedOrigins(), credentials: true }));
+
+  /**
+   * THE GATE. Everything under `/api` needs an account.
+   *
+   * `/api/health` is the one exception and is registered before this: it is what
+   * the twice-weekly Vercel cron hits to stop Supabase pausing the project
+   * (§7.8), a cron holds no session, and it reads and writes nothing.
+   *
+   * Until Phase 11 this API was open, and it spends an Anthropic key. That is
+   * the hole this line closes.
+   */
+  app.get("/api/health", (c) => c.json({ ok: true }));
+  app.use("/api/*", requireUser);
 
   app.onError((err, c) => {
     if (err instanceof HTTPException) return err.getResponse();
@@ -85,21 +113,19 @@ export function createApp(): Hono {
     return c.json({ error: describeFailure(err) }, 500);
   });
 
-  app.get("/api/health", (c) => c.json({ ok: true }));
-
   // -------------------------------------------------------------------------
   // CHARACTERS
   // -------------------------------------------------------------------------
 
-  app.get("/api/characters", async (c) => c.json(await repo.listCharacters()));
+  app.get("/api/characters", async (c) => c.json(await repo.listCharacters(currentUser(c).id)));
 
   app.post("/api/characters", async (c) => {
     const pc = (await c.req.json()) as PlayerCharacter;
-    return c.json(await repo.saveCharacter(pc));
+    return c.json(await repo.saveCharacter(pc, currentUser(c).id));
   });
 
   app.delete("/api/characters/:id", async (c) =>
-    c.json({ deleted: await repo.deleteCharacter(c.req.param("id")) })
+    c.json({ deleted: await repo.deleteCharacter(c.req.param("id"), currentUser(c).id) })
   );
 
   // -------------------------------------------------------------------------
@@ -124,10 +150,14 @@ export function createApp(): Hono {
     const journal = createJournal(sink);
     const partial = await generateStructure({ seed, size, level, journal });
 
-    await repo.insertPartialDungeon(partial);
-    await repo.appendDungeonEvents(partial.id, events);
+    // THE ROW ID, NOT `partial.id`. `partial.id` is the engine's derived name
+    // (`dungeon_<seed>`) and stopped being the key in Phase 11, so that two
+    // players may each hold their own copy of one seed. Everything downstream
+    // addresses the row.
+    const dungeonId = await repo.insertPartialDungeon(partial, currentUser(c).id);
+    await repo.appendDungeonEvents(dungeonId, events);
 
-    return c.json({ dungeonId: partial.id, chunks: chunksOf(partial) });
+    return c.json({ dungeonId, chunks: chunksOf(partial) });
   });
 
   /**
@@ -168,16 +198,17 @@ export function createApp(): Hono {
    * response already landed costs a model call and changes nothing.
    */
   app.post("/api/dungeons/:id/chunks/:n", async (c) => {
-    const { doc: partial } = await mustGetDungeon(c.req.param("id"));
+    const stored = await mustGetDungeon(c.req.param("id"), currentUser(c).id);
+    const partial = stored.doc;
     const chunk = Number(c.req.param("n"));
     if (!chunksOf(partial).includes(chunk)) {
       throw new HTTPException(404, { message: `no region ${chunk} in that dungeon` });
     }
 
-    const result = await journalled(partial.id, (journal) =>
+    const result = await journalled(stored.id, (journal) =>
       generateChunk(partial, chunk, { journal })
     );
-    await repo.saveChunk(partial.id, result);
+    await repo.saveChunk(stored.id, result);
 
     return c.json({ chunk, done: true });
   });
@@ -190,7 +221,7 @@ export function createApp(): Hono {
    * discovered at the end of a pass nobody can rerun. See §1.1.
    */
   app.post("/api/dungeons/:id/finish", async (c) => {
-    const stored = await mustGetDungeon(c.req.param("id"));
+    const stored = await mustGetDungeon(c.req.param("id"), currentUser(c).id);
     if (stored.status === "complete") return c.json({ dungeonId: stored.id, already: true });
 
     const results = await repo.listChunks(stored.id);
@@ -203,19 +234,23 @@ export function createApp(): Hono {
       return done;
     });
 
-    await repo.completeDungeon(complete);
-    return c.json({ dungeonId: complete.id });
+    await repo.completeDungeon(stored.id, complete, currentUser(c).id);
+    return c.json({ dungeonId: stored.id });
   });
+
+  /** The player's own worlds. Summaries — nobody needs six whole dungeons. */
+  app.get("/api/dungeons", async (c) => c.json(await repo.listDungeons(currentUser(c).id)));
 
   // -------------------------------------------------------------------------
   // RUNS
   // -------------------------------------------------------------------------
 
-  app.get("/api/runs", async (c) => c.json(await repo.listRuns()));
+  app.get("/api/runs", async (c) => c.json(await repo.listRuns(currentUser(c).id)));
 
   app.get("/api/runs/:id", async (c) => {
-    const run = await mustGetRun(c.req.param("id"));
-    const dungeon = await mustGetDungeon(run.dungeonId);
+    const user = currentUser(c);
+    const run = await mustGetRun(c.req.param("id"), user.id);
+    const dungeon = await mustGetDungeon(run.dungeonId, user.id);
     return c.json({ run, dungeon: dungeon.doc });
   });
 
@@ -231,13 +266,19 @@ export function createApp(): Hono {
       character: PlayerCharacter;
     };
 
-    const stored = await mustGetDungeon(dungeonId);
+    const user = currentUser(c);
+    const stored = await mustGetDungeon(dungeonId, user.id);
     if (stored.status !== "complete") {
       throw new HTTPException(409, { message: "that dungeon is still being written" });
     }
 
     const state = newRun(stored.doc, character);
-    const run = await repo.createRun({ dungeonId, characterId: character.id, state });
+    const run = await repo.createRun({
+      dungeonId: stored.id,
+      characterId: character.id,
+      state,
+      owner: user.id,
+    });
 
     const { sink, events } = repo.collectingSink();
     createJournal(sink).log({
@@ -275,7 +316,7 @@ export function createApp(): Hono {
   // -------------------------------------------------------------------------
 
   app.get("/api/runs/:id/journal.jsonl", async (c) => {
-    const run = await mustGetRun(c.req.param("id"));
+    const run = await mustGetRun(c.req.param("id"), currentUser(c).id);
     const events = await repo.readJournal(run.id, run.dungeonId);
     return c.text(events.map((e) => JSON.stringify(e)).join("\n"), 200, {
       "content-type": "application/x-ndjson; charset=utf-8",
@@ -283,7 +324,7 @@ export function createApp(): Hono {
   });
 
   app.get("/api/runs/:id/transcript.md", async (c) => {
-    const run = await mustGetRun(c.req.param("id"));
+    const run = await mustGetRun(c.req.param("id"), currentUser(c).id);
     const events = await repo.readJournal(run.id, run.dungeonId);
     // The same renderer the file sink has always used, so a transcript pulled
     // out of the database reads exactly like one pulled off disk.
@@ -315,17 +356,20 @@ type Action = (session: ReturnType<typeof createGameSession>, body: unknown) => 
  *   5. the compare-and-swap, with the events in the same transaction, so a
  *      rejected turn leaves nothing at all behind.
  */
-async function playTurn(c: Context, act: Action): Promise<Response> {
+async function playTurn(c: Context<AuthEnv>, act: Action): Promise<Response> {
   // Hono types `param` as possibly-undefined on a bare `Context`, which cannot
   // know a route's parameters. Every route below has an `:id`, and a request
   // that somehow arrived without one has no run to name.
   const id = c.req.param("id");
   if (!id) throw new HTTPException(400, { message: "no run named" });
 
+  const owner = currentUser(c).id;
   const body = await c.req.json().catch(() => ({}));
   const expected = Number((body as { version?: unknown }).version);
 
-  const run = await mustGetRun(id);
+  // Owner-filtered, so another player's run is a 404 and not a 403 — the API
+  // does not confirm that a run it will not serve exists.
+  const run = await mustGetRun(id, owner);
   if (!Number.isFinite(expected)) {
     throw new HTTPException(400, { message: "a turn must say which version it answers" });
   }
@@ -335,11 +379,11 @@ async function playTurn(c: Context, act: Action): Promise<Response> {
   if (run.status !== "active") {
     throw new HTTPException(409, { message: `that run is over: ${run.status}` });
   }
-  if (!(await repo.lockRun(id))) {
+  if (!(await repo.lockRun(id, owner))) {
     return c.json({ error: "busy", current: run }, 409);
   }
 
-  const dungeon = await mustGetDungeon(run.dungeonId);
+  const dungeon = await mustGetDungeon(run.dungeonId, owner);
   const { sink, events } = repo.collectingSink();
   const session = createGameSession({
     sink: () => sink,
@@ -355,13 +399,25 @@ async function playTurn(c: Context, act: Action): Promise<Response> {
     // drop the retry's events instead, which is the worse failure. The turn
     // machine catches referee errors itself and lands on `error` with the
     // journal intact, so reaching here at all is a bug rather than a bad call.
-    await repo.releaseRun(id);
+    await repo.releaseRun(id, owner);
     throw e;
   }
 
   const state = session.store.getState().run as RunState;
-  const result = await repo.commitTurn({ runId: id, expectedVersion: expected, state, events });
+  const result = await repo.commitTurn({
+    runId: id,
+    owner,
+    expectedVersion: expected,
+    state,
+    events,
+  });
 
+  // `gone` means the run stopped being this player's between the read and the
+  // write — unreachable through this handler, which read it under an owner
+  // filter, and answered anyway because the alternative was a 500.
+  if (!result.ok && result.reason === "gone") {
+    throw new HTTPException(404, { message: `no such run: ${id}` });
+  }
   if (!result.ok) return c.json({ error: "stale", current: result.current }, 409);
   return c.json({
     state,
@@ -372,14 +428,22 @@ async function playTurn(c: Context, act: Action): Promise<Response> {
 
 // ---------------------------------------------------------------------------
 
-async function mustGetDungeon(id: string) {
-  const stored = await repo.getDungeon(id);
+/**
+ * A dungeon, or a 404.
+ *
+ * OWNERSHIP IS AN ARGUMENT, NOT AN AFTERTHOUGHT. Both of these take the owner
+ * and pass it into the `where`, so there is no arrangement of calls in which a
+ * handler reads a row first and remembers to check it second. "Not yours" and
+ * "not there" are one answer.
+ */
+async function mustGetDungeon(id: string, owner: string) {
+  const stored = await repo.getDungeon(id, owner);
   if (!stored) throw new HTTPException(404, { message: `no such dungeon: ${id}` });
   return stored;
 }
 
-async function mustGetRun(id: string) {
-  const run = await repo.getRun(id);
+async function mustGetRun(id: string, owner: string) {
+  const run = await repo.getRun(id, owner);
   if (!run) throw new HTTPException(404, { message: `no such run: ${id}` });
   return run;
 }

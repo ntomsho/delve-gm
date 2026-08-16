@@ -128,6 +128,63 @@ describe("a turn", () => {
   });
 });
 
+/**
+ * PHASE 11. The runtime does not know what a token is — it is handed a `fetch`
+ * and uses it. What these check is that it uses THAT ONE for everything, because
+ * the failure mode is a single overlooked call site going out unauthenticated
+ * and 401ing in a corner nobody exercises. The 409 resync path was exactly such
+ * a call site before this.
+ */
+describe("the injected fetch", () => {
+  /** Records which requests went through the injected function rather than the global. */
+  function spyFetch() {
+    const seen: string[] = [];
+    const fn = ((url: string, init?: RequestInit) => {
+      seen.push(String(url));
+      return (globalThis.fetch as unknown as typeof fn)(url, init);
+    }) as unknown as typeof globalThis.fetch;
+    return { seen, fn };
+  }
+
+  it("is used for every request generation and a turn make", async () => {
+    wireGeneration([0, 1]);
+    const { seen, fn } = spyFetch();
+    const session = createRemoteSession({ fetch: fn });
+    await begin(session);
+
+    routes.set("POST /api/runs/run-1/turn", () => ({ json: { state: run(3).state, version: 3 } }));
+    await session.submit("I look up");
+
+    // Every path the session took — nothing slipped out through the global.
+    expect(seen.length).toBe(sent.length);
+  });
+
+  /**
+   * THE ONE THAT WAS ACTUALLY WRONG. The 409 recovery re-read the run with a
+   * bare `fetch`, so it would have gone out with no token and failed as a 401
+   * inside the handler for a 409 — a failure inside a recovery, which is the
+   * hardest kind to see.
+   */
+  it("is used by the 409 resync path too", async () => {
+    wireGeneration([0]);
+    const { seen, fn } = spyFetch();
+    const session = createRemoteSession({ fetch: fn });
+    await begin(session);
+
+    routes.set("POST /api/runs/run-1/turn", () => ({
+      status: 409,
+      json: { error: "stale", current: run(7) },
+    }));
+    routes.set("GET /api/runs/run-1", () => ({ json: { run: run(7) } }));
+
+    const before = seen.length;
+    await session.submit("anything");
+
+    // The failed turn AND the re-read, both through the injected fetch.
+    expect(seen.slice(before)).toEqual(["/api/runs/run-1/turn", "/api/runs/run-1"]);
+  });
+});
+
 describe("a refusal", () => {
   it("resyncs instead of surfacing an error", async () => {
     wireGeneration([0]);

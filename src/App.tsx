@@ -44,6 +44,8 @@ import { RunSetup } from "./ui/RunSetup.tsx";
 import { toItems } from "./ui/play/Narration.tsx";
 import { useGame } from "./store/react.ts";
 import { deleteCharacter, listCharacters, saveCharacter } from "./store/characters.ts";
+import { SignIn } from "./ui/SignIn.tsx";
+import { authedFetch, onAuthChange, signIn, signOut, type Account } from "./store/auth.ts";
 import {
   createGameSession,
   describeFailure,
@@ -125,7 +127,7 @@ export default function App() {
             ? { offline: true, generate: async ({ seed, size }) => generateOffline(seed, size) }
             : {}),
         })
-      : createRemoteSession({ onProgress: setProgress });
+      : createRemoteSession({ onProgress: setProgress, fetch: authedFetch });
 
   /**
    * The run in hand. Made on the first render — so the store it owns is there
@@ -142,6 +144,20 @@ export default function App() {
   const { dungeon, run } = useGame(session.store);
   const [screen, setScreen] = useState<Screen>(BYPASS ? "generating" : "characters");
   const [characters, setCharacters] = useState<PlayerCharacter[]>();
+
+  /**
+   * Who is signed in, and whether we have found out yet.
+   *
+   * `undefined` account plus `!authReady` is the moment before Supabase has read
+   * the stored session — a real state and a short one, and rendering the sign-in
+   * screen during it would flash a door at somebody who is already through it.
+   *
+   * A LOCAL RUN NEEDS NO ACCOUNT. `?offline` and `?stub` never touch the server,
+   * so requiring Google to do interface work would be requiring a login to reach
+   * a fixture. `authReady` starts true there and the account stays undefined.
+   */
+  const [account, setAccount] = useState<Account>();
+  const [authReady, setAuthReady] = useState(LOCAL);
   /** Whoever the player pressed *Send down* on, carried into run setup. */
   const [chosenId, setChosenId] = useState<string>();
   const [error, setError] = useState<string>();
@@ -185,7 +201,33 @@ export default function App() {
     void start(next, lastRequest);
   }
 
+  /**
+   * Follow the session.
+   *
+   * `onAuthStateChange` fires once with the stored session on subscribe, so this
+   * covers both the first read and every later change — signing in, signing out,
+   * and `authedFetch` clearing a session the server rejected. One listener, not
+   * a read plus a listener that can disagree with it.
+   */
   useEffect(() => {
+    if (LOCAL) return;
+    return onAuthChange((who) => {
+      setAccount(who);
+      setAuthReady(true);
+    });
+  }, []);
+
+  /**
+   * The characters, once there is somebody to have them.
+   *
+   * Keyed on the account id, so signing out empties the list and signing in as
+   * somebody else fetches theirs rather than showing the last player's.
+   */
+  useEffect(() => {
+    if (!LOCAL && !account) {
+      setCharacters(undefined);
+      return;
+    }
     void (async () => {
       const cs = LOCAL ? localCharacters() : await listCharacters();
       setCharacters(cs);
@@ -193,7 +235,7 @@ export default function App() {
         void begin({ seed: SEED, size: SIZE, level: LEVEL, character: cs[0] });
       }
     })();
-  }, []);
+  }, [account?.id]);
 
   const items = useMemo(() => {
     if (!run) return [];
@@ -201,6 +243,22 @@ export default function App() {
     const pass = session.store.getState().dungeon?.pass;
     return toItems(run.log, name, pass && { name: pass.name, objective: pass.goal.summary });
   }, [run?.log]);
+
+  /**
+   * THE GATE, and it is ahead of everything including the error screen.
+   *
+   * Nothing below this line can reach the API, so nothing below it should be
+   * reachable without an account. It sits above the generation-error branch
+   * deliberately: a failed generation belongs to a run, and a signed-out visitor
+   * has none.
+   */
+  if (!LOCAL) {
+    // The blank frame while the stored session is read. Deliberately empty
+    // rather than a spinner — it is one paint, and a flash of "loading" before
+    // a flash of the app is worse than a moment of the desk.
+    if (!authReady) return <div className="min-h-screen" style={{ background: "#EDE7DA" }} />;
+    if (!account) return <SignIn onSignIn={signIn} />;
+  }
 
   if (error) {
     return (
@@ -242,6 +300,8 @@ export default function App() {
             setCharacters(await listCharacters());
           })()
         }
+        account={account}
+        onSignOut={() => void signOut()}
       />
     );
   }

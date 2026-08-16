@@ -32,6 +32,15 @@ export interface RemoteOptions {
   /** where the API lives. Same origin in dev, because Vite proxies `/api`. */
   baseUrl?: string;
   onProgress?: (p: GenerationProgress) => void;
+  /**
+   * How to make a request — `authedFetch` in the app, the global in tests.
+   *
+   * INJECTED RATHER THAN IMPORTED, so the runtime never depends on the store's
+   * auth module and therefore never constructs a Supabase client just by being
+   * imported. Attaching the token is `store/auth.ts`'s single job and this file
+   * stays unaware that there is one.
+   */
+  fetch?: typeof globalThis.fetch;
 }
 
 /** What the server says a run is, every time it answers. */
@@ -53,13 +62,16 @@ export function createRemoteSession(opts: RemoteOptions = {}): PlayableSession {
   const base = (opts.baseUrl ?? "").replace(/\/$/, "");
   const report = opts.onProgress ?? (() => {});
   const store = createGameStore();
+  // Read through a getter rather than captured once, so a test that stubs the
+  // global after this function runs still gets its stub.
+  const http: typeof globalThis.fetch = (...args) => (opts.fetch ?? globalThis.fetch)(...args);
 
   let runId: string | undefined;
   let version = 0;
   let begun = false;
 
   async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
-    const res = await fetch(`${base}${path}`, {
+    const res = await http(`${base}${path}`, {
       method,
       headers: { "content-type": "application/json" },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
@@ -97,7 +109,7 @@ export function createRemoteSession(opts: RemoteOptions = {}): PlayableSession {
       land(await call<TurnReply>("POST", `/api/runs/${runId}/${path}`, { ...body, version }));
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) {
-        const res = await fetch(`${base}/api/runs/${runId}`);
+        const res = await http(`${base}/api/runs/${runId}`);
         if (res.ok) {
           const { run } = (await res.json()) as { run: { state: RunState; version: number } };
           land({ state: run.state, version: run.version });

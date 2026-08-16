@@ -27,6 +27,10 @@ it is and §2 below does not say.
 | 8 Playtest refinements | ⚠️ **started** — 8a is done bar A7 and A9, the 8b hover items, the click-verb pill and four of the 8b interface fixes are built, 8f's capitalisation has landed, and the exit-count item is closed bar its step-file line; §5 is the rest, and the bulk of the remaining work |
 | 9 The seam | ✅ built — §6. First of the server migration, and it contains no server |
 | 10 Server and database | ✅ built and deployed — §7. https://aidungeon.vercel.app |
+| 11 Accounts and ownership | ✅ built — §8. Google sign-in, `owner_id` everywhere, the dungeon key split |
+
+**818 tests and build clean after Phase 11**, plus a third, explicitly-invoked
+vitest config (`npm run test:db`) holding 13 more that need a real database.
 
 553 tests, two vitest projects, build clean as of `5feed17`. 593 and still clean after the
 8b hover work; 630 and still clean after the click-verb pill; 640 and still clean after
@@ -1265,7 +1269,7 @@ the player did. Three things to settle:
   exception, and it earns it by being the alternative to death.
 - **Whether a follower is an entity or a new concept.** Almost certainly a creature whose
   `activity` says it is following, with `roomId` written to wherever the player went — no
-  party, no second sheet, no shared inventory. §10 non-goals says one PC and that still
+  party, no second sheet, no shared inventory. §11 non-goals says one PC and that still
   holds; a follower is scenery that walks, not a second character.
 - **What the map does.** A follower is a creature and creature markers do not exist
   (§1.2.12), so it will be invisible on the drawing until they do. Acceptable; note it.
@@ -1859,7 +1863,175 @@ proxy — the API owns both now.
 
 ---
 
-## 8. Order of remaining work
+## 8. Phase 11 — Accounts and ownership ✅ **BUILT**
+
+Phase 10 shipped an API that asked for no credentials and a database in which
+nothing had an owner. Both are closed. **The motivation was sharper than "we
+should have logins": `POST https://aidungeon.vercel.app/api/dungeons` was
+unauthenticated and spends the project's Anthropic key.**
+
+**No BYOK and no model choice** — those are Phase 12. The one thing that landed
+early is `profiles.tier` (`byok` | `vip`), because a tier column added after
+there are accounts has to decide what the existing ones are. Nothing reads it.
+
+### 8.1 The decisions
+
+| | |
+|---|---|
+| sign-in | **Supabase Auth, Google only.** One provider, one button, no password reset flow, no credential store of ours |
+| gate | **Everything under `/api` except `/api/health`.** The exception is the twice-weekly cron, which holds no session and touches nothing |
+| invite | **Google's OAuth consent screen, left in Testing mode** — up to 100 test users by email address. The invite list is a console setting, not code |
+| characters, runs | private to their owner, no other read path at all |
+| dungeons | owned; a non-owner may see a **summary** and never the `doc` |
+| the old rows | deleted. Five rows of 10a/10b smoke-test data |
+
+**A run is two private things at once** — our log when something goes wrong, and
+the player's save file — and neither wants an audience. `listRuns`/`getRun` are
+owner-filtered and there is nothing else.
+
+### 8.2 The token, and why there is no secret
+
+The project signs with **asymmetric ES256** keys, so `src/server/auth.ts`
+verifies signatures against the public JWKS with `jose`'s `createRemoteJWKSet`.
+**There is no `SUPABASE_JWT_SECRET`** to leak, rotate or forget in an
+environment. The key set is module state and caches, refetching only on an
+unknown `kid`, which makes rotation a non-event — the same reasoning `db.ts`
+gives for its pool.
+
+Verified locally rather than by asking `GET /auth/v1/user`: that is a network
+round trip per request, and a size-5 generation fires twelve chunk requests at
+once.
+
+**`audience: "authenticated"`** is checked, which is also what keeps anonymous
+sign-ins out if anybody ever enables them.
+
+**Every refusal is the same bare 401, `sign in first`.** A caller learns it is
+not signed in and nothing else — not expired-rather-than-forged, not whether the
+user exists. Asserted in `auth.test.ts` against a real key pair generated per
+run, with the JWKS served from a stubbed fetch.
+
+### 8.3 Ownership is a parameter, not a check
+
+**The rule: ownership goes in the `where`, not in an `if` after the read.** So
+another player's row is indistinguishable from one that does not exist, and the
+API never confirms that something it will not serve is there. `mustGetDungeon`
+and `mustGetRun` both take the owner; there is no arrangement of calls in which
+a handler reads first and remembers to check second.
+
+- Every character, dungeon and run statement in `repo.ts` carries the owner.
+- **`lockRun` and `commitTurn` carry it too** — belt and braces, the author's
+  call. The run was already read under an owner filter, so reaching the write
+  with someone else's means a handler forgot; the write is the last place that
+  can still refuse.
+- **The upsert is the one way a write could leak.** `saveCharacter`'s
+  `on conflict do update` conflicts on the id alone, so it would have overwritten
+  a row it did not own. The update branch carries `where characters.owner_id`.
+- **Dungeon writes require being the maker**; that hole exists only because
+  dungeons are the one thing another player may ever see.
+- CORS narrowed from a bare `cors()` to the Vercel origin, localhost, and
+  anything in `CORS_ORIGINS`.
+
+### 8.4 The dungeon key split 🔴 **a Phase 10a mistake, undone**
+
+`GeneratedDungeon.id` is `dungeon_<seed in base 36>`
+(`dungeon-blueprint.ts:786`) and is derived on purpose — the determinism rule is
+that a seed names a dungeon. **10a then used that name as the Postgres primary
+key**, which is fine while there is one copy of each seed in the world and breaks
+the moment two players each want their own copy of seed 4201.
+
+The two jobs are now split: **`dungeons.id` is a meaningless uuid naming the
+ROW**, and **`dungeon_key` is the derived name, deliberately not unique**. The
+document keeps its own id untouched, so nothing in the engine changed.
+`runs`, `dungeon_events` and `generation_chunks` moved to the uuid.
+
+**Done now rather than later because the tables were empty.** Five test rows, no
+data to move; the same change against real dungeons is a migration with risk in
+it. `dungeons_cache_idx` on `(seed, size, level) where status = 'complete'` is
+already in place for the lookup that has not been written yet — see §9.
+
+### 8.5 The client
+
+`store/auth.ts` is the only place a token is attached. Before it,
+`store/characters.ts` and `runtime/remote-session.ts` called bare `fetch` in four
+places, and **the 409 resync path was one of them** — it would have gone out
+unauthenticated and failed as a 401 inside the handler for a 409, which is the
+hardest kind of failure to see. `remote-session.test.ts` now covers exactly that
+path.
+
+- **The fetch is injected into `remote-session.ts`, not imported.** The runtime
+  never depends on the store's auth module and so never constructs a Supabase
+  client merely by being imported.
+- **The Supabase client is made on first use, not at import.** Laziness is
+  load-bearing: `?offline` and `?stub` need no account, no project and no keys,
+  and a client built at module scope threw `supabaseUrl is required` and took
+  `App.test.tsx` down with it. Nothing local should have to own a Supabase
+  project to run.
+- **`VITE_SUPABASE_ANON_KEY` reaches the browser and must.** That is not a hole
+  in the CLAUDE.md rule, which is about the ANTHROPIC key and is untouched — the
+  model is still reached only by the server. The publishable key identifies the
+  project and grants nothing, because every table has RLS on with owner-only
+  policies.
+- `?offline` and `?stub` stay local and stay account-free.
+
+### 8.6 RLS, and what it is actually for
+
+**The API is the enforcement; the policies are the backstop.** The server reaches
+Postgres over a direct connection as a role RLS does not apply to, so what keeps
+one player out of another's run is the `where owner_id = $n` in `repo.ts`. The
+policies exist for the *other* door: the publishable key ships in a page by
+design, and anything that picks it up should get its own rows and nothing else.
+
+**So every policy is owner-only, including dungeons.** RLS cannot express "these
+columns only" without column grants, so it says nothing at all and the API serves
+the summary from its privileged connection. Stricter and simpler — the backstop
+should not be the thing deciding what a summary is.
+
+The Supabase linter caught one thing immediately: `handle_new_user()` is
+`SECURITY DEFINER` in `public`, so PostgREST exposed it as
+`/rest/v1/rpc/handle_new_user`. `EXECUTE` is revoked from `public`, `anon` and
+`authenticated`; only the trigger calls it. Advisors clean afterwards.
+
+### 8.7 What proves it
+
+**818 tests, build clean** — 13 new in `auth.test.ts`, 2 in
+`remote-session.test.ts`.
+
+**And a third suite that needs a database.** `npm run test:db`, its own config,
+`*.dbtest.ts`, **explicitly invoked and not part of `npm test`** — because it
+cannot run without `DATABASE_URL`, and §2.13's own rule is that a test which
+skips itself is a test that lies. It runs against the real database inside
+transactions that are always rolled back, which is the method §7.6 used by hand.
+**This closes 10a's "the SQL is verified, the driver binding is not."** 13 cases:
+each of characters, dungeons and runs invisible to a second account; the upsert
+refusing a stolen id; two players holding one seed; a stolen `commitTurn`
+refused with A's version and state untouched; the profile trigger firing.
+
+**It found a real defect on its first run.** `commitTurn`'s rejection branch
+re-read the run AS THE CALLER to hand back current state, found nothing when the
+caller was not the owner, and threw `no such run` — a 500 for what is a refusal.
+`CommitResult` gained a **`gone`** reason and `playTurn` maps it to 404.
+Unreachable through the handler, which filters by owner first; answered anyway,
+because the last door in the system should refuse in the shape everything else
+refuses in.
+
+**Probed against a running server**, which is what proves the gate rather than
+the middleware: `/api/health` 200, `GET /api/characters` 401, **`POST
+/api/dungeons` 401 — the token-spend hole, refused before anything is spent** —
+a garbage bearer 401, and an `Origin: https://evil.example` preflight answered
+with no `access-control-allow-origin` at all.
+
+### 8.8 Deliberately not in this pass
+
+- **Browse and duplicate someone else's dungeon, and the generation cache.** The
+  schema is ready for both — `DungeonSummary`, `dungeon_key`, `dungeons_cache_idx`
+  — and neither endpoint is written. §10 carries them.
+- BYOK, model choice, and anything that reads `profiles.tier`. Phase 12.
+- Per-user rate limiting. The invite list is the only quota today.
+- Sharing a run by link, account deletion, a second provider.
+
+---
+
+## 9. Order of remaining work
 
 ```
   Phase 8a rest (A7, A9) ─┐
@@ -1888,7 +2060,7 @@ what was just said" are the same scene.
 
 ---
 
-## 9. What is still open
+## 10. What is still open
 
 **Open outside Phase 8**, both from Phase 5 and both named in §3.6:
 
@@ -1903,6 +2075,27 @@ Everything else settled through Phase 7 is either in §2 or in the code.
 **Open out of Phase 9**, and worth doing before the server work rather than after:
 
 - ~~A generation failure is undebuggable~~ — §6.7, **done**. Nothing left open.
+
+**Open out of Phase 11**, and the next thing to build. Both were specified with
+the phase and deliberately left out of it, because the schema they need landed
+with the ownership migration and the endpoints did not:
+
+- **Browse and duplicate another player's dungeon.** A non-owner sees a
+  `DungeonSummary` — name, objective, size, level, never the `doc`, which holds
+  every answer in the world — and may take a copy to run themselves.
+  `POST /api/dungeons/:id/duplicate` copies the row under a new uuid with the new
+  owner. **This is why the key split had to happen first**: under 10a's schema a
+  copy collided on the primary key.
+- **Use existing dungeons as a generation cache.** Before spending N+2 model
+  calls, ask whether anyone has already built a complete world from these dice.
+  `dungeons_cache_idx` on `(seed, size, level) where status = 'complete'` is
+  already in place for exactly this query. Settle in session: whether a cache hit
+  duplicates silently or is offered, and whether a player may opt out and insist
+  on a fresh world.
+- **Nothing rate-limits a signed-in player**, and generation is the expensive
+  call. The Google consent screen's Testing mode — 100 invited addresses — is the
+  only quota today, which is enough while it is invite-only and is not enough at
+  the point Phase 12 lets anyone in.
 
 **Open in Phase 8**, none of it blocking the rest of 8a, which is fully specified:
 
@@ -1935,7 +2128,7 @@ Everything else settled through Phase 7 is either in §2 or in the code.
 
 ---
 
-## 10. Non-goals for this prototype
+## 11. Non-goals for this prototype
 
 No multiplayer, no party (one PC). No leveling. No between-dungeon persistence beyond saved
 characters. No light or ration clocks yet, though `turnCount` exists for them. No mobile

@@ -108,17 +108,40 @@ export function Characters({
   onStartRun,
   onCreate,
   onDelete,
+  account,
+  onSignOut,
 }: {
   characters?: PlayerCharacter[];
   onStartRun: (pc: PlayerCharacter) => void;
   onCreate: () => void;
   onDelete: (pc: PlayerCharacter) => void;
+  /**
+   * Who is signed in. OPTIONAL, and absent on a `?offline` or `?stub` run —
+   * those are played entirely in the browser and require no account, so a
+   * sign-out control there would offer to end a session that does not exist.
+   */
+  account?: { email?: string; name?: string };
+  onSignOut?: () => void;
 }) {
   return (
     <main className="min-h-screen bg-desk text-ink">
       <div className="mx-auto w-full max-w-[880px] px-10 pb-20 pt-16">
         <header>
-          <div className="font-mono text-[10px] uppercase tracking-[0.26em] text-graphite">Knave 1.0</div>
+          <div className="flex items-baseline justify-between gap-4">
+            <div className="font-mono text-[10px] uppercase tracking-[0.26em] text-graphite">Knave 1.0</div>
+            {account && onSignOut && (
+              <div className="flex items-baseline gap-3 font-mono text-[10px] text-ash">
+                <span className="truncate max-w-[24ch]">{account.email ?? account.name}</span>
+                <button
+                  type="button"
+                  onClick={onSignOut}
+                  className="uppercase tracking-[0.14em] text-graphite underline decoration-rule underline-offset-4 hover:text-torch"
+                >
+                  Sign out
+                </button>
+              </div>
+            )}
+          </div>
           <h1 className="mt-2.5 font-prose text-[46px] font-semibold leading-none text-ink">Characters</h1>
           <div className="mt-5 h-0.5 bg-ink" />
         </header>

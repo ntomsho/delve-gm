@@ -30,6 +30,7 @@
  */
 
 import type { PlayerCharacter } from "../engine/index.ts";
+import { authedFetch } from "./auth.ts";
 
 const BASE = "/api/characters";
 
@@ -39,7 +40,7 @@ async function json<T>(res: Response, what: string): Promise<T> {
 }
 
 export async function listCharacters(): Promise<PlayerCharacter[]> {
-  return json(await fetch(BASE), "read the characters");
+  return json(await authedFetch(BASE), "read the characters");
 }
 
 export async function getCharacter(id: string): Promise<PlayerCharacter | undefined> {
@@ -50,7 +51,7 @@ export async function getCharacter(id: string): Promise<PlayerCharacter | undefi
 /** Add a newly made character, or replace one with the same id. */
 export async function saveCharacter(pc: PlayerCharacter): Promise<PlayerCharacter> {
   return json(
-    await fetch(BASE, {
+    await authedFetch(BASE, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(pc),
@@ -62,7 +63,7 @@ export async function saveCharacter(pc: PlayerCharacter): Promise<PlayerCharacte
 /** Remove one. Returns whether there was anything to remove. */
 export async function deleteCharacter(id: string): Promise<boolean> {
   const { deleted } = await json<{ deleted: boolean }>(
-    await fetch(`${BASE}/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    await authedFetch(`${BASE}/${encodeURIComponent(id)}`, { method: "DELETE" }),
     "delete the character"
   );
   return deleted;

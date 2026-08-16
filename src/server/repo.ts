@@ -57,19 +57,23 @@ export function statusOf(stage: Stage): RunStatus {
 // CHARACTERS
 // ---------------------------------------------------------------------------
 
-export async function listCharacters(sql: postgres.Sql = db()): Promise<PlayerCharacter[]> {
+export async function listCharacters(
+  owner: string,
+  sql: postgres.Sql = db()
+): Promise<PlayerCharacter[]> {
   const rows = await sql<{ sheet: PlayerCharacter }[]>`
-    select sheet from characters order by created_at asc
+    select sheet from characters where owner_id = ${owner} order by created_at asc
   `;
   return rows.map((r) => r.sheet);
 }
 
 export async function getCharacter(
   id: string,
+  owner: string,
   sql: postgres.Sql = db()
 ): Promise<PlayerCharacter | undefined> {
   const [row] = await sql<{ sheet: PlayerCharacter }[]>`
-    select sheet from characters where id = ${id}
+    select sheet from characters where id = ${id} and owner_id = ${owner}
   `;
   return row?.sheet;
 }
@@ -79,21 +83,38 @@ export async function getCharacter(
  *
  * The character carries its id — it was made in the browser and has been in a
  * run under that name — so the row takes it rather than minting another.
+ *
+ * `and owner_id = ${owner}` ON THE UPDATE BRANCH is what stops one player
+ * overwriting another's sheet by posting a character carrying their id. Without
+ * it the `on conflict` would happily update a row it does not own, which is the
+ * one way an upsert can leak where a plain insert cannot. An attempt to do so
+ * now updates nothing and reports it, rather than silently succeeding.
  */
 export async function saveCharacter(
   pc: PlayerCharacter,
+  owner: string,
   sql: postgres.Sql = db()
 ): Promise<PlayerCharacter> {
-  await sql`
-    insert into characters (id, sheet)
-    values (${pc.id}, ${doc(sql, pc)})
-    on conflict (id) do update set sheet = excluded.sheet, updated_at = now()
+  const rows = await sql`
+    insert into characters (id, owner_id, sheet)
+    values (${pc.id}, ${owner}, ${doc(sql, pc)})
+    on conflict (id) do update
+       set sheet = excluded.sheet, updated_at = now()
+     where characters.owner_id = ${owner}
+    returning id
   `;
+  if (rows.length === 0) throw new Error(`not yours to save: ${pc.id}`);
   return pc;
 }
 
-export async function deleteCharacter(id: string, sql: postgres.Sql = db()): Promise<boolean> {
-  const rows = await sql`delete from characters where id = ${id} returning id`;
+export async function deleteCharacter(
+  id: string,
+  owner: string,
+  sql: postgres.Sql = db()
+): Promise<boolean> {
+  const rows = await sql`
+    delete from characters where id = ${id} and owner_id = ${owner} returning id
+  `;
   return rows.length > 0;
 }
 
@@ -101,39 +122,102 @@ export async function deleteCharacter(id: string, sql: postgres.Sql = db()): Pro
 // DUNGEONS
 // ---------------------------------------------------------------------------
 
+/**
+ * A dungeon row.
+ *
+ * TWO IDS, AND THEY ARE NOT THE SAME THING — the Phase 11 correction. `id`
+ * names the ROW and is a meaningless uuid. `dungeonKey` is
+ * `dungeon_<seed in base 36>`, derived by the engine
+ * (`dungeon-blueprint.ts:786`), carried inside `doc.id`, and deliberately NOT
+ * unique: a seed names a WORLD, and two players may each hold their own copy of
+ * one. Phase 10a used the derived name as the primary key, which was fine while
+ * there was one copy of each seed and broke the moment there could be two.
+ *
+ * Everything outside this file addresses a dungeon by the ROW id. `doc.id` is
+ * the engine's business and is left exactly as generated.
+ */
 export interface StoredDungeon {
   id: string;
+  dungeonKey: string;
+  ownerId: string;
   status: "partial" | "complete";
   doc: GeneratedDungeon;
 }
 
 /**
- * The structure pass, stored.
+ * What someone who does not own a dungeon may know about it.
  *
- * Takes the dungeon's OWN id rather than minting one: `GeneratedDungeon.id` is
- * the blueprint's, every entity in the document refers to the world it belongs
- * to through it, and a second id would be a second name for one thing.
+ * Never `doc`. The document is the whole world — every room's prose, every
+ * creature, where the goal is — so handing it over is handing over the answers
+ * to a dungeon they have not walked. This is the shape a browse-and-duplicate
+ * screen reads, and it is deliberately the only cross-owner read there is.
+ */
+export interface DungeonSummary {
+  id: string;
+  name: string;
+  objective: string;
+  size: number;
+  level: number;
+  seed: number;
+  status: "partial" | "complete";
+  createdAt: string;
+}
+
+/**
+ * The structure pass, stored, and the row id it was given.
+ *
+ * Returns the ROW id, which is what every later request names. The caller must
+ * not assume it can reconstruct this from the seed — that assumption is exactly
+ * what the key split removed.
  */
 export async function insertPartialDungeon(
   gd: GeneratedDungeon,
+  owner: string,
   sql: postgres.Sql = db()
 ): Promise<string> {
-  await sql`
-    insert into dungeons (id, seed, size, level, status, doc)
-    values (${gd.id}, ${gd.seeds.dungeonSeed}, ${gd.size}, ${gd.level},
+  const [row] = await sql<{ id: string }[]>`
+    insert into dungeons (dungeon_key, owner_id, seed, size, level, status, doc)
+    values (${gd.id}, ${owner}, ${gd.seeds.dungeonSeed}, ${gd.size}, ${gd.level},
             'partial', ${doc(sql, gd)})
+    returning id
   `;
-  return gd.id;
+  return row.id;
 }
 
+/**
+ * A dungeon, in full, for the player who owns it.
+ *
+ * OWNER IN THE WHERE CLAUSE, not an `if` after the read: someone else's dungeon
+ * is indistinguishable from one that does not exist, so the API never confirms
+ * that a row it will not serve is there.
+ */
 export async function getDungeon(
   id: string,
+  owner: string,
   sql: postgres.Sql = db()
 ): Promise<StoredDungeon | undefined> {
   const [row] = await sql<StoredDungeon[]>`
-    select id, status, doc from dungeons where id = ${id}
+    select id, dungeon_key as "dungeonKey", owner_id as "ownerId", status, doc
+      from dungeons where id = ${id} and owner_id = ${owner}
   `;
   return row;
+}
+
+/** The player's own worlds, newest first. Summaries — nobody needs six `doc`s. */
+export async function listDungeons(
+  owner: string,
+  sql: postgres.Sql = db()
+): Promise<DungeonSummary[]> {
+  return sql<DungeonSummary[]>`
+    select id,
+           coalesce(doc -> 'pass' ->> 'name', 'Unnamed')            as name,
+           coalesce(doc -> 'pass' -> 'goal' ->> 'summary', '')      as objective,
+           size, level, seed, status,
+           created_at as "createdAt"
+      from dungeons
+     where owner_id = ${owner}
+     order by created_at desc
+  `;
 }
 
 /**
@@ -143,15 +227,21 @@ export async function getDungeon(
  * that fired twice — cannot overwrite a complete dungeon with one built from
  * responses that may since have been added to. Returns whether it was this call
  * that completed it.
+ *
+ * Takes the ROW id explicitly, because `gd.id` is the engine's derived name and
+ * is no longer the key. Passing `gd` alone would compile and address the wrong
+ * column forever.
  */
 export async function completeDungeon(
+  id: string,
   gd: GeneratedDungeon,
+  owner: string,
   sql: postgres.Sql = db()
 ): Promise<boolean> {
   const rows = await sql`
     update dungeons
        set doc = ${doc(sql, gd)}, status = 'complete', updated_at = now()
-     where id = ${gd.id} and status = 'partial'
+     where id = ${id} and owner_id = ${owner} and status = 'partial'
     returning id
   `;
   return rows.length > 0;
@@ -206,7 +296,7 @@ export async function appendDungeonEvents(
   if (events.length === 0) return;
   await sql`
     insert into dungeon_events (dungeon_id, seq, at, kind, payload)
-    select ${dungeonId}::text, s.seq, s.at::timestamptz, s.kind, s.payload::jsonb
+    select ${dungeonId}::uuid, s.seq, s.at::timestamptz, s.kind, s.payload::jsonb
       from unnest(${events.map((e) => e.seq)}::int[],
                   ${events.map((e) => e.at)}::text[],
                   ${events.map((e) => e.kind)}::text[],
@@ -262,12 +352,12 @@ export interface RunSummary {
 }
 
 export async function createRun(
-  input: { dungeonId: string; characterId?: string; state: RunState },
+  input: { dungeonId: string; characterId?: string; state: RunState; owner: string },
   sql: postgres.Sql = db()
 ): Promise<StoredRun> {
   const [row] = await sql<{ id: string; version: number }[]>`
-    insert into runs (dungeon_id, character_id, state, status)
-    values (${input.dungeonId}, ${input.characterId ?? null},
+    insert into runs (owner_id, dungeon_id, character_id, state, status)
+    values (${input.owner}, ${input.dungeonId}, ${input.characterId ?? null},
             ${doc(sql, input.state)}, ${statusOf(input.state.stage)})
     returning id, version
   `;
@@ -281,20 +371,31 @@ export async function createRun(
   };
 }
 
-export async function getRun(id: string, sql: postgres.Sql = db()): Promise<StoredRun | undefined> {
+/**
+ * A run, for the player whose run it is.
+ *
+ * THERE IS NO OTHER READ PATH. A run is two private things at once — our log
+ * when something goes wrong, and the player's save file — and neither wants an
+ * audience. Someone else's run 404s exactly as a missing one does.
+ */
+export async function getRun(
+  id: string,
+  owner: string,
+  sql: postgres.Sql = db()
+): Promise<StoredRun | undefined> {
   const [row] = await sql<StoredRun[]>`
     select id, dungeon_id as "dungeonId", character_id as "characterId",
            state, version, status
-      from runs where id = ${id}
+      from runs where id = ${id} and owner_id = ${owner}
   `;
   return row;
 }
 
-export async function listRuns(sql: postgres.Sql = db()): Promise<RunSummary[]> {
+export async function listRuns(owner: string, sql: postgres.Sql = db()): Promise<RunSummary[]> {
   return sql<RunSummary[]>`
     select id, dungeon_id as "dungeonId", status,
            created_at as "createdAt", updated_at as "updatedAt"
-      from runs order by created_at desc
+      from runs where owner_id = ${owner} order by created_at desc
   `;
 }
 
@@ -316,21 +417,26 @@ export async function listRuns(sql: postgres.Sql = db()): Promise<RunSummary[]> 
  */
 export async function lockRun(
   id: string,
+  owner: string,
   holdSeconds = 300,
   sql: postgres.Sql = db()
 ): Promise<boolean> {
   const rows = await sql`
     update runs
        set locked_until = now() + make_interval(secs => ${holdSeconds})
-     where id = ${id}
+     where id = ${id} and owner_id = ${owner}
        and (locked_until is null or locked_until < now())
     returning id
   `;
   return rows.length > 0;
 }
 
-export async function releaseRun(id: string, sql: postgres.Sql = db()): Promise<void> {
-  await sql`update runs set locked_until = null where id = ${id}`;
+export async function releaseRun(
+  id: string,
+  owner: string,
+  sql: postgres.Sql = db()
+): Promise<void> {
+  await sql`update runs set locked_until = null where id = ${id} and owner_id = ${owner}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -393,7 +499,20 @@ export function collectingSink(): { sink: Sink; events: JournalRecord[] } {
 
 export type CommitResult =
   | { ok: true; version: number }
-  | { ok: false; reason: "stale"; current: StoredRun };
+  /** The run moved on. `current` is what it actually says, for re-rendering. */
+  | { ok: false; reason: "stale"; current: StoredRun }
+  /**
+   * The run is not this player's, or is not there at all — one answer, because
+   * the API does not confirm the existence of things you may not have.
+   *
+   * `playTurn` reads the run under an owner filter long before reaching here, so
+   * this should be unreachable in practice. It exists because the alternative
+   * was what this branch used to do: look the run up AS THE CALLER, find
+   * nothing, and throw "no such run" as a 500. A refusal is not an internal
+   * error, and the last door in the system should refuse in the shape everything
+   * else refuses in. Found by `ownership.dbtest.ts`.
+   */
+  | { ok: false; reason: "gone" };
 
 /**
  * A finished turn: the new state, and the events that describe it, together.
@@ -420,6 +539,7 @@ export type CommitResult =
 export async function commitTurn(
   input: {
     runId: string;
+    owner: string;
     expectedVersion: number;
     state: RunState;
     events: readonly JournalRecord[];
@@ -427,6 +547,11 @@ export async function commitTurn(
   sql: postgres.Sql = db()
 ): Promise<CommitResult> {
   return sql.begin(async (tx) => {
+    // `and owner_id` is belt AND braces, on purpose. The run was already read
+    // under an owner filter before the turn was played, so reaching here with
+    // someone else's run means a handler forgot a check — and the write is the
+    // last place that can still refuse. A second lock on the same door costs
+    // one clause.
     const rows = await tx<{ version: number }[]>`
       update runs
          set state = ${doc(tx, input.state)},
@@ -434,7 +559,8 @@ export async function commitTurn(
              version = version + 1,
              locked_until = null,
              updated_at = now()
-       where id = ${input.runId} and version = ${input.expectedVersion}
+       where id = ${input.runId} and owner_id = ${input.owner}
+         and version = ${input.expectedVersion}
       returning version
     `;
 
@@ -444,12 +570,15 @@ export async function commitTurn(
       // rejected as stale would leave the run held for the length of the lease
       // and every later turn would be told it was busy. Separate statement,
       // same transaction.
-      await tx`update runs set locked_until = null where id = ${input.runId}`;
+      await tx`
+        update runs set locked_until = null
+         where id = ${input.runId} and owner_id = ${input.owner}
+      `;
 
       // Nothing else written, including no events. The caller gets the state as
       // it actually stands so a stale client can re-render rather than error.
-      const current = await getRun(input.runId, tx as unknown as postgres.Sql);
-      if (!current) throw new Error(`no such run: ${input.runId}`);
+      const current = await getRun(input.runId, input.owner, tx as unknown as postgres.Sql);
+      if (!current) return { ok: false as const, reason: "gone" as const };
       return { ok: false as const, reason: "stale" as const, current };
     }
 
