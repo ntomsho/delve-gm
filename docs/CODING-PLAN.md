@@ -2051,19 +2051,23 @@ reason: the function packaging step dies with
 leaving `.vercel/output` with a `static/` and no `functions/`. The bundle itself
 is a perfectly ordinary file; this is the CLI on this platform.
 
-**So the deploy command is `npx vercel --prod`**, and it is the only one that
-works today. Unresolved, and worth settling before anyone else ever deploys this:
+✅ **SETTLED: `api/index.js` is committed.** `.gitignore` became `api/*` plus
+`!api/index.js`, so the bundle is tracked and anything else landing in `api/` is
+still ignored — a `.ts` beside it would invite Vercel to build the source with
+the bundler that cannot read `?raw`, which is the whole reason §7.9 puts a bundle
+there.
 
-1. **Commit `api/index.js`.** Git push starts working, the pattern matches the
-   clone, and `buildCommand` regenerates it anyway. Costs a 516kB generated file
-   in the repository that churns on every build.
-2. **Leave it CLI-only** and write the command down where somebody will find it.
-   Costs nothing and means the GitHub integration is permanently lying — every
-   push shows a failed deploy.
+The alternative was leaving it CLI-only and writing `npx vercel --prod` down
+somewhere. Rejected: a main branch that cannot deploy itself is a trap for the
+next person, and the GitHub integration would show a failed deploy on every push
+forever. The cost is a 516kB generated file that churns, softened by
+`.gitattributes` marking it `linguist-generated=true -diff` so a one-line source
+change is not reviewed as half a megabyte of diff.
 
-Neither is obviously right; (1) is recommended, because a repository whose main
-branch cannot deploy itself is a trap for the next person, and that person is
-the author in six months.
+**`npx vercel --prod` still works and is still the way to deploy without a
+commit.** What changed is that a push now deploys too.
+
+`vercel build --prod` remains broken on Windows and is not the path.
 
 ### 8.9 Deliberately not in this pass
 

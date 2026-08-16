@@ -1,0 +1,10 @@
+# `api/index.js` is the Vite SSR bundle of `src/server/vercel.ts`, committed so
+# that Vercel's `functions` glob has something to match in the clone — see
+# .gitignore and CODING-PLAN §8.8. Marking it generated collapses it in GitHub
+# diffs and keeps it out of language statistics, so a one-line source change does
+# not show up as a five-hundred-kilobyte review.
+#
+# `-text` matters as much as the rest: without it git normalises line endings on
+# checkout, so the same bundle built on Windows and on Vercel's Linux would
+# differ by every line and show as a full rewrite on every rebuild.
+api/index.js linguist-generated=true -diff -text

@@ -20,7 +20,20 @@ npm-debug.log*
 
 # Built by `npm run build:api` from src/server/vercel.ts. Not source —
 # `api/` holds only the bundle, so Vercel has no TypeScript there to build.
-api/
+#
+# THE BUNDLE IS COMMITTED, AND THAT IS DELIBERATE. Vercel validates the
+# `functions` glob in vercel.json against the GitHub clone BEFORE running
+# buildCommand, so an ignored api/index.js means every git push fails in 130ms
+# with "the pattern api/index.js doesn't match any Serverless Functions". A main
+# branch that cannot deploy itself is a trap. The build regenerates it anyway;
+# committing it only means the pattern has something to match. See
+# CODING-PLAN §8.8.
+#
+# Anything ELSE that lands in api/ is still ignored, because a .ts beside the
+# bundle would invite Vercel to build the source with the bundler that cannot
+# read `?raw` — which is the whole reason §7.9 bundles it here in the first place.
+api/*
+!api/index.js
 
 .vercel
 .env*
