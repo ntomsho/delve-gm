@@ -59,7 +59,17 @@ export type Stage =
   /** out alive, without what they came for */
   | "escaped"
   /** out alive, with it */
-  | "goal_met";
+  | "goal_met"
+  /**
+   * The player walked away from the run rather than out of the dungeon.
+   *
+   * THE ONE TERMINAL STAGE NO REFEREE CAN WRITE. Every other ending is something
+   * that happened in the fiction and arrives on a commit; this one is the player
+   * closing the book, so it is set by an endpoint of its own and costs no model
+   * call, no dice, and no turn. The character is freed and the run keeps
+   * everything it had — abandoning ends a run, it does not delete one.
+   */
+  | "abandoned";
 
 export type Step =
   | "1-target"
@@ -77,7 +87,13 @@ export type Step =
  * the store resolves it to, and anything asking `isTerminal` of a commit rather
  * than of stored state must get the same answer.
  */
-export const TERMINAL_STAGES: readonly Stage[] = ["dead", "departed", "escaped", "goal_met"];
+export const TERMINAL_STAGES: readonly Stage[] = [
+  "dead",
+  "departed",
+  "escaped",
+  "goal_met",
+  "abandoned",
+];
 
 /**
  * Stages in which the world must not change. Enforced by the applier, not by
@@ -101,7 +117,7 @@ export function acceptsInput(stage: Stage): boolean {
 // ROLLS ON THE TABLE
 // ---------------------------------------------------------------------------
 
-import type { Ability, Edge } from "../engine/index.ts";
+import type { Ability, DamageResult, Edge } from "../engine/index.ts";
 
 /**
  * What the player is being offered, and what the interface shows them. Carries
@@ -136,4 +152,56 @@ export interface RollSpec {
   damage?: string;
   /** the entity being acted on, when there is one */
   targetId?: string;
+}
+
+/**
+ * A roll the player has already made. The referee reads it; it never rolls.
+ *
+ * Here rather than in `turn.ts` — where it was until the pending request below
+ * needed it — because a machine is not the only thing entitled to know what a
+ * roll came to. `turn.ts` re-exports it, so the prompts and the journal did not
+ * have to move with it.
+ */
+export interface RolledOutcome {
+  spec: RollSpec;
+  /** one die, or two under advantage / disadvantage */
+  rolled: number[];
+  /** the die that counted */
+  kept: number;
+  total: number;
+  success: boolean;
+  nat20: boolean;
+  nat1: boolean;
+  /** attacks that land and deal damage */
+  damage?: DamageResult;
+  /** a natural 20 costs the defender's armour a point, a natural 1 the weapon */
+  crit: { defenderArmor: boolean; attackerWeapon: boolean };
+}
+
+/**
+ * THE ASK IN FLIGHT — what a retry has to repeat.
+ *
+ * It was a closure variable inside the turn machine, which was correct for
+ * exactly as long as one machine outlived one run. It does not: the server
+ * builds a session per request and `resume`s it from a row, so the machine that
+ * lands on `error` is destroyed before the player has finished reading the word,
+ * and the one that answers their retry was born knowing nothing. `retry` guards
+ * on having a request to repeat, so it repeated nothing — every "Try again" on a
+ * deployed run bumped the version and did nothing else.
+ *
+ * So it is state, and it rides along in the row the run is stored in. That the
+ * client can then read it too is not a leak: it names what the player has
+ * already done, and the client asserts nothing with it — see `remote-session`,
+ * which uses it only to decide which busy stage to show while the server repeats
+ * the ask it decided on for itself.
+ */
+export interface PendingRequest {
+  /** what the player typed, when this ask was triggered by input */
+  input?: string;
+  /** the roll they had just made, when it was a resolution */
+  roll?: RolledOutcome;
+  /** where the heuristic resumes */
+  step: Step;
+  /** the room-entry pass, which must not chain another one */
+  entering: boolean;
 }

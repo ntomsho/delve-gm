@@ -31,6 +31,7 @@ import { createJournal, runId, type Journal, type Sink } from "./journal.ts";
 import { ResponseFormatError } from "./llm/json.ts";
 import { createModelReferee } from "./referee.ts";
 import { createTurnMachine, type Referee, type TurnMachine } from "./turn.ts";
+import { isTerminal } from "./types.ts";
 import { generateDungeon, type GeneratedDungeon, type GenerateOptions } from "./generate.ts";
 import { MODELS } from "./llm/models.ts";
 import type { PlayerCharacter, Size } from "../engine/index.ts";
@@ -102,14 +103,25 @@ export interface PlayableSession {
   readonly runId?: string | undefined;
   /** Build a dungeon, start the run, and describe the first room. */
   begin(request: RunRequest): Promise<void>;
+  /**
+   * Pick a stored run back up and play on from where it stopped.
+   *
+   * OPTIONAL, AND ABSENT ON A LOCAL RUN. `?offline` and `?stub` never write a
+   * run down anywhere, so there is nothing for them to come back to — and an
+   * implementation that threw would be a worse answer than a method that
+   * visibly is not there. `App` offers the control only where the method is.
+   */
+  resume?(runId: string): Promise<void>;
   enterRoom(): Promise<void>;
   submit(text: string): Promise<void>;
   roll(): Promise<void>;
   retry(): Promise<void>;
+  /** End the run without playing it out. No referee, no dice, no world change. */
+  abandon(): Promise<void>;
 }
 
 export interface GameSession extends PlayableSession {
-  /** undefined until `begin` or `resume` — it is derived from the seed */
+  /** undefined until `begin` or `restore` — it is derived from the seed */
   readonly runId: string | undefined;
   /**
    * Pick up a run that already exists, from a save or from a database row.
@@ -117,8 +129,13 @@ export interface GameSession extends PlayableSession {
    * Pass the run id it was journalled under to keep writing the same file.
    * Without one it gets a fresh id, because `runId` is stamped with the time
    * and there is nothing in a save to recover the original from.
+   *
+   * NAMED `restore` AND NOT `resume`, since Phase 12. `PlayableSession.resume`
+   * takes a run id and fetches; this takes a state that has already been
+   * fetched. Two shapes under one name on an interface a caller holds
+   * polymorphically is how the wrong one gets passed.
    */
-  resume(saved: SavedGame, runId?: string): void;
+  restore(saved: SavedGame, runId?: string): void;
 }
 
 /**
@@ -243,7 +260,7 @@ export function createGameSession(opts: SessionOptions = {}): GameSession {
       await turn()!.enterRoom();
     },
 
-    resume(saved, existingId) {
+    restore(saved, existingId) {
       begun = true;
       wire(existingId ?? runId(saved.dungeon.seeds.dungeonSeed));
       store.setState({ dungeon: saved.dungeon, run: saved.run, lastEvents: [] });
@@ -260,6 +277,21 @@ export function createGameSession(opts: SessionOptions = {}): GameSession {
     },
     async retry() {
       await turn()?.retry();
+    },
+
+    /**
+     * A local run walks away too.
+     *
+     * There is no server to tell and no roster to free a character on, so this
+     * is the stage and nothing else — but the control exists on the play screen
+     * and interface work is done under `?stub`, so a button that did nothing
+     * there would be a button nobody could look at.
+     */
+    async abandon() {
+      const run = store.getState().run;
+      if (!run || isTerminal(run.stage)) return;
+      journal?.log({ kind: "stage", from: run.stage, to: "abandoned", step: run.step });
+      store.getState().setStage("abandoned", run.step);
     },
   };
 }

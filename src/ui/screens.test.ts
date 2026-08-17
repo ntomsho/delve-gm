@@ -20,11 +20,38 @@ import { RunSetup } from "./RunSetup.tsx";
 import { generateOffline, testCharacter } from "../runtime/__fixtures__/offline.ts";
 import { newRun, type RunState } from "../store/game.ts";
 import { mapView, roomView } from "../store/selectors.ts";
+import { NO_RECORD, type CharacterEntry, type CharacterRecord } from "../store/characters.ts";
+import type { PlayerCharacter } from "../engine/index.ts";
 
-const cs = [testCharacter()];
 const noop = () => {};
 
-const doors = { onStartRun: noop, onCreate: noop, onDelete: noop };
+/**
+ * A roster entry: the sheet, plus the two things about a character that live in
+ * `runs` rather than on them — what has happened, and where they are.
+ */
+function entry(
+  sheet: PlayerCharacter = testCharacter(),
+  over: Partial<Omit<CharacterEntry, "sheet">> = {}
+): CharacterEntry {
+  return { sheet, record: NO_RECORD, ...over };
+}
+
+const IN_A_RUN: CharacterEntry["activeRun"] = {
+  id: "run-1",
+  dungeonId: "d-1",
+  dungeonName: "The Sunken Vault",
+  turnCount: 13,
+};
+
+const cs = [entry()];
+
+const doors = {
+  onStartRun: noop,
+  onResumeRun: noop,
+  onAbandonRun: noop,
+  onCreate: noop,
+  onDelete: noop,
+};
 
 describe("characters", () => {
   it("says so while it is still reading", () => {
@@ -51,7 +78,7 @@ describe("characters", () => {
 
   it("badges a hardcore character and leaves a normal one unmarked", () => {
     const hard = renderToStaticMarkup(
-      h(Characters, { ...doors, characters: [testCharacter({ mode: "hardcore" })] })
+      h(Characters, { ...doors, characters: [entry(testCharacter({ mode: "hardcore" }))] })
     );
     expect(hard).toContain("Hardcore");
     expect(renderToStaticMarkup(h(Characters, { ...doors, characters: cs }))).not.toContain("Hardcore");
@@ -63,6 +90,73 @@ describe("characters", () => {
     const html = renderToStaticMarkup(h(Characters, { ...doors, characters: [] }));
     expect(html).toContain("No one here yet");
     expect(html).toContain("Roll one up");
+  });
+
+  /*
+   * PHASE 12. A character is in one run at a time, and the row is the only place
+   * the player finds that out — so what it offers has to follow what the game
+   * will accept, not merely describe it.
+   */
+
+  it("offers the run they are in instead of a new one", () => {
+    const html = renderToStaticMarkup(
+      h(Characters, { ...doors, characters: [entry(testCharacter(), { activeRun: IN_A_RUN })] })
+    );
+    expect(html).toContain("Resume run");
+    expect(html).toContain("Abandon run");
+    // The two the game would refuse. Deleting is refused by the server, and
+    // sending them down is refused by the index.
+    expect(html).not.toContain("Send down");
+    expect(html).not.toContain(">Delete<");
+  });
+
+  it("names where they are and how far in", () => {
+    const html = renderToStaticMarkup(
+      h(Characters, { ...doors, characters: [entry(testCharacter(), { activeRun: IN_A_RUN })] })
+    );
+    expect(html).toContain("In a run");
+    expect(html).toContain("The Sunken Vault");
+    // `turnCount` is CLOSED turns, and the turn a player is living through is the
+    // next one — the same off-by-one the input area's tracker makes, and they
+    // are read on the same screen often enough to have to agree.
+    expect(html).toContain("turn 14");
+  });
+
+  it("offers the ordinary doors when they are not in one", () => {
+    const html = renderToStaticMarkup(h(Characters, { ...doors, characters: cs }));
+    expect(html).toContain("Send down");
+    expect(html).not.toContain("Resume run");
+  });
+
+  it("says nothing at all about a character nothing has happened to", () => {
+    const html = renderToStaticMarkup(h(Characters, { ...doors, characters: cs }));
+    for (const word of ["DIED", "WALKED AWAY", "OUT EMPTY-HANDED", "DONE"]) {
+      expect(html).not.toContain(word);
+    }
+  });
+
+  it("counts what has happened, worst first", () => {
+    const record: CharacterRecord = { dead: 2, abandoned: 1, escaped: 4, goalMet: 5 };
+    const html = renderToStaticMarkup(
+      h(Characters, { ...doors, characters: [entry(testCharacter(), { record })] })
+    );
+    expect(html).toContain("2 DIED · 1 WALKED AWAY · 4 OUT EMPTY-HANDED · 5 DONE");
+  });
+
+  it("leaves out the endings that have not happened", () => {
+    const record: CharacterRecord = { dead: 0, abandoned: 0, escaped: 0, goalMet: 12 };
+    const html = renderToStaticMarkup(
+      h(Characters, { ...doors, characters: [entry(testCharacter(), { record })] })
+    );
+    expect(html).toContain("12 DONE");
+    expect(html).not.toContain("0 DIED");
+  });
+
+  it("puts the server's refusal in front of the player", () => {
+    const html = renderToStaticMarkup(
+      h(Characters, { ...doors, characters: cs, notice: "that character is in a run" })
+    );
+    expect(html).toContain("that character is in a run");
   });
 });
 
@@ -131,7 +225,9 @@ describe("the map header", () => {
 describe("run setup", () => {
   it("states the cost of the size it is defaulted to", () => {
     const html = renderToStaticMarkup(
-      h(RunSetup, { characters: cs, onConfirm: noop, onBack: noop })
+      // Sheets, not roster entries: run setup only ever sees the characters who
+      // can actually go, which App filters before it gets here.
+      h(RunSetup, { characters: cs.map((e) => e.sheet), onConfirm: noop, onBack: noop })
     );
     // Size 2 is two regions of six, and one writing call per region. If that
     // ratio changes in `seeds.ts`, this screen is lying and this test says so.

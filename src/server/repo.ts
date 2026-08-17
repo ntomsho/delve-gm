@@ -50,21 +50,146 @@ export type RunStatus = "active" | "dead" | "escaped" | "goal_met" | "abandoned"
  */
 export function statusOf(stage: Stage): RunStatus {
   if (stage === "dead" || stage === "escaped" || stage === "goal_met") return stage;
+  if (stage === "abandoned") return "abandoned";
   return "active";
 }
+
+/** The endings a character's record counts. `active` is not one of them. */
+export const ENDED: readonly RunStatus[] = ["dead", "abandoned", "escaped", "goal_met"];
 
 // ---------------------------------------------------------------------------
 // CHARACTERS
 // ---------------------------------------------------------------------------
 
-export async function listCharacters(
+/**
+ * What has happened to a character, counted from the runs it happened in.
+ *
+ * NOT STORED ANYWHERE. The four numbers are exactly the four terminal values of
+ * `runs.status`, so there is nothing to record and nothing to keep in step — a
+ * stored counter needs a write on every ending, that write can fail
+ * independently of the ending it describes, and a counter that disagrees with
+ * the rows it summarises is a scoreboard that lies.
+ */
+export interface CharacterRecord {
+  dead: number;
+  abandoned: number;
+  escaped: number;
+  goalMet: number;
+}
+
+/** The run a character is currently down in, as the roster needs to name it. */
+export interface ActiveRun {
+  id: string;
+  dungeonId: string;
+  dungeonName: string;
+  turnCount: number;
+}
+
+/**
+ * A character, plus everything about them that lives outside their sheet.
+ *
+ * The sheet is who they are; the record is what has happened to them; the active
+ * run is where they are right now. Three lifetimes, and only the first is stored
+ * on the character — which is why this shape exists rather than more columns.
+ */
+export interface CharacterEntry {
+  sheet: PlayerCharacter;
+  record: CharacterRecord;
+  activeRun?: ActiveRun;
+}
+
+const NO_RECORD = (): CharacterRecord => ({ dead: 0, abandoned: 0, escaped: 0, goalMet: 0 });
+
+/**
+ * The characters screen, in three queries rather than one clever one.
+ *
+ * Stitched in TypeScript on purpose. The same thing as a single statement is a
+ * pair of lateral joins over an aggregate, which is harder to read than the
+ * three obvious selects and no faster at this size — a player has a handful of
+ * characters, and both supporting queries hit an index whose leading column is
+ * the owner.
+ *
+ * A CHARACTER WITH NO RUNS GETS ZEROES, not an absent record. The screen renders
+ * the same row either way, and a caller should never have to ask whether a
+ * missing count means none or means unknown.
+ */
+export async function listRoster(
   owner: string,
   sql: postgres.Sql = db()
-): Promise<PlayerCharacter[]> {
-  const rows = await sql<{ sheet: PlayerCharacter }[]>`
-    select sheet from characters where owner_id = ${owner} order by created_at asc
+): Promise<CharacterEntry[]> {
+  const [sheets, counts, active] = await Promise.all([
+    sql<{ id: string; sheet: PlayerCharacter }[]>`
+      select id, sheet from characters where owner_id = ${owner} order by created_at asc
+    `,
+    sql<{ characterId: string; status: RunStatus; n: number }[]>`
+      select character_id as "characterId", status, count(*)::int as n
+        from runs
+       where owner_id = ${owner} and character_id is not null and status <> 'active'
+       group by character_id, status
+    `,
+    // The name comes from the dungeon's own document, which is where every other
+    // reader of a dungeon's name gets it — see `listDungeons`. `turnCount` is
+    // read out of the run's state rather than duplicated into a column, for the
+    // same reason the counters are not stored.
+    sql<{ characterId: string; id: string; dungeonId: string; dungeonName: string; turnCount: number }[]>`
+      select r.character_id                                    as "characterId",
+             r.id                                              as "id",
+             r.dungeon_id                                      as "dungeonId",
+             coalesce(d.doc -> 'pass' ->> 'name', 'Unnamed')   as "dungeonName",
+             coalesce((r.state ->> 'turnCount')::int, 0)       as "turnCount"
+        from runs r join dungeons d on d.id = r.dungeon_id
+       where r.owner_id = ${owner} and r.status = 'active' and r.character_id is not null
+    `,
+  ]);
+
+  const records = new Map<string, CharacterRecord>();
+  for (const row of counts) {
+    const record = records.get(row.characterId) ?? NO_RECORD();
+    if (row.status === "goal_met") record.goalMet = row.n;
+    else if (row.status !== "active") record[row.status] = row.n;
+    records.set(row.characterId, record);
+  }
+
+  const runs = new Map(active.map((r) => [r.characterId, r]));
+
+  return sheets.map(({ id, sheet }) => {
+    const run = runs.get(id);
+    return {
+      sheet,
+      record: records.get(id) ?? NO_RECORD(),
+      ...(run
+        ? {
+            activeRun: {
+              id: run.id,
+              dungeonId: run.dungeonId,
+              dungeonName: run.dungeonName,
+              turnCount: run.turnCount,
+            },
+          }
+        : {}),
+    };
+  });
+}
+
+/**
+ * The run this character is in, or nothing.
+ *
+ * Asked before a new run is created and before a character is deleted. NOT the
+ * enforcement — the partial unique index is, and a check here could always lose
+ * a race with a second request. This is what turns the violation the index
+ * raises into an answer that names the run, which is the thing the player needs
+ * in order to do anything about it.
+ */
+export async function activeRunFor(
+  characterId: string,
+  owner: string,
+  sql: postgres.Sql = db()
+): Promise<{ id: string; dungeonId: string } | undefined> {
+  const [row] = await sql<{ id: string; dungeonId: string }[]>`
+    select id, dungeon_id as "dungeonId" from runs
+     where owner_id = ${owner} and character_id = ${characterId} and status = 'active'
   `;
-  return rows.map((r) => r.sheet);
+  return row;
 }
 
 export async function getCharacter(
@@ -105,6 +230,31 @@ export async function saveCharacter(
   `;
   if (rows.length === 0) throw new Error(`not yours to save: ${pc.id}`);
   return pc;
+}
+
+/**
+ * WHAT A CHARACTER BRINGS BACK UP.
+ *
+ * Called only when a run ended with the player alive and out — `escaped` or
+ * `goal_met`. The run's own `pc` has been diverging from the sheet since the
+ * first turn (gear picked up, coin spent, armour worn down) and on a successful
+ * ending it becomes the sheet. Same id, so the Phase 11 upsert lands on the same
+ * row.
+ *
+ * DEATH AND ABANDONMENT WRITE NOTHING, which is how "the character as they were
+ * before the run" is achieved: nothing touches `characters.sheet` during a run,
+ * so the stored sheet is still the pre-run one and there is no snapshot to take
+ * and no restore to perform. The only trace either leaves is a row in `runs`,
+ * which is what the counters read.
+ *
+ * HIT POINTS RETURN TO MAX, and that is a decision rather than a consequence.
+ * There is no downtime, no rest and no healing outside a run, so a character who
+ * surfaces at 1/15 can only die next time — which quietly turns "escaped alive"
+ * into a delayed death and makes the ending worthless. If wounds should carry,
+ * this is the line.
+ */
+export function carriedOut(pc: PlayerCharacter): PlayerCharacter {
+  return { ...pc, hp: { ...pc.hp, current: pc.hp.max } };
 }
 
 export async function deleteCharacter(
@@ -583,6 +733,25 @@ export async function commitTurn(
     }
 
     await insertEvents(tx, input.runId, input.events);
+
+    // THE CHARACTER COMES BACK UP IN THE SAME TRANSACTION AS THE RUN ENDING.
+    // A sheet written afterwards, in a second statement, is a sheet that can
+    // fail to be written after the run has already been recorded as survived —
+    // and the player would have carried nothing out of a run the scoreboard says
+    // they won. Either both or neither.
+    const ending = statusOf(input.state.stage);
+    if (ending === "escaped" || ending === "goal_met") {
+      // UPDATE AND NOT UPSERT. `saveCharacter`'s insert branch would recreate a
+      // character the player deleted while their run was still going, which is
+      // a person walking back out of a grave. If the row is gone this writes
+      // nothing, which is the honest answer.
+      const pc = carriedOut(input.state.pc);
+      await tx`
+        update characters set sheet = ${doc(tx, pc)}, updated_at = now()
+         where id = ${pc.id} and owner_id = ${input.owner}
+      `;
+    }
+
     return { ok: true as const, version: rows[0].version };
   }) as Promise<CommitResult>;
 }

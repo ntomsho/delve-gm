@@ -43,7 +43,14 @@ import { CreateCharacter } from "./ui/create/CreateCharacter.tsx";
 import { RunSetup } from "./ui/RunSetup.tsx";
 import { toItems } from "./ui/play/Narration.tsx";
 import { useGame } from "./store/react.ts";
-import { deleteCharacter, listCharacters, saveCharacter } from "./store/characters.ts";
+import {
+  deleteCharacter,
+  listRoster,
+  saveCharacter,
+  NO_RECORD,
+  type ActiveRun,
+  type CharacterEntry,
+} from "./store/characters.ts";
 import { SignIn } from "./ui/SignIn.tsx";
 import { authedFetch, onAuthChange, signIn, signOut, type Account } from "./store/auth.ts";
 import {
@@ -58,7 +65,6 @@ import { stubReferee } from "./runtime/__fixtures__/stub-referee.ts";
 import { generateOffline, testCharacter } from "./runtime/__fixtures__/offline.ts";
 import { randomSeed } from "./runtime/seeds.ts";
 import { readSwitches } from "./switches.ts";
-import type { PlayerCharacter } from "./engine/index.ts";
 
 const {
   offline: OFFLINE,
@@ -97,7 +103,9 @@ const LOCAL = OFFLINE || STUB;
  * different proposition from handing one to a developer with `?offline` in the
  * URL. So the fixture lives with the fixtures and appears only on a local run.
  */
-const localCharacters = () => [testCharacter()];
+const localCharacters = (): CharacterEntry[] => [
+  { sheet: testCharacter(), record: NO_RECORD },
+];
 
 /** Only the part before a run. Once the dungeon exists, that is what decides. */
 type Screen = "characters" | "create" | "setup" | "generating";
@@ -143,7 +151,9 @@ export default function App() {
 
   const { dungeon, run } = useGame(session.store);
   const [screen, setScreen] = useState<Screen>(BYPASS ? "generating" : "characters");
-  const [characters, setCharacters] = useState<PlayerCharacter[]>();
+  const [characters, setCharacters] = useState<CharacterEntry[]>();
+  /** A refusal from the server, in its own words, shown on the roster. */
+  const [notice, setNotice] = useState<string>();
 
   /**
    * Who is signed in, and whether we have found out yet.
@@ -182,6 +192,82 @@ export default function App() {
   async function begin(request: RunRequest) {
     setLastRequest(request);
     await start(session, request);
+  }
+
+  /**
+   * PICK A RUN BACK UP.
+   *
+   * One fetch and the game is on the screen — nothing is replayed, because
+   * `runs.state` is the whole save, scrollback included. It borrows the
+   * generating screen for the second it takes, which is honest: the game is
+   * being fetched, and the loading screen is what this app shows while it waits
+   * for a run to appear.
+   *
+   * Sessions are single-use — `begin` and `resume` both latch — so this takes a
+   * fresh one. It matters when a player finishes a run, goes back to the roster
+   * and picks up a different character's.
+   */
+  async function resume(runId: string) {
+    const next = makeSession();
+    setSession(next);
+    setNotice(undefined);
+    setScreen("generating");
+    try {
+      await next.resume?.(runId);
+    } catch (e) {
+      setError(describeFailure(e));
+    }
+  }
+
+  /**
+   * Back to the roster, from a run that is over or from one being walked away
+   * from. A fresh session, so the store the play screen was subscribed to is
+   * dropped along with the run in it.
+   */
+  function toRoster() {
+    setSession(makeSession());
+    setError(undefined);
+    setProgress(undefined);
+    setLastRequest(undefined);
+    setScreen("characters");
+    void refreshRoster();
+  }
+
+  /** The roster, re-read. Every ending changes something on it. */
+  async function refreshRoster() {
+    if (LOCAL) return;
+    setCharacters(await listRoster());
+  }
+
+  /**
+   * Walk away from a run WITHOUT being in it.
+   *
+   * The play path abandons through the session, which holds the run's version.
+   * From the roster there is no session and no version, so this reads the run,
+   * abandons it, and re-reads the list. Two requests where the play path makes
+   * one, and worth it: the alternative is minting a whole session to end a run
+   * the player is not looking at.
+   */
+  async function abandonFromRoster(active: ActiveRun) {
+    setNotice(undefined);
+    try {
+      const res = await authedFetch(`/api/runs/${active.id}`);
+      if (!res.ok) throw new Error(`could not read that run (${res.status})`);
+      const { run: stored } = (await res.json()) as { run: { version: number } };
+
+      const done = await authedFetch(`/api/runs/${active.id}/abandon`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ version: stored.version }),
+      });
+      if (!done.ok) {
+        const detail = (await done.json().catch(() => ({}))) as { error?: string };
+        throw new Error(detail.error ?? `could not abandon that run (${done.status})`);
+      }
+      await refreshRoster();
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : String(e));
+    }
   }
 
   /**
@@ -229,10 +315,10 @@ export default function App() {
       return;
     }
     void (async () => {
-      const cs = LOCAL ? localCharacters() : await listCharacters();
+      const cs = LOCAL ? localCharacters() : await listRoster();
       setCharacters(cs);
       if (BYPASS && cs[0]) {
-        void begin({ seed: SEED, size: SIZE, level: LEVEL, character: cs[0] });
+        void begin({ seed: SEED, size: SIZE, level: LEVEL, character: cs[0].sheet });
       }
     })();
   }, [account?.id]);
@@ -290,16 +376,28 @@ export default function App() {
       <Characters
         characters={characters}
         onStartRun={(pc) => {
+          setNotice(undefined);
           setChosenId(pc.id);
           setScreen("setup");
         }}
+        onResumeRun={(active) => void resume(active.id)}
+        onAbandonRun={(active) => void abandonFromRoster(active)}
         onCreate={() => setScreen("create")}
         onDelete={(pc) =>
           void (async () => {
-            await deleteCharacter(pc.id);
-            setCharacters(await listCharacters());
+            setNotice(undefined);
+            try {
+              await deleteCharacter(pc.id);
+            } catch (e) {
+              // The server's own sentence. "That character is in a run" is a
+              // thing the player can do something about, and a button that
+              // silently did nothing would not tell them what.
+              setNotice(e instanceof Error ? e.message : String(e));
+            }
+            await refreshRoster();
           })()
         }
+        {...(notice ? { notice } : {})}
         account={account}
         onSignOut={() => void signOut()}
       />
@@ -313,7 +411,7 @@ export default function App() {
         onSave={(pc) =>
           void (async () => {
             await saveCharacter(pc);
-            setCharacters(await listCharacters());
+            await refreshRoster();
             setChosenId(pc.id);
             setScreen("characters");
           })()
@@ -325,7 +423,9 @@ export default function App() {
   if (screen === "setup") {
     return (
       <RunSetup
-        characters={characters ?? []}
+        // Only those who can actually go. A character in a run is not an option
+        // here, and offering one would be offering a move the server refuses.
+        characters={(characters ?? []).filter((e) => !e.activeRun).map((e) => e.sheet)}
         initialId={chosenId}
         onBack={() => setScreen("characters")}
         onConfirm={({ size, level, character }) =>
@@ -347,6 +447,10 @@ export default function App() {
       onSubmit={(text) => void session.submit(text)}
       onRoll={() => void session.roll()}
       onRetry={() => void session.retry()}
+      onAbandon={() => void session.abandon()}
+      // A local run has no roster to go back to, so the end card does not offer
+      // one. Same reasoning as the sign-out control on the characters screen.
+      {...(LOCAL ? {} : { onLeave: toRoster })}
     />
   );
 }

@@ -31,15 +31,18 @@
  * real applier.
  */
 
-import {
-  checkRoll,
-  critEffects,
-  rollDamage,
-  type DamageResult,
-} from "../engine/index.ts";
+import { checkRoll, critEffects, rollDamage } from "../engine/index.ts";
 import type { GeneratedDungeon } from "./generate.ts";
 import type { Commit, WorldEvent } from "./diffs/types.ts";
-import { acceptsInput, isTerminal, type RollSpec, type Stage, type Step } from "./types.ts";
+import {
+  acceptsInput,
+  isTerminal,
+  type PendingRequest,
+  type RolledOutcome,
+  type RollSpec,
+  type Stage,
+  type Step,
+} from "./types.ts";
 import type { GameStore, RunState } from "../store/game.ts";
 import { needsComposition, theRoom } from "../store/selectors.ts";
 import { NO_JOURNAL, type Journal } from "./journal.ts";
@@ -48,22 +51,12 @@ import { NO_JOURNAL, type Journal } from "./journal.ts";
 // THE SEAM
 // ---------------------------------------------------------------------------
 
-/** A roll the player has already made. The referee reads it; it never rolls. */
-export interface RolledOutcome {
-  spec: RollSpec;
-  /** one die, or two under advantage / disadvantage */
-  rolled: number[];
-  /** the die that counted */
-  kept: number;
-  total: number;
-  success: boolean;
-  nat20: boolean;
-  nat1: boolean;
-  /** attacks that land and deal damage */
-  damage?: DamageResult;
-  /** a natural 20 costs the defender's armour a point, a natural 1 the weapon */
-  crit: { defenderArmor: boolean; attackerWeapon: boolean };
-}
+/**
+ * A roll the player has already made — now defined beside `RollSpec` in
+ * `types.ts`, and re-exported here because four files import it from this one
+ * and the type did not change.
+ */
+export type { RolledOutcome } from "./types.ts";
 
 export interface RefereeRequest {
   /** where the heuristic resumes */
@@ -257,6 +250,11 @@ export function createTurnMachine(referee: Referee, deps: TurnDeps): TurnMachine
     const after = run();
     if (!after) return;
 
+    // The ask landed, so there is nothing left to repeat. Cleared here rather
+    // than at the end of the function because a move chains a room entry below,
+    // and that pass sets a pending request of its own that must survive.
+    state().setPending(undefined);
+
     // THE PLAYER MOVED, so this turn says nothing.
     //
     // A referee resolving a move writes the leaving and, told not to, the
@@ -371,8 +369,15 @@ export function createTurnMachine(referee: Referee, deps: TurnDeps): TurnMachine
     journal.log({ kind: "stage", ...(from ? { from } : {}), to: "error", step });
   }
 
-  /** The last thing asked, so `retry` can ask it again after an error. */
-  let lastRequest: { input?: string; roll?: RolledOutcome; step: Step; entering: boolean } | undefined;
+  /**
+   * The last thing asked, so `retry` can ask it again after an error.
+   *
+   * IN THE RUN STATE, not in this closure. A machine is built per request on the
+   * server and thrown away with the response, so a closure variable was empty
+   * every time it mattered — see `PendingRequest`. Written immediately before
+   * each ask and cleared by the one that lands.
+   */
+  const remember = (pending: PendingRequest) => state().setPending(pending);
 
   /**
    * Describe where the player is standing — but only if anything here has
@@ -413,7 +418,7 @@ export function createTurnMachine(referee: Referee, deps: TurnDeps): TurnMachine
     }
 
     setStage("room_entry", "room-entry");
-    lastRequest = { step: "room-entry", entering: true };
+    remember({ step: "room-entry", entering: true });
     await ask({ step: "room-entry", dungeon, run: run()! }, true);
   }
 
@@ -430,7 +435,7 @@ export function createTurnMachine(referee: Referee, deps: TurnDeps): TurnMachine
     // negotiation, or at the top for a fresh action.
     const step = r.step;
     setStage("thinking", step);
-    lastRequest = { input: text, step, entering: false };
+    remember({ input: text, step, entering: false });
     await ask({ step, dungeon, run: run()!, input: text });
   }
 
@@ -456,16 +461,16 @@ export function createTurnMachine(referee: Referee, deps: TurnDeps): TurnMachine
     state().pushTranscript({ role: "roll", text: describeRoll(outcome) });
 
     setStage("resolving", "5-resolution");
-    lastRequest = { roll: outcome, step: "5-resolution", entering: false };
+    remember({ roll: outcome, step: "5-resolution", entering: false });
     await ask({ step: "5-resolution", dungeon, run: run()!, roll: outcome });
   }
 
   async function retry(): Promise<void> {
     const r = run();
     const dungeon = state().dungeon;
-    if (!r || !dungeon || r.stage !== "error" || !lastRequest) return;
+    if (!r || !dungeon || r.stage !== "error" || !r.pending) return;
 
-    const { input, roll: rolled, step, entering } = lastRequest;
+    const { input, roll: rolled, step, entering } = r.pending;
     setStage(entering ? "room_entry" : rolled ? "resolving" : "thinking", step);
     await ask({ step, dungeon, run: run()!, input, roll: rolled }, entering);
   }

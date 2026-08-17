@@ -22,9 +22,30 @@
  * together. That is the same parallelism the pipeline always had; it has moved
  * from `Promise.all` over function calls to `Promise.all` over fetches, because
  * no one server invocation may hold more than one model call.
+ *
+ * WHAT THE SCREEN DOES WHILE IT WAITS
+ * -----------------------------------
+ * The interface has always been driven by one thing, `run.stage`: it closes the
+ * input, names what the game is doing, and runs the sweep under the narration.
+ * In process, the turn machine moves the stage on the same tick as the keypress
+ * and *then* awaits the model, so the screen reacts instantly.
+ *
+ * This file did none of that. It posted, awaited, and only touched the store
+ * when the answer came back — so for the forty seconds a referee takes, the
+ * stage was still `awaiting_action`: no line in the scrollback, no sweep, and an
+ * open box that accepted three more actions the server then refused as `busy`.
+ * The interface was intact; nothing was telling it anything.
+ *
+ * So every verb below moves the stage BEFORE its request, to the stage the
+ * server is about to confirm, and `land` overwrites the guess with the truth.
+ * The guesses are only ever busy stages, which is what makes the guessing safe:
+ * the worst case is an input closed a moment early, and a client that guesses a
+ * busy stage cannot guess itself a favour. Nothing else is predicted — no
+ * commit, no dice, no outcome. See the note on `predict`.
  */
 
 import { createGameStore, type RunState } from "../store/game.ts";
+import { acceptsInput, isTerminal, type Stage, type Step } from "./types.ts";
 import type { GeneratedDungeon, GenerationProgress } from "./generate.ts";
 import type { PlayableSession, RunRequest } from "./session.ts";
 
@@ -70,6 +91,20 @@ export function createRemoteSession(opts: RemoteOptions = {}): PlayableSession {
   let version = 0;
   let begun = false;
 
+  /**
+   * The request the server never got.
+   *
+   * A turn can fail in two places and they need different repairs. If the
+   * REFEREE failed, the server's own machine caught it, landed on `error` with
+   * its `pending` recorded, and answered 200 — the run really is in `error` and
+   * `POST /retry` will repeat the ask. If the REQUEST failed — the network, a
+   * 500, a function that timed out — the server committed nothing and is still
+   * sitting on `awaiting_action` with no pending anything, so `POST /retry`
+   * would find nothing to repeat and quietly do nothing at all. That one has to
+   * be sent again as itself, which is what this holds.
+   */
+  let unsent: { path: string; body: Record<string, unknown>; stage: Stage; step: Step } | undefined;
+
   async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
     const res = await http(`${base}${path}`, {
       method,
@@ -92,7 +127,47 @@ export function createRemoteSession(opts: RemoteOptions = {}): PlayableSession {
    */
   function land(reply: TurnReply): void {
     version = reply.version;
+    unsent = undefined;
     store.setState({ run: reply.state, lastEvents: [] });
+  }
+
+  /**
+   * SHOW THE STAGE THE SERVER IS ABOUT TO CONFIRM.
+   *
+   * Always a busy one — `room_entry`, `thinking`, `resolving` — because that is
+   * the only kind of guess that cannot flatter the player. A busy stage closes
+   * the input and asks for nothing; the reply either confirms it or replaces it
+   * wholesale a moment later. The client still names no commit, throws no die
+   * and decides no outcome, which is the rule Phase 10 was built on.
+   *
+   * It doubles as the lock on a second submission, exactly as it does in the
+   * turn machine: the store is synchronous, so by the time a second keystroke
+   * reaches `submit` the stage already refuses it.
+   */
+  function predict(stage: Stage, step: Step): void {
+    store.getState().setStage(stage, step);
+  }
+
+  /**
+   * The request could not be made. The machine's `fail`, on this side of the
+   * wire: the world is left exactly as it was, the run goes to the one stage
+   * where the software rather than the referee is talking, and what was being
+   * sent is kept so the retry card can send it again.
+   *
+   * Deliberately does NOT throw. `App` calls these as `void session.submit(…)`,
+   * so a rejection here is an unhandled promise and nothing on the screen; the
+   * in-process machine has always reported a failed turn by landing on `error`,
+   * and this reports it the same way so the two paths behave identically.
+   * Generation is the exception and still throws — see `call`, used directly by
+   * `begin`, which has a screen of its own for failing.
+   */
+  function fail(path: string, body: Record<string, unknown>, e: unknown): void {
+    console.warn("[remote] the turn could not be sent:", e);
+    const r = store.getState().run;
+    const stage = r?.stage ?? "thinking";
+    const step = r?.step ?? "1-target";
+    unsent = { path, body, stage, step };
+    store.getState().setStage("error", step);
   }
 
   /**
@@ -109,14 +184,22 @@ export function createRemoteSession(opts: RemoteOptions = {}): PlayableSession {
       land(await call<TurnReply>("POST", `/api/runs/${runId}/${path}`, { ...body, version }));
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) {
-        const res = await http(`${base}/api/runs/${runId}`);
-        if (res.ok) {
-          const { run } = (await res.json()) as { run: { state: RunState; version: number } };
-          land({ state: run.state, version: run.version });
+        // Its own try: a re-read that cannot be made is a failed turn like any
+        // other, and a throw out of a catch block would be an unhandled
+        // rejection — a failure inside a recovery, and invisible.
+        try {
+          const res = await http(`${base}/api/runs/${runId}`);
+          if (res.ok) {
+            const { run } = (await res.json()) as { run: { state: RunState; version: number } };
+            land({ state: run.state, version: run.version });
+            return;
+          }
+        } catch (resync) {
+          fail(path, body, resync);
           return;
         }
       }
-      throw e;
+      fail(path, body, e);
     }
   }
 
@@ -163,9 +246,134 @@ export function createRemoteSession(opts: RemoteOptions = {}): PlayableSession {
       await act("enter");
     },
 
-    enterRoom: () => act("enter"),
-    submit: (text: string) => act("turn", { text }),
-    roll: () => act("roll"),
-    retry: () => act("retry"),
+    /**
+     * PICK A RUN BACK UP — one fetch, and nothing is rebuilt.
+     *
+     * The temptation is to replay: take the dungeon and the journal and run them
+     * forward to where the player stopped. There is no need. `runs.state` is a
+     * whole `RunState` — entities, the sheet, the room, the RNG's draw count, the
+     * transcript, and `log`, which is the scrollback the player actually reads —
+     * so what the server hands back IS the game. A replay path would be a second
+     * reconstruction of a state the server already writes in full on every turn,
+     * and a second one is a thing that can disagree with the first.
+     *
+     * THE STAGE IS THE ONE THING NOT TAKEN AT FACE VALUE. A run whose function
+     * timed out or was deployed over mid-turn is stored saying `thinking`, and
+     * `thinking` closes the input — so a player resuming one would land in a game
+     * that will never ask them for anything again. A busy stage becomes `error`,
+     * which is the one stage that offers a way on. Nothing is written and no
+     * version is spent: the row still says what it said, and `retry` repeats the
+     * ask from the `pending` the run was stored with.
+     */
+    async resume(id: string) {
+      if (begun) return;
+      begun = true;
+
+      report({ stage: "layout" });
+      const { run, dungeon } = await call<{
+        run: { id: string; state: RunState; version: number };
+        dungeon: GeneratedDungeon;
+      }>("GET", `/api/runs/${id}`);
+
+      runId = run.id;
+      version = run.version;
+      store.setState({ dungeon, run: run.state, lastEvents: [] });
+
+      const { stage, step } = run.state;
+      if (!acceptsInput(stage) && !isTerminal(stage)) store.getState().setStage("error", step);
+    },
+
+    /*
+     * THE FOUR VERBS, each guarded exactly as the turn machine guards its own.
+     *
+     * The guards are not security — the server re-checks everything and is the
+     * only thing that decides — they are what stops the interface from offering
+     * a move the game is not in a position to accept, and they are the reason a
+     * player can no longer stack four actions into a wait.
+     */
+
+    enterRoom() {
+      const r = store.getState().run;
+      if (!r || isTerminal(r.stage)) return Promise.resolve();
+      predict("room_entry", "room-entry");
+      return act("enter");
+    },
+
+    /**
+     * The player's line goes up the moment they press return, as it does in
+     * process — the scrollback is the record of the conversation and their half
+     * of it is not in doubt. The reply carries the server's own copy of the log
+     * and replaces this one, so it lands once however slow the referee is.
+     */
+    submit(text: string) {
+      const r = store.getState().run;
+      if (!r || !acceptsInput(r.stage) || text.trim() === "") return Promise.resolve();
+
+      store.getState().pushLog({ kind: "player", text });
+      store.getState().pushTranscript({ role: "player", text });
+      predict("thinking", r.step);
+      return act("turn", { text });
+    },
+
+    /**
+     * `resolving`, not `rolling`.
+     *
+     * The dice are the server's — the run's RNG is seeded and its draw count is
+     * state, so a client that rolled would be inventing a number and desyncing
+     * the stream. Which means the throw and the writing of the outcome are one
+     * request here, and of the two stages it passes through, the one that lasts
+     * is the writing. "DICE IN FLIGHT" for forty seconds would be a lie about
+     * what the game is doing; `rolling` stays the momentary stage it is.
+     */
+    roll() {
+      const r = store.getState().run;
+      if (!r || r.stage !== "roll_offered" || !r.pendingRoll) return Promise.resolve();
+      predict("resolving", "5-resolution");
+      return act("roll");
+    },
+
+    /**
+     * Ask again — and which "again" depends on where it broke.
+     *
+     * A request that never landed is sent again as itself. A referee that failed
+     * on the server left its `pending` in the run, so the stage to show is read
+     * from that: the same three-way the machine makes in `turn.ts`, off the same
+     * field, which is why they cannot drift apart. Neither is available on a run
+     * whose error predates this field, and then there is nothing honest to do.
+     */
+    retry() {
+      const r = store.getState().run;
+      if (!r || r.stage !== "error") return Promise.resolve();
+
+      if (unsent) {
+        const { path, body, stage, step } = unsent;
+        predict(stage, step);
+        return act(path, body);
+      }
+
+      if (!r.pending) return Promise.resolve();
+      const { entering, roll, step } = r.pending;
+      predict(entering ? "room_entry" : roll ? "resolving" : "thinking", step);
+      return act("retry");
+    },
+
+    /**
+     * Walk away.
+     *
+     * Goes through `act` like every other verb, so a stale version resyncs and a
+     * failure lands on `error` with a retry — abandoning is a write against the
+     * run and deserves the same care as one that costs a model call.
+     *
+     * NO PREDICTED STAGE. Every other verb guesses a BUSY stage while it waits,
+     * which is safe because a busy stage asks for nothing. `abandoned` is
+     * terminal, and a client that showed the end of a run before the server had
+     * agreed to it would be showing the player an ending that might not land.
+     * This one is fast and it can wait for the truth.
+     */
+    abandon() {
+      const r = store.getState().run;
+      if (!r || isTerminal(r.stage)) return Promise.resolve();
+      return act("abandon");
+    },
   };
 }

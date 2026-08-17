@@ -20,7 +20,7 @@ import { Narration, type NarrationItem } from "./Narration.tsx";
 import { RoomCard } from "./RoomCard.tsx";
 import { floorplanLayout, pointLayout } from "../../runtime/layout.ts";
 import { placedThings } from "../../runtime/occupancy.ts";
-import { acceptsInput } from "../../runtime/types.ts";
+import { acceptsInput, isTerminal } from "../../runtime/types.ts";
 import { characterView, mapView, roomView, shownRoom } from "../../store/selectors.ts";
 import type { GeneratedDungeon } from "../../runtime/generate.ts";
 import type { RunState } from "../../store/game.ts";
@@ -32,9 +32,22 @@ export interface PlayScreenProps {
   onSubmit(text: string): void;
   onRoll(): void;
   onRetry(): void;
+  /** End the run where it stands. No referee, no dice, no world change. */
+  onAbandon(): void;
+  /** Back to the roster once it is over. Absent on a local run — see `InputArea`. */
+  onLeave?: () => void;
 }
 
-export function PlayScreen({ dungeon, run, items, onSubmit, onRoll, onRetry }: PlayScreenProps) {
+export function PlayScreen({
+  dungeon,
+  run,
+  items,
+  onSubmit,
+  onRoll,
+  onRetry,
+  onAbandon,
+  onLeave,
+}: PlayScreenProps) {
   const [draft, setDraft] = useState("");
 
   // Geometry is fixed for the whole run; only the fog over it changes.
@@ -69,7 +82,16 @@ export function PlayScreen({ dungeon, run, items, onSubmit, onRoll, onRetry }: P
   );
   const pc = useMemo(() => characterView(run), [run]);
 
-  const busy = run.stage === "thinking" || run.stage === "resolving" || run.stage === "room_entry";
+  /**
+   * The sweep under the narration: on whenever the game is working.
+   *
+   * Derived rather than listed. It was three stages written out by hand, and it
+   * had already drifted — `rolling` was missing, which nobody saw because in
+   * process the dice take microseconds. Played through the server they are part
+   * of a request, and a hand-kept copy of `BUSY_STAGES` would have been wrong
+   * for the length of it. One source of truth, in runtime/types.ts.
+   */
+  const busy = !acceptsInput(run.stage) && !isTerminal(run.stage);
 
   /**
    * The ways out of the room they are standing in — the doors a click may offer
@@ -135,6 +157,8 @@ export function PlayScreen({ dungeon, run, items, onSubmit, onRoll, onRetry }: P
             }}
             onRoll={onRoll}
             onRetry={onRetry}
+            onAbandon={onAbandon}
+            {...(onLeave ? { onLeave } : {})}
           />
         </div>
 

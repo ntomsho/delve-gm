@@ -117,7 +117,7 @@ describe("a session", () => {
     };
 
     const second = offlineSession();
-    second.resume(saved, "an-id-from-somewhere-else");
+    second.restore(saved, "an-id-from-somewhere-else");
     expect(second.runId).toBe("an-id-from-somewhere-else");
     expect(second.store.getState().run!.turnCount).toBe(saved.run.turnCount);
 

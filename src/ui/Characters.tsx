@@ -15,9 +15,16 @@
  * what finally makes the empty state reachable — `CODING-PLAN.md` §1.2 item 13
  * has been carrying that as a designed-but-unreachable screen since 4.5.
  *
- * DEFERRED, not dropped: the design plan's IN A RUN / DIED · ROOM 3 badges and
- * the epitaph. Those need per-character run state that nothing stores yet, and
- * a badge computed from a field nobody writes would be worse than no badge.
+ * THE BADGES ARRIVED IN PHASE 12, having been deferred here since Phase 5 with
+ * the note that a badge computed from a field nobody writes is worse than no
+ * badge. Nobody wrote a field in the end: **IN A RUN** is a row in `runs` with
+ * `status = 'active'`, and the record beneath a name is those rows grouped by
+ * how they ended. Both are derived on read and neither can drift.
+ *
+ * A CHARACTER IN A RUN IS NOT OFFERED A NEW ONE. The door out of this screen is
+ * the run they are already in — resume it, or walk away from it — because they
+ * may hold exactly one at a time and the interface should not offer a move the
+ * game will refuse.
  */
 
 import { useState } from "react";
@@ -29,19 +36,49 @@ import {
 } from "../engine/index.ts";
 import { Button } from "./create/shared.tsx";
 import { describePerson } from "./person.ts";
+import type { ActiveRun, CharacterEntry, CharacterRecord } from "../store/characters.ts";
 
 const ABILITIES = ["str", "dex", "con", "int", "wis", "cha"] as const;
 
+/**
+ * WHAT HAS HAPPENED TO THEM, and nothing when nothing has.
+ *
+ * Ordered worst to best on purpose — this is a Knave character and the honest
+ * summary of one leads with how many times they have died. A character with a
+ * clean sheet gets no line at all rather than four zeroes: the absence says
+ * "new" more clearly than the numbers would.
+ */
+function Record({ record }: { record: CharacterRecord }) {
+  const parts: string[] = [];
+  if (record.dead) parts.push(`${record.dead} DIED`);
+  if (record.abandoned) parts.push(`${record.abandoned} WALKED AWAY`);
+  if (record.escaped) parts.push(`${record.escaped} OUT EMPTY-HANDED`);
+  if (record.goalMet) parts.push(`${record.goalMet} DONE`);
+  if (parts.length === 0) return null;
+
+  return (
+    <div className="mt-2 font-mono text-[10px] uppercase tracking-[0.14em] text-pencil">
+      {parts.join(" · ")}
+    </div>
+  );
+}
+
 function Row({
-  pc,
+  entry,
   onSend,
+  onResume,
+  onAbandon,
   onDelete,
 }: {
-  pc: PlayerCharacter;
+  entry: CharacterEntry;
   onSend: () => void;
+  onResume: () => void;
+  onAbandon: () => void;
   onDelete: () => void;
 }) {
   const [confirming, setConfirming] = useState(false);
+  const [leaving, setLeaving] = useState(false);
+  const { sheet: pc, activeRun } = entry;
   const used = slotsUsed(pc);
   const capacity = slotCapacity(pc);
 
@@ -55,6 +92,13 @@ function Row({
               Hardcore
             </span>
           ) : null}
+          {/* Where they are, which outranks anything else on the row: it is the
+              one fact that decides what the buttons opposite can do. */}
+          {activeRun && (
+            <span className="border border-torch bg-torch-wash px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.14em] text-torch-deep">
+              In a run · {activeRun.dungeonName} · turn {activeRun.turnCount + 1}
+            </span>
+          )}
         </div>
 
         <p className="mt-1.5 max-w-[56ch] font-prose text-[16px] leading-relaxed text-graphite">
@@ -74,13 +118,56 @@ function Row({
             {used}/{capacity} SLOTS
           </span>
         </div>
+
+        <Record record={entry.record} />
       </div>
 
       <div className="flex flex-col items-stretch gap-2">
-        <Button tone="secondary" onClick={onSend} className="px-5 py-2.5 text-[12px]">
-          Send down
-        </Button>
-        {confirming ? (
+        {/*
+         * THE PRIMARY DOOR IS WHICHEVER ONE IS OPEN.
+         *
+         * One button in the same place either way, because a player scanning
+         * six rows should not have to work out per row which control they are
+         * looking at. Only the verb changes, and it changes because the game
+         * changed — a character in a run cannot be sent anywhere.
+         */}
+        {activeRun ? (
+          <Button tone="secondary" onClick={onResume} className="px-5 py-2.5 text-[12px]">
+            Resume run
+          </Button>
+        ) : (
+          <Button tone="secondary" onClick={onSend} className="px-5 py-2.5 text-[12px]">
+            Send down
+          </Button>
+        )}
+
+        {/*
+         * ABANDON REPLACES DELETE while there is a run, rather than joining it.
+         * Deleting is refused by the server anyway — a live run with no owner is
+         * a save nobody can reach — and offering a button that can only say no
+         * is worse than offering the one thing that actually helps. Delete comes
+         * back the moment the run ends.
+         */}
+        {activeRun ? (
+          leaving ? (
+            <div className="flex gap-2">
+              <Button
+                tone="ghost"
+                onClick={onAbandon}
+                className="flex-1 border-torch px-3 py-2.5 text-[12px] text-torch hover:border-torch hover:text-torch-deep"
+              >
+                Abandon
+              </Button>
+              <Button tone="ghost" onClick={() => setLeaving(false)} className="flex-1 px-3 py-2.5 text-[12px]">
+                Keep it
+              </Button>
+            </div>
+          ) : (
+            <Button tone="ghost" onClick={() => setLeaving(true)} className="px-5 py-2.5 text-[12px]">
+              Abandon run
+            </Button>
+          )
+        ) : confirming ? (
           <div className="flex gap-2">
             <Button
               tone="ghost"
@@ -106,15 +193,29 @@ function Row({
 export function Characters({
   characters,
   onStartRun,
+  onResumeRun,
+  onAbandonRun,
   onCreate,
   onDelete,
+  notice,
   account,
   onSignOut,
 }: {
-  characters?: PlayerCharacter[];
+  characters?: CharacterEntry[];
   onStartRun: (pc: PlayerCharacter) => void;
+  /** Pick the run this character is in back up. Only ever called with one. */
+  onResumeRun: (run: ActiveRun) => void;
+  onAbandonRun: (run: ActiveRun) => void;
   onCreate: () => void;
   onDelete: (pc: PlayerCharacter) => void;
+  /**
+   * A refusal from the server, said in its own words.
+   *
+   * Deleting somebody who is still down there is the one that happens, and "that
+   * character is in a run" is an instruction the player can act on — where a
+   * silently-failed button is not.
+   */
+  notice?: string;
   /**
    * Who is signed in. OPTIONAL, and absent on a `?offline` or `?stub` run —
    * those are played entirely in the browser and require no account, so a
@@ -146,6 +247,15 @@ export function Characters({
           <div className="mt-5 h-0.5 bg-ink" />
         </header>
 
+        {notice && (
+          <p
+            className="mt-6 border-l-2 border-torch py-2 pl-3 font-mono text-[12px] text-torch-deep"
+            role="status"
+          >
+            {notice}
+          </p>
+        )}
+
         {/* One frame against an in-memory array, a real wait against a
             database. The line is here so the second case does not need a new
             screen when it arrives. */}
@@ -164,12 +274,14 @@ export function Characters({
         ) : (
           <>
             <ul className="flex flex-col">
-              {characters.map((pc) => (
+              {characters.map((entry) => (
                 <Row
-                  key={pc.id}
-                  pc={pc}
-                  onSend={() => onStartRun(pc)}
-                  onDelete={() => onDelete(pc)}
+                  key={entry.sheet.id}
+                  entry={entry}
+                  onSend={() => onStartRun(entry.sheet)}
+                  onResume={() => entry.activeRun && onResumeRun(entry.activeRun)}
+                  onAbandon={() => entry.activeRun && onAbandonRun(entry.activeRun)}
+                  onDelete={() => onDelete(entry.sheet)}
                 />
               ))}
             </ul>

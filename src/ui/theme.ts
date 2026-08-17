@@ -106,6 +106,7 @@ export const STAGE_TONE: Record<Stage, StageTone> = {
   departed: WAIT,
   escaped: WAIT,
   goal_met: WAIT,
+  abandoned: WAIT,
 };
 
 /** What the game is doing, in its own voice. Shown above the input. */
@@ -123,6 +124,9 @@ export const STAGE_NAME: Record<Stage, string> = {
   departed: "OUT",
   escaped: "OUT, ALIVE, EMPTY-HANDED",
   goal_met: "OUT, WITH IT, ALIVE",
+  // Not "GAVE UP". The player made a decision and the interface should not
+  // editorialise about it on the way out.
+  abandoned: "RUN ABANDONED",
 };
 
 /** What the game wants from the player, under the input. */
@@ -140,4 +144,5 @@ export const STAGE_HINT: Record<Stage, string> = {
   departed: "INPUT CLOSED",
   escaped: "INPUT CLOSED",
   goal_met: "INPUT CLOSED",
+  abandoned: "INPUT CLOSED",
 };

@@ -116,8 +116,10 @@ describe("characters", () => {
 
       await repo.saveCharacter(character("pc-a", "Alice"), a, tx);
 
-      expect((await repo.listCharacters(a, tx)).map((c) => c.name)).toEqual(["Alice"]);
-      expect(await repo.listCharacters(b, tx)).toEqual([]);
+      // Through `listRoster`, which is the only listing read since Phase 12 —
+      // this assertion should be made against the query the API actually runs.
+      expect((await repo.listRoster(a, tx)).map((e) => e.sheet.name)).toEqual(["Alice"]);
+      expect(await repo.listRoster(b, tx)).toEqual([]);
     });
   });
 
@@ -319,6 +321,242 @@ describe("profiles", () => {
       // The trigger ran, and a new account brings its own key until somebody
       // makes them a guest of ours.
       expect(row?.tier).toBe("byok");
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PHASE 12 — ONE RUN AT A TIME, AND WHAT A RUN LEAVES BEHIND
+// ---------------------------------------------------------------------------
+
+/**
+ * The lock, the scoreboard and the write-back are the same bet: `runs` already
+ * knows everything, so nothing new is recorded and nothing can drift. These are
+ * the tests that hold it — a lock living in an index has to be exercised against
+ * a real index, and a counter that is a `group by` against real rows.
+ */
+
+/** A run ended at `stage`, with `pc` as the sheet it ended holding. */
+async function endRun(
+  tx: postgres.Sql,
+  owner: string,
+  run: { id: string; version: number },
+  stage: string,
+  pc: PlayerCharacter
+) {
+  return repo.commitTurn(
+    {
+      runId: run.id,
+      owner,
+      expectedVersion: run.version,
+      state: { ...runState(), stage, pc } as never,
+      events: [],
+    },
+    tx
+  );
+}
+
+describe("a character in a run", () => {
+  async function playerWithCharacter(tx: postgres.Sql, label: string) {
+    const owner = await makeUser(tx, label);
+    const pc = character(`pc-${label}`, "Testy");
+    await repo.saveCharacter(pc, owner, tx);
+    return { owner, pc };
+  }
+
+  const sendDown = async (tx: postgres.Sql, owner: string, pcId: string, seed: number) => {
+    const dungeonId = await repo.insertPartialDungeon(dungeon(seed), owner, tx);
+    return repo.createRun({ dungeonId, characterId: pcId, state: runState(), owner }, tx);
+  };
+
+  /**
+   * THE RULE, and it is the database's rather than a handler's. A check in a
+   * handler can lose a race with a second request; a partial unique index
+   * cannot.
+   */
+  it("cannot be sent into a second one", async () => {
+    await inRollback(async (tx) => {
+      const { owner, pc } = await playerWithCharacter(tx, "a");
+      await sendDown(tx, owner, pc.id, 4201);
+
+      await expect(sendDown(tx, owner, pc.id, 9001)).rejects.toThrow();
+    });
+  });
+
+  it("is free again the moment the run ends, whichever way it ended", async () => {
+    for (const stage of ["dead", "escaped", "goal_met", "abandoned"]) {
+      await inRollback(async (tx) => {
+        const { owner, pc } = await playerWithCharacter(tx, "a");
+        const first = await sendDown(tx, owner, pc.id, 4201);
+
+        expect((await endRun(tx, owner, first, stage, pc)).ok).toBe(true);
+
+        // The index holds one row per character, not one per run, so a finished
+        // run drops out of it entirely.
+        expect((await sendDown(tx, owner, pc.id, 9001)).id).toBeDefined();
+      });
+    }
+  });
+
+  it("is reported by name so the interface can offer the run rather than mention it", async () => {
+    await inRollback(async (tx) => {
+      const { owner, pc } = await playerWithCharacter(tx, "a");
+      const run = await sendDown(tx, owner, pc.id, 4201);
+
+      expect(await repo.activeRunFor(pc.id, owner, tx)).toMatchObject({ id: run.id });
+    });
+  });
+
+  it("does not lock a character belonging to somebody else", async () => {
+    await inRollback(async (tx) => {
+      const a = await playerWithCharacter(tx, "a");
+      const b = await playerWithCharacter(tx, "b");
+      await sendDown(tx, a.owner, a.pc.id, 4201);
+
+      expect(await repo.activeRunFor(b.pc.id, b.owner, tx)).toBeUndefined();
+      // And A's run is not merely unrelated to B, it is invisible to them.
+      expect(await repo.activeRunFor(a.pc.id, b.owner, tx)).toBeUndefined();
+      expect((await sendDown(tx, b.owner, b.pc.id, 4201)).id).toBeDefined();
+    });
+  });
+});
+
+describe("the record on a character", () => {
+  async function ranAndEnded(
+    tx: postgres.Sql,
+    owner: string,
+    pc: PlayerCharacter,
+    stage: string,
+    seed: number
+  ) {
+    const dungeonId = await repo.insertPartialDungeon(dungeon(seed), owner, tx);
+    const run = await repo.createRun(
+      { dungeonId, characterId: pc.id, state: runState(), owner },
+      tx
+    );
+    await endRun(tx, owner, run, stage, pc);
+  }
+
+  it("counts the four endings and nothing else", async () => {
+    await inRollback(async (tx) => {
+      const owner = await makeUser(tx, "a");
+      const pc = character("pc-a", "Testy");
+      await repo.saveCharacter(pc, owner, tx);
+
+      await ranAndEnded(tx, owner, pc, "dead", 1);
+      await ranAndEnded(tx, owner, pc, "dead", 2);
+      await ranAndEnded(tx, owner, pc, "abandoned", 3);
+      await ranAndEnded(tx, owner, pc, "goal_met", 4);
+      // And one still going, which is not an ending and must not be counted.
+      const live = await repo.insertPartialDungeon(dungeon(5), owner, tx);
+      await repo.createRun({ dungeonId: live, characterId: pc.id, state: runState(), owner }, tx);
+
+      const [entry] = await repo.listRoster(owner, tx);
+      expect(entry?.record).toEqual({ dead: 2, abandoned: 1, escaped: 0, goalMet: 1 });
+      expect(entry?.activeRun).toMatchObject({ dungeonName: "The Test Hole", turnCount: 0 });
+    });
+  });
+
+  it("counts only the owner's own runs", async () => {
+    await inRollback(async (tx) => {
+      const a = await makeUser(tx, "a");
+      const b = await makeUser(tx, "b");
+      const pcA = character("pc-a", "Testy");
+      const pcB = character("pc-b", "Testy");
+      await repo.saveCharacter(pcA, a, tx);
+      await repo.saveCharacter(pcB, b, tx);
+
+      await ranAndEnded(tx, a, pcA, "dead", 1);
+      await ranAndEnded(tx, b, pcB, "dead", 2);
+      await ranAndEnded(tx, b, pcB, "dead", 3);
+
+      expect((await repo.listRoster(a, tx))[0]?.record.dead).toBe(1);
+      expect((await repo.listRoster(b, tx))[0]?.record.dead).toBe(2);
+    });
+  });
+
+  it("is all zeroes for somebody who has never been anywhere", async () => {
+    await inRollback(async (tx) => {
+      const owner = await makeUser(tx, "a");
+      await repo.saveCharacter(character("pc-a", "Testy"), owner, tx);
+
+      const [entry] = await repo.listRoster(owner, tx);
+      expect(entry?.record).toEqual({ dead: 0, abandoned: 0, escaped: 0, goalMet: 0 });
+      expect(entry?.activeRun).toBeUndefined();
+    });
+  });
+});
+
+describe("what a character brings back up", () => {
+  /** A sheet as rolled, and the same sheet after a run has been hard on it. */
+  const rolled = () => character("pc-a", "Testy");
+  const wounded = () =>
+    ({ ...rolled(), hp: { current: 1, max: 6 }, inventory: ["a jewelled skull"] }) as never;
+
+  async function endWith(tx: postgres.Sql, owner: string, stage: string) {
+    const dungeonId = await repo.insertPartialDungeon(dungeon(4201), owner, tx);
+    const run = await repo.createRun(
+      { dungeonId, characterId: "pc-a", state: runState(), owner },
+      tx
+    );
+    return endRun(tx, owner, run, stage, wounded());
+  }
+
+  it("keeps what they carried, and heals them, when they got out alive", async () => {
+    for (const stage of ["escaped", "goal_met"]) {
+      await inRollback(async (tx) => {
+        const owner = await makeUser(tx, "a");
+        await repo.saveCharacter(rolled(), owner, tx);
+
+        expect((await endWith(tx, owner, stage)).ok).toBe(true);
+
+        const sheet = (await repo.getCharacter("pc-a", owner, tx)) as unknown as {
+          hp: { current: number };
+          inventory: string[];
+        };
+        expect(sheet.inventory).toEqual(["a jewelled skull"]);
+        // There is no downtime and no healing outside a run, so a survivor left
+        // at 1/6 could only die next time — see `carriedOut`.
+        expect(sheet.hp.current).toBe(6);
+      });
+    }
+  });
+
+  /**
+   * "As they were before the run", achieved by not writing rather than by
+   * restoring: nothing touches `characters.sheet` during a run, so the stored
+   * sheet IS the pre-run one and there is nothing to put back.
+   */
+  it("changes nothing at all when they died or walked away", async () => {
+    for (const stage of ["dead", "abandoned"]) {
+      await inRollback(async (tx) => {
+        const owner = await makeUser(tx, "a");
+        await repo.saveCharacter(rolled(), owner, tx);
+
+        expect((await endWith(tx, owner, stage)).ok).toBe(true);
+        expect(await repo.getCharacter("pc-a", owner, tx)).toEqual(rolled());
+      });
+    }
+  });
+
+  /**
+   * The upsert would have recreated a deleted character here, which is a person
+   * walking back out of a grave. `commitTurn` uses an UPDATE for exactly this.
+   */
+  it("does not resurrect a character deleted while the run was still going", async () => {
+    await inRollback(async (tx) => {
+      const owner = await makeUser(tx, "a");
+      await repo.saveCharacter(rolled(), owner, tx);
+      const dungeonId = await repo.insertPartialDungeon(dungeon(4201), owner, tx);
+      const run = await repo.createRun(
+        { dungeonId, characterId: "pc-a", state: runState(), owner },
+        tx
+      );
+      await repo.deleteCharacter("pc-a", owner, tx);
+
+      expect((await endRun(tx, owner, run, "goal_met", wounded())).ok).toBe(true);
+      expect(await repo.getCharacter("pc-a", owner, tx)).toBeUndefined();
+      expect(await repo.listRoster(owner, tx)).toEqual([]);
     });
   });
 });

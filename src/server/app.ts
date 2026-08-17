@@ -117,16 +117,43 @@ export function createApp(): Hono<AuthEnv> {
   // CHARACTERS
   // -------------------------------------------------------------------------
 
-  app.get("/api/characters", async (c) => c.json(await repo.listCharacters(currentUser(c).id)));
+  /**
+   * The roster: who the player has, what has happened to them, and where they
+   * are. Was `PlayerCharacter[]`; a sheet alone can no longer answer the
+   * question the screen asks, which is whether this person can be sent anywhere.
+   */
+  app.get("/api/characters", async (c) => c.json(await repo.listRoster(currentUser(c).id)));
 
   app.post("/api/characters", async (c) => {
     const pc = (await c.req.json()) as PlayerCharacter;
     return c.json(await repo.saveCharacter(pc, currentUser(c).id));
   });
 
-  app.delete("/api/characters/:id", async (c) =>
-    c.json({ deleted: await repo.deleteCharacter(c.req.param("id"), currentUser(c).id) })
-  );
+  /**
+   * Deleting somebody who is still down there is refused.
+   *
+   * The foreign key is `on delete set null`, so this would otherwise succeed and
+   * leave an active run belonging to nobody: a save file with no way to reach it
+   * and no way to end it, holding a lock against a character that no longer
+   * exists. Abandon first — that is what the verb is for.
+   */
+  app.delete("/api/characters/:id", async (c) => {
+    const user = currentUser(c);
+    const id = c.req.param("id");
+    const active = await repo.activeRunFor(id, user.id);
+    if (active) {
+      // JSON rather than an `HTTPException`, and for the same reason the stale
+      // and busy refusals below are: Hono renders a thrown exception as a plain
+      // text body, and this message is one the interface has to put in front of
+      // the player. `runId` is there so it can offer the run rather than only
+      // mention it.
+      return c.json(
+        { error: "that character is in a run — abandon it first", runId: active.id },
+        409
+      );
+    }
+    return c.json({ deleted: await repo.deleteCharacter(id, user.id) });
+  });
 
   // -------------------------------------------------------------------------
   // GENERATION — three requests, one model call each
@@ -272,6 +299,23 @@ export function createApp(): Hono<AuthEnv> {
       throw new HTTPException(409, { message: "that dungeon is still being written" });
     }
 
+    /*
+     * ONE RUN AT A TIME, ASKED HERE AND ENFORCED IN THE DATABASE.
+     *
+     * `runs_one_active_per_character` is what actually holds the rule — this
+     * check could always lose a race with a second request, and the index
+     * cannot. What it buys is the ANSWER: the index raises a constraint
+     * violation, which tells the player nothing they can act on, and this names
+     * the run they are already in so the interface can offer to resume it.
+     */
+    const busy = await repo.activeRunFor(character.id, user.id);
+    if (busy) {
+      return c.json(
+        { error: "in a run", runId: busy.id, dungeonId: busy.dungeonId },
+        409
+      );
+    }
+
     const state = newRun(stored.doc, character);
     const run = await repo.createRun({
       dungeonId: stored.id,
@@ -299,6 +343,57 @@ export function createApp(): Hono<AuthEnv> {
   // -------------------------------------------------------------------------
   // PLAY
   // -------------------------------------------------------------------------
+
+  /**
+   * WALK AWAY. The one ending that costs nothing.
+   *
+   * Not a turn and not routed through `playTurn`: there is no referee to ask, no
+   * dice to throw and no world to change — the player is closing the book, not
+   * doing something in the fiction. So it skips the lock (a turn in flight will
+   * simply lose the compare-and-swap, which is the correct outcome for a turn
+   * whose run has ended) and writes through the same `commitTurn` everything
+   * else writes through, so the version, the status and the release of the lock
+   * all happen exactly as they do for any other ending.
+   *
+   * The run keeps everything. Abandoning ENDS a run; it does not delete one, and
+   * the journal, the state and the scrollback are all still there to read.
+   */
+  app.post("/api/runs/:id/abandon", async (c) => {
+    const id = c.req.param("id");
+    const owner = currentUser(c).id;
+    const body = (await c.req.json().catch(() => ({}))) as { version?: unknown };
+    const expected = Number(body.version);
+    if (!Number.isFinite(expected)) {
+      throw new HTTPException(400, { message: "an abandon must say which version it answers" });
+    }
+
+    const run = await mustGetRun(id, owner);
+    if (run.status !== "active") {
+      throw new HTTPException(409, { message: `that run is already over: ${run.status}` });
+    }
+
+    const state: RunState = { ...run.state, stage: "abandoned" };
+    const { sink, events } = repo.collectingSink();
+    createJournal(sink, await repo.lastSeq(id)).log({
+      kind: "stage",
+      from: run.state.stage,
+      to: "abandoned",
+      step: run.state.step,
+    });
+
+    const result = await repo.commitTurn({
+      runId: id,
+      owner,
+      expectedVersion: expected,
+      state,
+      events,
+    });
+    if (!result.ok && result.reason === "gone") {
+      throw new HTTPException(404, { message: `no such run: ${id}` });
+    }
+    if (!result.ok) return c.json({ error: "stale", current: result.current }, 409);
+    return c.json({ state, version: result.version, events: [] });
+  });
 
   app.post("/api/runs/:id/enter", (c) => playTurn(c, (s) => s.enterRoom()));
   app.post("/api/runs/:id/roll", (c) => playTurn(c, (s) => s.roll()));
@@ -389,7 +484,7 @@ async function playTurn(c: Context<AuthEnv>, act: Action): Promise<Response> {
     sink: () => sink,
     startSeq: await repo.lastSeq(id),
   });
-  session.resume({ dungeon: dungeon.doc, run: run.state }, runId(dungeon.doc.seeds.dungeonSeed));
+  session.restore({ dungeon: dungeon.doc, run: run.state }, runId(dungeon.doc.seeds.dungeonSeed));
 
   try {
     await act(session, body);

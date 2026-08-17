@@ -44,10 +44,16 @@ beforeEach(() => {
 
 afterEach(() => vi.unstubAllGlobals());
 
-const run = (version: number, stage = "awaiting_action") => ({
+/**
+ * Enough of a run for the client to work on. `transcript` and `log` are here
+ * because the client writes the player's line into both the moment they press
+ * return — see the optimistic stage below — rather than waiting for the server
+ * to hand its copy back.
+ */
+const run = (version: number, stage = "awaiting_action", extra: Record<string, unknown> = {}) => ({
   id: "run-1",
   version,
-  state: { stage, log: [], turnCount: 0 },
+  state: { stage, step: "1-target", log: [], transcript: [], turnCount: 0, ...extra },
 });
 
 /** The happy path through generation, so `begin` can get to a playable run. */
@@ -118,13 +124,98 @@ describe("a turn", () => {
     const session = createRemoteSession();
     await begin(session);
 
-    routes.set("POST /api/runs/run-1/turn", () => ({ json: { state: run(3).state, version: 3 } }));
+    // The turn comes back with a roll on the table, which is what makes the
+    // roll below a legal move — the client refuses one otherwise.
+    const offered = run(3, "roll_offered", { pendingRoll: { ability: "str", dc: 12 } });
+    routes.set("POST /api/runs/run-1/turn", () => ({ json: { state: offered.state, version: 3 } }));
     await session.submit("one");
     routes.set("POST /api/runs/run-1/roll", () => ({ json: { state: run(4).state, version: 4 } }));
     await session.roll();
 
     expect(sent.at(-1)!.body).toEqual({ version: 3 });
     expect(session.store.getState().run).toMatchObject({ stage: "awaiting_action" });
+  });
+});
+
+/**
+ * WHAT THE SCREEN DOES WHILE THE SERVER THINKS.
+ *
+ * The whole interface reads `run.stage`, and this file used not to move it until
+ * the reply landed — so for the length of a referee call the input stayed open,
+ * the sweep never ran, and the player's own line was not on the page. It read as
+ * a game that had not noticed them. These pin the stage DURING the request,
+ * which is the only place the bug ever existed.
+ */
+describe("while the request is in flight", () => {
+  it("closes the input and puts the player's line up the moment they submit", async () => {
+    wireGeneration([0]);
+    const session = createRemoteSession();
+    await begin(session);
+
+    routes.set("POST /api/runs/run-1/turn", () => ({ json: { state: run(3).state, version: 3 } }));
+    const inFlight = session.submit("I search the floor");
+
+    // Read WITHOUT awaiting: this is the tick the keypress happens on, and the
+    // request has not been answered on it. Everything the interface needs is
+    // already true here or it is not optimistic at all.
+    const during = session.store.getState().run!;
+    expect(during.stage).toBe("thinking");
+    expect(during.log.at(-1)).toMatchObject({ kind: "player", text: "I search the floor" });
+    expect(during.transcript.at(-1)).toMatchObject({ role: "player", text: "I search the floor" });
+
+    await inFlight;
+    expect(session.store.getState().run).toMatchObject({ stage: "awaiting_action" });
+  });
+
+  it("refuses a second action while the first is still out", async () => {
+    wireGeneration([0]);
+    const session = createRemoteSession();
+    await begin(session);
+
+    routes.set("POST /api/runs/run-1/turn", () => ({ json: { state: run(3).state, version: 3 } }));
+    const first = session.submit("I search the floor");
+
+    // The player, seeing nothing happen, types three more things. Every one of
+    // them used to become a request the server refused as `busy`.
+    const before = sent.length;
+    await session.submit("hello?");
+    await session.submit("is this on?");
+    await session.roll();
+    expect(sent).toHaveLength(before);
+
+    await first;
+  });
+
+  it("shows the dice being written up rather than thrown", async () => {
+    wireGeneration([0]);
+    const session = createRemoteSession();
+    await begin(session);
+
+    const offered = run(3, "roll_offered", { pendingRoll: { ability: "str", dc: 12 } });
+    routes.set("POST /api/runs/run-1/turn", () => ({ json: { state: offered.state, version: 3 } }));
+    await session.submit("I heave at the slab");
+
+    routes.set("POST /api/runs/run-1/roll", () => ({ json: { state: run(4).state, version: 4 } }));
+    const rolling = session.roll();
+    // The throw and the outcome are one request here, and the outcome is the
+    // part that takes time. `rolling` would be a lie for the length of it.
+    expect(session.store.getState().run).toMatchObject({ stage: "resolving" });
+    await rolling;
+  });
+
+  it("does not act at all once the run is over", async () => {
+    wireGeneration([0]);
+    const session = createRemoteSession();
+    await begin(session);
+
+    routes.set("POST /api/runs/run-1/turn", () => ({ json: { state: run(3, "dead").state, version: 3 } }));
+    await session.submit("I drink the vial");
+
+    const after = sent.length;
+    await session.submit("I get up");
+    await session.roll();
+    await session.retry();
+    expect(sent).toHaveLength(after);
   });
 });
 
@@ -206,12 +297,257 @@ describe("a refusal", () => {
     expect(sent.at(-1)!.body).toMatchObject({ version: 9 });
   });
 
-  it("still raises anything that is not a refusal", async () => {
+  /**
+   * NOT a rejection any more, and that is the fix.
+   *
+   * `App` calls these as `void session.submit(…)`, so a thrown error was an
+   * unhandled promise and nothing whatsoever on the screen — the run sat in
+   * `thinking` with no way out. The in-process machine has always reported a
+   * failed turn by landing on `error`, where the interface has a card and a
+   * button for it, and this reports it the same way.
+   */
+  it("lands on the error stage when the request itself fails", async () => {
     wireGeneration([0]);
     const session = createRemoteSession();
     await begin(session);
 
     routes.set("POST /api/runs/run-1/turn", () => ({ status: 500, json: { error: "the model is down" } }));
-    await expect(session.submit("I search the floor")).rejects.toThrow("the model is down");
+    await expect(session.submit("I search the floor")).resolves.toBeUndefined();
+    expect(session.store.getState().run).toMatchObject({ stage: "error" });
+  });
+});
+
+/**
+ * THE WAY OUT OF `error`, which had none.
+ *
+ * `POST /retry` asks the server to repeat the ask it recorded, and it only has
+ * one to repeat if it got far enough to record it. A request that never arrived
+ * left the server on the stage before, so retrying it there would be asking a
+ * run that is not in trouble to recover from trouble — it has to be sent again
+ * as itself instead. Both routes end at the same button.
+ */
+describe("trying again", () => {
+  it("re-sends the request that never landed", async () => {
+    wireGeneration([0]);
+    const session = createRemoteSession();
+    await begin(session);
+
+    routes.set("POST /api/runs/run-1/turn", () => ({ status: 500, json: { error: "the model is down" } }));
+    await session.submit("I search the floor");
+    expect(session.store.getState().run).toMatchObject({ stage: "error" });
+
+    routes.set("POST /api/runs/run-1/turn", () => ({ json: { state: run(3).state, version: 3 } }));
+    await session.retry();
+
+    // The same action, at the same version — not a bare `/retry` the server
+    // would have had nothing to do with.
+    expect(sent.at(-1)).toMatchObject({
+      path: "/api/runs/run-1/turn",
+      body: { text: "I search the floor", version: 2 },
+    });
+    expect(session.store.getState().run).toMatchObject({ stage: "awaiting_action" });
+  });
+
+  it("asks the server to repeat an ask that failed on its side", async () => {
+    wireGeneration([0]);
+    const session = createRemoteSession();
+    await begin(session);
+
+    // The referee failed on the server: it caught that itself, stored what it
+    // was doing, and answered normally with the run in `error`.
+    const broken = run(3, "error", {
+      step: "3-standard",
+      pending: { input: "I search the floor", step: "3-standard", entering: false },
+    });
+    routes.set("POST /api/runs/run-1/turn", () => ({ json: { state: broken.state, version: 3 } }));
+    await session.submit("I search the floor");
+
+    routes.set("POST /api/runs/run-1/retry", () => ({ json: { state: run(4).state, version: 4 } }));
+    const retrying = session.retry();
+    // Back to the stage the ask was made from, read off the server's own record
+    // of it — the same three-way `turn.ts` makes from the same field.
+    expect(session.store.getState().run).toMatchObject({ stage: "thinking", step: "3-standard" });
+    await retrying;
+
+    expect(sent.at(-1)).toMatchObject({ path: "/api/runs/run-1/retry", body: { version: 3 } });
+  });
+
+  it("shows a failed room entry as one, not as a turn", async () => {
+    wireGeneration([0]);
+    const session = createRemoteSession();
+    await begin(session);
+
+    const broken = run(3, "error", {
+      step: "room-entry",
+      pending: { step: "room-entry", entering: true },
+    });
+    routes.set("POST /api/runs/run-1/turn", () => ({ json: { state: broken.state, version: 3 } }));
+    await session.submit("I go north");
+
+    routes.set("POST /api/runs/run-1/retry", () => ({ json: { state: run(4).state, version: 4 } }));
+    const retrying = session.retry();
+    expect(session.store.getState().run).toMatchObject({ stage: "room_entry" });
+    await retrying;
+  });
+
+  it("does nothing when there is nothing to repeat", async () => {
+    wireGeneration([0]);
+    const session = createRemoteSession();
+    await begin(session);
+
+    // An error with no record of what caused it — a run that broke before the
+    // server kept one. There is no honest guess to make.
+    routes.set("POST /api/runs/run-1/turn", () => ({ json: { state: run(3, "error").state, version: 3 } }));
+    await session.submit("I search the floor");
+
+    const after = sent.length;
+    await session.retry();
+    expect(sent).toHaveLength(after);
+  });
+});
+
+/*
+ * PHASE 12. A run outlives the tab it was played in, and can be ended by the
+ * player rather than only by the fiction.
+ */
+
+describe("picking a run back up", () => {
+  /** What `GET /api/runs/:id` answers with, which is the whole save. */
+  function stored(stage: string, extra: Record<string, unknown> = {}) {
+    return {
+      run: { ...run(7, stage, extra), id: "run-1" },
+      dungeon: { id: "dungeon_rx" },
+    };
+  }
+
+  it("is one request, and nothing is replayed", async () => {
+    routes.set("GET /api/runs/run-1", () => ({ json: stored("awaiting_action") }));
+    const session = createRemoteSession();
+    await session.resume!("run-1");
+
+    // No generation, no journal, no turns re-run. `runs.state` IS the save.
+    expect(sent.map((s) => `${s.method} ${s.path}`)).toEqual(["GET /api/runs/run-1"]);
+  });
+
+  it("lands the state and the version the server holds", async () => {
+    routes.set("GET /api/runs/run-1", () => ({
+      json: stored("awaiting_action", { turnCount: 14, currentRoomId: "room-3" }),
+    }));
+    const session = createRemoteSession();
+    await session.resume!("run-1");
+
+    expect(session.store.getState().run).toMatchObject({
+      stage: "awaiting_action",
+      turnCount: 14,
+      currentRoomId: "room-3",
+    });
+    expect(session.store.getState().dungeon).toMatchObject({ id: "dungeon_rx" });
+
+    // The version came from the row, so the first turn after a resume answers
+    // the version the server actually holds rather than starting from zero.
+    routes.set("POST /api/runs/run-1/turn", () => ({ json: { state: run(8).state, version: 8 } }));
+    await session.submit("I look around");
+    expect(sent.at(-1)!.body).toMatchObject({ version: 7 });
+  });
+
+  /*
+   * THE CASE THIS EXISTS FOR. A function that timed out or was deployed over
+   * mid-turn leaves the row saying `thinking`, and `thinking` closes the input —
+   * so without this the player resumes into a game that will never ask them for
+   * anything again.
+   */
+  it("turns a run stuck mid-turn into one the player can act on", async () => {
+    routes.set("GET /api/runs/run-1", () => ({
+      json: stored("thinking", { step: "2-classify", pending: { step: "2-classify", entering: false } }),
+    }));
+    const session = createRemoteSession();
+    await session.resume!("run-1");
+
+    expect(session.store.getState().run).toMatchObject({ stage: "error", step: "2-classify" });
+    // Locally only. Nothing was written and no version was spent — the row still
+    // says what it said.
+    expect(sent).toHaveLength(1);
+  });
+
+  it("repeats the interrupted ask when the player retries", async () => {
+    routes.set("GET /api/runs/run-1", () => ({
+      json: stored("resolving", { step: "5-resolution", pending: { step: "5-resolution", entering: false, roll: {} } }),
+    }));
+    const session = createRemoteSession();
+    await session.resume!("run-1");
+
+    routes.set("POST /api/runs/run-1/retry", () => ({ json: { state: run(8).state, version: 8 } }));
+    await session.retry();
+    expect(sent.map((s) => `${s.method} ${s.path}`)).toContain("POST /api/runs/run-1/retry");
+  });
+
+  it("leaves a finished run finished", async () => {
+    routes.set("GET /api/runs/run-1", () => ({ json: stored("dead") }));
+    const session = createRemoteSession();
+    await session.resume!("run-1");
+    expect(session.store.getState().run).toMatchObject({ stage: "dead" });
+  });
+
+  it("does not resume twice", async () => {
+    routes.set("GET /api/runs/run-1", () => ({ json: stored("awaiting_action") }));
+    const session = createRemoteSession();
+    await session.resume!("run-1");
+    await session.resume!("run-1");
+    expect(sent).toHaveLength(1);
+  });
+});
+
+describe("abandoning", () => {
+  it("posts the version and nothing else", async () => {
+    wireGeneration([0]);
+    const session = createRemoteSession();
+    await begin(session);
+
+    routes.set("POST /api/runs/run-1/abandon", () => ({
+      json: { state: run(3, "abandoned").state, version: 3 },
+    }));
+    await session.abandon();
+
+    expect(sent.at(-1)).toMatchObject({
+      method: "POST",
+      path: "/api/runs/run-1/abandon",
+      body: { version: 2 },
+    });
+    expect(session.store.getState().run).toMatchObject({ stage: "abandoned" });
+  });
+
+  /*
+   * NO PREDICTED STAGE, unlike every other verb. The others guess a BUSY stage
+   * while they wait, which is safe because a busy stage asks for nothing.
+   * `abandoned` is terminal, and showing a player the end of their run before
+   * the server has agreed to it would be showing them an ending that might not
+   * land.
+   */
+  it("does not show the ending before the server has agreed to it", async () => {
+    wireGeneration([0]);
+    const session = createRemoteSession();
+    await begin(session);
+
+    let stageWhileInFlight: string | undefined;
+    routes.set("POST /api/runs/run-1/abandon", () => {
+      stageWhileInFlight = session.store.getState().run!.stage;
+      return { json: { state: run(3, "abandoned").state, version: 3 } };
+    });
+    await session.abandon();
+
+    expect(stageWhileInFlight).toBe("awaiting_action");
+  });
+
+  it("refuses to end a run that is already over", async () => {
+    wireGeneration([0]);
+    const session = createRemoteSession();
+    await begin(session);
+
+    routes.set("POST /api/runs/run-1/turn", () => ({ json: { state: run(3, "dead").state, version: 3 } }));
+    await session.submit("I drink the whole vial");
+
+    const after = sent.length;
+    await session.abandon();
+    expect(sent).toHaveLength(after);
   });
 });

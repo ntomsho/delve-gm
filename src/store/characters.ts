@@ -34,19 +34,66 @@ import { authedFetch } from "./auth.ts";
 
 const BASE = "/api/characters";
 
+/**
+ * The server's own sentence when it has one.
+ *
+ * Refusals here are things the player can act on — "that character is in a run"
+ * is a instruction, and `could not delete the character (409)` is a number. The
+ * status stays as the fallback for a failure with no body worth reading.
+ */
 async function json<T>(res: Response, what: string): Promise<T> {
-  if (!res.ok) throw new Error(`could not ${what} (${res.status})`);
+  if (!res.ok) {
+    const detail = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(detail.error ?? `could not ${what} (${res.status})`);
+  }
   return (await res.json()) as T;
 }
 
-export async function listCharacters(): Promise<PlayerCharacter[]> {
+/**
+ * What has happened to a character, and where they are.
+ *
+ * NONE OF IT IS STORED ON THE CHARACTER. The four counters are a grouping of
+ * `runs.status` and the active run is a row in `runs`; the server derives both
+ * on read. So this is a view of a character rather than a bigger character, and
+ * `sheet` is still the only part of it anybody saves.
+ */
+export interface CharacterRecord {
+  dead: number;
+  abandoned: number;
+  escaped: number;
+  goalMet: number;
+}
+
+export interface ActiveRun {
+  id: string;
+  dungeonId: string;
+  dungeonName: string;
+  turnCount: number;
+}
+
+export interface CharacterEntry {
+  sheet: PlayerCharacter;
+  record: CharacterRecord;
+  /** Present exactly when this character may not be sent anywhere else. */
+  activeRun?: ActiveRun;
+}
+
+/**
+ * Everyone the player has, with their record and their whereabouts.
+ *
+ * THE ONLY READ, since Phase 12. There were a `listCharacters` and a
+ * `getCharacter` beside this returning bare sheets, and they went with the
+ * screen that could use one: a sheet on its own cannot answer the question the
+ * roster asks, which is whether this person can be sent anywhere. Anything
+ * wanting sheets alone maps over these, and `RunSetup` does exactly that after
+ * `App` has dropped the ones already in a run.
+ */
+export async function listRoster(): Promise<CharacterEntry[]> {
   return json(await authedFetch(BASE), "read the characters");
 }
 
-export async function getCharacter(id: string): Promise<PlayerCharacter | undefined> {
-  const all = await listCharacters();
-  return all.find((c) => c.id === id);
-}
+/** A character with no runs behind them, for the paths that have no server. */
+export const NO_RECORD: CharacterRecord = { dead: 0, abandoned: 0, escaped: 0, goalMet: 0 };
 
 /** Add a newly made character, or replace one with the same id. */
 export async function saveCharacter(pc: PlayerCharacter): Promise<PlayerCharacter> {

@@ -27,7 +27,7 @@
 
 import { createStore, type StateCreator, type StoreApi } from "zustand/vanilla";
 import type { GeneratedDungeon } from "../runtime/generate.ts";
-import type { RollSpec, Stage, Step } from "../runtime/types.ts";
+import type { PendingRequest, RollSpec, Stage, Step } from "../runtime/types.ts";
 import type { Commit, World, WorldEvent } from "../runtime/diffs/types.ts";
 import { applyCommit } from "../runtime/diffs/apply.ts";
 import { CountingRng } from "../runtime/rng.ts";
@@ -158,6 +158,16 @@ export interface RunState {
   /** entities as they now stand — diverges from the generated copy as play goes on */
   entities: EntityPassResult;
   pendingRoll?: RollSpec;
+  /**
+   * The ask the turn machine has out, or the one that failed — what `retry`
+   * repeats. Part of the run because the machine that has to repeat it is not
+   * the machine that made it; see `PendingRequest`.
+   *
+   * Absent on a run that is not mid-ask, and on every run saved before this
+   * existed, which is why `retry` treats it as a reason to do nothing rather
+   * than as an invariant.
+   */
+  pending?: PendingRequest;
   /** the exchange for the action in progress; capped when assembling prompts */
   transcript: TranscriptEntry[];
   /** the scrollback the player reads. Display only — never sent to the referee. */
@@ -218,6 +228,8 @@ export interface GameStore {
   syncRng(rng: CountingRng): void;
 
   setStage(stage: Stage, step: Step): void;
+  /** Remember the ask in flight, or `undefined` once it has landed. */
+  setPending(pending: PendingRequest | undefined): void;
   /**
    * The panel and the map marker catch up with the page. Called by the turn
    * machine when a room entry finishes — see `shownRoomId`, and `enterRoom` in
@@ -328,6 +340,20 @@ const init: StateCreator<GameStore> = (set, get) => ({
   setStage(stage, step) {
     const run = get().run;
     if (run) set({ run: { ...run, stage, step } });
+  },
+
+  setPending(pending) {
+    const run = get().run;
+    if (!run) return;
+    if (pending) {
+      set({ run: { ...run, pending } });
+      return;
+    }
+    // Dropped rather than set to `undefined`, so a cleared request does not
+    // travel to Postgres and back as a null nobody meant to store.
+    const next = { ...run };
+    delete next.pending;
+    set({ run: next });
   },
 
   pushTranscript(entry) {

@@ -506,6 +506,44 @@ describe("a refused commit", () => {
     expect(state().log.some((l) => l.text.includes("push the statue"))).toBe(true);
     expect(state().turnCount).toBe(1);
   });
+
+  /**
+   * A DIFFERENT MACHINE ANSWERS THE RETRY.
+   *
+   * This is what the server does on every single request: build a session,
+   * `resume` it from the row, act, throw it away. The ask to repeat used to be a
+   * closure variable in the machine that failed, so the machine that answered
+   * the retry had none and `retry` returned having done nothing — the button
+   * bumped the version and nothing else, for the whole of Phase 10 and 11. It is
+   * in the run state now, which is the only place that survives the swap.
+   */
+  it("can be retried by a machine that never made the ask", async () => {
+    const failing = createTurnMachine(async (req) => {
+      if (req.step === "room-entry") return say("Here.", describeRoom());
+      throw new Error("the network is out");
+    });
+
+    await failing.enterRoom();
+    await failing.submit("push the statue");
+    expect(state().stage).toBe("error");
+    expect(state().pending).toMatchObject({ input: "push the statue", entering: false });
+
+    // The row, as the server would have stored and re-read it.
+    const stored = structuredClone(state());
+    useGame.setState({ run: stored, lastEvents: [] });
+
+    const reborn = createTurnMachine(async (req) =>
+      say(`Second time: ${req.input}`, open([
+        { entityId: state().currentRoomId, path: "state", value: "retried" },
+      ]))
+    );
+    await reborn.retry();
+
+    expect(state().stage).toBe("awaiting_action");
+    expect(state().log.some((l) => l.text === "Second time: push the statue")).toBe(true);
+    // And the ask it repeated is not left lying around to be repeated again.
+    expect(state().pending).toBeUndefined();
+  });
 });
 
 // ===========================================================================

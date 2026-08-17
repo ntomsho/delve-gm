@@ -7576,7 +7576,8 @@ var TERMINAL_STAGES = [
 	"dead",
 	"departed",
 	"escaped",
-	"goal_met"
+	"goal_met",
+	"abandoned"
 ];
 /**
 * Stages in which the world must not change. Enforced by the applier, not by
@@ -8610,6 +8611,20 @@ var init = (set, get) => ({
 			stage,
 			step
 		} });
+	},
+	setPending(pending) {
+		const run = get().run;
+		if (!run) return;
+		if (pending) {
+			set({ run: {
+				...run,
+				pending
+			} });
+			return;
+		}
+		const next = { ...run };
+		delete next.pending;
+		set({ run: next });
 	},
 	pushTranscript(entry) {
 		const run = get().run;
@@ -10014,6 +10029,7 @@ function createTurnMachine(referee, deps) {
 		}
 		const after = run();
 		if (!after) return;
+		state().setPending(void 0);
 		const moved = !entering && after.currentRoomId !== before.currentRoomId;
 		if (!moved && reply.narration.trim() !== "") {
 			journal.log({
@@ -10082,8 +10098,15 @@ function createTurnMachine(referee, deps) {
 			step
 		});
 	}
-	/** The last thing asked, so `retry` can ask it again after an error. */
-	let lastRequest;
+	/**
+	* The last thing asked, so `retry` can ask it again after an error.
+	*
+	* IN THE RUN STATE, not in this closure. A machine is built per request on the
+	* server and thrown away with the response, so a closure variable was empty
+	* every time it mattered — see `PendingRequest`. Written immediately before
+	* each ask and cleared by the one that lands.
+	*/
+	const remember = (pending) => state().setPending(pending);
 	/**
 	* Describe where the player is standing — but only if anything here has
 	* changed since they last read it.
@@ -10125,10 +10148,10 @@ function createTurnMachine(referee, deps) {
 			return;
 		}
 		setStage("room_entry", "room-entry");
-		lastRequest = {
+		remember({
 			step: "room-entry",
 			entering: true
-		};
+		});
 		await ask({
 			step: "room-entry",
 			dungeon,
@@ -10153,11 +10176,11 @@ function createTurnMachine(referee, deps) {
 		});
 		const step = r.step;
 		setStage("thinking", step);
-		lastRequest = {
+		remember({
 			input: text,
 			step,
 			entering: false
-		};
+		});
 		await ask({
 			step,
 			dungeon,
@@ -10188,11 +10211,11 @@ function createTurnMachine(referee, deps) {
 			text: describeRoll(outcome)
 		});
 		setStage("resolving", "5-resolution");
-		lastRequest = {
+		remember({
 			roll: outcome,
 			step: "5-resolution",
 			entering: false
-		};
+		});
 		await ask({
 			step: "5-resolution",
 			dungeon,
@@ -10203,8 +10226,8 @@ function createTurnMachine(referee, deps) {
 	async function retry() {
 		const r = run();
 		const dungeon = state().dungeon;
-		if (!r || !dungeon || r.stage !== "error" || !lastRequest) return;
-		const { input, roll: rolled, step, entering } = lastRequest;
+		if (!r || !dungeon || r.stage !== "error" || !r.pending) return;
+		const { input, roll: rolled, step, entering } = r.pending;
 		setStage(entering ? "room_entry" : rolled ? "resolving" : "thinking", step);
 		await ask({
 			step,
@@ -10345,7 +10368,7 @@ function createGameSession(opts = {}) {
 			store.getState().start(dungeon, character);
 			await turn().enterRoom();
 		},
-		resume(saved, existingId) {
+		restore(saved, existingId) {
 			begun = true;
 			wire(existingId ?? runId(saved.dungeon.seeds.dungeonSeed));
 			store.setState({
@@ -10365,6 +10388,25 @@ function createGameSession(opts = {}) {
 		},
 		async retry() {
 			await turn()?.retry();
+		},
+		/**
+		* A local run walks away too.
+		*
+		* There is no server to tell and no roster to free a character on, so this
+		* is the stage and nothing else — but the control exists on the play screen
+		* and interface work is done under `?stub`, so a button that did nothing
+		* there would be a button nobody could look at.
+		*/
+		async abandon() {
+			const run = store.getState().run;
+			if (!run || isTerminal(run.stage)) return;
+			journal?.log({
+				kind: "stage",
+				from: run.stage,
+				to: "abandoned",
+				step: run.step
+			});
+			store.getState().setStage("abandoned", run.step);
 		}
 	};
 }
@@ -10586,12 +10628,86 @@ var doc = (sql, value) => sql.json(value);
 */
 function statusOf(stage) {
 	if (stage === "dead" || stage === "escaped" || stage === "goal_met") return stage;
+	if (stage === "abandoned") return "abandoned";
 	return "active";
 }
-async function listCharacters(owner, sql = db()) {
-	return (await sql`
-    select sheet from characters where owner_id = ${owner} order by created_at asc
-  `).map((r) => r.sheet);
+var NO_RECORD = () => ({
+	dead: 0,
+	abandoned: 0,
+	escaped: 0,
+	goalMet: 0
+});
+/**
+* The characters screen, in three queries rather than one clever one.
+*
+* Stitched in TypeScript on purpose. The same thing as a single statement is a
+* pair of lateral joins over an aggregate, which is harder to read than the
+* three obvious selects and no faster at this size — a player has a handful of
+* characters, and both supporting queries hit an index whose leading column is
+* the owner.
+*
+* A CHARACTER WITH NO RUNS GETS ZEROES, not an absent record. The screen renders
+* the same row either way, and a caller should never have to ask whether a
+* missing count means none or means unknown.
+*/
+async function listRoster(owner, sql = db()) {
+	const [sheets, counts, active] = await Promise.all([
+		sql`
+      select id, sheet from characters where owner_id = ${owner} order by created_at asc
+    `,
+		sql`
+      select character_id as "characterId", status, count(*)::int as n
+        from runs
+       where owner_id = ${owner} and character_id is not null and status <> 'active'
+       group by character_id, status
+    `,
+		sql`
+      select r.character_id                                    as "characterId",
+             r.id                                              as "id",
+             r.dungeon_id                                      as "dungeonId",
+             coalesce(d.doc -> 'pass' ->> 'name', 'Unnamed')   as "dungeonName",
+             coalesce((r.state ->> 'turnCount')::int, 0)       as "turnCount"
+        from runs r join dungeons d on d.id = r.dungeon_id
+       where r.owner_id = ${owner} and r.status = 'active' and r.character_id is not null
+    `
+	]);
+	const records = /* @__PURE__ */ new Map();
+	for (const row of counts) {
+		const record = records.get(row.characterId) ?? NO_RECORD();
+		if (row.status === "goal_met") record.goalMet = row.n;
+		else if (row.status !== "active") record[row.status] = row.n;
+		records.set(row.characterId, record);
+	}
+	const runs = new Map(active.map((r) => [r.characterId, r]));
+	return sheets.map(({ id, sheet }) => {
+		const run = runs.get(id);
+		return {
+			sheet,
+			record: records.get(id) ?? NO_RECORD(),
+			...run ? { activeRun: {
+				id: run.id,
+				dungeonId: run.dungeonId,
+				dungeonName: run.dungeonName,
+				turnCount: run.turnCount
+			} } : {}
+		};
+	});
+}
+/**
+* The run this character is in, or nothing.
+*
+* Asked before a new run is created and before a character is deleted. NOT the
+* enforcement — the partial unique index is, and a check here could always lose
+* a race with a second request. This is what turns the violation the index
+* raises into an answer that names the run, which is the thing the player needs
+* in order to do anything about it.
+*/
+async function activeRunFor(characterId, owner, sql = db()) {
+	const [row] = await sql`
+    select id, dungeon_id as "dungeonId" from runs
+     where owner_id = ${owner} and character_id = ${characterId} and status = 'active'
+  `;
+	return row;
 }
 /**
 * Insert or replace, keyed on the sheet's own id.
@@ -10615,6 +10731,36 @@ async function saveCharacter(pc, owner, sql = db()) {
     returning id
   `).length === 0) throw new Error(`not yours to save: ${pc.id}`);
 	return pc;
+}
+/**
+* WHAT A CHARACTER BRINGS BACK UP.
+*
+* Called only when a run ended with the player alive and out — `escaped` or
+* `goal_met`. The run's own `pc` has been diverging from the sheet since the
+* first turn (gear picked up, coin spent, armour worn down) and on a successful
+* ending it becomes the sheet. Same id, so the Phase 11 upsert lands on the same
+* row.
+*
+* DEATH AND ABANDONMENT WRITE NOTHING, which is how "the character as they were
+* before the run" is achieved: nothing touches `characters.sheet` during a run,
+* so the stored sheet is still the pre-run one and there is no snapshot to take
+* and no restore to perform. The only trace either leaves is a row in `runs`,
+* which is what the counters read.
+*
+* HIT POINTS RETURN TO MAX, and that is a decision rather than a consequence.
+* There is no downtime, no rest and no healing outside a run, so a character who
+* surfaces at 1/15 can only die next time — which quietly turns "escaped alive"
+* into a delayed death and makes the ending worthless. If wounds should carry,
+* this is the line.
+*/
+function carriedOut(pc) {
+	return {
+		...pc,
+		hp: {
+			...pc.hp,
+			current: pc.hp.max
+		}
+	};
 }
 async function deleteCharacter(id, owner, sql = db()) {
 	return (await sql`
@@ -10899,6 +11045,14 @@ async function commitTurn(input, sql = db()) {
 			};
 		}
 		await insertEvents(tx, input.runId, input.events);
+		const ending = statusOf(input.state.stage);
+		if (ending === "escaped" || ending === "goal_met") {
+			const pc = carriedOut(input.state.pc);
+			await tx`
+        update characters set sheet = ${doc(tx, pc)}, updated_at = now()
+         where id = ${pc.id} and owner_id = ${input.owner}
+      `;
+		}
 		return {
 			ok: true,
 			version: rows[0].version
@@ -11024,12 +11178,34 @@ function createApp() {
 		console.error("[api]", err);
 		return c.json({ error: describeFailure(err) }, 500);
 	});
-	app.get("/api/characters", async (c) => c.json(await listCharacters(currentUser(c).id)));
+	/**
+	* The roster: who the player has, what has happened to them, and where they
+	* are. Was `PlayerCharacter[]`; a sheet alone can no longer answer the
+	* question the screen asks, which is whether this person can be sent anywhere.
+	*/
+	app.get("/api/characters", async (c) => c.json(await listRoster(currentUser(c).id)));
 	app.post("/api/characters", async (c) => {
 		const pc = await c.req.json();
 		return c.json(await saveCharacter(pc, currentUser(c).id));
 	});
-	app.delete("/api/characters/:id", async (c) => c.json({ deleted: await deleteCharacter(c.req.param("id"), currentUser(c).id) }));
+	/**
+	* Deleting somebody who is still down there is refused.
+	*
+	* The foreign key is `on delete set null`, so this would otherwise succeed and
+	* leave an active run belonging to nobody: a save file with no way to reach it
+	* and no way to end it, holding a lock against a character that no longer
+	* exists. Abandon first — that is what the verb is for.
+	*/
+	app.delete("/api/characters/:id", async (c) => {
+		const user = currentUser(c);
+		const id = c.req.param("id");
+		const active = await activeRunFor(id, user.id);
+		if (active) return c.json({
+			error: "that character is in a run — abandon it first",
+			runId: active.id
+		}, 409);
+		return c.json({ deleted: await deleteCharacter(id, user.id) });
+	});
 	/**
 	* The structure and the standing fiction.
 	*
@@ -11146,6 +11322,12 @@ function createApp() {
 		const user = currentUser(c);
 		const stored = await mustGetDungeon(dungeonId, user.id);
 		if (stored.status !== "complete") throw new HTTPException(409, { message: "that dungeon is still being written" });
+		const busy = await activeRunFor(character.id, user.id);
+		if (busy) return c.json({
+			error: "in a run",
+			runId: busy.id,
+			dungeonId: busy.dungeonId
+		}, 409);
 		const state = newRun(stored.doc, character);
 		const run = await createRun({
 			dungeonId: stored.id,
@@ -11168,6 +11350,57 @@ function createApp() {
 		return c.json({
 			run,
 			dungeon: stored.doc
+		});
+	});
+	/**
+	* WALK AWAY. The one ending that costs nothing.
+	*
+	* Not a turn and not routed through `playTurn`: there is no referee to ask, no
+	* dice to throw and no world to change — the player is closing the book, not
+	* doing something in the fiction. So it skips the lock (a turn in flight will
+	* simply lose the compare-and-swap, which is the correct outcome for a turn
+	* whose run has ended) and writes through the same `commitTurn` everything
+	* else writes through, so the version, the status and the release of the lock
+	* all happen exactly as they do for any other ending.
+	*
+	* The run keeps everything. Abandoning ENDS a run; it does not delete one, and
+	* the journal, the state and the scrollback are all still there to read.
+	*/
+	app.post("/api/runs/:id/abandon", async (c) => {
+		const id = c.req.param("id");
+		const owner = currentUser(c).id;
+		const body = await c.req.json().catch(() => ({}));
+		const expected = Number(body.version);
+		if (!Number.isFinite(expected)) throw new HTTPException(400, { message: "an abandon must say which version it answers" });
+		const run = await mustGetRun(id, owner);
+		if (run.status !== "active") throw new HTTPException(409, { message: `that run is already over: ${run.status}` });
+		const state = {
+			...run.state,
+			stage: "abandoned"
+		};
+		const { sink, events } = collectingSink();
+		createJournal(sink, await lastSeq(id)).log({
+			kind: "stage",
+			from: run.state.stage,
+			to: "abandoned",
+			step: run.state.step
+		});
+		const result = await commitTurn({
+			runId: id,
+			owner,
+			expectedVersion: expected,
+			state,
+			events
+		});
+		if (!result.ok && result.reason === "gone") throw new HTTPException(404, { message: `no such run: ${id}` });
+		if (!result.ok) return c.json({
+			error: "stale",
+			current: result.current
+		}, 409);
+		return c.json({
+			state,
+			version: result.version,
+			events: []
 		});
 	});
 	app.post("/api/runs/:id/enter", (c) => playTurn(c, (s) => s.enterRoom()));
@@ -11228,7 +11461,7 @@ async function playTurn(c, act) {
 		sink: () => sink,
 		startSeq: await lastSeq(id)
 	});
-	session.resume({
+	session.restore({
 		dungeon: dungeon.doc,
 		run: run.state
 	}, runId(dungeon.doc.seeds.dungeonSeed));

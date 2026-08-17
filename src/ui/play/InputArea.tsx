@@ -15,7 +15,7 @@
  * interface should say so.
  */
 
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { STAGE_HINT, STAGE_NAME, STAGE_TONE } from "../theme.ts";
 import { acceptsInput, isTerminal, type Stage, type RollSpec } from "../../runtime/types.ts";
 
@@ -30,6 +30,14 @@ export interface InputAreaProps {
   onSubmit(text: string): void;
   onRoll(): void;
   onRetry(): void;
+  /** End the run without playing it out. */
+  onAbandon(): void;
+  /**
+   * Back to the roster, once the run is over. ABSENT ON A LOCAL RUN — `?offline`
+   * and `?stub` have no roster to return to, and a button that leads nowhere is
+   * worse than the plain statement that the run has ended.
+   */
+  onLeave?: () => void;
 }
 
 /**
@@ -104,19 +112,26 @@ function Error({ onRetry }: { onRetry(): void }) {
  * The run is over, one way or the other.
  *
  * A terminal stage already closes the input area — `acceptsInput` sees to that
- * — but a game that has ended should look ended rather than merely muted. Both
- * terminals are real endings and neither offers a way on: there is one
- * character and one dungeon, and what happens after belongs to character
- * creation, which is a later phase.
+ * — but a game that has ended should look ended rather than merely muted.
+ *
+ * ALL FOUR NOW OFFER A WAY ON, which they did not until Phase 12: the copy used
+ * to read "reload to begin again", written when there was one character and one
+ * dungeon and reloading really was the only door. There is a roster now, and the
+ * character who walked out of this is on it.
  */
-type Ending = "dead" | "escaped" | "goal_met";
+type Ending = "dead" | "escaped" | "goal_met" | "abandoned";
 
 /**
- * Three endings, and only one of them is a win.
+ * Four endings, and only one of them is a win.
  *
  * `escaped` is the interesting one: the player got out alive without what they
  * came for, which is a real outcome and not a failure — it is the choice to cut
  * losses, and it should read as having been a choice.
+ *
+ * `abandoned` is the only one that is not about the fiction at all, and its copy
+ * says so plainly rather than inventing a retreat the referee never narrated.
+ * The dungeon is not resolved and the character did not come home; the player
+ * simply stopped, and the sheet is exactly as it was before they went down.
  */
 const ENDINGS: Record<Ending, { heading: string; body: string; warm: boolean }> = {
   dead: {
@@ -134,9 +149,22 @@ const ENDINGS: Record<Ending, { heading: string; body: string; warm: boolean }> 
     body: "You have what you came for, and the way out is behind you.",
     warm: true,
   },
+  abandoned: {
+    heading: "The run is abandoned",
+    body: "You left this one where it stood. Nothing that happened down here follows your character back up — they are free to go somewhere else.",
+    warm: false,
+  },
 };
 
-function EndOfRun({ stage, turns }: { stage: Ending; turns: number }) {
+function EndOfRun({
+  stage,
+  turns,
+  onLeave,
+}: {
+  stage: Ending;
+  turns: number;
+  onLeave?: () => void;
+}) {
   const { heading, body, warm } = ENDINGS[stage];
   return (
     <div
@@ -153,15 +181,66 @@ function EndOfRun({ stage, turns }: { stage: Ending; turns: number }) {
       <p className="mt-1.5 max-w-[52ch] font-prose text-[15px] leading-[1.55] text-ink">
         {body}
       </p>
-      <p className="mt-2 font-mono text-[10px] uppercase tracking-[0.12em] text-graphite">
-        {turns} turn{turns === 1 ? "" : "s"} · reload to begin again
-      </p>
+      <div className="mt-2 flex flex-wrap items-center gap-4">
+        <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-graphite">
+          {turns} turn{turns === 1 ? "" : "s"}
+        </span>
+        {/* Absent on a local run, which has no roster to go back to. */}
+        {onLeave && (
+          <button
+            onClick={onLeave}
+            className="border border-ink px-3 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-ink hover:bg-ink hover:text-paper"
+          >
+            Back to characters
+          </button>
+        )}
+      </div>
     </div>
   );
 }
 
+/**
+ * WALK AWAY, from inside the run.
+ *
+ * The Characters screen has the same verb, and the two are for different
+ * moments: that one is for a player who finds a character they cannot use, this
+ * one is for a player who has decided, mid-dungeon, that they are done. Asking
+ * them to close the tab and go looking for the row would be making them route
+ * around the interface to do something the interface should offer.
+ *
+ * Deliberately quiet, and deliberately two presses. It is not a move in the
+ * game and should not sit where moves sit.
+ */
+function Abandon({ onAbandon }: { onAbandon(): void }) {
+  const [asking, setAsking] = useState(false);
+
+  if (!asking) {
+    return (
+      <button
+        onClick={() => setAsking(true)}
+        className="font-mono text-[9px] uppercase tracking-[0.14em] text-pencil underline decoration-rule underline-offset-4 hover:text-torch"
+      >
+        Abandon run
+      </button>
+    );
+  }
+
+  return (
+    <span className="flex items-baseline gap-3 font-mono text-[9px] uppercase tracking-[0.14em]">
+      <span className="text-graphite">Leave this run for good?</span>
+      <button onClick={onAbandon} className="text-torch underline decoration-torch underline-offset-4">
+        Abandon
+      </button>
+      <button onClick={() => setAsking(false)} className="text-graphite underline decoration-rule underline-offset-4">
+        Keep playing
+      </button>
+    </span>
+  );
+}
+
 export function InputArea(props: InputAreaProps) {
-  const { stage, roll, turns, draft, onDraft, onSubmit, onRoll, onRetry } = props;
+  const { stage, roll, turns, draft, onDraft, onSubmit, onRoll, onRetry, onAbandon, onLeave } =
+    props;
   const open = acceptsInput(stage);
   const tone = STAGE_TONE[stage];
   const box = useRef<HTMLTextAreaElement>(null);
@@ -230,8 +309,11 @@ export function InputArea(props: InputAreaProps) {
 
       {stage === "roll_offered" && roll && <RollOffer roll={roll} onRoll={onRoll} />}
       {stage === "error" && <Error onRetry={onRetry} />}
-      {(stage === "dead" || stage === "escaped" || stage === "goal_met") && (
-        <EndOfRun stage={stage} turns={turns} />
+      {(stage === "dead" ||
+        stage === "escaped" ||
+        stage === "goal_met" ||
+        stage === "abandoned") && (
+        <EndOfRun stage={stage} turns={turns} {...(onLeave ? { onLeave } : {})} />
       )}
 
       {/* The tabletop convention, and it is doing real work. */}
@@ -273,15 +355,26 @@ export function InputArea(props: InputAreaProps) {
         )}
       </div>
 
-      <div className="mt-1.5 flex items-baseline justify-between">
+      <div className="mt-1.5 flex items-baseline justify-between gap-4">
         <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-graphite">
           {STAGE_HINT[stage]}
         </span>
-        {open && (
-          <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-pencil">
-            ↵ send · ⇧↵ newline · ⎋ clear
-          </span>
-        )}
+        {/*
+         * The quiet corner: the way out of the run, and the keys.
+         *
+         * Abandon is offered for as long as the run is live, INCLUDING while the
+         * referee is working. That is deliberate — a player sitting in front of a
+         * `thinking` that is never going to finish is exactly who needs it, and
+         * the server takes it whatever stage the row is standing in.
+         */}
+        <span className="flex items-baseline gap-5">
+          {!isTerminal(stage) && <Abandon onAbandon={onAbandon} />}
+          {open && (
+            <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-pencil">
+              ↵ send · ⇧↵ newline · ⎋ clear
+            </span>
+          )}
+        </span>
       </div>
     </div>
   );

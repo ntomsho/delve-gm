@@ -1870,7 +1870,7 @@ nothing had an owner. Both are closed. **The motivation was sharper than "we
 should have logins": `POST https://aidungeon.vercel.app/api/dungeons` was
 unauthenticated and spends the project's Anthropic key.**
 
-**No BYOK and no model choice** — those are Phase 12. The one thing that landed
+**No BYOK and no model choice** — those are Phase 13. The one thing that landed
 early is `profiles.tier` (`byok` | `vip`), because a tier column added after
 there are accounts has to decide what the existing ones are. Nothing reads it.
 
@@ -2073,14 +2073,219 @@ commit.** What changed is that a push now deploys too.
 
 - **Browse and duplicate someone else's dungeon, and the generation cache.** The
   schema is ready for both — `DungeonSummary`, `dungeon_key`, `dungeons_cache_idx`
-  — and neither endpoint is written. §10 carries them.
-- BYOK, model choice, and anything that reads `profiles.tier`. Phase 12.
+  — and neither endpoint is written. §11 carries them.
+- BYOK, model choice, and anything that reads `profiles.tier`. Phase 13.
 - Per-user rate limiting. The invite list is the only quota today.
 - Sharing a run by link, account deletion, a second provider.
 
 ---
 
-## 9. Order of remaining work
+## 9. Phase 12 — Run continuity ✅ **BUILT**
+
+Phase 10 and 11 built persistence for characters, dungeons and runs. Nothing used
+it. A run was written to Postgres on every turn and then unreachable the moment
+the tab closed; a character could be sent down twice at once, into two dungeons,
+with two divergent copies of the same sheet; and a character who died was
+indistinguishable from one who had never been anywhere.
+
+This phase makes a character an identity that persists ACROSS runs rather than a
+sheet copied into one.
+
+### 9.1 Nothing is rebuilt from the journal
+
+The obvious reading of "resume a run" is: take the dungeon and the journal and
+replay them forward. **That work is already done and should not be done twice.**
+`runs.state` is a whole `RunState` in a jsonb column — `entities`, `pc`,
+`currentRoomId`, `rngDraws`, `transcript`, and `log`, which is the scrollback the
+player actually reads (`store/game.ts`). `GET /api/runs/:id` already returns
+`{ run, dungeon }`, and `remote-session.ts` has already been landing exactly that
+shape since Phase 10, on the 409 resync path.
+
+So **resuming is one fetch and one `setState`**. A replay path would be a second
+reconstruction of a state the server already writes in full every turn, and a
+second one is a thing that can disagree with the first. The journal explains a
+run; it is not its save file.
+
+What was actually missing is small and all around the edges: a lock, an abandon
+verb, an entry point, and a scoreboard.
+
+### 9.2 The lock is an index, not a flag
+
+**No new column, and no new concept.** `runs` already carries `character_id` and
+`status`, and "this character is in a run" is exactly `status = 'active'`. The
+rule is stated once, in the only place that cannot be forgotten:
+
+```sql
+create unique index runs_one_active_per_character
+  on public.runs (character_id) where status = 'active';
+```
+
+That is the whole migration — `abandoned` has been in the `runs.status` check
+constraint since Phase 11, put there by a phase that anticipated this one.
+
+**The database refuses the second run rather than the handler remembering to.**
+`POST /api/runs` catches the unique violation and answers 409 naming the run they
+are already in. A boolean on `characters` would have been a second source of
+truth for something `runs` already knows, and the failure mode of a stale flag is
+a character locked out of the game with no run to abandon.
+
+A NULL `character_id` does not conflict in a partial unique index, so a run
+orphaned by a deleted character — `on delete set null`, per Phase 11 — stays
+legal and locks nobody.
+
+### 9.3 Abandoning is a stage
+
+`Stage` gains `"abandoned"` and it joins `TERMINAL_STAGES`. That one line is what
+makes the rest of the change safe: every table keyed by stage is
+`Record<Stage, …>`, so the compiler walks through `STAGE_TONE`, `STAGE_NAME` and
+`STAGE_HINT` in `theme.ts`, the `Ending` union in `InputArea.tsx`, and `statusOf`
+in `repo.ts`. **A stage added without deciding how it reads does not compile**,
+which is the reason the stage table was built that way in Phase 3.
+
+`POST /api/runs/:id/abandon` is the cheapest route in the API: no model call, no
+dice, no referee. It moves the run to `abandoned` and commits through the same
+compare-and-swap as any turn, so the lock comes off by the same path everything
+else uses.
+
+**Two doors to it**, because the two situations are different. From the Characters
+screen, where a player discovers a character they cannot use and needs a way to
+free them. And from inside the run, which is where a player actually decides to
+give up. Both confirm first — it is not undoable and the run is deleted from
+nothing, it simply ends.
+
+### 9.4 The counters are derived, and cannot drift
+
+The four counters asked for — died, abandoned, finished with the objective,
+finished without — **are already the four terminal run statuses.** Nothing needs
+to be recorded, only grouped:
+
+```sql
+select character_id, status, count(*)::int
+  from runs where owner_id = $1 and character_id is not null group by 1, 2
+```
+
+`dead` · `abandoned` · `escaped` (out without it) · `goal_met` (out with it).
+
+Stored counter columns were the alternative and are rejected: they need a write
+on every ending, that write can fail independently of the ending it describes,
+and a counter that disagrees with the rows it summarises is worse than no counter
+— it is a scoreboard that lies. This one is a projection of the rows and cannot
+be wrong.
+
+**`GET /api/characters` changes shape.** It served `PlayerCharacter[]`; it now
+serves the person plus what has happened to them:
+
+```ts
+interface CharacterEntry {
+  sheet: PlayerCharacter;
+  record: { dead: number; abandoned: number; escaped: number; goalMet: number };
+  activeRun?: { id: string; dungeonId: string; dungeonName: string; turnCount: number };
+}
+```
+
+`store/characters.ts` remains the only module that knows where characters live,
+which is the promise it has carried since Phase 4.5 and has now been paid twice.
+
+`dungeonName` is a join to `doc -> 'pass' ->> 'name'`; `turnCount` is
+`state ->> 'turnCount'`, which is cheap and honest — **IN A RUN · THE SUNKEN
+VAULT · TURN 14**. That closes the badge `Characters.tsx` has carried as
+"deferred, not dropped" since Phase 5, and it is deferred no longer because the
+state it needed is finally written down.
+
+### 9.5 What a run leaves on the character
+
+- **dead and abandoned leave the sheet untouched**, which IS "as they were before
+  they went down", for free. Nothing writes `characters.sheet` during a run — the
+  run mutates its own `state.pc` — so the stored sheet is still the pre-run one
+  and there is no snapshot to take and no restore to perform. The only trace is
+  the counter, which is a row in `runs`.
+- **escaped and goal_met write `run.state.pc` back over the sheet.** Gear and
+  coin carry out. The id is the same, so the Phase 11 upsert lands on the same
+  row.
+
+**Hit points return to max on the way out**, and this is a decision rather than a
+consequence. There is no downtime, no rest, and no healing outside a run: a
+character who surfaces at 1/15 can only die next time, which quietly converts
+"escaped alive" into a delayed death and makes the escape ending worthless. It is
+one line in the write-back if wounds should carry.
+
+### 9.6 Resume, and the run that was interrupted mid-turn
+
+`PlayableSession` gains `resume(runId)`. The in-process `GameSession.resume(saved,
+runId)` is **renamed `restore`** — two callers — because two different shapes
+under one name on a shared interface is how a caller ends up passing the wrong
+one.
+
+**A run that resumes into a busy stage lands on `error`.** This is the case worth
+building for: a function that timed out or was deployed over mid-turn leaves the
+row saying `thinking`, and `thinking` closes the input. Without this the player
+resumes into a game that will never ask them for anything again. So resume
+coerces a busy stage into `error` on the client, which is the one stage that
+offers a way on — and the `pending` request stored on the run is what lets the
+retry actually repeat the ask rather than bump the version and do nothing.
+
+No write, no version bump: the run in the database still says what it said, and
+the next thing the player does decides what happens to it.
+
+**And a way back out.** At a terminal stage the player returns to Characters,
+which replaces `InputArea`'s "reload to begin again" — copy written when there
+was one character and one dungeon and reloading really was the only way on.
+
+### 9.7 What does not change
+
+- **Deleting a character in a run is refused**, with the run named. Abandon
+  first. The alternative — cascading to `null` and orphaning a live run — is a
+  save file nobody can reach and nobody can end.
+- **`?offline` and `?stub` are untouched.** One local character, a zeroed record,
+  no lock and no resume. Interface work still needs no Postgres and no account,
+  which is the rule those switches exist to keep.
+
+### 9.8 What proves it
+
+**849 tests, build clean** — 31 new, plus **23 in the database suite**, up from 13.
+
+- **`ownership.dbtest.ts`, against real Postgres.** The index refuses a second
+  active run. A character is free again the moment their run ends, **asserted for
+  all four endings** — which is what says the lock lives in a partial index and
+  not in a flag somebody has to remember to clear. Another player's active run
+  does not lock your character and is not even visible. The counters count the
+  four endings, ignore a run still going, and count only the owner's rows. A
+  survivor's gear carries and their hit points do not; death and abandonment
+  write nothing at all; and **a character deleted mid-run is not resurrected by
+  the write-back**, which is the case the update-rather-than-upsert exists for.
+- **`remote-session.test.ts`.** Resume is ONE request and lands both the state
+  and the version, so the first turn after it answers the version the server
+  actually holds. A run stored as `thinking` resumes to `error` with the retry
+  live and **nothing written** — the row still says what it said. Abandon posts
+  the version and nothing else, and is the one verb that predicts no stage,
+  because a terminal guess could show a player an ending that never landed.
+- **`screens.test.ts`.** A character in a run is offered Resume and Abandon, and
+  is offered neither Send down nor Delete — the two the game would refuse. The
+  badge names the dungeon and the turn, off by one from `turnCount` in the same
+  direction the input area's tracker is. The record reads at 0 (silence, not four
+  zeroes) and at 12.
+- **`InputArea.test.tsx`.** The way out is offered for as long as the run is
+  live, including while the referee is working; every ending offers the way back.
+- The stage-exhaustiveness tables, which `"abandoned"` broke until they were
+  filled in. That is what they are for.
+
+**Probed against a running server**, which is what proves the gate rather than
+the middleware: `/api/health` 200, and **`POST /api/runs/:id/abandon` 401 with no
+token and 401 with a forged one** — the new write is behind the same door as
+everything else.
+
+**Not covered, and named rather than glossed:** the handler layer above
+`commitTurn` — the 409 that names the run a character is already in, and the 400
+on an abandon that states no version. There is no HTTP-level suite in this
+project (`auth.test.ts` builds a bare Hono app, not `createApp`, which needs both
+an Anthropic key and a database to construct). The substance underneath it — the
+compare-and-swap, the status, the lock release — is covered by the database
+suite; the version parsing is a copy of `playTurn`'s, which has been in
+production since Phase 10.
+
+---
+
+## 10. Order of remaining work
 
 ```
   Phase 8a rest (A7, A9) ─┐
@@ -2109,7 +2314,7 @@ what was just said" are the same scene.
 
 ---
 
-## 10. What is still open
+## 11. What is still open
 
 **Open outside Phase 8**, both from Phase 5 and both named in §3.6:
 
@@ -2144,7 +2349,7 @@ with the ownership migration and the endpoints did not:
 - **Nothing rate-limits a signed-in player**, and generation is the expensive
   call. The Google consent screen's Testing mode — 100 invited addresses — is the
   only quota today, which is enough while it is invite-only and is not enough at
-  the point Phase 12 lets anyone in.
+  the point Phase 13 lets anyone in.
 
 **Open in Phase 8**, none of it blocking the rest of 8a, which is fully specified:
 
@@ -2177,7 +2382,7 @@ with the ownership migration and the endpoints did not:
 
 ---
 
-## 11. Non-goals for this prototype
+## 12. Non-goals for this prototype
 
 No multiplayer, no party (one PC). No leveling. No between-dungeon persistence beyond saved
 characters. No light or ration clocks yet, though `turnCount` exists for them. No mobile
