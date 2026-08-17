@@ -260,6 +260,30 @@ const diff = z.object({
 });
 
 export const commitSchema = z.object({
+  /**
+   * WHAT THE PLAYER READS. The only place a post can come from.
+   *
+   * It was loose assistant text until Phase 12 (CODING-PLAN 8a A9): narration
+   * was the concatenation of every text block in the response, and nothing
+   * distinguished a draft from the post. A referee that thought better of a
+   * paragraph mid-response — *"Wait, I should not write that post yet… Let me
+   * rewrite"* — had BOTH drafts printed, one after the other, the second in a
+   * different tense and ending in a roll offer. No streaming rule catches that;
+   * the buffer is complete and valid, it is just two answers stapled together.
+   *
+   * A field cannot be written twice. The last `commit_state` call is the only
+   * one that counts, so a draft is not narration BY CONSTRUCTION rather than by
+   * the loop guessing which block the referee meant — and the rule that a player
+   * reads nothing until the commit has validated gets its second guarantee,
+   * because the prose now travels inside the thing being validated.
+   *
+   * Optional for the two turns that legitimately write none: a room entry, where
+   * the room's own `composed` IS the paragraph, and a commit that moves the
+   * player, whose prose is discarded unread because the arrival pass is about to
+   * describe the real room. Anything else with no post is refused — see
+   * `missingPost` in referee.ts.
+   */
+  post: z.string().trim().min(1).optional(),
   nextStage: refereeStage,
   nextStep: refereeStep,
   rollRequest: rollRequest.optional(),

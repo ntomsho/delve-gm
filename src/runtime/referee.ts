@@ -68,9 +68,10 @@ import { NO_JOURNAL, type Journal } from "./journal.ts";
 
 const COMMIT_TOOL: ToolDefinition = toolFor(
   "commit_state",
-  "End your turn. Say where the game goes next and what changed. Exactly one call per turn, " +
-    "always — even a turn that changes nothing commits, to say what the player's input area " +
-    "should be waiting on. Call this LAST, after the prose you have written for the player.",
+  "End your turn. Carries the words the player reads (`post`), where the game goes next, and " +
+    "what changed. Exactly one call per turn, always — even a turn that changes nothing commits, " +
+    "to say what the player's input area should be waiting on. Call this LAST. Anything you " +
+    "write outside this call is your own working-out and is never shown to anyone.",
   commitSchema
 );
 
@@ -232,6 +233,39 @@ function playersOwnDice(req: RefereeRequest, batch: RollBatchParsed): string[] {
 }
 
 /**
+ * A TURN THAT WOULD REACH THE PLAYER AS A BLANK SCREEN.
+ *
+ * The other half of moving the post onto the commit (§8a A9). Once loose text
+ * is no longer narration, a referee that writes its paragraph outside the tool
+ * call has written it to nobody — so the absence has to be caught here, where it
+ * can be handed back as a correction inside the same conversation, rather than
+ * discovered by the player.
+ *
+ * TWO TURNS LEGITIMATELY WRITE NO POST, and both are cases where prose would be
+ * wasted rather than missing:
+ *
+ *   - A ROOM ENTRY. The room's own `composed` is the paragraph the player reads
+ *     on arrival — `room-entry.md` says so — and asking for it twice would cost
+ *     double the output tokens for one paragraph and invite the two copies to
+ *     drift. `arrival()` reads it out of the diffs.
+ *   - A COMMIT THAT MOVES THE PLAYER. `5-resolution.md` says to write none: the
+ *     arrival pass runs the moment this commit lands and it is the one with the
+ *     new room in front of it. The machine discards the prose either way, so
+ *     requiring it here would be requiring something to throw away.
+ */
+function missingPost(req: RefereeRequest, c: CommitParsed): string[] {
+  if (c.post !== undefined) return [];
+  if (req.step === "room-entry") return [];
+  if (c.diffs.some((d) => d.entityId === PLAYER_ID && d.path === "roomId")) return [];
+
+  return [
+    `this commit has no \`post\`, so the turn reaches the player as a blank screen. ` +
+      `The post is a field of \`commit_state\` — anything you write outside the tool call is ` +
+      `working-out and is never shown. Put the words meant for the player in \`post\` and commit again.`,
+  ];
+}
+
+/**
  * The cross-field rules a JSON Schema cannot state.
  *
  * BUILD-PLAN §4.1 wants these caught as schema violations rather than left to
@@ -296,22 +330,23 @@ export function createModelReferee(opts: ModelRefereeOptions): Referee {
     /** whether any dice have been thrown for this turn — see unearnedDamage */
     let rolled = false;
 
-    /**
-     * THE POST, ACROSS SEVERAL ROUNDS.
+    /*
+     * THERE IS NO POST TO ACCUMULATE ANY MORE.
      *
-     * A round either CONTINUES the turn or REDOES it, and the difference is the
-     * whole of this. Dice continue it: the referee writes the approach, asks for
-     * a batch, reads it, and writes the outcome — two posts, both true, both
-     * owed to the player, in order. A nudge or a refused commit redoes it: the
-     * referee is being asked to say the same thing again properly, and it will
-     * rewrite its prose to do so.
+     * There were two variables here — `banked` for what earlier rounds had
+     * written and `attempt` for the round in flight — and between them they had
+     * to work out, from the text alone, whether a round was CONTINUING the turn
+     * or REDOING it. A rolling round continued it; a nudge or a refused commit
+     * redid it and had to replace what it wrote rather than add to it. Nothing
+     * in the text says which, so the loop guessed from tags and from whether
+     * dice had been asked for, and A9 is the case where guessing loses: a
+     * referee that changed its mind INSIDE one response wrote two drafts into
+     * one block, and no rule about blocks can separate them.
      *
-     * Accumulating both cases the same way is what put the same two paragraphs
-     * on the screen twice on the first live run. `banked` is what continued;
-     * `attempt` is the round in flight, which a redo REPLACES.
+     * The post is a field of the commit now, and there is exactly one commit per
+     * turn. Whatever the referee wrote and thought better of never had anywhere
+     * to go. See `commitSchema.post`.
      */
-    const banked: string[] = [];
-    let attempt = "";
 
     for (let round = 1; round <= maxRounds; round++) {
       // The last round closes the turn: the dice come off the table so that
@@ -332,44 +367,29 @@ export function createModelReferee(opts: ModelRefereeOptions): Referee {
 
       const rolls = turn.toolUses.filter((t) => t.name === "roll");
 
-      // A tagged post always replaces the attempt. Untagged text only does so
-      // when there is nothing to replace: the lenient fallback exists for a
-      // referee that ignores the convention entirely, and a referee that used
-      // it once and then answered a nudge with "You're right, let me commit
-      // properly" has not written a second post — it has apologised.
-      //
-      // AND NEVER ON A ROUND THAT ROLLED. The playbook says to call `roll`
-      // first and write nothing before it, so untagged text on a rolling round
-      // is by definition the working-out that reached the dice — not a post.
-      // Observed live: "Step 1 — Determine the target" through step 4, banked
-      // by the roll branch below and printed above the paragraph the next round
-      // actually wrote. Banked text is never replaced, so a post admitted here
-      // wrongly is on the screen for good.
-      const tagged = taggedPost(turn.text);
-      if (tagged) attempt = tagged;
-      else if (tagged === undefined && attempt === "" && rolls.length === 0) {
-        attempt = turn.text.trim();
-      }
-
       const commit = turn.toolUses.find((t) => t.name === "commit_state");
       if (commit) {
-        const parsed = readCommit(commit, (c) =>
+        const read = readCommit(commit, (parsed, c) => [
+          ...missingPost(req, parsed),
           // Dice already in hand — the player's, or a batch rolled this turn —
           // mean the numbers have a provenance and nothing needs checking.
-          rolled || req.roll ? [] : unearnedDamage(req, c)
-        );
-        if (typeof parsed === "string") {
+          ...(rolled || req.roll ? [] : unearnedDamage(req, c)),
+        ]);
+        if (typeof read === "string") {
           // Refused before it ever reached the applier. Hand it back inside the
           // same conversation, so the model corrects rather than re-derives.
           messages.push(
             { role: "assistant", content: turn.content },
-            toolResults([{ id: commit.id, content: parsed, isError: true }])
+            toolResults([{ id: commit.id, content: read, isError: true }])
           );
           continue;
         }
         return {
-          narration: [...banked, attempt].filter(Boolean).join("\n\n") || arrival(req, parsed),
-          commit: parsed,
+          // The post, or the room's own paragraph on the one turn that writes
+          // none. Nothing from the loose text channel: that is working-out now,
+          // whatever it looks like.
+          narration: read.post ?? arrival(req, read.commit),
+          commit: read.commit,
         };
       }
 
@@ -378,17 +398,10 @@ export function createModelReferee(opts: ModelRefereeOptions): Referee {
           answerRoll(store, journal, r, (batch) => playersOwnDice(req, batch))
         );
 
-        // A batch that was refused threw nothing: no dice, no provenance, and
-        // no second thing to say. The round is a redo like any other, so the
-        // attempt stays where it is to be replaced by the rewrite.
-        if (answers.some((a) => a.threw)) {
-          rolled = true;
-          // The turn continues. What was written before the dice stands, and
-          // the prose that follows them is a second thing to say, not a
-          // correction.
-          if (attempt) banked.push(attempt);
-          attempt = "";
-        }
+        // A batch that was refused threw nothing, so it buys no provenance —
+        // which is the only thing this flag is for now that there is no prose
+        // to carry across rounds.
+        if (answers.some((a) => a.threw)) rolled = true;
 
         messages.push(
           { role: "assistant", content: turn.content },
@@ -414,50 +427,23 @@ export function createModelReferee(opts: ModelRefereeOptions): Referee {
   };
 }
 
-/**
- * THE PART THE PLAYER IS MEANT TO READ.
+/*
+ * THE `<post>` TAGS ARE GONE, and so is everything that read them.
  *
- * The referee has no private place to think. It is a cheap model with no
- * thinking mode, the heuristic is five steps of genuine deliberation, and every
- * word it writes outside a tool call would otherwise go straight onto the
- * screen — which on the first live run it did: two hundred words of "## Step 1
- * — Determine the target" and a JSON record, above the actual paragraph.
+ * They existed because the referee has no private place to think: it is a cheap
+ * model with no thinking mode, the heuristic is five steps of genuine
+ * deliberation, and every word written outside a tool call went straight onto
+ * the screen — two hundred words of "## Step 1 — Determine the target" above the
+ * actual paragraph, on the first live run. Tagging the post and hiding the rest
+ * fixed that, and could not fix A9: a referee that writes two drafts inside the
+ * tags has written two tagged posts, and no rule about markers can tell a draft
+ * from the thing it was replaced by.
  *
- * So the playbook asks for the post in `<post>` tags and everything outside
- * them is treated as working-out. The reasoning is still in the response, and
- * still in the call log, which is where it is useful.
- *
- * Untagged text falls through whole. A referee that ignores the convention
- * writes an untidy post rather than an empty one, and the fallback is exactly
- * the behaviour this replaced.
+ * Moving the post into `commit_state` retires the whole question. Loose text is
+ * working-out BY DEFINITION now — there is nothing it could be mistaken for —
+ * so the marker has no job left. It is still in the response and still in the
+ * call log, which is where reading it is useful.
  */
-const POST = /<post>([\s\S]*?)<\/post>/gi;
-
-/**
- * The post the referee actually tagged, or undefined when it tagged none.
- *
- * The distinction matters exactly once, and only across rounds: text with no
- * tags in it might be a post from a referee ignoring the convention, or it might
- * be an apology for forgetting to call a tool. Nothing in the text tells them
- * apart, so the loop uses whether there is already a post to keep.
- */
-function taggedPost(text: string): string | undefined {
-  const opened = text.search(/<post>/i);
-  // No marker at all. Not the same as an empty one: the caller decides whether
-  // untagged text is a post, and an empty tag is a referee that wrote nothing.
-  if (opened === -1) return undefined;
-
-  const posts = [...text.matchAll(POST)].map((m) => m[1].trim()).filter(Boolean);
-  if (posts.length > 0) return posts.join("\n\n");
-
-  // An unclosed tag — the response was cut off, or the model forgot the
-  // closing half. Everything after the opening tag is still the post.
-  return text.slice(opened + 6).trim();
-}
-
-export function postOf(text: string): string {
-  return taggedPost(text) ?? text.trim();
-}
 
 /**
  * WHAT THE PLAYER READS WHEN THEY WALK IN.
@@ -488,11 +474,21 @@ function arrival(req: RefereeRequest, commit: Commit): string {
 /**
  * Validate a commit, or say what is wrong with it in the model's own terms.
  *
- * `also` is the check that needs the turn's own history — whether any dice were
- * thrown — which this function does not have and should not grow a parameter
- * for. It runs against the normalised commit, so it sees what the applier would.
+ * `also` is the pair of checks that need the turn's own history — whether any
+ * dice were thrown, and which step this is — which this function does not have
+ * and should not grow parameters for. It is handed both shapes: the parsed
+ * commit, which still carries the `post`, and the normalised one, which is what
+ * the applier would see.
+ *
+ * THE POST COMES BACK BESIDE THE COMMIT rather than on it. `Commit` is what the
+ * applier and the store consume, and neither has any business with prose — the
+ * post is the referee's answer to the player, and it travels in `RefereeReply`
+ * where the machine already expects it.
  */
-function readCommit(call: ToolUse, also: (c: Commit) => string[]): Commit | string {
+function readCommit(
+  call: ToolUse,
+  also: (parsed: CommitParsed, commit: Commit) => string[]
+): { commit: Commit; post?: string } | string {
   let parsed: CommitParsed;
   try {
     parsed = validate(commitSchema, call.input);
@@ -510,14 +506,14 @@ function readCommit(call: ToolUse, also: (c: Commit) => string[]): Commit | stri
     ...(parsed.fictionNote ? { fictionNote: parsed.fictionNote } : {}),
   };
 
-  const problems = [...problemsWith(parsed), ...also(commit)];
+  const problems = [...problemsWith(parsed), ...also(parsed, commit)];
   if (problems.length > 0) {
     return `That commit was refused and nothing was applied:\n${problems
       .map((p) => `  - ${p}`)
       .join("\n")}\nCall commit_state again with those fixed.`;
   }
 
-  return commit;
+  return { commit, ...(parsed.post !== undefined ? { post: parsed.post } : {}) };
 }
 
 type RollResult = { id: string; content: string; isError?: boolean };

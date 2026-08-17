@@ -250,8 +250,32 @@ export async function saveCharacter(
  * HIT POINTS RETURN TO MAX, and that is a decision rather than a consequence.
  * There is no downtime, no rest and no healing outside a run, so a character who
  * surfaces at 1/15 can only die next time — which quietly turns "escaped alive"
- * into a delayed death and makes the ending worthless. If wounds should carry,
- * this is the line.
+ * into a delayed death and makes the ending worthless.
+ *
+ * ── IF WOUNDS SHOULD CARRY, THIS IS THE WHOLE CHANGE ───────────────────────
+ *
+ * The line below is the only thing standing between a survivor and the hit
+ * points they climbed out on. To keep the damage:
+ *
+ *     return pc;                       // and delete the spread above
+ *
+ * That is the code. What it needs BESIDE it is the reason this was not done in
+ * the first place — some way back to full, or the ending stops meaning
+ * anything. Any one of these would do, cheapest first:
+ *
+ *   - a flat heal between runs that is less than everything (half the missing,
+ *     a die, a point per level), so a bad run costs the next one something
+ *     without ending it;
+ *   - rest as a real action with a real cost — rations, a light clock, a
+ *     wandering-monster roll — which is where Knave already points and which
+ *     `turnCount` was put in `RunState` for (BUILD-PLAN §6, Phase 2);
+ *   - healing bought in the shop, which is the other half of Phase 5's
+ *     equipment step and is still open (CODING-PLAN §3.6).
+ *
+ * Whichever one lands, this function is where it goes, and `ownership.dbtest.ts`
+ * — "keeps what they carried, and heals them, when they got out alive" — is the
+ * test that has to change with it.
+ * ───────────────────────────────────────────────────────────────────────────
  */
 export function carriedOut(pc: PlayerCharacter): PlayerCharacter {
   return { ...pc, hp: { ...pc.hp, current: pc.hp.max } };

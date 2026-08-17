@@ -746,7 +746,7 @@ Partly done. What remains:
 
 ---
 
-## 5. Phase 8 — Playtest refinements ⚠️ **8a done bar A7 and A9, the rest planned**
+## 5. Phase 8 — Playtest refinements ⚠️ **8a done bar A7, the rest planned**
 
 This phase is **the author's playtest feedback, sorted by what actually causes each
 symptom** — which is not how it was reported, because several unrelated-looking
@@ -767,7 +767,7 @@ A7 and A9 are open.
 
 ---
 
-### 8a — The referee cannot finish a turn twice. **DO THIS FIRST.**
+### 8a — The referee cannot finish a turn twice. ✅ **DONE bar A7**
 
 The section that named the phase: R1's refusals and R2's ledger are both "the player did a
 thing, the machine would not let the referee say so, and they had to do it again".
@@ -784,7 +784,8 @@ thing, the machine would not let the referee say so, and they had to do it again
 | **A6** | Debris in a corner | ✅ Not the wall fallback — the sampler. `throughout` now resolves to the room's interior, and a position word that could not be honoured is no longer kept. §2.11. |
 | **A8** | A pickup that also reveals refused itself | ✅ `carriedAtStart` on the applier's `Ctx`, taken off the world before the batch runs; the `isHidden` guard asks it rather than the draft. A3's case still refuses. The refusal now names the pickup as the way through. |
 
-Two still open.
+**One still open**, and it is A7 — the DOM shift, which is an interface
+report rather than a turn the machine got wrong. A9 closed under Phase 12.
 
 #### A7. The layout shifts when the room changes
 
@@ -842,7 +843,7 @@ referee it was holding something it was in the act of picking up, which is what 
 retry off. `parentId` to the player and `isHidden: false` in one commit is a pickup; say
 so.
 
-#### A9. Superseded drafts are published as narration
+#### A9. Superseded drafts are published as narration ✅ **FIXED — solution 1**
 
 *"A dialogue line got mangled, repeating the first paragraph but then veering off into
 requiring a roll."*
@@ -875,6 +876,35 @@ found the instruction that says a confirmation post states terms. **That wording
 been fixed under 8c** — the post now stops at the moment of attempt, said once at the head
 of the section — **which reduces how often this fires and does not fix it**; a referee is
 allowed to change its mind mid-response and the player should never see it happen.
+
+##### What shipped: solution 1, and 2 was never written
+
+**`post` is a field of `commit_state`.** There is one commit per turn, a field cannot be
+written twice, and the last accepted call is the only one that counts — so a draft is not
+narration **by construction** rather than by the loop guessing which block the referee
+meant. The rule that a player reads nothing until the commit has validated gains its second
+guarantee for free: the prose now travels *inside* the thing being validated.
+
+**The `<post>` tags are gone, and so is everything that read them.** They existed to keep
+two hundred words of "## Step 1 — Determine the target" off the screen, and they could not
+tell a draft from the thing that replaced it — two drafts inside the tags are two tagged
+posts. With the post on the commit, **loose text is working-out by definition** and there
+is nothing left for a marker to disambiguate. `taggedPost` and `postOf` are deleted.
+
+**The accumulator is gone with them.** `banked` and `attempt` existed to work out, from the
+text alone, whether a round CONTINUED the turn (dice) or REDID it (a nudge, a refused
+commit). Five separate live failures came out of that guess and each had a test; all five
+tests survive, now asserting the same outcomes against a mechanism with no guess in it.
+One behaviour genuinely changed and is the intended one: **prose written before the dice no
+longer reaches the player at all.** `SKILL.md` has said "roll first, write nothing before
+it" for two phases, because an outcome written before the dice came back is a guess.
+
+**`post` is optional, and refused when it is missing.** Two turns legitimately write none —
+a room entry, where the room's own `composed` IS the paragraph, and a commit that moves the
+player, whose prose is discarded unread because the arrival pass is about to describe the
+real room. Anything else committing without one is handed back inside the same conversation
+(`missingPost` in referee.ts), because a referee that wrote its paragraph outside the tool
+call has written it to nobody, and the player should not be the one who finds that out.
 
 ---
 
@@ -2206,8 +2236,16 @@ state it needed is finally written down.
 **Hit points return to max on the way out**, and this is a decision rather than a
 consequence. There is no downtime, no rest, and no healing outside a run: a
 character who surfaces at 1/15 can only die next time, which quietly converts
-"escaped alive" into a delayed death and makes the escape ending worthless. It is
-one line in the write-back if wounds should carry.
+"escaped alive" into a delayed death and makes the escape ending worthless.
+
+**Settled as the standing answer, with the way back written down.** `carriedOut`
+in `repo.ts` carries the block comment: the code change is one line, and what it
+needs beside it is some route back to full, or the ending stops meaning anything
+— a flat partial heal between runs, rest as a real action with a real cost (which
+is where Knave points and what `turnCount` was put in `RunState` for), or healing
+bought in the shop, which is still open out of Phase 5. Whichever lands, that
+function is where it goes and the db suite's "keeps what they carried, and heals
+them" is the test that changes with it.
 
 ### 9.6 Resume, and the run that was interrupted mid-turn
 
@@ -2242,7 +2280,7 @@ was one character and one dungeon and reloading really was the only way on.
 
 ### 9.8 What proves it
 
-**849 tests, build clean** — 31 new, plus **23 in the database suite**, up from 13.
+**850 tests, build clean** — 32 new, plus **36 in the database suite**, up from 13.
 
 - **`ownership.dbtest.ts`, against real Postgres.** The index refuses a second
   active run. A character is free again the moment their run ends, **asserted for
@@ -2274,35 +2312,76 @@ the middleware: `/api/health` 200, and **`POST /api/runs/:id/abandon` 401 with n
 token and 401 with a forged one** — the new write is behind the same door as
 everything else.
 
-**Not covered, and named rather than glossed:** the handler layer above
-`commitTurn` — the 409 that names the run a character is already in, and the 400
-on an abandon that states no version. There is no HTTP-level suite in this
-project (`auth.test.ts` builds a bare Hono app, not `createApp`, which needs both
-an Anthropic key and a database to construct). The substance underneath it — the
-compare-and-swap, the status, the lock release — is covered by the database
-suite; the version parsing is a copy of `playTurn`'s, which has been in
-production since Phase 10.
+### 9.9 The handler layer, closed
+
+§9.8 shipped naming a gap: `ownership.dbtest.ts` covered every statement in
+`repo.ts` and `auth.test.ts` covered the gate, and **nothing covered the layer
+between them, where a request becomes a status code.** Every refusal Phase 12
+added lives exactly there. `app.dbtest.ts` is that layer, 13 cases, and the db
+suite is **36 tests, up from 23**.
+
+**It is a `dbtest` because `createApp()` cannot be built without a database and
+an Anthropic key** — it configures the transport at construction and every route
+reads Postgres. Faking either would be testing a fake, which is the thing these
+files exist not to do. A real ES256 key pair is generated per run and a real
+token minted from it, verified through `jose` against a JWKS served from a
+stubbed `fetch` — the `auth.test.ts` arrangement. **A suite that stubbed
+`requireUser` would be a suite in which every request arrived pre-authorised.**
+
+**Cleanup is the schema's, not a transaction's.** The other db file wraps each
+case in a rolled-back transaction; that is not available here, because the
+handlers open their own connections through `db()` and know nothing about a
+transaction the test is holding. Everything Phase 11 built cascades from
+`auth.users`, so deleting the one test account at the end takes its characters,
+dungeons, runs, chunks and events with it.
+
+What it proves: a free character goes down and a busy one is refused **with the
+run named**, from a different dungeon so nothing but the character can be what
+refused it; a partial dungeon and another player's dungeon are both turned away,
+the latter as a 404; an abandon with no version is a 400 and a stale one is a 409
+carrying what is actually true, **with the run still `active` after both**;
+ending a run twice is refused; abandoning frees the character; deleting somebody
+still down there is a 409 that says *abandon it first* and leaves them on the
+roster, and goes through once the run is over; and the roster's record moves
+from four zeroes to one abandoned while `activeRun` disappears.
+
+🔴 **It was flaky first, and the flake was the test's fault.** Every case built
+its own finished dungeon, so the suite wrote the entire world — half a megabyte
+of jsonb — thirteen times, and roughly one run in three failed one of those
+inserts with `invalid byte sequence for encoding "UTF8": 0x00`, never twice in
+the same place. Two dungeons are made once for the whole file now: a character
+holds one run at a time and every case mints its own character, so one world
+serves nearly all of them and the second exists only so the double-run refusal
+can be shown to be about the CHARACTER. **A flaky test is worse than no test**,
+so this was fixed rather than retried — three consecutive clean runs before it
+was called done.
 
 ---
 
 ## 10. Order of remaining work
 
 ```
-  Phase 8a rest (A7, A9) ─┐
-                8b ─┐     │
-                8c ─┼─────┴─ independent of each other, any order or in parallel
-                8d ─┤
-                8e ─┤
-                8f ─┘
+  Phase 8a A7 ─┐
+           8b ─┤
+           8c ─┼─ independent of each other, any order or in parallel
+           8d ─┤
+           8e ─┤
+           8f ─┘
   Phase 7   — the three remaining affordances, independent
   The shop  — the other half of Phase 5's equipment step; §3.6
 ```
 
-**A8 is done** — it led this list because it refused a commit the player was entitled to,
-and every playtest until it was fixed spent turns on it. **8a's remainder still goes first**,
-for the same reason 8a led before: a machine that cannot finish a turn makes every other
-item hard to see. Of what is left there, **A9 is the one with teeth** — A8's refusal is
-gone, but the doubled post it produced was a second defect and is untouched.
+**8a is done bar A7, and no longer leads this list.** It led because a machine that cannot
+finish a turn makes every other item hard to see: A8 refused a commit the player was
+entitled to, and A9 printed the referee's discarded drafts as narration. Both are fixed —
+A8 by asking the guard the right question, A9 by moving the post onto the commit so there
+is nowhere for a draft to go.
+
+**What is left of 8a is A7**, and it is a different kind of thing: a DOM shift nobody has
+reproduced yet, which is an interface report rather than a turn the machine got wrong. It
+belongs with 8b, which is the rest of the interface work, and it has no claim on going
+first — **reproduce it before fixing it**, and if it will not reproduce, that is worth
+knowing before a session is spent on it.
 
 **Two soft orderings among the rest.** 8f's exit-count fix had to land before 8c writes
 step-file rules about exits, or 8c would be writing instructions for a room block that was
@@ -2353,8 +2432,8 @@ with the ownership migration and the endpoints did not:
 
 **Open in Phase 8**, none of it blocking the rest of 8a, which is fully specified:
 
-- Whether narration moves onto the commit or the last text block simply wins (8a A9).
-  **Prefer the commit; say so out loud when choosing the cheap one.**
+- ~~Whether narration moves onto the commit or the last text block simply wins (8a A9)~~
+  ✅ **Settled: the commit.** Solution 1, in full — the cheap one was never written. §5, A9.
 - Why map markers do not answer a click when the code says they carry a verb.
   **Reproduce before fixing** — the pointer-capture suspect is a hypothesis (8b).
 - Which of the two fixes for verbatim room-description reuse is needed — the instruction,

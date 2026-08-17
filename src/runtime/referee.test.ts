@@ -11,7 +11,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createModelReferee, postOf } from "./referee.ts";
+import { createModelReferee } from "./referee.ts";
 import { generateOffline, testCharacter } from "./__fixtures__/offline.ts";
 import { createGameStore } from "../store/game.ts";
 import { dcFromDefense, pcArmorDefense } from "../engine/index.ts";
@@ -36,8 +36,22 @@ const reply = (...content: unknown[]) => ({
   usage: { input_tokens: 100, output_tokens: 40 },
 });
 
+/**
+ * A commit, with a post on it unless the test is about not having one.
+ *
+ * The post is a FIELD now (§8a A9), so an ordinary commit carrying none is the
+ * unusual case rather than the default — and a referee that writes one is what
+ * these tests are mostly standing in for. Pass `post: undefined` to build the
+ * blank-screen case on purpose.
+ */
 const commit = (input: Record<string, unknown>) =>
-  use("c1", "commit_state", { nextStage: "awaiting_action", nextStep: "1-target", diffs: [], ...input });
+  use("c1", "commit_state", {
+    post: "The turn passes.",
+    nextStage: "awaiting_action",
+    nextStep: "1-target",
+    diffs: [],
+    ...input,
+  });
 
 let queue: unknown[] = [];
 let sent: Record<string, any>[] = [];
@@ -73,31 +87,75 @@ const referee = (maxRounds = 4) => createModelReferee({ store: useGame, maxRound
 
 // ---------------------------------------------------------------------------
 
-describe("the post, and the working-out around it", () => {
-  it("keeps the reasoning off the screen", () => {
-    // The shape observed live: the heuristic worked through in the open, the
-    // paragraph at the end. Only the paragraph is the player's.
-    const said = `Step 1: the target is the desk.
-Step 2: valid, information.
+/*
+ * THE POST IS A FIELD OF THE COMMIT (§8a A9).
+ *
+ * It was loose assistant text, gathered across rounds and separated from the
+ * working-out by `<post>` tags. That could not survive a referee changing its
+ * mind INSIDE one response — two drafts in one block, both printed, the second
+ * in a different tense and ending in a roll offer. A field cannot be written
+ * twice, so a draft is not narration by construction.
+ *
+ * These are the tests of that, and they are mostly about what is IGNORED.
+ */
+describe("what the player reads", () => {
+  it("is the commit's post, and nothing else in the response", async () => {
+    queue.push(
+      reply(
+        text("Step 1: the target is the desk.\nStep 2: valid, information."),
+        commit({ post: "The desk is oak, and someone has been through the drawers already." })
+      )
+    );
 
-<post>
-The desk is oak, and someone has been through the drawers already.
-</post>`;
-
-    expect(postOf(said)).toBe("The desk is oak, and someone has been through the drawers already.");
+    const out = await referee()(request());
+    expect(out.narration).toBe("The desk is oak, and someone has been through the drawers already.");
   });
 
-  it("joins a post the referee wrote in pieces", () => {
-    expect(postOf("<post>First.</post>\nthinking\n<post>Then this.</post>")).toBe("First.\n\nThen this.");
+  it("ignores loose prose entirely, however much it looks like a post", async () => {
+    // A referee that writes the paragraph in the open has written it to nobody.
+    // No tags, no heuristic headings, nothing to tell it from a real post — and
+    // it still does not reach the player, because the field is the only channel.
+    queue.push(reply(text("The door gives, and the smell comes out to meet you."), commit({})));
+
+    const out = await referee()(request());
+    expect(out.narration).toBe("The turn passes.");
   });
 
-  it("takes everything after an unclosed tag, rather than nothing", () => {
-    // A response cut off at max_tokens still has a post in it.
-    expect(postOf("reasoning\n<post>The door gives.")).toBe("The door gives.");
+  /**
+   * A9 ITSELF. The referee wrote a draft, thought better of it mid-response, and
+   * wrote another — its own trace saying *"Wait, I should not write that post
+   * yet… Let me rewrite."* Both reached the player, one after the other.
+   *
+   * There is nowhere for the first one to go now.
+   */
+  it("cannot print a draft the referee thought better of", async () => {
+    queue.push(
+      reply(
+        text(
+          "You heave at the slab and it grinds aside.\n\n" +
+            "Wait — I should not write that post yet. I need to present the roll offer first. " +
+            "Let me rewrite.\n\n" +
+            "The slab is heavier than it looks. You could get a shoulder under it."
+        ),
+        commit({ post: "The slab is heavier than it looks. You could get a shoulder under it." })
+      )
+    );
+
+    const out = await referee()(request());
+    expect(out.narration).toBe("The slab is heavier than it looks. You could get a shoulder under it.");
+    expect(out.narration).not.toContain("grinds aside");
   });
 
-  it("falls through whole when the convention was ignored", () => {
-    expect(postOf("The door gives.")).toBe("The door gives.");
+  it("refuses a commit that would reach the player as a blank screen", async () => {
+    queue.push(reply(text("The door gives."), commit({ post: undefined })));
+    queue.push(reply(commit({ post: "The door gives." })));
+
+    const out = await referee()(request());
+
+    const refusal = sent[1].messages.at(-1).content[0];
+    expect(refusal.is_error).toBe(true);
+    expect(refusal.content).toContain("blank screen");
+    expect(out.narration).toBe("The door gives.");
   });
 });
 
@@ -105,14 +163,16 @@ describe("an ordinary turn", () => {
   it("returns the prose and the commit, in one call", async () => {
     queue.push(
       reply(
-        text("Step 1: the door.\n<post>The door gives, and the smell comes out to meet you.</post>"),
-        commit({})
+        text("Step 1: the door."),
+        commit({ post: "The door gives, and the smell comes out to meet you." })
       )
     );
 
     const out = await referee()(request());
 
     expect(out.narration).toBe("The door gives, and the smell comes out to meet you.");
+    // The post is NOT on the commit the applier sees. `Commit` is what the
+    // applier and the store consume and neither has any business with prose.
     expect(out.commit).toEqual({ nextStage: "awaiting_action", nextStep: "1-target", diffs: [] });
     expect(sent).toHaveLength(1);
   });
@@ -155,8 +215,10 @@ describe("an ordinary turn", () => {
   it("carries a fact about the place through to the commit", async () => {
     queue.push(
       reply(
-        text("<post>Salt has come through the plaster in white feathers.</post>"),
-        commit({ fictionNote: "The gaol was built over a salt mine." })
+        commit({
+          post: "Salt has come through the plaster in white feathers.",
+          fictionNote: "The gaol was built over a salt mine.",
+        })
       )
     );
 
@@ -189,6 +251,10 @@ describe("walking into a room", () => {
     queue.push(
       reply(
         commit({
+          // One of exactly two commits allowed to carry no post — see
+          // `missingPost`. The room's own paragraph is the arrival, and writing
+          // it twice would invite the two copies to drift.
+          post: undefined,
           diffs: [
             { entityId: here, path: "state", value: "as found" },
             { entityId: here, path: "composed", value: "A chasm opens at your feet." },
@@ -199,14 +265,17 @@ describe("walking into a room", () => {
 
     const out = await referee()(request({ step: "room-entry" }));
     expect(out.narration).toBe("A chasm opens at your feet.");
+    expect(sent).toHaveLength(1);
   });
 
   it("prefers a post the referee actually wrote", async () => {
     const here = useGame.getState().run!.currentRoomId;
     queue.push(
       reply(
-        text("<post>You have been here before, and it has not improved.</post>"),
-        commit({ diffs: [{ entityId: here, path: "composed", value: "A chasm." }] })
+        commit({
+          post: "You have been here before, and it has not improved.",
+          diffs: [{ entityId: here, path: "composed", value: "A chasm." }],
+        })
       )
     );
 
@@ -216,10 +285,33 @@ describe("walking into a room", () => {
 
   it("does not read a composed diff as prose on an ordinary turn", async () => {
     const here = useGame.getState().run!.currentRoomId;
-    queue.push(reply(commit({ diffs: [{ entityId: here, path: "composed", value: "A chasm." }] })));
+    queue.push(
+      reply(
+        commit({
+          post: "You wipe the dust off it.",
+          diffs: [{ entityId: here, path: "composed", value: "A chasm." }],
+        })
+      )
+    );
 
     const out = await referee()(request({ step: "1-target" }));
+    expect(out.narration).toBe("You wipe the dust off it.");
+  });
+
+  /**
+   * The other turn allowed to commit without one: a move. The arrival pass runs
+   * the moment it lands and it is the one with the new room in front of it, so
+   * prose here is discarded unread and asking for it would be asking for waste.
+   */
+  it("lets a commit that moves the player go without one", async () => {
+    const to = dungeon.entities.rooms[1]!.id;
+    queue.push(
+      reply(commit({ post: undefined, diffs: [{ entityId: "player", path: "roomId", value: to }] }))
+    );
+
+    const out = await referee()(request({ step: "5-resolution" }));
     expect(out.narration).toBe("");
+    expect(sent).toHaveLength(1);
   });
 });
 
@@ -228,7 +320,7 @@ describe("the dice", () => {
     queue.push(
       reply(use("r1", "roll", { rolls: [{ id: "ghoul", kind: "attack", bonus: 2, targetDefense: 11, damage: "1d6" }] }))
     );
-    queue.push(reply(text("It comes at you."), commit({})));
+    queue.push(reply(commit({ post: "It comes at you." })));
 
     const out = await referee()(request({ step: "5-resolution" }));
 
@@ -343,8 +435,8 @@ describe("damage nobody rolled for", () => {
     commit({ diffs: [{ entityId: "player", path: "hp.current", value: testCharacter().hp.current - by }] });
 
   it("refuses hit points taken off with no dice behind them", async () => {
-    queue.push(reply(text("<post>You slip, and the water takes you.</post>"), hurt(2)));
-    queue.push(reply(text("<post>You edge back from the lip.</post>"), commit({})));
+    queue.push(reply(hurt(2)));
+    queue.push(reply(commit({ post: "You edge back from the lip." })));
 
     const out = await referee()(request());
 
@@ -356,14 +448,14 @@ describe("damage nobody rolled for", () => {
 
   it("allows it once the dice have been thrown", async () => {
     queue.push(reply(use("r1", "roll", { rolls: [{ id: "fall", kind: "damage", expr: "1d6" }] })));
-    queue.push(reply(text("<post>You land badly.</post>"), hurt(3)));
+    queue.push(reply(hurt(3)));
 
     const out = await referee()(request());
     expect(out.commit.diffs).toHaveLength(1);
   });
 
   it("allows it when the player's own roll is what this turn is resolving", async () => {
-    queue.push(reply(text("<post>You land badly.</post>"), hurt(3)));
+    queue.push(reply(hurt(3)));
 
     const out = await referee()(
       request({
@@ -423,71 +515,89 @@ describe("a referee that will not stop", () => {
     expect(sent[1].messages.at(-1).content).toContain("without calling `commit_state`");
   });
 
+  /*
+   * WHAT A TURN SPANNING SEVERAL ROUNDS SAYS.
+   *
+   * All five of these used to be about the same machinery: two variables that
+   * had to work out, from the text alone, whether a round CONTINUED the turn or
+   * REDID it — dice continued, a nudge or a refused commit redid. Each case
+   * below was a live failure of that guess.
+   *
+   * There is no guess left to make. One commit per turn, one post on it, and
+   * every round before the committing one contributes nothing whatever it wrote.
+   */
+
   // OBSERVED LIVE: the referee wrote its post, forgot the tool, was nudged, and
   // wrote the same post again alongside the call. Both rounds were accumulated
   // and the player read the paragraph twice, back to back.
   it("does not say it twice when a nudge makes the referee write it again", async () => {
-    const post = "<post>You take a breath and step into the corridor.</post>";
-    queue.push({ content: [text(post)], stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } });
-    queue.push(reply(text(`You are right, I did not commit.\n${post}`), commit({})));
+    const said = "You take a breath and step into the corridor.";
+    queue.push({ content: [text(said)], stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } });
+    queue.push(reply(text(`You are right, I did not commit.\n${said}`), commit({ post: said })));
 
     const { narration } = await referee()(request());
 
-    expect(narration).toBe("You take a breath and step into the corridor.");
+    expect(narration).toBe(said);
   });
 
   // The other half of the same problem: a redo that answers with an apology and
-  // no post at all must not wipe out the post it is redoing.
+  // no prose of its own still says the thing, because the post rides on the
+  // call rather than on whichever round happened to write it.
   it("keeps the post when the referee answers a nudge with an apology", async () => {
     queue.push({
-      content: [text("<post>The door gives.</post>")],
+      content: [text("The door gives.")],
       stop_reason: "end_turn",
       usage: { input_tokens: 1, output_tokens: 1 },
     });
-    queue.push(reply(text("You're right. Let me commit properly:"), commit({})));
+    queue.push(reply(text("You're right. Let me commit properly:"), commit({ post: "The door gives." })));
 
     expect((await referee()(request())).narration).toBe("The door gives.");
   });
 
-  // Same rule for a commit the referee refuses before the applier sees it: the
-  // round is being redone, not continued.
-  it("replaces rather than repeats when a refused commit is rewritten", async () => {
-    const post = "<post>The ghoul reels back.</post>";
-    queue.push(reply(text(post), commit({ nextStage: "roll_offered" })));
-    queue.push(reply(text(post), commit({})));
+  // Same rule for a commit the referee refuses before the applier sees it: only
+  // the commit that is finally accepted carries a post anywhere.
+  it("says it once when a refused commit is rewritten", async () => {
+    const said = "The ghoul reels back.";
+    queue.push(reply(commit({ post: said, nextStage: "roll_offered" })));
+    queue.push(reply(commit({ post: said })));
 
-    expect((await referee()(request())).narration).toBe("The ghoul reels back.");
+    expect((await referee()(request())).narration).toBe(said);
   });
 
-  // But dice genuinely continue a turn: the approach, then the outcome. Two
-  // posts, both owed to the player, in the order they were written.
-  it("keeps both posts when dice came between them", async () => {
+  /**
+   * Dice used to CONTINUE a turn — the approach, then the outcome, two posts
+   * both owed to the player. They no longer do, and that is the intended change:
+   * `SKILL.md` has said "roll first, write nothing before it" for two phases,
+   * because an outcome written before the dice came back is a guess. The post
+   * written after them is the whole of what the turn says.
+   */
+  it("says only what was written after the dice", async () => {
     queue.push(
       reply(
-        text("<post>You swing.</post>"),
+        text("The approach, drafted before rolling — a guess, and not the player's."),
         use("r1", "roll", { rolls: [{ id: "a", kind: "morale", rating: 7 }] })
       )
     );
-    queue.push(reply(text("<post>It breaks and runs.</post>"), commit({})));
+    queue.push(reply(commit({ post: "It breaks and runs." })));
 
-    expect((await referee()(request())).narration).toBe("You swing.\n\nIt breaks and runs.");
+    expect((await referee()(request())).narration).toBe("It breaks and runs.");
   });
 
   // OBSERVED LIVE: the heuristic worked through in the open and the `roll` call
   // at the end of it. The whole of "Step 1 — Determine the target" was taken
   // for a post, banked, and printed above the paragraph the next round wrote.
-  // The playbook says to roll first and write nothing before it, so untagged
-  // text on a rolling round is never the player's.
-  it("does not bank the working-out that reached the dice", async () => {
+  it("never prints the working-out that reached the dice", async () => {
     queue.push(
       reply(
         text("Step 1 — the target is the forge-mouth.\n\nStep 4 — Confirm and roll."),
         use("r1", "roll", { rolls: [{ id: "a", kind: "morale", rating: 7 }] })
       )
     );
-    queue.push(reply(text("<post>It breaks and runs.</post>"), commit({})));
+    queue.push(reply(commit({ post: "It breaks and runs." })));
 
-    expect((await referee()(request())).narration).toBe("It breaks and runs.");
+    const { narration } = await referee()(request());
+    expect(narration).toBe("It breaks and runs.");
+    expect(narration).not.toContain("Step 1");
   });
 });
 
@@ -497,6 +607,7 @@ describe("the roll that was never offered", () => {
   // testCharacter's abilities are all +3, so +3 is unmistakably the player's.
   const asks = (...rolls: Record<string, unknown>[]) => use("r1", "roll", { rolls });
   const offered = commit({
+    post: "The forge-mouth is narrow. A Dexterity save, +3.",
     nextStage: "roll_offered",
     nextStep: "4-confirm-roll",
     rollRequest: { kind: "save", ability: "dex", bonus: 3, edge: "none", description: "Squeeze in." },
@@ -504,7 +615,7 @@ describe("the roll that was never offered", () => {
 
   it("refuses a save at the player's own bonus, and draws nothing", async () => {
     queue.push(reply(text("Step 4 — confirm and roll."), asks({ id: "hide", kind: "save", bonus: 3 })));
-    queue.push(reply(text("<post>The forge-mouth is narrow. A Dexterity save, +3.</post>"), offered));
+    queue.push(reply(offered));
 
     const out = await referee()(request());
 
@@ -525,11 +636,10 @@ describe("the roll that was never offered", () => {
     queue.push(reply(asks({ id: "hide", kind: "save", bonus: 3 })));
     queue.push(
       reply(
-        text("<post>You fall.</post>"),
-        commit({ diffs: [{ entityId: "player", path: "hp.current", value: 12 }] })
+        commit({ post: "You fall.", diffs: [{ entityId: "player", path: "hp.current", value: 12 }] })
       )
     );
-    queue.push(reply(text("<post>You catch yourself.</post>"), commit({})));
+    queue.push(reply(commit({ post: "You catch yourself." })));
 
     const out = await referee()(request());
 
@@ -540,7 +650,7 @@ describe("the roll that was never offered", () => {
   it("lets a creature strike at the player's armour through, whatever its bonus", async () => {
     const armor = pcArmorDefense(useGame.getState().run!.pc);
     queue.push(reply(asks({ id: "ghoul", kind: "attack", bonus: 3, targetDefense: armor, damage: "1d6" })));
-    queue.push(reply(text("<post>It lands.</post>"), commit({})));
+    queue.push(reply(commit({ post: "It lands." })));
 
     await referee()(request({ step: "5-resolution" }));
 
@@ -550,7 +660,7 @@ describe("the roll that was never offered", () => {
 
   it("takes a referee at its word when it marks whose roll it is", async () => {
     queue.push(reply(asks({ id: "ghoul-holds-on", kind: "save", bonus: 3, actor: "creature" })));
-    queue.push(reply(text("<post>It clings on.</post>"), commit({})));
+    queue.push(reply(commit({ post: "It clings on." })));
 
     await referee()(request());
 
@@ -559,7 +669,7 @@ describe("the roll that was never offered", () => {
 
   it("never mistakes morale or damage for the player's", async () => {
     queue.push(reply(asks({ id: "nerve", kind: "morale", rating: 7 }, { id: "roof", kind: "damage", expr: "1d6" })));
-    queue.push(reply(text("<post>The ceiling comes down.</post>"), commit({})));
+    queue.push(reply(commit({ post: "The ceiling comes down." })));
 
     await referee()(request());
     expect(useGame.getState().run!.rngDraws).toBeGreaterThan(0);
@@ -567,7 +677,7 @@ describe("the roll that was never offered", () => {
 
   it("leaves the batch alone once the player's own roll is what is being resolved", async () => {
     queue.push(reply(asks({ id: "second-save", kind: "save", bonus: 3 })));
-    queue.push(reply(text("<post>And then the floor goes.</post>"), commit({})));
+    queue.push(reply(commit({ post: "And then the floor goes." })));
 
     await referee()(
       request({
