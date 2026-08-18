@@ -2,8 +2,9 @@
  * STEP 4 — EQUIPMENT.
  *
  * Two days of rations and a weapon of your choosing, free. Everything after
- * that is rolled, or bought — and the shop is a later session, so choosing to
- * buy leaves the player holding 3d6×20 copper and nothing else yet.
+ * that is rolled, or bought — and buying leaves the player holding 3d6×20
+ * copper, which the shop is where they spend. Saving a character with anything
+ * in the purse walks straight into it; see `App.tsx`.
  *
  * THE WEAPON IS TWO CHOICES, and only the first is mechanical. A class fixes
  * damage, hands, slots, quality and price; the name on top of it is fiction.
@@ -31,7 +32,7 @@ import {
   type WeaponClass,
   type WeaponStat,
 } from "../../engine/index.ts";
-import { Button, LABEL, RerollGlyph, StepHeading, Toggle } from "./shared.tsx";
+import { Button, LABEL, RerollGlyph, SlotMeter, StepHeading, Toggle } from "./shared.tsx";
 
 export type EquipmentMode = "roll" | "buy";
 
@@ -53,48 +54,6 @@ function itemNote(item: IItem): string | null {
   if (item.armor?.armorType === "body") return `body armor, defense ${item.armor.defense}`;
   if (item.armor) return "+1 defense";
   return null;
-}
-
-function SlotMeter({ used, capacity }: { used: number; capacity: number }) {
-  const filled = Math.min(used, capacity);
-  const empty = Math.max(0, capacity - used);
-  const over = Math.max(0, used - capacity);
-
-  return (
-    <div>
-      <div className="mb-2.5 flex items-baseline justify-between">
-        <span className={LABEL}>Slots</span>
-        <span className="font-mono text-[12px] text-ink">
-          <span className={over > 0 ? "text-torch" : ""}>{used}</span>{" "}
-          <span className="text-graphite">of {capacity}</span>
-        </span>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-[3px]">
-        {Array.from({ length: filled }, (_, i) => (
-          <div key={`f${i}`} className="h-[18px] w-[15px] bg-ink" />
-        ))}
-        {Array.from({ length: empty }, (_, i) => (
-          <div key={`e${i}`} className="h-[18px] w-[15px] border border-rule" />
-        ))}
-        {over > 0 ? (
-          <>
-            <div className="mx-0.5 h-6 w-0.5 bg-ink" />
-            {Array.from({ length: over }, (_, i) => (
-              <div key={`o${i}`} className="h-[18px] w-[15px] border border-dashed border-torch" />
-            ))}
-          </>
-        ) : null}
-      </div>
-
-      <p className="mt-2.5 font-prose text-[14px] leading-snug text-graphite">
-        Capacity is your CON defense, {capacity}.{" "}
-        {over > 0
-          ? "You are over it. You may still carry, and the referee will notice."
-          : "Past the rule you may still carry, and the referee will notice."}
-      </p>
-    </div>
-  );
 }
 
 export function StepEquipment({
@@ -271,9 +230,9 @@ export function StepEquipment({
                 </Button>
               </div>
               <p className="mt-3.5 max-w-[54ch] font-prose text-[15px] italic leading-relaxed text-graphite">
-                No tables, and no shop yet — the market opens in a later pass. Until it
-                does you go in with the rations, the weapon and the money, which is
-                thinner than rolling and is meant to be a real choice, not a free one.
+                No tables. You take the money instead, and the market opens the moment
+                this character is saved — everything on the Item Costs page, at the
+                price the book prints. What you don't spend, you carry.
               </p>
             </div>
           )}

@@ -373,16 +373,54 @@ export function rollSpell(rng: Rng): Spell {
   return SPELLS[rng.d(SPELLS.length) - 1];
 }
 
-/** Copper as a carried thing, so the shop and the sheet read the same row. */
+/**
+ * Copper as a carried thing, so the shop and the sheet read the same row.
+ *
+ * The amount is prose — `IItem.amount` is "count or measurement WITH its unit"
+ * and money is no exception — which means somebody has to read it back. That is
+ * `purse` below, and it lives here rather than in the shop so that the one file
+ * writing this string is the one file parsing it.
+ */
+export const COPPER_NAME = "Copper";
+
 export function copperItem(amount: number): IItem {
   return {
     id: makeId(),
-    name: "Copper",
+    name: COPPER_NAME,
     type: "Item",
     parentId: PLACEHOLDER_PARENT,
     slots: 0,
     amount: `${amount} cp`,
   };
+}
+
+/** The copper row, if they are carrying one. */
+export function purseItem(pc: PlayerCharacter): IItem | undefined {
+  return pc.inventory.find((i) => i.name === COPPER_NAME && i.amount?.endsWith(" cp"));
+}
+
+/** How much money they have. Nothing carried and nothing parseable both mean 0. */
+export function purse(pc: PlayerCharacter): number {
+  const n = Number.parseInt(purseItem(pc)?.amount ?? "", 10);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/**
+ * Set the purse, in place. **A purse of nothing is no row at all** — a line
+ * reading "Copper (0 cp)" on a sheet is noise, and an empty pocket is better
+ * said by an empty pocket.
+ *
+ * Mutates, like `addItem` and `equip` beside it; the shop clones before it
+ * calls anything here.
+ */
+export function setPurse(pc: PlayerCharacter, amount: number): void {
+  const held = purseItem(pc);
+  if (amount <= 0) {
+    if (held) pc.inventory.splice(pc.inventory.indexOf(held), 1);
+    return;
+  }
+  if (held) held.amount = `${amount} cp`;
+  else pc.inventory.push({ ...copperItem(amount), parentId: pc.id });
 }
 
 const PLAIN_TABLE: Partial<Record<GearSlot, readonly GearEntry[]>> = {

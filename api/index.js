@@ -5454,6 +5454,64 @@ t("Abandoned|Addicted|Blackmailed|Condemned|Cursed|Defrauded|Demoted|Discredited
 	...Array(10).fill("Neutrality"),
 	...Array(5).fill("Chaos")
 ];
+var ARMOR_STATS = {
+	gambeson: {
+		name: "Gambeson",
+		armorType: "body",
+		defense: 12,
+		slots: 1,
+		quality: 3,
+		cost: 60
+	},
+	brigandine: {
+		name: "Brigandine",
+		armorType: "body",
+		defense: 13,
+		slots: 2,
+		quality: 4,
+		cost: 500
+	},
+	chain: {
+		name: "Chain",
+		armorType: "body",
+		defense: 14,
+		slots: 3,
+		quality: 5,
+		cost: 1200
+	},
+	halfPlate: {
+		name: "Half plate",
+		armorType: "body",
+		defense: 15,
+		slots: 4,
+		quality: 6,
+		cost: 4e3
+	},
+	fullPlate: {
+		name: "Full plate",
+		armorType: "body",
+		defense: 16,
+		slots: 5,
+		quality: 7,
+		cost: 8e3
+	},
+	helmet: {
+		name: "Helmet",
+		armorType: "helmet",
+		defense: 1,
+		slots: 1,
+		quality: 1,
+		cost: 40
+	},
+	shield: {
+		name: "Shield",
+		armorType: "shield",
+		defense: 1,
+		slots: 1,
+		quality: 1,
+		cost: 40
+	}
+};
 var WEAPON_CLASSES = [
 	{
 		key: "light",
@@ -5528,6 +5586,459 @@ function weaponsIn(c) {
 	}));
 }
 WEAPON_CLASSES.flatMap((c) => weaponsIn(c));
+var SHOP_SECTIONS = [
+	{
+		key: "tools",
+		label: "Tools & gear",
+		entries: [
+			{
+				name: "Air bladder",
+				cost: 5
+			},
+			{
+				name: "Bear trap",
+				cost: 20
+			},
+			{
+				name: "Bedroll",
+				cost: 10
+			},
+			{
+				name: "Bellows",
+				cost: 10
+			},
+			{
+				name: "Black grease",
+				cost: 1
+			},
+			{
+				name: "Block and tackle",
+				cost: 30
+			},
+			{
+				name: "Book",
+				amount: "blank",
+				cost: 300
+			},
+			{
+				name: "Book",
+				amount: "reading",
+				cost: 600
+			},
+			{
+				name: "Bottle",
+				cost: 1
+			},
+			{
+				name: "Bucket",
+				cost: 5
+			},
+			{
+				name: "Caltrops",
+				amount: "1 bag",
+				cost: 10
+			},
+			{
+				name: "Cards with an extra ace",
+				cost: 5
+			},
+			{
+				name: "Chain",
+				amount: "10 feet",
+				cost: 10
+			},
+			{
+				name: "Chalk",
+				amount: "10 pieces",
+				cost: 1
+			},
+			{
+				name: "Chisel",
+				cost: 5
+			},
+			{
+				name: "Cookpots",
+				cost: 10
+			},
+			{
+				name: "Crowbar",
+				cost: 10
+			},
+			{
+				name: "Drill",
+				cost: 10
+			},
+			{
+				name: "Face paint",
+				cost: 10
+			},
+			{
+				name: "Fake jewels",
+				cost: 50
+			},
+			{
+				name: "Fishing rod and tackle",
+				cost: 10
+			},
+			{
+				name: "Glass marbles",
+				amount: "1 bag",
+				cost: 5
+			},
+			{
+				name: "Glue",
+				amount: "1 bottle",
+				cost: 1
+			},
+			{
+				name: "Grappling hook",
+				cost: 10
+			},
+			{
+				name: "Hammer",
+				cost: 10
+			},
+			{
+				name: "Holy water",
+				cost: 25
+			},
+			{
+				name: "Horn",
+				cost: 10
+			},
+			{
+				name: "Hourglass",
+				cost: 300
+			},
+			{
+				name: "Incense",
+				amount: "1 packet",
+				cost: 10
+			},
+			{
+				name: "Iron tongs",
+				cost: 10
+			},
+			{
+				name: "Ladder",
+				amount: "10 feet",
+				cost: 10
+			},
+			{
+				name: "Large sponge",
+				cost: 5
+			},
+			{
+				name: "Lens",
+				cost: 100
+			},
+			{
+				name: "Lockpicks",
+				cost: 100
+			},
+			{
+				name: "Manacles",
+				cost: 10
+			},
+			{
+				name: "Metal file",
+				cost: 5
+			},
+			{
+				name: "Mirror",
+				amount: "small, silver",
+				cost: 200
+			},
+			{
+				name: "Musical instrument",
+				cost: 200
+			},
+			{
+				name: "Nails",
+				amount: "12",
+				cost: 5
+			},
+			{
+				name: "Net",
+				cost: 10
+			},
+			{
+				name: "Oilskin bag",
+				cost: 5
+			},
+			{
+				name: "Oilskin trousers",
+				cost: 10
+			},
+			{
+				name: "Padlock and key",
+				cost: 20
+			},
+			{
+				name: "Perfume",
+				cost: 50
+			},
+			{
+				name: "Pick",
+				cost: 10
+			},
+			{
+				name: "Pole",
+				amount: "10 feet",
+				cost: 5
+			},
+			{
+				name: "Quill and ink",
+				cost: 1
+			},
+			{
+				name: "Rope",
+				amount: "50 feet",
+				cost: 10
+			},
+			{
+				name: "Sack",
+				cost: 1
+			},
+			{
+				name: "Saw",
+				cost: 10
+			},
+			{
+				name: "Set of loaded dice",
+				cost: 5
+			},
+			{
+				name: "Shovel",
+				cost: 10
+			},
+			{
+				name: "Small bell",
+				cost: 20
+			},
+			{
+				name: "Soap",
+				cost: 1
+			},
+			{
+				name: "Spike",
+				amount: "iron",
+				cost: 5
+			},
+			{
+				name: "Spike",
+				amount: "wood",
+				cost: 1
+			},
+			{
+				name: "Spiked boots",
+				cost: 5
+			},
+			{
+				name: "Spyglass",
+				cost: 1e3
+			},
+			{
+				name: "Tar",
+				amount: "1 pot",
+				cost: 10
+			},
+			{
+				name: "Tent",
+				amount: "3 man",
+				cost: 100
+			},
+			{
+				name: "Tent",
+				amount: "personal",
+				cost: 50
+			},
+			{
+				name: "Twine",
+				amount: "300 feet",
+				cost: 5
+			},
+			{
+				name: "Waterskin",
+				cost: 5
+			},
+			{
+				name: "Whistle",
+				cost: 5
+			}
+		]
+	},
+	{
+		key: "light",
+		label: "Light",
+		note: "Burn times are the book's.",
+		entries: [
+			{
+				name: "Candle",
+				amount: "4 hours",
+				cost: 1
+			},
+			{
+				name: "Lantern",
+				cost: 30
+			},
+			{
+				name: "Lamp oil",
+				amount: "4 hours",
+				cost: 5
+			},
+			{
+				name: "Tinderbox",
+				cost: 10
+			},
+			{
+				name: "Torch",
+				amount: "1 hour",
+				cost: 1
+			}
+		]
+	},
+	{
+		key: "ammunition",
+		label: "Ammunition",
+		entries: [{
+			name: "Arrows",
+			amount: "20",
+			cost: 5
+		}, {
+			name: "Quiver",
+			amount: "capacity 20",
+			cost: 10
+		}]
+	},
+	{
+		key: "clothing",
+		label: "Clothing",
+		entries: [
+			{
+				name: "Poor clothing",
+				cost: 10
+			},
+			{
+				name: "Standard clothing",
+				cost: 50
+			},
+			{
+				name: "Winter clothing",
+				cost: 100
+			},
+			{
+				name: "Noble clothing",
+				cost: 3e3
+			},
+			{
+				name: "Furs",
+				cost: 5e3
+			}
+		]
+	},
+	{
+		key: "food",
+		label: "Food & drink",
+		entries: [
+			{
+				name: "Travel rations",
+				amount: "1 day",
+				cost: 5
+			},
+			{
+				name: "Animal feed",
+				amount: "1 day",
+				cost: 2
+			},
+			{
+				name: "Bacon",
+				amount: "1 side",
+				cost: 10
+			},
+			{
+				name: "Bread",
+				amount: "1 loaf",
+				cost: 1
+			},
+			{
+				name: "Cheese",
+				amount: "1 lb",
+				cost: 2
+			},
+			{
+				name: "Cider",
+				amount: "4 gallons",
+				cost: 1
+			},
+			{
+				name: "Cod",
+				amount: "whole",
+				cost: 20
+			},
+			{
+				name: "Eggs",
+				amount: "24",
+				cost: 1
+			},
+			{
+				name: "Flour",
+				amount: "5 lbs",
+				cost: 1
+			},
+			{
+				name: "Fruit",
+				amount: "1 lb",
+				cost: 1
+			},
+			{
+				name: "Garlic",
+				amount: "1 bunch",
+				cost: 1
+			},
+			{
+				name: "Grain",
+				amount: "1 bushel",
+				cost: 4
+			},
+			{
+				name: "Herbs",
+				amount: "1 bunch",
+				cost: 1
+			},
+			{
+				name: "Lard",
+				amount: "5 lbs",
+				cost: 1
+			},
+			{
+				name: "Onions",
+				amount: "1 bushel",
+				cost: 8
+			},
+			{
+				name: "Salt",
+				amount: "1 bushel",
+				cost: 3
+			},
+			{
+				name: "Spices",
+				amount: "1 lb",
+				cost: 100
+			},
+			{
+				name: "Sugar",
+				amount: "1 lb",
+				cost: 12
+			},
+			{
+				name: "Wine or ale",
+				amount: "1 bottle",
+				cost: 1
+			}
+		]
+	}
+];
 var spell = (s) => {
 	const i = s.indexOf(": ");
 	return {
@@ -5637,8 +6148,151 @@ var spell = (s) => {
 	"Wizard Mark: Your finger can shoot a stream of ulfire-colored paint. This paint is only visible to you, and can be seen at any distance, even through solid objects.",
 	"X-Ray Vision: You gain X-Ray vision."
 ].map(spell);
+//#endregion
+//#region src/engine/character-creation.ts
+/**
+* CHARACTER CREATION
+* ==================
+*
+* Pure and seeded, like everything else in `src/engine/`. Every number a
+* character is made of comes from an `Rng` passed in — the same rule the
+* referee lives under at runtime, applied here so that a character is a
+* function of a seed and a handful of choices rather than of when it was made.
+*
+* The tables are in `knave-tables.ts`. This file is the dice and the rules.
+*
+* ROLLS CARRY THEIR DICE. `rollAbilities` returns the individual d6s and
+* `rollStartingGear` returns the d20 that produced each line, because the
+* interface prints them — "2d6 → 4 2", "d20→11". A screen that had to re-derive
+* those would be inventing numbers, which is the one thing nothing in this
+* project is allowed to do.
+*
+* TWO MODES. Normal is the generous one and hardcore is close to the book:
+*
+*   |                | normal    | hardcore | Knave 1.0 as printed |
+*   |----------------|-----------|----------|----------------------|
+*   | ability dice   | 2d6 low   | 3d6 low  | 3d6, keep lowest     |
+*   | swaps          | 2         | 1        | 1 (a swap of two)    |
+*   | point buy      | 10 pts    | 7 pts    | — (not in the book)  |
+*   | rerolls        | 3         | 0        | — (not in the book)  |
+*   | hit points     | 2d8 min 9 | d8 min 5 | d8, no floor         |
+*
+* The hit point floors are the sharpest departure from the book, and the reason
+* is the same one Knave's own note gives when it suggests letting a PC reroll
+* below 5: a level 1 character on 1 HP is not a hard start, it is a character
+* who does not get to play. Normal takes two dice and floors at 9; hardcore
+* keeps the single die and floors at 5.
+*
+* WHAT A REROLL BUYS. One budget, spent from three screens: abilities, hit
+* points, and starting gear. Traits are free — they are flavour and a player
+* fishing for a face they like is not gaming anything. Hit points are not
+* free, because an unlimited d8 is an 8 every time.
+*/
+var PLACEHOLDER_PARENT = "";
+function weaponItem(w) {
+	return {
+		id: makeId(),
+		name: w.name,
+		type: "Item",
+		parentId: PLACEHOLDER_PARENT,
+		slots: w.slots,
+		quality: w.quality,
+		currentQuality: w.quality,
+		weapon: {
+			damage: w.damage,
+			hands: w.hands,
+			...w.ranged ? { ranged: true } : {}
+		}
+	};
+}
 "Alma|Balthazar|Barsaba|Bertram|Bianca|Clovis|Constance|Damaris|Esme|Faustus|Fern|Hester|Jasper|Jessamine|Merrick|Mortimer|Nerissa|Odette|Oswald|Peregrine|Piety|Quentin|Silas|Sybil|Tuesday|Ursula|Waverly|Wendy".split("|");
 "Barrow|Beetleman|Berrycloth|Coffin|Culpepper|Dankworth|Digworthy|Dreggs|Gimble|Graveworm|Hardwick|Hovel|Knibbs|Midnighter|Nethercoat|Ottick|Relish|Rumbold|Rummage|Sallow|Saltmarsh|Silverless|Skitter|Slee|Stoker|Tarwater|Tumbler|Villin".split("|");
+//#endregion
+//#region src/engine/shop.ts
+/** Keys are display-stable and human-legible, so a failing test names a thing. */
+var slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+var gearKey = (section, e) => `gear:${section}:${slug(e.name)}${e.amount ? `-${slug(e.amount)}` : ""}`;
+function gearGood(section, e) {
+	return {
+		key: gearKey(section, e),
+		name: e.name,
+		...e.amount ? { amount: e.amount } : {},
+		cost: e.cost,
+		slots: e.slots ?? 1,
+		kind: "gear",
+		section,
+		toItem: () => ({
+			id: makeId(),
+			name: e.name,
+			type: "Item",
+			parentId: "",
+			slots: e.slots ?? 1,
+			...e.amount ? { amount: e.amount } : {}
+		})
+	};
+}
+function armorGood(key) {
+	const a = ARMOR_STATS[key];
+	return {
+		key: `armor:${key}`,
+		name: a.name,
+		cost: a.cost,
+		slots: a.slots,
+		kind: "armor",
+		section: "armor",
+		armor: a,
+		toItem: () => ({
+			id: makeId(),
+			name: a.name,
+			type: "Item",
+			parentId: "",
+			slots: a.slots,
+			quality: a.quality,
+			currentQuality: a.quality,
+			armor: {
+				armorType: a.armorType,
+				defense: a.defense
+			}
+		})
+	};
+}
+function weaponGood(w) {
+	return {
+		key: `weapon:${slug(w.name)}`,
+		name: w.name,
+		cost: w.cost,
+		slots: w.slots,
+		kind: "weapon",
+		section: "weapons",
+		weapon: w,
+		toItem: () => weaponItem(w)
+	};
+}
+/** The armor rows, worst to best — which is also cheapest to dearest. */
+var ARMOR_GOODS = [
+	"gambeson",
+	"brigandine",
+	"chain",
+	"halfPlate",
+	"fullPlate",
+	"helmet",
+	"shield"
+].map(armorGood);
+/** Every named weapon, in class order. The screen groups them by class again. */
+var WEAPON_GOODS = WEAPON_CLASSES.flatMap((c) => weaponsIn(c).map(weaponGood));
+var GEAR_GOODS = SHOP_SECTIONS.flatMap((s) => s.entries.map((e) => gearGood(s.key, e)));
+var ALL_GOODS = [
+	...ARMOR_GOODS,
+	...WEAPON_GOODS,
+	...GEAR_GOODS
+];
+new Map(ALL_GOODS.map((g) => [g.key, g]));
+[...SHOP_SECTIONS.map((s) => ({
+	key: s.key,
+	label: s.label,
+	...s.note ? { note: s.note } : {},
+	goods: GEAR_GOODS.filter((g) => g.section === s.key)
+}))];
 Math.PI / 2, -Math.PI / 2;
 //#endregion
 //#region src/engine/dungeon-blockplan.ts
@@ -10859,6 +11513,148 @@ async function completeDungeon(id, gd, owner, sql = db()) {
     returning id
   `).length > 0;
 }
+/** How many worlds a batch is, and the most one request may ask for. */
+var LIBRARY_BATCH = 12;
+var LIBRARY_MAX = 48;
+var UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/**
+* A cursor, or nothing — and **validated here rather than by Postgres**.
+*
+* 🔴 THIS IS A REFUSAL, NOT TIDINESS. A cursor arrives from a query string, so
+* it is whatever a caller typed. Handed on unchecked, `?cursor=x|y` binds `x` to
+* a `timestamptz` parameter and **the driver throws while serialising it**
+* (`RangeError: Invalid time value`, inside postgres.js, before the statement is
+* sent) — which the API renders as a 500. A malformed page token is not an
+* internal error; it is a caller saying nothing legible, and the honest answer
+* is the front of the shelf. Found by `ownership.dbtest.ts`.
+*
+* Split on the FIRST separator: a `timestamptz::text` holds no `|` and a uuid
+* holds none, so anything with a different shape is not a cursor this file made.
+*/
+function readCursor(cursor) {
+	if (!cursor) return void 0;
+	const cut = cursor.indexOf("|");
+	if (cut <= 0) return void 0;
+	const at = cursor.slice(0, cut);
+	const id = cursor.slice(cut + 1);
+	if (!UUID.test(id) || Number.isNaN(Date.parse(at))) return void 0;
+	return {
+		at,
+		id
+	};
+}
+/**
+* EVERY COMPLETE WORLD SOMEBODY ELSE MADE, newest first, a batch at a time.
+*
+* The second of the two cross-owner reads, and it obeys the same rule as
+* `duplicateDungeon`: what crosses the line is a SUMMARY. Never `doc`, which is
+* every answer in the world — browsing must not be a way to read a dungeon you
+* have not walked. `DungeonSummary` has been the shape of that promise since
+* Phase 11 with nothing to serve it; this is what it was for.
+*
+* NO MAKER ATTRIBUTION, deliberately. The only name this project holds for an
+* account is `profiles.email`, and a browse screen that printed it would be a
+* way to enumerate the invite list. A world is offered on what it is, not on
+* whose it was.
+*
+* KEYSET AND NOT OFFSET. A batch boundary has to survive a dungeon being written
+* while the player is scrolling: `offset 12` after an insert shows row 12 twice
+* and never shows row 13. `(created_at, id) < (…)` is anchored to the last row
+* actually seen, so an insert above the cursor changes nothing below it. The id
+* is in the comparison because `created_at` is the transaction clock and two
+* rows can share it exactly — see the migration.
+*
+* THE CURSOR IS BUILT IN SQL, not from the row in TypeScript. `timestamptz` is a
+* `Date` by the time the driver is done with it, and formatting one back to
+* something Postgres reads identically is a round trip through two libraries'
+* opinions about microseconds. `created_at::text` round-trips with itself.
+*/
+async function listLibrary(viewer, opts = {}, sql = db()) {
+	const asked = Math.trunc(Number(opts.limit));
+	const limit = Number.isFinite(asked) ? Math.min(Math.max(asked, 1), LIBRARY_MAX) : LIBRARY_BATCH;
+	const at = readCursor(opts.cursor);
+	const rows = await sql`
+    select id,
+           coalesce(doc -> 'pass' ->> 'name', 'Unnamed')            as name,
+           coalesce(doc -> 'pass' -> 'goal' ->> 'summary', '')      as objective,
+           size, level, seed, status,
+           created_at                                              as "createdAt",
+           created_at::text || '|' || id::text                     as "cursor"
+      from dungeons
+     where status = 'complete'
+       and owner_id <> ${viewer}
+       ${at ? sql`and (created_at, id) < (${at.at}::text::timestamptz, ${at.id}::text::uuid)` : sql``}
+     order by created_at desc, id desc
+     limit ${limit + 1}
+  `;
+	const more = rows.length > limit;
+	const page = rows.slice(0, limit);
+	return {
+		dungeons: page.map(({ cursor: _cursor, ...summary }) => summary),
+		...more && page.length > 0 ? { cursor: page[page.length - 1].cursor } : {}
+	};
+}
+/**
+* TAKE A COPY OF A WORLD — the one statement in this file that reads a row
+* without asking whose it is.
+*
+* Every other read here puts the owner in the `where`, and that rule is not
+* being bent: what this reads cross-owner is the ROW, and what it does with it
+* is write a new one belonging to the caller. Nothing about the source is ever
+* returned. A dungeon is the one thing another player may see (§8.1), and this
+* is the whole of what "see" means — a copy of your own, not a look at theirs.
+*
+* WHAT COMES ACROSS, and what does not:
+*
+*   - the row and its `doc`, under a fresh uuid. The `doc` keeps its own
+*     engine-derived `id` untouched, exactly as `insertPartialDungeon` leaves
+*     it: that is the name of the WORLD and both copies are that world.
+*   - `dungeon_events`, because a run's journal is generation followed by play
+*     (`readJournal`) and a copy without them yields a transcript that starts
+*     mid-air. It is also where the `kind: "dungeon"` baseline lives, which is
+*     what `journal-render.ts` prints when someone wants to judge the writing.
+*   - NOT `generation_chunks`. Only `finish` reads those, a complete dungeon
+*     never finishes again, and they are the unapplied raw responses — the
+*     largest thing in the schema and the least use to anybody holding the
+*     applied world.
+*
+* COMPLETE ONLY. Half a world is not worth copying, and `finish` on the copy
+* would have no chunks to finish from.
+*
+* `undefined` means no such complete dungeon — one answer for "not there" and
+* "still being written", because a caller who may not have it either way should
+* not learn which.
+*/
+async function duplicateDungeon(sourceId, owner, sql = db()) {
+	return sql.begin(async (tx) => {
+		const [source] = await tx`
+      select id from dungeons where id = ${sourceId} and status = 'complete'
+    `;
+		if (!source) return void 0;
+		const [mine] = await tx`
+      select id from dungeons where owner_id = ${owner} and copied_from = ${sourceId}
+    `;
+		if (mine) return {
+			id: mine.id,
+			already: true
+		};
+		const [copy] = await tx`
+      insert into dungeons (dungeon_key, owner_id, seed, size, level, status, doc, copied_from)
+      select dungeon_key, ${owner}, seed, size, level, status, doc, id
+        from dungeons where id = ${sourceId}
+      returning id
+    `;
+		await tx`
+      insert into dungeon_events (dungeon_id, seq, at, kind, payload)
+      select ${copy.id}::uuid, seq, at, kind, payload
+        from dungeon_events where dungeon_id = ${sourceId}
+    `;
+		return {
+			id: copy.id,
+			already: false
+		};
+	});
+}
 /**
 * One region's answer, unapplied.
 *
@@ -11213,9 +12009,26 @@ function createApp() {
 	* question the screen asks, which is whether this person can be sent anywhere.
 	*/
 	app.get("/api/characters", async (c) => c.json(await listRoster(currentUser(c).id)));
+	/**
+	* Save a sheet — a new character, or one that has been to the market.
+	*
+	* EDITING SOMEBODY WHO IS STILL DOWN THERE IS REFUSED, the same way deleting
+	* them is and for a neighbouring reason. A run plays from its own copy of the
+	* sheet and writes what survives back when it ends, so a write from up here
+	* would either be overwritten without warning or overwrite the run's own
+	* result. The shop is the only caller that can reach this with an existing
+	* character and it does not offer the button to anyone in a run; this is the
+	* rule rather than the manners.
+	*/
 	app.post("/api/characters", async (c) => {
+		const user = currentUser(c);
 		const pc = await c.req.json();
-		return c.json(await saveCharacter(pc, currentUser(c).id));
+		const active = await activeRunFor(pc.id, user.id);
+		if (active) return c.json({
+			error: "that character is in a run — what they are carrying is the run's now",
+			runId: active.id
+		}, 409);
+		return c.json(await saveCharacter(pc, user.id));
 	});
 	/**
 	* Deleting somebody who is still down there is refused.
@@ -11330,6 +12143,50 @@ function createApp() {
 	});
 	/** The player's own worlds. Summaries — nobody needs six whole dungeons. */
 	app.get("/api/dungeons", async (c) => c.json(await listDungeons(currentUser(c).id)));
+	/**
+	* THE LIBRARY — every complete world somebody else made, newest first.
+	*
+	* Registered before the `:id` routes below because `library` would otherwise
+	* be a plausible dungeon id, and a route that can be shadowed by a parameter
+	* is a route that works until somebody changes the order.
+	*
+	* SUMMARIES AND A CURSOR, and the cursor goes back out exactly as it came in.
+	* The client never composes one — see `listLibrary`.
+	*/
+	app.get("/api/dungeons/library", async (c) => {
+		const cursor = c.req.query("cursor");
+		const limit = Number(c.req.query("limit"));
+		return c.json(await listLibrary(currentUser(c).id, {
+			...cursor ? { cursor } : {},
+			...Number.isFinite(limit) ? { limit } : {}
+		}));
+	});
+	/**
+	* TAKE A COPY OF A WORLD.
+	*
+	* The one route that names a dungeon the caller does not own, and it is why
+	* the Phase 11 key split had to happen first: under 10a's schema, where the
+	* derived `dungeon_<seed>` name WAS the primary key, a second copy of one
+	* world collided on it.
+	*
+	* IT STILL SERVES NOTHING OF THE SOURCE. The reply is the id of the caller's
+	* OWN new row, and the source's `doc` — which is every answer in the world —
+	* is never on the wire. What "another player may see a dungeon" means is
+	* exactly this: they may have one of their own like it.
+	*
+	* `already` for the second click, in the shape `/finish` answers in. A copy is
+	* recorded as a copy (`dungeons.copied_from`), so pressing the button twice
+	* hands back the first copy rather than minting a second half-megabyte row.
+	*/
+	app.post("/api/dungeons/:id/duplicate", async (c) => {
+		const id = c.req.param("id");
+		const made = await duplicateDungeon(id, currentUser(c).id);
+		if (!made) throw new HTTPException(404, { message: `no such finished dungeon: ${id}` });
+		return c.json({
+			dungeonId: made.id,
+			already: made.already
+		});
+	});
 	app.get("/api/runs", async (c) => c.json(await listRuns(currentUser(c).id)));
 	app.get("/api/runs/:id", async (c) => {
 		const user = currentUser(c);

@@ -104,6 +104,70 @@ describe("generating through the API", () => {
   });
 });
 
+/*
+ * PHASE 13a. A world outlives the run played in it, so going back down one that
+ * is already written must not build anything. What is worth pinning here is the
+ * ABSENCE of requests: the failure mode is a path that quietly generates anyway
+ * and costs N+2 model calls to arrive at a dungeon that was already there.
+ */
+describe("going down a world that is already written", () => {
+  it("is one request and no generation at all", async () => {
+    routes.set("POST /api/runs", () => ({ json: { run: run(1), dungeon: { id: "dungeon_rx" } } }));
+    routes.set("POST /api/runs/run-1/enter", () => ({ json: { state: run(2).state, version: 2 } }));
+
+    const session = createRemoteSession();
+    await session.beginIn!({ dungeonId: "dungeon_rx", character: testCharacter() });
+
+    // No structure pass, no regions, no join — and therefore no bill.
+    expect(sent.map((s) => `${s.method} ${s.path}`)).toEqual([
+      "POST /api/runs",
+      "POST /api/runs/run-1/enter",
+    ]);
+  });
+
+  /**
+   * THE DUNGEON IS NAMED, NOT DESCRIBED. Size, level and seed are facts about a
+   * world that exists; a client restating them could state them wrongly, and the
+   * server would then have to decide which of the two it believed.
+   */
+  it("sends the dungeon id and the character, and nothing about the dice", async () => {
+    routes.set("POST /api/runs", () => ({ json: { run: run(1), dungeon: { id: "dungeon_rx" } } }));
+    routes.set("POST /api/runs/run-1/enter", () => ({ json: { state: run(2).state, version: 2 } }));
+
+    const session = createRemoteSession();
+    await session.beginIn!({ dungeonId: "dungeon_rx", character: testCharacter() });
+
+    expect(Object.keys(sent[0]!.body!).sort()).toEqual(["character", "dungeonId"]);
+    expect(sent[0]!.body).toMatchObject({ dungeonId: "dungeon_rx" });
+  });
+
+  it("lands the run and the world it came back with", async () => {
+    routes.set("POST /api/runs", () => ({ json: { run: run(1), dungeon: { id: "dungeon_rx" } } }));
+    routes.set("POST /api/runs/run-1/enter", () => ({
+      json: { state: run(2, "awaiting_action", { turnCount: 0 }).state, version: 2 },
+    }));
+
+    const session = createRemoteSession();
+    await session.beginIn!({ dungeonId: "dungeon_rx", character: testCharacter() });
+
+    expect(session.store.getState().dungeon).toMatchObject({ id: "dungeon_rx" });
+    expect(session.store.getState().run).toMatchObject({ stage: "awaiting_action" });
+  });
+
+  /** The same latch `begin` and `resume` hold — StrictMode's double mount. */
+  it("does not send two people down one hole", async () => {
+    routes.set("POST /api/runs", () => ({ json: { run: run(1), dungeon: { id: "dungeon_rx" } } }));
+    routes.set("POST /api/runs/run-1/enter", () => ({ json: { state: run(2).state, version: 2 } }));
+
+    const session = createRemoteSession();
+    await session.beginIn!({ dungeonId: "dungeon_rx", character: testCharacter() });
+    const after = sent.length;
+
+    await session.beginIn!({ dungeonId: "dungeon_rx", character: testCharacter() });
+    expect(sent).toHaveLength(after);
+  });
+});
+
 describe("a turn", () => {
   it("sends what the player typed and the version, and nothing else", async () => {
     wireGeneration([0]);

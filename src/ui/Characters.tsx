@@ -66,14 +66,19 @@ function Record({ record }: { record: CharacterRecord }) {
 function Row({
   entry,
   onSend,
+  onBrowse,
   onResume,
   onAbandon,
+  onShop,
   onDelete,
 }: {
   entry: CharacterEntry;
   onSend: () => void;
+  /** Absent on a local run, which has no library to browse. */
+  onBrowse?: () => void;
   onResume: () => void;
   onAbandon: () => void;
+  onShop: () => void;
   onDelete: () => void;
 }) {
   const [confirming, setConfirming] = useState(false);
@@ -142,6 +147,43 @@ function Row({
         )}
 
         {/*
+         * THE SHELF, and it is a second door rather than a field on the first.
+         *
+         * `Send down` rolls a world. This one picks a world somebody else
+         * already wrote — the same destination by a different road, and the
+         * roads are far enough apart to be separate buttons: one costs a minute
+         * and a real bill, the other costs neither and cannot be undone by
+         * choosing again, because taking a copy is free and idempotent.
+         *
+         * Absent while they are in a run, like everything else that would start
+         * a second one. A character holds exactly one at a time.
+         */}
+        {!activeRun && onBrowse && (
+          <Button tone="ghost" onClick={onBrowse} className="px-5 py-2.5 text-[12px]">
+            Browse worlds
+          </Button>
+        )}
+
+        {/*
+         * THE MARKET, for anybody who is not underground.
+         *
+         * Shown at an empty purse too, rather than only to the characters who
+         * took the copper: a door that appears and disappears depending on a
+         * number the row does not print is a door nobody learns. The shop says
+         * the purse is empty far more clearly than a missing button does, and
+         * the price list is worth reading either way.
+         *
+         * Absent while they are in a run, like Delete and for the same reason —
+         * the sheet on the server is the one the run is playing from, and
+         * editing it out from under a live run is a save fighting itself.
+         */}
+        {!activeRun && (
+          <Button tone="ghost" onClick={onShop} className="px-5 py-2.5 text-[12px]">
+            Shop
+          </Button>
+        )}
+
+        {/*
          * ABANDON REPLACES DELETE while there is a run, rather than joining it.
          * Deleting is refused by the server anyway — a live run with no owner is
          * a save nobody can reach — and offering a button that can only say no
@@ -193,8 +235,10 @@ function Row({
 export function Characters({
   characters,
   onStartRun,
+  onBrowse,
   onResumeRun,
   onAbandonRun,
+  onShop,
   onCreate,
   onDelete,
   notice,
@@ -203,9 +247,19 @@ export function Characters({
 }: {
   characters?: CharacterEntry[];
   onStartRun: (pc: PlayerCharacter) => void;
+  /**
+   * Take this character to the shelf of worlds other people wrote.
+   *
+   * OPTIONAL, and absent on a `?offline` or `?stub` run for the same reason the
+   * sign-out control is: the library is a table in Postgres, and a local run has
+   * no account to read it with. The button is simply not there.
+   */
+  onBrowse?: (pc: PlayerCharacter) => void;
   /** Pick the run this character is in back up. Only ever called with one. */
   onResumeRun: (run: ActiveRun) => void;
   onAbandonRun: (run: ActiveRun) => void;
+  /** Take them to the market. Only ever called for somebody not in a run. */
+  onShop: (pc: PlayerCharacter) => void;
   onCreate: () => void;
   onDelete: (pc: PlayerCharacter) => void;
   /**
@@ -279,8 +333,10 @@ export function Characters({
                   key={entry.sheet.id}
                   entry={entry}
                   onSend={() => onStartRun(entry.sheet)}
+                  {...(onBrowse ? { onBrowse: () => onBrowse(entry.sheet) } : {})}
                   onResume={() => entry.activeRun && onResumeRun(entry.activeRun)}
                   onAbandon={() => entry.activeRun && onAbandonRun(entry.activeRun)}
+                  onShop={() => onShop(entry.sheet)}
                   onDelete={() => onDelete(entry.sheet)}
                 />
               ))}

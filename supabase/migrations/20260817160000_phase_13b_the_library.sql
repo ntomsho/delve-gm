@@ -1,0 +1,31 @@
+-- PHASE 13b — THE LIBRARY
+-- =======================
+--
+-- One index, for the one query that reads across owners.
+--
+-- `GET /api/dungeons/library` is every complete dungeon somebody ELSE made,
+-- newest first, in batches. Three things about that shape decide this index:
+--
+--   ORDER BY created_at desc, id desc — the id is not decoration. `created_at`
+--   is `timestamptz default now()`, which is the transaction's clock, so two
+--   dungeons written in one transaction share it exactly. A keyset page break
+--   landing on a tie would drop a row or repeat one forever, and the batch the
+--   player is scrolling would be quietly wrong. The pair is unique because the
+--   id is.
+--
+--   WHERE status = 'complete' — partial, so the index holds only the rows the
+--   library can ever serve. Half a world cannot be walked into and is nobody's
+--   business but its maker's.
+--
+--   AND owner_id <> $viewer is NOT in here, and cannot usefully be. It is a
+--   filter over the ordered scan rather than a seek, which is correct at this
+--   size: a player owns a handful of the corpus, so the scan discards a handful.
+--   An index leading on `owner_id` would serve the opposite question — one
+--   player's worlds — which `dungeons_owner_idx` already answers.
+--
+-- NOT the same index a generation cache wants. That one is keyed on
+-- `(size, level)` — see CODING-PLAN §9a.1 for why it is not keyed on the seed —
+-- and it is a different question asked in a different order.
+
+create index dungeons_library_idx on public.dungeons (created_at desc, id desc)
+  where status = 'complete';

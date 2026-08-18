@@ -288,6 +288,155 @@ export const GENERAL_GEAR_2: readonly GearEntry[] = [
 /** Everyone starts with these two days, free, whichever path they take. */
 export const STARTING_RATIONS: GearEntry = { name: "Travel rations", amount: "2 days", cost: 10 };
 
+// ===========================================================================
+// THE SHOP  (the Item Costs page, p.3)
+// ===========================================================================
+
+/**
+ * What a market will sell you, in copper pennies.
+ *
+ * ARMOR AND WEAPONS ARE NOT HERE. `ARMOR_STATS` and `WEAPON_CLASSES` above are
+ * the same page of the same book and already carry the same prices, so the shop
+ * reads those — its armor rows and its class-then-name weapon picker are the
+ * ones character creation uses. Listing them again would be two copies of one
+ * price list, which is the drift this file's header opens by refusing.
+ *
+ * A NAME THAT APPEARS ON A GEAR TABLE TOO IS NOT A DUPLICATE. Rope, a crowbar
+ * and a lantern are on both because the book prints them on both: the gear
+ * tables are what a d20 can hand you, this is what a purse can. They are read by
+ * different mechanisms and neither is derived from the other.
+ *
+ * EVERYTHING HERE IS ONE SLOT. Knave says most items take one and states
+ * otherwise only for armor and weapons, so nothing on these five tables carries
+ * a `slots` of its own. Coin is the exception and is minted by `copperItem`,
+ * which has always been 0.
+ */
+export interface ShopSection {
+  key: string;
+  label: string;
+  /** A line of context under the heading, where the table wants one. */
+  note?: string;
+  entries: readonly GearEntry[];
+}
+
+const TOOLS_AND_GEAR: readonly GearEntry[] = [
+  { name: "Air bladder", cost: 5 },
+  { name: "Bear trap", cost: 20 },
+  { name: "Bedroll", cost: 10 },
+  { name: "Bellows", cost: 10 },
+  { name: "Black grease", cost: 1 },
+  { name: "Block and tackle", cost: 30 },
+  { name: "Book", amount: "blank", cost: 300 },
+  { name: "Book", amount: "reading", cost: 600 },
+  { name: "Bottle", cost: 1 },
+  { name: "Bucket", cost: 5 },
+  { name: "Caltrops", amount: "1 bag", cost: 10 },
+  { name: "Cards with an extra ace", cost: 5 },
+  { name: "Chain", amount: "10 feet", cost: 10 },
+  { name: "Chalk", amount: "10 pieces", cost: 1 },
+  { name: "Chisel", cost: 5 },
+  { name: "Cookpots", cost: 10 },
+  { name: "Crowbar", cost: 10 },
+  { name: "Drill", cost: 10 },
+  { name: "Face paint", cost: 10 },
+  { name: "Fake jewels", cost: 50 },
+  { name: "Fishing rod and tackle", cost: 10 },
+  { name: "Glass marbles", amount: "1 bag", cost: 5 },
+  { name: "Glue", amount: "1 bottle", cost: 1 },
+  { name: "Grappling hook", cost: 10 },
+  { name: "Hammer", cost: 10 },
+  { name: "Holy water", cost: 25 },
+  { name: "Horn", cost: 10 },
+  { name: "Hourglass", cost: 300 },
+  { name: "Incense", amount: "1 packet", cost: 10 },
+  { name: "Iron tongs", cost: 10 },
+  { name: "Ladder", amount: "10 feet", cost: 10 },
+  { name: "Large sponge", cost: 5 },
+  { name: "Lens", cost: 100 },
+  { name: "Lockpicks", cost: 100 },
+  { name: "Manacles", cost: 10 },
+  { name: "Metal file", cost: 5 },
+  { name: "Mirror", amount: "small, silver", cost: 200 },
+  { name: "Musical instrument", cost: 200 },
+  { name: "Nails", amount: "12", cost: 5 },
+  { name: "Net", cost: 10 },
+  { name: "Oilskin bag", cost: 5 },
+  { name: "Oilskin trousers", cost: 10 },
+  { name: "Padlock and key", cost: 20 },
+  { name: "Perfume", cost: 50 },
+  { name: "Pick", cost: 10 },
+  { name: "Pole", amount: "10 feet", cost: 5 },
+  { name: "Quill and ink", cost: 1 },
+  { name: "Rope", amount: "50 feet", cost: 10 },
+  { name: "Sack", cost: 1 },
+  { name: "Saw", cost: 10 },
+  { name: "Set of loaded dice", cost: 5 },
+  { name: "Shovel", cost: 10 },
+  { name: "Small bell", cost: 20 },
+  { name: "Soap", cost: 1 },
+  { name: "Spike", amount: "iron", cost: 5 },
+  { name: "Spike", amount: "wood", cost: 1 },
+  { name: "Spiked boots", cost: 5 },
+  { name: "Spyglass", cost: 1000 },
+  { name: "Tar", amount: "1 pot", cost: 10 },
+  { name: "Tent", amount: "3 man", cost: 100 },
+  { name: "Tent", amount: "personal", cost: 50 },
+  { name: "Twine", amount: "300 feet", cost: 5 },
+  { name: "Waterskin", cost: 5 },
+  { name: "Whistle", cost: 5 },
+];
+
+const LIGHT: readonly GearEntry[] = [
+  { name: "Candle", amount: "4 hours", cost: 1 },
+  { name: "Lantern", cost: 30 },
+  { name: "Lamp oil", amount: "4 hours", cost: 5 },
+  { name: "Tinderbox", cost: 10 },
+  { name: "Torch", amount: "1 hour", cost: 1 },
+];
+
+const AMMUNITION: readonly GearEntry[] = [
+  { name: "Arrows", amount: "20", cost: 5 },
+  { name: "Quiver", amount: "capacity 20", cost: 10 },
+];
+
+const CLOTHING_FOR_SALE: readonly GearEntry[] = [
+  { name: "Poor clothing", cost: 10 },
+  { name: "Standard clothing", cost: 50 },
+  { name: "Winter clothing", cost: 100 },
+  { name: "Noble clothing", cost: 3000 },
+  { name: "Furs", cost: 5000 },
+];
+
+const FOOD: readonly GearEntry[] = [
+  { name: "Travel rations", amount: "1 day", cost: 5 },
+  { name: "Animal feed", amount: "1 day", cost: 2 },
+  { name: "Bacon", amount: "1 side", cost: 10 },
+  { name: "Bread", amount: "1 loaf", cost: 1 },
+  { name: "Cheese", amount: "1 lb", cost: 2 },
+  { name: "Cider", amount: "4 gallons", cost: 1 },
+  { name: "Cod", amount: "whole", cost: 20 },
+  { name: "Eggs", amount: "24", cost: 1 },
+  { name: "Flour", amount: "5 lbs", cost: 1 },
+  { name: "Fruit", amount: "1 lb", cost: 1 },
+  { name: "Garlic", amount: "1 bunch", cost: 1 },
+  { name: "Grain", amount: "1 bushel", cost: 4 },
+  { name: "Herbs", amount: "1 bunch", cost: 1 },
+  { name: "Lard", amount: "5 lbs", cost: 1 },
+  { name: "Onions", amount: "1 bushel", cost: 8 },
+  { name: "Salt", amount: "1 bushel", cost: 3 },
+  { name: "Spices", amount: "1 lb", cost: 100 },
+  { name: "Sugar", amount: "1 lb", cost: 12 },
+  { name: "Wine or ale", amount: "1 bottle", cost: 1 },
+];
+
+export const SHOP_SECTIONS: readonly ShopSection[] = [
+  { key: "tools", label: "Tools & gear", entries: TOOLS_AND_GEAR },
+  { key: "light", label: "Light", note: "Burn times are the book's.", entries: LIGHT },
+  { key: "ammunition", label: "Ammunition", entries: AMMUNITION },
+  { key: "clothing", label: "Clothing", entries: CLOTHING_FOR_SALE },
+  { key: "food", label: "Food & drink", entries: FOOD },
+];
+
 // ---------------------------------------------------------------------------
 // The two house-ruled tables
 // ---------------------------------------------------------------------------

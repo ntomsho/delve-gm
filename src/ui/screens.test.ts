@@ -21,6 +21,7 @@ import { generateOffline, testCharacter } from "../runtime/__fixtures__/offline.
 import { newRun, type RunState } from "../store/game.ts";
 import { mapView, roomView } from "../store/selectors.ts";
 import { NO_RECORD, type CharacterEntry, type CharacterRecord } from "../store/characters.ts";
+import type { DungeonSummary } from "../store/dungeons.ts";
 import type { PlayerCharacter } from "../engine/index.ts";
 
 const noop = () => {};
@@ -49,6 +50,7 @@ const doors = {
   onStartRun: noop,
   onResumeRun: noop,
   onAbandonRun: noop,
+  onShop: noop,
   onCreate: noop,
   onDelete: noop,
 };
@@ -126,6 +128,56 @@ describe("characters", () => {
     const html = renderToStaticMarkup(h(Characters, { ...doors, characters: cs }));
     expect(html).toContain("Send down");
     expect(html).not.toContain("Resume run");
+  });
+
+  // The market. Open to anybody standing on this screen, and shut to anybody
+  // underground — the sheet a run is playing from is the run's until it ends.
+  it("offers the shop to a character who is not in a run", () => {
+    const html = renderToStaticMarkup(h(Characters, { ...doors, characters: cs }));
+    expect(html).toContain(">Shop<");
+  });
+
+  it("does not offer the shop to a character who is in one", () => {
+    const html = renderToStaticMarkup(
+      h(Characters, { ...doors, characters: [entry(testCharacter(), { activeRun: IN_A_RUN })] })
+    );
+    expect(html).not.toContain(">Shop<");
+  });
+
+  /*
+   * PHASE 13b. The shelf is a second door beside `Send down`, not a field on
+   * it: one rolls a world for a minute and a real bill, the other picks one
+   * somebody already wrote for neither.
+   */
+
+  it("offers the library beside the character who would go down it", () => {
+    const html = renderToStaticMarkup(
+      h(Characters, { ...doors, characters: cs, onBrowse: noop })
+    );
+    expect(html).toContain("Browse worlds");
+    expect(html).toContain("Send down");
+  });
+
+  it("does not offer the library to a character already in a run", () => {
+    const html = renderToStaticMarkup(
+      h(Characters, {
+        ...doors,
+        characters: [entry(testCharacter(), { activeRun: IN_A_RUN })],
+        onBrowse: noop,
+      })
+    );
+    expect(html).not.toContain("Browse worlds");
+  });
+
+  /*
+   * A LOCAL RUN HAS NO LIBRARY. `?offline` and `?stub` never touch the server,
+   * so the button is absent rather than present and refused — the same call the
+   * sign-out control makes.
+   */
+  it("does not offer the library at all when there is no server to read it from", () => {
+    const html = renderToStaticMarkup(h(Characters, { ...doors, characters: cs }));
+    expect(html).not.toContain("Browse worlds");
+    expect(html).toContain("Send down");
   });
 
   it("says nothing at all about a character nothing has happened to", () => {
@@ -234,5 +286,54 @@ describe("run setup", () => {
     expect(html).toContain("12 rooms · 2 regions · 2 writing calls");
     expect(html).toContain("Go down");
     expect(html).toContain("Testy");
+  });
+
+  /*
+   * PHASE 13a. The screen asks which world first, and the size and level
+   * controls belong to the branch that is actually rolling one — beside a
+   * chosen dungeon they would be controls that change nothing.
+   */
+
+  const world = (over: Partial<DungeonSummary> = {}): DungeonSummary => ({
+    id: "d-1",
+    name: "The Drowned Aviary",
+    objective: "Steal the brass egg",
+    size: 3,
+    level: 2,
+    seed: 15341,
+    status: "complete",
+    createdAt: "2026-08-10T00:32:05.000Z",
+    ...over,
+  });
+
+  const setup = (dungeons?: DungeonSummary[]) =>
+    renderToStaticMarkup(
+      h(RunSetup, {
+        characters: cs.map((e) => e.sheet),
+        ...(dungeons ? { dungeons } : {}),
+        onConfirm: noop,
+        onBack: noop,
+      })
+    );
+
+  it("offers a new world even when the player has none saved", () => {
+    // The question is asked whether or not there is a second answer to it —
+    // which is how a player learns that worlds are kept at all.
+    expect(setup()).toContain("A new one");
+  });
+
+  it("names a saved world by what distinguishes it", () => {
+    const html = setup([world()]);
+    expect(html).toContain("The Drowned Aviary");
+    // The objective, because two worlds of one size and level are otherwise
+    // told apart by nothing.
+    expect(html).toContain("Steal the brass egg");
+    expect(html).toContain("Size 3 · Level 2");
+  });
+
+  it("still defaults to a new world, so the size controls are there", () => {
+    const html = setup([world()]);
+    expect(html).toContain("12 rooms · 2 regions · 2 writing calls");
+    expect(html).toContain("The dungeon starts being written the moment you press it");
   });
 });

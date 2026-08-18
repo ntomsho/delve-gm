@@ -11,8 +11,19 @@ import type { ReactNode } from "react";
 export const LABEL = "font-display text-[10px] tracking-[0.2em] text-graphite uppercase";
 export const MONO_LABEL = "font-mono text-[10px] tracking-[0.16em] text-graphite uppercase";
 
+/**
+ * `cursor-pointer` is here rather than on the buttons that wanted it.
+ *
+ * A `<button>` does not take the hand on its own — the browser draws an arrow
+ * over one and Tailwind's preflight says so explicitly — so it has to be asked
+ * for, and asking per button is how three of them end up with it and the fourth
+ * does not. Same reasoning as the `[data-hover-id]` rule in `index.css`: a
+ * thing is pointable by being the kind of thing that is pointable.
+ *
+ * The disabled cursor still wins, being a variant.
+ */
 const BASE =
-  "font-display tracking-[0.1em] transition-colors disabled:cursor-not-allowed";
+  "font-display tracking-[0.1em] transition-colors cursor-pointer disabled:cursor-not-allowed";
 
 /**
  * Four weights, and they mean four different things:
@@ -100,6 +111,57 @@ export function RerollGlyph({
     >
       ↻
     </button>
+  );
+}
+
+/**
+ * SLOTS AS A BUDGET BEING SPENT, not a bar being filled — the brief is specific
+ * about that, so it draws as boxes struck through one at a time.
+ *
+ * Shared by the equipment step and the shop, which is the whole reason it lives
+ * here: the meter a player learns to read while making a character is the meter
+ * they read while spending. Going over is drawn, in dashed torchlight past the
+ * rule, and never refused.
+ */
+export function SlotMeter({ used, capacity }: { used: number; capacity: number }) {
+  const filled = Math.min(used, capacity);
+  const empty = Math.max(0, capacity - used);
+  const over = Math.max(0, used - capacity);
+
+  return (
+    <div>
+      <div className="mb-2.5 flex items-baseline justify-between">
+        <span className={LABEL}>Slots</span>
+        <span className="font-mono text-[12px] text-ink">
+          <span className={over > 0 ? "text-torch" : ""}>{used}</span>{" "}
+          <span className="text-graphite">of {capacity}</span>
+        </span>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-[3px]">
+        {Array.from({ length: filled }, (_, i) => (
+          <div key={`f${i}`} className="h-[18px] w-[15px] bg-ink" />
+        ))}
+        {Array.from({ length: empty }, (_, i) => (
+          <div key={`e${i}`} className="h-[18px] w-[15px] border border-rule" />
+        ))}
+        {over > 0 ? (
+          <>
+            <div className="mx-0.5 h-6 w-0.5 bg-ink" />
+            {Array.from({ length: over }, (_, i) => (
+              <div key={`o${i}`} className="h-[18px] w-[15px] border border-dashed border-torch" />
+            ))}
+          </>
+        ) : null}
+      </div>
+
+      <p className="mt-2.5 font-prose text-[14px] leading-snug text-graphite">
+        Capacity is your CON defense, {capacity}.{" "}
+        {over > 0
+          ? "You are over it. You may still carry, and the referee will notice."
+          : "Past the rule you may still carry, and the referee will notice."}
+      </p>
+    </div>
   );
 }
 

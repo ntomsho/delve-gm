@@ -112,6 +112,19 @@ export interface PlayableSession {
    * visibly is not there. `App` offers the control only where the method is.
    */
   resume?(runId: string): Promise<void>;
+  /**
+   * Start a run in a world that is already written.
+   *
+   * OPTIONAL, AND ABSENT ON A LOCAL RUN, for the same reason `resume` is: a
+   * stored dungeon is a row in Postgres, and `?offline` has one fixture and no
+   * database to name it in. `App` offers the choice only where the method is.
+   *
+   * IT TAKES A DUNGEON ID AND NOT A `RunRequest`. Size, level and seed are
+   * facts about a world that exists, so restating them here would be inviting a
+   * client to state them wrongly — and the server would then have to decide
+   * which of the two it believed.
+   */
+  beginIn?(request: { dungeonId: string; character: PlayerCharacter }): Promise<void>;
   enterRoom(): Promise<void>;
   submit(text: string): Promise<void>;
   roll(): Promise<void>;

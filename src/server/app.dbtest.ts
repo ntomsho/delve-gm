@@ -233,6 +233,146 @@ describe("starting a run", () => {
   });
 });
 
+/*
+ * PHASE 13b. The shelf, over HTTP. `listLibrary` is covered against the database
+ * in `ownership.dbtest.ts`; what is left here is the layer where a query string
+ * becomes an argument — including the one that would be a routing bug rather
+ * than a query one.
+ */
+describe("browsing the library", () => {
+  it("serves other players' worlds and not the caller's own", async () => {
+    const stranger = await makeUser();
+    const theirs = await aFinishedDungeon(stranger);
+
+    const res = await ask("/api/dungeons/library");
+    const body = (await res.json()) as Record<string, any>;
+
+    expect(res.status).toBe(200);
+    expect(body.dungeons.map((d: any) => d.id)).toContain(theirs);
+    // `hole` and `otherHole` belong to the caller and are on no shelf of theirs.
+    expect(body.dungeons.map((d: any) => d.id)).not.toContain(hole);
+    expect(body.dungeons[0]).not.toHaveProperty("doc");
+
+    await sql`delete from auth.users where id = ${stranger}`;
+  });
+
+  /**
+   * THE ROUTING ONE. `library` is a perfectly plausible dungeon id, so this
+   * route has to be reachable at all — registered ahead of the `:id` routes.
+   * A test that only asked whether the query was right would pass against a
+   * server that answered this with "no such dungeon: library".
+   */
+  it("is not shadowed by the routes that take a dungeon id", async () => {
+    const res = await ask("/api/dungeons/library");
+    expect(res.status).toBe(200);
+    expect(await res.json()).toHaveProperty("dungeons");
+  });
+
+  it("pages with the cursor it handed out", async () => {
+    const stranger = await makeUser();
+    await aFinishedDungeon(stranger);
+    await aFinishedDungeon(stranger);
+
+    const first = (await (await ask("/api/dungeons/library?limit=1")).json()) as any;
+    expect(first.dungeons).toHaveLength(1);
+    expect(first.cursor).toBeTruthy();
+
+    const second = (await (
+      await ask(`/api/dungeons/library?limit=1&cursor=${encodeURIComponent(first.cursor)}`)
+    ).json()) as any;
+
+    expect(second.dungeons).toHaveLength(1);
+    expect(second.dungeons[0].id).not.toBe(first.dungeons[0].id);
+
+    await sql`delete from auth.users where id = ${stranger}`;
+  });
+
+  it("needs an account like everything else under /api", async () => {
+    expect((await app.request("/api/dungeons/library")).status).toBe(401);
+  });
+});
+
+/*
+ * PHASE 13a. The route that names a dungeon the caller does not own — and what
+ * has to be true is that it hands over a copy and never the source. The `doc`
+ * is every answer in the world; browsing must not be a way to read one.
+ */
+describe("taking a copy of another player's world", () => {
+  it("makes a world of the caller's own and serves nothing of the original", async () => {
+    const stranger = await makeUser();
+    const theirs = await aFinishedDungeon(stranger);
+
+    /**
+     * A run into a dungeon, by status alone.
+     *
+     * NOT `sendDown`, which reads the body: `mustGetDungeon` refuses through an
+     * `HTTPException`, and Hono renders one as plain text. That is the shape
+     * every "not yours / not there" answer in this API has, and it is the one
+     * being asserted here.
+     */
+    const walkInto = async (id: string) =>
+      (await ask("/api/runs", { method: "POST", body: { dungeonId: id, character: await aCharacter() } }))
+        .status;
+
+    // Before: a stranger's dungeon is a 404 to everything that serves a `doc`.
+    expect(await walkInto(theirs)).toBe(404);
+
+    const res = await ask(`/api/dungeons/${theirs}/duplicate`, { method: "POST" });
+    const body = (await res.json()) as Record<string, any>;
+    expect(res.status).toBe(200);
+    expect(body.already).toBe(false);
+    expect(body.dungeonId).not.toBe(theirs);
+    // The reply is an id and a flag. No name, no objective, no document.
+    expect(Object.keys(body).sort()).toEqual(["already", "dungeonId"]);
+
+    // After: the caller can walk into their own copy, and the stranger's row is
+    // still a 404 to them.
+    expect(await walkInto(body.dungeonId)).toBe(200);
+    expect(await walkInto(theirs)).toBe(404);
+
+    await sql`delete from auth.users where id = ${stranger}`;
+  });
+
+  it("hands back the copy already taken on a second press", async () => {
+    const stranger = await makeUser();
+    const theirs = await aFinishedDungeon(stranger);
+
+    const first = (await (await ask(`/api/dungeons/${theirs}/duplicate`, { method: "POST" })).json()) as any;
+    const second = (await (await ask(`/api/dungeons/${theirs}/duplicate`, { method: "POST" })).json()) as any;
+
+    expect(second).toEqual({ dungeonId: first.dungeonId, already: true });
+
+    await sql`delete from auth.users where id = ${stranger}`;
+  });
+
+  /** "Not there" and "still being written" are one answer, for the same reason
+   *  "not there" and "not yours" are everywhere else in this API. */
+  it("refuses a half-written world with the same 404 as a missing one", async () => {
+    const stranger = await makeUser();
+    const partial = await repo.insertPartialDungeon(world, stranger);
+
+    const half = await ask(`/api/dungeons/${partial}/duplicate`, { method: "POST" });
+    const missing = await ask(
+      `/api/dungeons/00000000-0000-0000-0000-000000000000/duplicate`,
+      { method: "POST" }
+    );
+    expect(half.status).toBe(404);
+    expect(missing.status).toBe(404);
+
+    await sql`delete from auth.users where id = ${stranger}`;
+  });
+
+  it("needs an account like everything else under /api", async () => {
+    const stranger = await makeUser();
+    const theirs = await aFinishedDungeon(stranger);
+
+    const res = await app.request(`/api/dungeons/${theirs}/duplicate`, { method: "POST" });
+    expect(res.status).toBe(401);
+
+    await sql`delete from auth.users where id = ${stranger}`;
+  });
+});
+
 describe("abandoning a run", () => {
   async function aRunInProgress() {
     const pc = await aCharacter();

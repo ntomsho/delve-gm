@@ -230,6 +230,309 @@ describe("dungeons", () => {
   });
 });
 
+/*
+ * PHASE 13b. The second cross-owner read, and the one that runs to many rows.
+ *
+ * 🔴 EVERY ROW IN A TEST HERE SHARES `created_at` EXACTLY, and that is a gift
+ * rather than a nuisance: the column defaults to `now()`, which is the
+ * TRANSACTION's clock, and `inRollback` puts each case in one transaction. So
+ * the ordering falls entirely to the `id desc` tie-break and every page break
+ * lands on a tie — which is the case that would silently drop or repeat a row if
+ * the id were not in the keyset comparison. It is exercised on every assertion
+ * below rather than in one test written for it.
+ *
+ * It also means insertion order says NOTHING about the order out, so what is
+ * asserted is that the batches partition the shelf: no gaps, no repeats.
+ */
+describe("the library", () => {
+  /** `n` finished worlds belonging to `owner`. */
+  async function worlds(tx: postgres.Sql, owner: string, n: number): Promise<string[]> {
+    const ids: string[] = [];
+    for (let i = 0; i < n; i++) {
+      const id = await repo.insertPartialDungeon(dungeon(4201 + i), owner, tx);
+      await repo.completeDungeon(id, dungeon(4201 + i), owner, tx);
+      ids.push(id);
+    }
+    return ids;
+  }
+
+  /**
+   * 🔴 THE SHELF IS NOT EMPTY AND CANNOT BE MADE SO. This suite rolls back but
+   * it runs against the real database, and the author's own dungeons are on it —
+   * to a freshly minted test user, every one of them is "somebody else's". A
+   * first draft of these tests asserted `toEqual([])` and `toHaveLength(5)` and
+   * failed on real data, correctly.
+   *
+   * So every assertion here is about THIS TEST'S OWN ROWS. That is not a
+   * weakening: because `created_at` is the transaction clock, the worlds a test
+   * makes are strictly the NEWEST on the shelf, so they are exactly the front of
+   * a `created_at desc` ordering and can be read off the first batches by count.
+   */
+  const ids = (page: { dungeons: { id: string }[] }) => page.dungeons.map((d) => d.id);
+
+  it("shows other players' finished worlds and never the viewer's own", async () => {
+    await inRollback(async (tx) => {
+      const a = await makeUser(tx, "a");
+      const b = await makeUser(tx, "b");
+      const theirs = await worlds(tx, a, 3);
+      const mine = await worlds(tx, b, 2);
+
+      const page = await repo.listLibrary(b, { limit: 20 }, tx);
+      // A's three are at the front, being the newest on the shelf. B's two are
+      // nowhere in it at all.
+      expect(ids(page).slice(0, 3).sort()).toEqual([...theirs].sort());
+      for (const id of mine) expect(ids(page)).not.toContain(id);
+    });
+  });
+
+  /** Half a world cannot be walked into and is nobody's business but its maker's. */
+  it("does not shelve a world that is still being written", async () => {
+    await inRollback(async (tx) => {
+      const a = await makeUser(tx, "a");
+      const b = await makeUser(tx, "b");
+      const half = await repo.insertPartialDungeon(dungeon(4201), a, tx);
+      const whole = await worlds(tx, a, 1);
+
+      // Both were made in this transaction, so both would be at the front if
+      // status were not filtered. Only the finished one is there.
+      const page = await repo.listLibrary(b, { limit: 20 }, tx);
+      expect(ids(page)).toContain(whole[0]);
+      expect(ids(page)).not.toContain(half);
+    });
+  });
+
+  it("carries a summary and never the document", async () => {
+    await inRollback(async (tx) => {
+      const a = await makeUser(tx, "a");
+      const b = await makeUser(tx, "b");
+      await worlds(tx, a, 1);
+
+      const [newest] = (await repo.listLibrary(b, { limit: 1 }, tx)).dungeons;
+      expect(newest.name).toBe("The Test Hole");
+      expect(newest.objective).toBe("leave");
+      expect(newest.status).toBe("complete");
+      // `doc` is every answer in the world, and `cursor` is the function's own
+      // bookkeeping — neither belongs to a caller.
+      expect(newest).not.toHaveProperty("doc");
+      expect(newest).not.toHaveProperty("cursor");
+      // Nor is the maker named. The only name we hold is an email address.
+      expect(Object.keys(newest)).not.toContain("ownerId");
+    });
+  });
+
+  /**
+   * THE WHOLE OF PAGING, and the tie-break is under every break of it — see the
+   * note above this describe. Five worlds read three at a time have to come back
+   * as three then two with nothing repeated and nothing missed; the sixth row of
+   * the second batch belongs to whatever was already on the shelf.
+   */
+  it("hands out batches that partition the shelf without gaps or repeats", async () => {
+    await inRollback(async (tx) => {
+      const a = await makeUser(tx, "a");
+      const b = await makeUser(tx, "b");
+      const all = await worlds(tx, a, 5);
+
+      const first = await repo.listLibrary(b, { limit: 3 }, tx);
+      expect(first.dungeons).toHaveLength(3);
+      expect(first.cursor).toBeTruthy();
+
+      const second = await repo.listLibrary(b, { limit: 3, cursor: first.cursor! }, tx);
+
+      const seen = [...ids(first), ...ids(second)];
+      // Nothing came back twice across the break — which is the failure a tie on
+      // `created_at` would cause if the id were not in the keyset comparison.
+      expect(new Set(seen).size).toBe(seen.length);
+      // And the five are all there, in the first five places.
+      expect(seen.slice(0, 5).sort()).toEqual([...all].sort());
+    });
+  });
+
+  /**
+   * The probe row must not leak. `listLibrary` asks for `limit + 1` to learn
+   * whether there is more, and the caller must never see the extra one.
+   */
+  it("returns exactly the batch asked for, however much is behind it", async () => {
+    await inRollback(async (tx) => {
+      const a = await makeUser(tx, "a");
+      const b = await makeUser(tx, "b");
+      await worlds(tx, a, 5);
+
+      const page = await repo.listLibrary(b, { limit: 2 }, tx);
+      expect(page.dungeons).toHaveLength(2);
+      expect(page.cursor).toBeTruthy();
+    });
+  });
+
+  it("clamps a limit rather than trusting one", async () => {
+    await inRollback(async (tx) => {
+      const a = await makeUser(tx, "a");
+      const b = await makeUser(tx, "b");
+      await worlds(tx, a, 4);
+
+      // Nonsense in, a sane batch out — nothing here throws and nothing asks
+      // Postgres for `limit -1`.
+      expect((await repo.listLibrary(b, { limit: 0 }, tx)).dungeons).toHaveLength(1);
+      expect((await repo.listLibrary(b, { limit: -5 }, tx)).dungeons).toHaveLength(1);
+      // The ceiling and the default, which bound the answer rather than fix it:
+      // what is behind this test's own four rows is whatever is on the shelf.
+      expect((await repo.listLibrary(b, { limit: 10_000 }, tx)).dungeons.length).toBeLessThanOrEqual(48);
+      expect((await repo.listLibrary(b, { limit: NaN }, tx)).dungeons.length).toBeLessThanOrEqual(12);
+      expect((await repo.listLibrary(b, { limit: NaN }, tx)).dungeons.length).toBeGreaterThanOrEqual(4);
+    });
+  });
+
+  it("reads a cursor that is not one as no cursor at all", async () => {
+    await inRollback(async (tx) => {
+      const a = await makeUser(tx, "a");
+      const b = await makeUser(tx, "b");
+      const all = await worlds(tx, a, 2);
+
+      for (const cursor of ["nonsense", "", "|", "not-a-time|not-a-uuid"]) {
+        const page = await repo.listLibrary(b, { cursor, limit: 2 }, tx);
+        // The front of the shelf, which is this test's own two worlds — rather
+        // than a throw, and rather than a page from the middle of nowhere.
+        expect(ids(page).sort()).toEqual([...all].sort());
+      }
+    });
+  });
+});
+
+/*
+ * PHASE 13a. The one read in `repo.ts` that does not ask whose row it is — and
+ * the rule is not being bent, because what it does with the row is write a NEW
+ * one belonging to the caller. Nothing about the source is ever returned.
+ */
+describe("taking a copy of a world", () => {
+  /** A complete dungeon of A's, with a generation journal against it. */
+  async function worldOf(tx: postgres.Sql, owner: string, seed = 4201): Promise<string> {
+    const id = await repo.insertPartialDungeon(dungeon(seed), owner, tx);
+    await repo.completeDungeon(id, dungeon(seed), owner, tx);
+    await repo.appendDungeonEvents(
+      id,
+      [
+        { seq: 1, at: new Date().toISOString(), kind: "generation" },
+        { seq: 2, at: new Date().toISOString(), kind: "dungeon" },
+      ] as never,
+      tx
+    );
+    return id;
+  }
+
+  it("gives the copy to whoever asked, and leaves the original alone", async () => {
+    await inRollback(async (tx) => {
+      const a = await makeUser(tx, "a");
+      const b = await makeUser(tx, "b");
+      const source = await worldOf(tx, a);
+
+      const made = await repo.duplicateDungeon(source, b, tx);
+      expect(made).toMatchObject({ already: false });
+
+      // B has a whole world of their own, doc and all.
+      expect((await repo.getDungeon(made!.id, b, tx))?.doc).toBeDefined();
+      // And A still has theirs, untouched and still invisible to B.
+      expect(await repo.getDungeon(source, a, tx)).toBeDefined();
+      expect(await repo.getDungeon(source, b, tx)).toBeUndefined();
+      expect(made!.id).not.toBe(source);
+    });
+  });
+
+  /**
+   * THE JOURNAL COMES ACROSS. A run's transcript is generation followed by play
+   * (`readJournal`), so a copy without these is a world whose record begins
+   * after it was built — and nothing would tell you that had happened.
+   */
+  it("brings the generation journal with it", async () => {
+    await inRollback(async (tx) => {
+      const a = await makeUser(tx, "a");
+      const b = await makeUser(tx, "b");
+      const source = await worldOf(tx, a);
+
+      const made = await repo.duplicateDungeon(source, b, tx);
+      const events = await repo.readDungeonEvents(made!.id, tx);
+      expect(events.map((e) => e.kind)).toEqual(["generation", "dungeon"]);
+      // And the copy's own sequence carries on from them rather than colliding.
+      expect(await repo.lastDungeonSeq(made!.id, tx)).toBe(2);
+    });
+  });
+
+  /**
+   * THE SECOND CLICK. Matched on the SOURCE and not on `dungeon_key`: a seed
+   * fixes the structure and the stocking, but the prose is model output, so
+   * "you already have a seed-4201 dungeon" is not an answer to "may I have THAT
+   * one". The copy that already exists is handed back rather than a second
+   * half-megabyte row being minted.
+   */
+  it("hands back the copy already made rather than making another", async () => {
+    await inRollback(async (tx) => {
+      const a = await makeUser(tx, "a");
+      const b = await makeUser(tx, "b");
+      const source = await worldOf(tx, a);
+
+      const first = await repo.duplicateDungeon(source, b, tx);
+      const second = await repo.duplicateDungeon(source, b, tx);
+
+      expect(second).toEqual({ id: first!.id, already: true });
+      expect(await repo.listDungeons(b, tx)).toHaveLength(1);
+    });
+  });
+
+  it("does not mistake a world of the same seed for the one being asked for", async () => {
+    await inRollback(async (tx) => {
+      const a = await makeUser(tx, "a");
+      const b = await makeUser(tx, "b");
+      // B rolled seed 4201 themselves. A's seed-4201 world is a DIFFERENT
+      // world — same skeleton, different writing — and B may still have it.
+      await worldOf(tx, b);
+      const source = await worldOf(tx, a);
+
+      expect(await repo.duplicateDungeon(source, b, tx)).toMatchObject({ already: false });
+      expect(await repo.listDungeons(b, tx)).toHaveLength(2);
+    });
+  });
+
+  /** Half a world is not worth copying, and the copy would have no chunks to
+   *  finish from. "Not there" and "not finished" are one answer. */
+  it("refuses a dungeon that is still being written", async () => {
+    await inRollback(async (tx) => {
+      const a = await makeUser(tx, "a");
+      const b = await makeUser(tx, "b");
+      const partial = await repo.insertPartialDungeon(dungeon(4201), a, tx);
+
+      expect(await repo.duplicateDungeon(partial, b, tx)).toBeUndefined();
+      expect(await repo.listDungeons(b, tx)).toEqual([]);
+    });
+  });
+
+  it("answers nothing for a dungeon that does not exist", async () => {
+    await inRollback(async (tx) => {
+      const b = await makeUser(tx, "b");
+      const nowhere = "00000000-0000-0000-0000-000000000000";
+      expect(await repo.duplicateDungeon(nowhere, b, tx)).toBeUndefined();
+    });
+  });
+
+  /**
+   * A copy is a world in its own right, so a run can be played in it — which is
+   * the whole reason the endpoint exists. `getDungeon` under the new owner is
+   * what `POST /api/runs` calls, and it has to find a complete world.
+   */
+  it("produces a world its new owner can actually walk into", async () => {
+    await inRollback(async (tx) => {
+      const a = await makeUser(tx, "a");
+      const b = await makeUser(tx, "b");
+      const source = await worldOf(tx, a);
+      const made = await repo.duplicateDungeon(source, b, tx);
+
+      const stored = await repo.getDungeon(made!.id, b, tx);
+      expect(stored?.status).toBe("complete");
+      // The document keeps the engine's own derived name: it is the name of the
+      // WORLD, and both copies are that world.
+      expect(stored?.dungeonKey).toBe("dungeon_38p");
+      expect(stored?.doc.id).toBe("dungeon_38p");
+    });
+  });
+});
+
 describe("runs", () => {
   /** A run belonging to A, and a second account that should never see it. */
   async function twoPlayersOneRun(tx: postgres.Sql) {

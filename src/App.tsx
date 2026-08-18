@@ -40,7 +40,9 @@ import { PlayScreen } from "./ui/play/PlayScreen.tsx";
 import { LoadingScreen } from "./ui/LoadingScreen.tsx";
 import { Characters } from "./ui/Characters.tsx";
 import { CreateCharacter } from "./ui/create/CreateCharacter.tsx";
+import { Shop } from "./ui/shop/Shop.tsx";
 import { RunSetup } from "./ui/RunSetup.tsx";
+import { purse, type PlayerCharacter } from "./engine/index.ts";
 import { toItems } from "./ui/play/Narration.tsx";
 import { useGame } from "./store/react.ts";
 import {
@@ -51,6 +53,13 @@ import {
   type ActiveRun,
   type CharacterEntry,
 } from "./store/characters.ts";
+import {
+  duplicateDungeon,
+  listDungeons,
+  listLibrary,
+  type DungeonSummary,
+} from "./store/dungeons.ts";
+import { Library } from "./ui/Library.tsx";
 import { SignIn } from "./ui/SignIn.tsx";
 import { authedFetch, onAuthChange, signIn, signOut, type Account } from "./store/auth.ts";
 import {
@@ -107,8 +116,15 @@ const localCharacters = (): CharacterEntry[] => [
   { sheet: testCharacter(), record: NO_RECORD },
 ];
 
-/** Only the part before a run. Once the dungeon exists, that is what decides. */
-type Screen = "characters" | "create" | "setup" | "generating";
+/**
+ * Only the part before a run. Once the dungeon exists, that is what decides.
+ *
+ * The market is not one of these. It is `shopping` holding a sheet, because a
+ * shop with nobody in it is not a state the app can be in — and a screen name
+ * that could disagree with the character it is showing is exactly the pair of
+ * fields that drift apart.
+ */
+type Screen = "characters" | "create" | "setup" | "library" | "generating";
 
 export default function App() {
   const [progress, setProgress] = useState<GenerationProgress>();
@@ -152,6 +168,16 @@ export default function App() {
   const { dungeon, run } = useGame(session.store);
   const [screen, setScreen] = useState<Screen>(BYPASS ? "generating" : "characters");
   const [characters, setCharacters] = useState<CharacterEntry[]>();
+  /**
+   * The player's own worlds, for run setup to offer.
+   *
+   * READ WHEN THE SETUP SCREEN OPENS rather than kept in step with the roster.
+   * It is the one screen that asks, it is asked once per run, and a list
+   * fetched at the moment it is shown cannot be a stale list — which the
+   * alternative, refreshing it alongside the characters after every save and
+   * delete, would be spending two requests to achieve less reliably.
+   */
+  const [dungeons, setDungeons] = useState<DungeonSummary[]>();
   /** A refusal from the server, in its own words, shown on the roster. */
   const [notice, setNotice] = useState<string>();
 
@@ -170,6 +196,12 @@ export default function App() {
   const [authReady, setAuthReady] = useState(LOCAL);
   /** Whoever the player pressed *Send down* on, carried into run setup. */
   const [chosenId, setChosenId] = useState<string>();
+  /**
+   * Whoever is at the market. The SHEET rather than an id, because the shop
+   * edits it and hands back a new one — and because the character arriving
+   * straight out of creation is not on the roster this render.
+   */
+  const [shopping, setShopping] = useState<PlayerCharacter>();
   const [error, setError] = useState<string>();
   /** Held so a failed generation can be tried again on the same seed. */
   const [lastRequest, setLastRequest] = useState<RunRequest>();
@@ -192,6 +224,71 @@ export default function App() {
   async function begin(request: RunRequest) {
     setLastRequest(request);
     await start(session, request);
+  }
+
+  /**
+   * GO BACK DOWN A WORLD THAT IS ALREADY WRITTEN.
+   *
+   * One request and no model call — see `beginIn` in `remote-session.ts`. It
+   * still borrows the generating screen, because what the player is waiting for
+   * is a run being created and that is the screen this app shows while it waits
+   * for a run to appear.
+   *
+   * NO `lastRequest`, so the failure screen offers no retry button. That is
+   * correct rather than an omission: the retry it offers is "try that seed
+   * again", and there is no seed here — the world exists and a run into it that
+   * failed to be created failed for a reason a second identical POST will not
+   * fix. Going back to the roster is the honest way on.
+   */
+  async function beginExisting(dungeonId: string, character: PlayerCharacter) {
+    setLastRequest(undefined);
+    setScreen("generating");
+    try {
+      await session.beginIn?.({ dungeonId, character });
+    } catch (e) {
+      setError(describeFailure(e));
+    }
+  }
+
+  /**
+   * TAKE A COPY OF SOMEBODY ELSE'S WORLD, AND GO DOWN IT.
+   *
+   * Two requests and no model call. The copy has to happen first and cannot be
+   * skipped: `POST /api/runs` reads the dungeon under an owner filter, so the
+   * source row is a 404 to this player right up until they hold one of their
+   * own. Taking a copy is also idempotent — a world already taken hands back the
+   * copy that exists — so a player who browses to the same dungeon twice does
+   * not accumulate rows.
+   *
+   * THROWS RATHER THAN CATCHES. `Library` is showing the card that was pressed
+   * and is the right place for this to be reported, next to the thing that
+   * failed — where a notice on the roster would be a message about a screen the
+   * player is still looking at.
+   */
+  async function takeAndDescend(dungeon: DungeonSummary, character: PlayerCharacter) {
+    const { dungeonId } = await duplicateDungeon(dungeon.id);
+    await beginExisting(dungeonId, character);
+  }
+
+  /**
+   * The worlds this player already has, read when the screen that offers them
+   * opens. Partial ones are dropped here rather than in `RunSetup`: a half
+   * written dungeon is a failed generation, `POST /api/runs` refuses one, and a
+   * control that is offered and then refused is worse than one never shown.
+   */
+  async function openSetup() {
+    setDungeons(undefined);
+    setScreen("setup");
+    if (LOCAL) return;
+    try {
+      setDungeons((await listDungeons()).filter((d) => d.status === "complete"));
+    } catch (e) {
+      // Not fatal and not a notice on a screen the player has just left. The
+      // list is simply empty, which offers a new world — the behaviour this
+      // screen had before there was a list at all.
+      console.warn("[app] could not read the saved worlds:", e);
+      setDungeons([]);
+    }
   }
 
   /**
@@ -371,6 +468,38 @@ export default function App() {
     );
   }
 
+  /**
+   * THE MARKET, and it is ahead of the roster rather than beside it.
+   *
+   * `shopping` holding a sheet IS the shop being open — there is no screen name
+   * for it — so this has to be tested before the screen it returns to, which is
+   * `characters` the whole time somebody is at the counter. Leaving clears the
+   * sheet and the roster is already underneath.
+   */
+  if (shopping) {
+    return (
+      <Shop
+        pc={shopping}
+        onLeave={() => setShopping(undefined)}
+        onBuy={(bought) =>
+          void (async () => {
+            try {
+              await saveCharacter(bought);
+            } catch (e) {
+              // The purchase IS the sheet, so a failed save is a purchase that
+              // did not happen. Say so on the roster rather than dropping them
+              // there believing they are carrying a lantern.
+              setNotice(e instanceof Error ? e.message : String(e));
+            }
+            await refreshRoster();
+            setShopping(undefined);
+            setScreen("characters");
+          })()
+        }
+      />
+    );
+  }
+
   if (screen === "characters") {
     return (
       <Characters
@@ -378,10 +507,25 @@ export default function App() {
         onStartRun={(pc) => {
           setNotice(undefined);
           setChosenId(pc.id);
-          setScreen("setup");
+          void openSetup();
         }}
+        // A LOCAL RUN HAS NO LIBRARY. `?offline` and `?stub` never touch the
+        // server, so the button is not there rather than there and refused.
+        {...(LOCAL
+          ? {}
+          : {
+              onBrowse: (pc: PlayerCharacter) => {
+                setNotice(undefined);
+                setChosenId(pc.id);
+                setScreen("library");
+              },
+            })}
         onResumeRun={(active) => void resume(active.id)}
         onAbandonRun={(active) => void abandonFromRoster(active)}
+        onShop={(pc) => {
+          setNotice(undefined);
+          setShopping(pc);
+        }}
         onCreate={() => setScreen("create")}
         onDelete={(pc) =>
           void (async () => {
@@ -413,9 +557,44 @@ export default function App() {
             await saveCharacter(pc);
             await refreshRoster();
             setChosenId(pc.id);
+            // TOOK THE MONEY, GOES TO THE MARKET. Derived from the sheet rather
+            // than passed down as a flag from the equipment step: a rolled kit
+            // carries no copper, so a purse with anything in it IS the buying
+            // path, and a character who leaves the shop with change comes back
+            // to a roster button rather than to this branch again.
+            if (purse(pc) > 0) setShopping(pc);
             setScreen("characters");
           })()
         }
+      />
+    );
+  }
+
+  /**
+   * THE SHELF, and it needs whoever is going down.
+   *
+   * The character is resolved from the roster by id rather than held as a second
+   * copy of the sheet — the same lookup `RunSetup` makes from `initialId`, and
+   * for the same reason: a screen name and a sheet held beside it are the pair of
+   * fields that drift apart. If they are not on the roster any more, there is
+   * nobody to send and the roster is the honest place to be.
+   */
+  if (screen === "library") {
+    const going = (characters ?? []).find((e) => e.sheet.id === chosenId);
+    if (!going) {
+      // Adjusting this component's own state during its own render, which React
+      // supports and re-runs immediately — the screen below never paints. It is
+      // conditional on a state that the update itself clears, so it cannot loop.
+      // The case is a sign-out, or a roster that came back without them.
+      setScreen("characters");
+      return null;
+    }
+    return (
+      <Library
+        character={going.sheet}
+        load={listLibrary}
+        onChoose={(d) => takeAndDescend(d, going.sheet)}
+        onBack={() => setScreen("characters")}
       />
     );
   }
@@ -426,10 +605,18 @@ export default function App() {
         // Only those who can actually go. A character in a run is not an option
         // here, and offering one would be offering a move the server refuses.
         characters={(characters ?? []).filter((e) => !e.activeRun).map((e) => e.sheet)}
+        {...(dungeons ? { dungeons } : {})}
         initialId={chosenId}
         onBack={() => setScreen("characters")}
-        onConfirm={({ size, level, character }) =>
-          void begin({ seed: seedForNewRun(), size, level, character })
+        onConfirm={(choice) =>
+          void (choice.world === "existing"
+            ? beginExisting(choice.dungeonId, choice.character)
+            : begin({
+                seed: seedForNewRun(),
+                size: choice.size,
+                level: choice.level,
+                character: choice.character,
+              }))
         }
       />
     );

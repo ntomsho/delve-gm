@@ -21,16 +21,20 @@ it is and §2 below does not say.
 | 3 Turn loop against a stub | ✅ built (`__fixtures__/stub-referee.ts`, `offline.ts`) |
 | 4 Real model | ✅ built — a full run completed 2026-08-10 |
 | 4.5 The way in | ✅ built (`Characters.tsx`, `RunSetup.tsx`); the creation door opened with Phase 5 |
-| 5 Character creation | ✅ built — §3 |
+| 5 Character creation | ✅ built — §3. The shop, its one carried gap, is built too — §3.7 |
 | 6 Maps | ✅ built (6a → 6c.4), with the carried gaps in §1.2 |
 | 7 Dev affordances | ⚠️ **partial** — §4 |
 | 8 Playtest refinements | ⚠️ **started** — 8a is done bar A7 and A9, the 8b hover items, the click-verb pill and four of the 8b interface fixes are built, 8f's capitalisation has landed, and the exit-count item is closed bar its step-file line; §5 is the rest, and the bulk of the remaining work |
 | 9 The seam | ✅ built — §6. First of the server migration, and it contains no server |
 | 10 Server and database | ✅ built and deployed — §7. https://aidungeon.vercel.app |
 | 11 Accounts and ownership | ✅ built — §8. Google sign-in, `owner_id` everywhere, the dungeon key split |
+| 12 Run continuity | ✅ built — §9. Resume, abandon, the one-run-at-a-time lock |
+| 13a Shared worlds | ✅ built — §9a. Duplicate a dungeon, and go back down one already written |
+| 13b The library | ✅ built — §9b. Browse what other people wrote, in batches, and take one |
 
-**818 tests and build clean after Phase 11**, plus a third, explicitly-invoked
-vitest config (`npm run test:db`) holding 13 more that need a real database.
+**913 tests and build clean after Phase 13b** (899 after 13a, 887 after the shop, 818
+after Phase 11), plus a third, explicitly-invoked vitest config (`npm run test:db`)
+holding **58** more that need a real database.
 
 553 tests, two vitest projects, build clean as of `5feed17`. 593 and still clean after the
 8b hover work; 630 and still clean after the click-verb pill; 640 and still clean after
@@ -711,7 +715,7 @@ reachable at last.
 
 ### 3.6 Deliberately not in this pass
 
-- **The shop.** Next session. The copper is rolled and carried; nothing spends it.
+- ~~**The shop.**~~ ✅ **BUILT — §3.7.** The copper is spent now.
 - **Persistence.** `store/characters.ts` gained `saveCharacter` and
   `deleteCharacter` against the same in-memory array, so **a character does not
   survive a reload**. What the record looks like and what happens to one saved
@@ -720,6 +724,63 @@ reachable at last.
 - **The library card's run-state badges** — the artifact's `IN A RUN`,
   `DIED · ROOM 3`, and the epitaph. Those need per-character run state nothing
   stores, and a badge computed from a field nobody writes is worse than no badge.
+
+---
+
+## 3.7 The shop ✅ **BUILT**
+
+The other half of the equipment step, and what makes buying a real choice rather
+than the thinner one. `src/engine/shop.ts` is the whole of the rules;
+`src/ui/shop/Shop.tsx` is the counter.
+
+**Reached two ways, and they are the same screen.** A `Shop` button on every
+roster row that is not in a run, and — for anybody who took the copper —
+straight off the last button of creation. The second is **derived from the
+sheet**, not passed down as a flag from `StepEquipment`: a rolled kit carries no
+copper, so `purse(pc) > 0` *is* the buying path. `App.tsx` holds the shopper as
+a sheet (`shopping`) rather than as a screen name, because a market with nobody
+in it is not a state the app can be in, and the branch sits **above** the roster
+it returns to.
+
+**The prices are the Item Costs page, transcribed once.** `SHOP_SECTIONS` in
+`knave-tables.ts` carries tools, light, ammunition, clothing and food; the armor
+rows and the weapon picker read `ARMOR_STATS` and `WEAPON_CLASSES`, which are
+the same page and were already transcribed for creation. Weapons are asked for
+**class first, name second**, exactly as at creation — the class is every number
+and the name is fiction laid on it. Everything on the five gear tables is one
+slot, because Knave says most items are and states otherwise only for armor and
+weapons.
+
+**The purse is prose on an item**, `Copper` with `amount: "440 cp"`, so `purse`
+and `setPurse` live in `character-creation.ts` beside `copperItem` — the one
+file that writes that string is the one file that reads it. **A purse of nothing
+is no row at all.**
+
+**Nothing is committed until the Buy button**, as in creation. The cart is
+local, `checkout` is pure, and the sheet the parent saves is the object the
+aside was describing. What binds:
+
+- **Money is enforced, capacity is not.** The `+` that would overspend is dead
+  before it is pressed and `checkout` throws besides; being overburdened is
+  reported and bought anyway, which is the same call §3.4 makes for a rolled kit.
+- **Quantities mint separate items.** Three torches are three items of one slot,
+  because that is what they weigh and because dropping one has to be possible.
+- **What is bought goes on, where there is room.** An empty equip slot takes the
+  first purchase that fits it — armor nobody is wearing is money for nothing —
+  and a **filled slot is never displaced**. `canEquip` is the strict check, so a
+  shield bought beside a two-hander stays in the pack exactly as a rolled one
+  does.
+- **No selling.** A shop that buys is a second set of rules nobody asked for. A
+  cart can be emptied, which covers changing your mind.
+
+**`POST /api/characters` now refuses a character with an active run**, the way
+`DELETE` already did and for a neighbouring reason: a run plays from its own copy
+of the sheet and writes what survives back when it ends, so a write from the
+roster would either be lost or clobber the run's own result. The shop does not
+offer the button to anyone underground; this is the rule rather than the manners.
+
+`SlotMeter` moved to `create/shared.tsx` — the meter a player learns to read
+while making a character is the meter they read while spending.
 
 ---
 
@@ -2358,6 +2419,223 @@ was called done.
 
 ---
 
+## 9a. Phase 13a — A world outlives the run played in it ✅ **BUILT**
+
+The first of the three things Phase 11 specified and deliberately did not build
+(§8.9). **The other two are still open and §11 carries them**, with one premise
+corrected below that they should start from rather than from the Phase 11 text.
+
+Every run before this bought a fresh dungeon whether or not the player already
+had one they wanted to go back down, **because there was no way to say so**. A
+world was written for N+2 model calls, played once, and then unreachable: `GET
+/api/dungeons` had been serving summaries since Phase 10 with nothing on earth
+fetching them, and `RunSetup` always minted a seed. The dungeon was the most
+expensive object in the system and the only one with no second use.
+
+### 9a.1 What was found before anything was written
+
+- **`POST /api/dungeons/:id/duplicate` had nowhere to land.** No screen listed
+  dungeons and nothing could run one. Built on its own it would have been an
+  endpoint no client could reach, so the phase is the endpoint *and* the way to
+  a world that already exists — `beginIn` on the session, and the World question
+  at the top of run setup.
+- 🔴 **`(seed, size, level)` is the wrong key for the generation cache, and the
+  Phase 11 spec's premise for it does not hold.** `App.tsx`'s `seedForNewRun()`
+  draws from `randomSeed()` — `seeds.ts:52`, uniform over 0–999,999 — so two
+  players landing on one seed at one size and level is a coincidence that does
+  not happen at this scale: `dungeons_cache_idx` does not begin to pay until the
+  corpus is thousands of dungeons **per (size, level) bucket**. The author's call
+  when this was put to them is that seeds do not matter after generation, and
+  what is wanted is sharing plus saving calls. **So 13b keys the pool on
+  `(size, level)` alone** — reuse any complete world of the right shape this
+  player does not already hold — which hits the first time anybody has built one.
+  That needs an index `dungeons_cache_idx` cannot serve, since it leads on
+  `seed`.
+- **Two dungeons from one seed are not the same dungeon.** The seed fixes the
+  structure, the stocking and the floorplan (`deriveSeeds`, and the CLAUDE.md
+  rule that the model never generates a number); the prose, the names and the
+  objective text are content-pass output. **The same skeleton wearing different
+  writing.** This is why the second-click guard below matches on the source row
+  and not on `dungeon_key`.
+
+### 9a.2 Duplicating
+
+`repo.duplicateDungeon` is **the one statement in `repo.ts` that reads a row
+without asking whose it is**, and §8.3's rule is not being bent: what it reads
+cross-owner is the ROW, and what it does with it is write a new one belonging to
+the caller. Nothing about the source is ever returned — the reply is
+`{ dungeonId, already }` and no name, no objective and no `doc`. *A dungeon is
+the one thing another player may see* now means exactly one thing: they may have
+one of their own like it.
+
+| | |
+|---|---|
+| the row and its `doc` | copied, under a fresh uuid. `doc.id` is left as generated — that is the name of the WORLD and both copies are that world |
+| `dungeon_events` | **copied**. A run's journal is generation then play (`readJournal`), so a copy without them is a world whose record begins after it was built, and nothing would say so. The `kind: "dungeon"` baseline `journal-render.ts:170` prints lives here |
+| `generation_chunks` | **not copied.** Only `finish` reads them, a complete dungeon never finishes again, and they are the unapplied raw responses — the largest thing in the schema and the least use to anyone holding the applied world |
+| a partial dungeon | refused, as `undefined` → 404. Half a world is not worth copying and the copy would have no chunks to finish from |
+
+**"Not there" and "still being written" are one answer**, for the same reason
+"not there" and "not yours" are one everywhere else in this API.
+
+**`dungeons.copied_from` is provenance, not a uniqueness rule.** It exists for
+the second click: pressing *take a copy* twice must not mint two half-megabyte
+rows, and there is no other way to tell the player already has this one. There is
+deliberately **no unique index** — generating seed 4201 twice yields two
+different worlds and stays legitimate; what is refused is copying one *source*
+twice, the only case where the second row is guaranteed identical to the first.
+`on delete set null` and not cascade: a copy is a standalone world and must
+survive its source's owner deleting their account.
+
+### 9a.3 The way to a world that exists
+
+`beginIn` on `PlayableSession` — **one request instead of N+3, and none of them a
+model call.** It takes a dungeon id and NOT a `RunRequest`: size, level and seed
+are facts about a world that already exists, and a client restating them could
+state them wrongly, leaving the server to decide which of the two it believed.
+Optional on the interface for the same reason `resume` is — `?offline` has one
+fixture and no database to name a row in.
+
+`RunSetup` **asks which world first**, and size and level appear only under the
+branch that is actually rolling one. Beside a chosen dungeon they would be
+controls that change nothing, which is worse to put in front of a player than an
+absence. `onConfirm` hands back a **tagged union** — a size and a level, or a
+dungeon id, never both — so there is no shape in which the screen answers one
+question twice. The list is read when the screen opens rather than kept in step
+with the roster: it is asked once per run, and a list fetched at the moment it is
+shown cannot be stale.
+
+### 9a.4 What proves it
+
+**899 tests and build clean** (887 after the shop), plus **47 in `npm run
+test:db`** — eleven of them new.
+
+- `ownership.dbtest.ts`: the copy belongs to whoever asked and the original is
+  untouched and still invisible to them; the generation journal comes across and
+  the copy's own sequence carries on from it; a second duplicate returns the
+  first; **a world of the same seed the player already owns is not mistaken for
+  the one being asked for**; a partial and a missing dungeon both answer nothing.
+- `app.dbtest.ts`: a stranger's dungeon is a 404 to `POST /api/runs` before the
+  copy and still a 404 after it, while the copy itself can be walked into; the
+  reply carries `dungeonId` and `already` **and nothing else**; the route is
+  behind the gate like everything under `/api`.
+- `remote-session.test.ts`: `beginIn` is `POST /api/runs` and the room entry and
+  **nothing else** — the failure mode is a path that quietly generates anyway.
+- `RunSetup.test.tsx`, new and in the jsdom project, because choosing a world is
+  a `useState` branch a static render cannot reach: the two answers are different
+  requests, the cost line disappears when a written world is chosen, changing
+  your mind goes back, and **a chosen world that stops existing under the screen
+  falls back to a new one** rather than becoming a run into a dungeon nobody can
+  name.
+
+---
+
+## 9b. Phase 13b — The library ✅ **BUILT**
+
+13a made a world reusable and left it unshared: the endpoint could copy any
+finished dungeon, but **the only id a player could name was one of their own**.
+This is the shelf, and it is the second and last cross-owner read this project
+has.
+
+### 9b.1 What crosses the line, and what does not
+
+`GET /api/dungeons/library` serves **`DungeonSummary` and nothing else** — name,
+objective, size, level. Never `doc`, which is every answer in the world; a browse
+screen that could read one would be a walkthrough for a dungeon nobody had
+walked. The summary shape has been sitting in `repo.ts` since Phase 11 with
+nothing to serve it, and this is what it was for.
+
+**No maker is named.** The only name this project holds for an account is
+`profiles.email`, so a shelf that printed one would be a way to enumerate the
+invite list. A world is offered on what it is.
+
+### 9b.2 Paging, and the three defects the tests found
+
+**Keyset and not offset.** A batch boundary has to survive a dungeon being
+written while the player is scrolling: `offset 12` after an insert shows row 12
+twice and never shows row 13. The cursor is `(created_at, id)` of the last row
+actually seen, **opaque to the client** for the same reason a run's version is an
+integer — nothing outside `repo.ts` knows what is in one, so nothing outside it
+can compose a flattering one.
+
+**The id is in the key because `created_at` is the transaction clock.** Two
+dungeons written in one transaction share it exactly, and a page break landing on
+that tie would drop a row or repeat one forever. `dungeons_library_idx` is
+`(created_at desc, id desc) where status = 'complete'`.
+
+🔴 **Three real defects, all found by `ownership.dbtest.ts` and none of them
+visible by reading the code**:
+
+| | |
+|---|---|
+| **Microsecond truncation silently dropped rows.** `${cursor}::timestamptz` makes the server describe the parameter as a timestamp, so postgres.js serialises the string through its `Date` encoder — and a JS `Date` holds **milliseconds**. `…:22.123456+00` was bound as `…:22.123+00`, strictly less than the row it came from, so `<` skipped every row sharing that microsecond. It lost **exactly the rows a `created_at` tie put at the break** — the case the keyset was designed around. Fixed with `::text::timestamptz`, which makes it a text parameter Postgres converts itself |
+| **A malformed cursor was a 500.** `?cursor=x\|y` reached the same binding and postgres.js threw `RangeError: Invalid time value` while serialising, before the statement was sent. A bad page token is a caller saying nothing legible, not an internal error; `readCursor` validates the uuid and the timestamp and reads anything else as no cursor at all |
+| **`limit=0` returned twelve.** `Math.trunc(…) \|\| LIBRARY_BATCH` was written as a NaN guard and also swallowed a stated zero, turning the smallest possible ask into the largest. An explicit `Number.isFinite` check separates "unreadable" from "small" |
+
+A fourth was found by `Library.test.tsx`: **the `IntersectionObserver` never
+attached**, in a browser as much as in a test. The foot of the shelf does not
+exist on the render the effect first runs on — the screen still says *Reading the
+shelf…* — and `next` is stable, so an effect keyed on a `useRef` ran once against
+`null` and never again. The node is `useState` behind a callback ref now, so the
+effect is keyed on it actually being there.
+
+🔴 **And a lesson about `*.dbtest.ts` worth keeping**: these run against the real
+database, and the author's own dungeons are on it. To a freshly minted test user
+every one of them is "somebody else's", so `toEqual([])` and `toHaveLength(5)`
+were both wrong. Every assertion in `the library` is about **that test's own
+rows** — which costs nothing, because `created_at` being the transaction clock
+makes them strictly the newest on the shelf and therefore exactly the front of
+the ordering.
+
+### 9b.3 The screen
+
+`Library.tsx`, reached from **a second button on a character's row**. `Send down`
+rolls a world for a minute and a real bill; `Browse worlds` picks one somebody
+already wrote for neither. Far enough apart to be separate doors rather than a
+field on one, and absent — like the shop — for anybody already in a run, and
+absent entirely on `?offline`/`?stub`, which have no library to read.
+
+**The character comes with the player.** Every card's button says their name,
+because the choice is not *add this to my library* — it is *send Testy down this
+one*, and the next thing that happens is the dungeon.
+
+**Two triggers for the next batch, and the button is the floor.** The sentinel at
+the foot of the grid is a real button; an `IntersectionObserver` presses it early
+when the player scrolls near it. An observer is a convenience that can fail to
+fire — no layout, no constructor, a container that never scrolls — and a shelf
+that then has no way to show its next batch has rows nobody can reach. So the
+observer is the polish rather than the button being a fallback that has to be
+detected into existence.
+
+**Choosing is two requests and no model call**: duplicate, then `beginIn`. The
+copy cannot be skipped — `POST /api/runs` reads the dungeon under an owner
+filter, so the source is a 404 to this player until they hold one of their own —
+and it is idempotent, so browsing to the same world twice does not accumulate
+rows.
+
+### 9b.4 What proves it
+
+**913 tests and build clean**, plus **58 in `npm run test:db`**.
+
+- `ownership.dbtest.ts`: the viewer's own worlds are absent and other people's
+  are there; a partial one is never shelved; the summary carries no `doc`, no
+  `cursor` and no owner; batches partition the shelf with no gaps and no repeats
+  **across a break that is always a `created_at` tie**; the `limit + 1` probe row
+  never leaks; four shapes of malformed cursor all read as the front of the shelf.
+- `app.dbtest.ts`: the route serves other players' worlds and not the caller's;
+  it pages with the cursor it handed out; **it is not shadowed by the `:id`
+  routes** — `library` is a plausible dungeon id, and a test that only checked the
+  query would pass against a server answering *no such dungeon: library*; and it
+  is behind the gate.
+- `Library.test.tsx`: batches append rather than replace; the cursor sent is the
+  last row's; two triggers arriving at once ask once; a failed batch keeps what is
+  already on the screen; a card shows what a summary holds and no address for a
+  person; the pressed card says what it is doing and the others shut while it
+  does; and the observer, stood up by hand because jsdom has none, asks for the
+  next batch when the foot comes into view.
+
+---
+
 ## 10. Order of remaining work
 
 ```
@@ -2368,8 +2646,9 @@ was called done.
            8e ─┤
            8f ─┘
   Phase 7   — the three remaining affordances, independent
-  The shop  — the other half of Phase 5's equipment step; §3.6
 ```
+
+**The shop is done** and no longer on this list — §3.7.
 
 **8a is done bar A7, and no longer leads this list.** It led because a machine that cannot
 finish a turn makes every other item hard to see: A8 refused a commit the player was
@@ -2395,13 +2674,11 @@ what was just said" are the same scene.
 
 ## 11. What is still open
 
-**Open outside Phase 8**, both from Phase 5 and both named in §3.6:
+**Open outside Phase 8**, from Phase 5 and named in §3.6:
 
-- **The shop.** The Item Costs page is ~90 entries and `knave-tables.ts` already carries
-  costs for everything the gear tables can produce. Per the brief, slot cost shows at least
-  as prominently as price.
-- **Whether a made character survives a reload**, and what the stored record looks like.
-  `store/characters.ts` is still the only module that has to change.
+- ~~The shop~~ — §3.7, **done**. Slot cost reads as loudly as price, per the brief.
+- ~~Whether a made character survives a reload~~ — settled in Phase 10; the record is the
+  sheet, whole, in a jsonb column. See the header of `store/characters.ts`.
 
 Everything else settled through Phase 7 is either in §2 or in the code.
 
@@ -2409,26 +2686,35 @@ Everything else settled through Phase 7 is either in §2 or in the code.
 
 - ~~A generation failure is undebuggable~~ — §6.7, **done**. Nothing left open.
 
-**Open out of Phase 11**, and the next thing to build. Both were specified with
-the phase and deliberately left out of it, because the schema they need landed
-with the ownership migration and the endpoints did not:
+**Open out of Phase 11.** All three were specified with the phase and left out of
+it, because the schema they need landed with the ownership migration and the
+endpoints did not. **The duplicate half is built — §9a** — and what is left is:
 
-- **Browse and duplicate another player's dungeon.** A non-owner sees a
-  `DungeonSummary` — name, objective, size, level, never the `doc`, which holds
-  every answer in the world — and may take a copy to run themselves.
-  `POST /api/dungeons/:id/duplicate` copies the row under a new uuid with the new
-  owner. **This is why the key split had to happen first**: under 10a's schema a
-  copy collided on the primary key.
-- **Use existing dungeons as a generation cache.** Before spending N+2 model
-  calls, ask whether anyone has already built a complete world from these dice.
-  `dungeons_cache_idx` on `(seed, size, level) where status = 'complete'` is
-  already in place for exactly this query. Settle in session: whether a cache hit
-  duplicates silently or is offered, and whether a player may opt out and insist
-  on a fresh world.
+- ~~Duplicate another player's dungeon~~ ✅ §9a. `POST /api/dungeons/:id/duplicate`
+  copies the row, the `doc` and the generation journal under a new uuid with the
+  new owner. **This is why the key split had to happen first**: under 10a's
+  schema a copy collided on the primary key.
+- ~~Browse — the screen that makes duplicating reachable from outside~~ ✅ §9b.
+  `GET /api/dungeons/library` in keyset batches, `Library.tsx` reading it down a
+  grid at a time, and a *Browse worlds* button beside each character.
+- **Use existing dungeons as a generation cache** — and 🔴 **not on
+  `dungeons_cache_idx`, whose key is wrong.** §9a.1 has the reasoning and the
+  author's call: seeds do not matter after generation, so the pool is keyed on
+  **`(size, level)`** and hands back any complete world of the right shape this
+  player does not already hold. That hits the first time anybody has built one,
+  where the seeded key does not hit until the corpus is in the thousands. Still
+  to settle: whether a hit duplicates silently or is offered, and whether a
+  player may opt out — noting that opting out buys the same skeleton for real
+  money, so it may be a dev switch rather than a player control.
 - **Nothing rate-limits a signed-in player**, and generation is the expensive
   call. The Google consent screen's Testing mode — 100 invited addresses — is the
   only quota today, which is enough while it is invite-only and is not enough at
-  the point Phase 13 lets anyone in.
+  the point Phase 13 lets anyone in. **It cannot be in-process**: one stateless
+  Vercel function and no Redis on Hobby, so the counter is in Postgres and is
+  charged explicitly at the top of the handlers that call the model rather than
+  in middleware that would have to guess what a route costs. **And it must not
+  read `profiles.tier` yet** — every account defaults to `byok` while in fact
+  spending the author's key, so a tier-aware limiter today exempts everyone.
 
 **Open in Phase 8**, none of it blocking the rest of 8a, which is fully specified:
 

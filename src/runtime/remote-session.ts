@@ -48,6 +48,7 @@ import { createGameStore, type RunState } from "../store/game.ts";
 import { acceptsInput, isTerminal, type Stage, type Step } from "./types.ts";
 import type { GeneratedDungeon, GenerationProgress } from "./generate.ts";
 import type { PlayableSession, RunRequest } from "./session.ts";
+import type { PlayerCharacter } from "../engine/index.ts";
 
 export interface RemoteOptions {
   /** where the API lives. Same origin in dev, because Vite proxies `/api`. */
@@ -203,6 +204,27 @@ export function createRemoteSession(opts: RemoteOptions = {}): PlayableSession {
     }
   }
 
+  /**
+   * A character walks into a dungeon that exists — the half of `begin` that is
+   * not generation.
+   *
+   * Extracted because Phase 13a gave it a second caller. A world outlives the
+   * run played in it, so going back down one the player already owns is this
+   * and nothing else: no structure pass, no regions, no join, no bill.
+   */
+  async function startRun(dungeonId: string, character: PlayerCharacter): Promise<void> {
+    const created = await call<{
+      run: { id: string; state: RunState; version: number };
+      dungeon: GeneratedDungeon;
+    }>("POST", "/api/runs", { dungeonId, character });
+
+    runId = created.run.id;
+    version = created.run.version;
+    store.setState({ dungeon: created.dungeon, run: created.run.state, lastEvents: [] });
+
+    await act("enter");
+  }
+
   return {
     store,
 
@@ -234,16 +256,31 @@ export function createRemoteSession(opts: RemoteOptions = {}): PlayableSession {
       report({ stage: "joining" });
       await call("POST", `/api/dungeons/${made.dungeonId}/finish`);
 
-      const created = await call<{
-        run: { id: string; state: RunState; version: number };
-        dungeon: GeneratedDungeon;
-      }>("POST", "/api/runs", { dungeonId: made.dungeonId, character });
+      await startRun(made.dungeonId, character);
+    },
 
-      runId = created.run.id;
-      version = created.run.version;
-      store.setState({ dungeon: created.dungeon, run: created.run.state, lastEvents: [] });
+    /**
+     * GO BACK DOWN A WORLD THAT IS ALREADY WRITTEN.
+     *
+     * One request instead of N+3, and none of them a model call. The dungeon is
+     * named rather than rolled, so there is no seed, no size and no level in
+     * this — those are facts about the world already, and a client that restated
+     * them could state them wrongly.
+     *
+     * NO PROGRESS REPORTED BEYOND `layout`. The loading screen's stages describe
+     * a dungeon being written and nothing is being written; what the player sees
+     * is the one beat it takes to create the run, which is honest, and then the
+     * room.
+     *
+     * The same `begun` latch as `begin` and `resume`: a session plays one run,
+     * and StrictMode's double mount must not send two people into one hole.
+     */
+    async beginIn({ dungeonId, character }) {
+      if (begun) return;
+      begun = true;
 
-      await act("enter");
+      report({ stage: "layout" });
+      await startRun(dungeonId, character);
     },
 
     /**

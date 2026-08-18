@@ -124,9 +124,28 @@ export function createApp(): Hono<AuthEnv> {
    */
   app.get("/api/characters", async (c) => c.json(await repo.listRoster(currentUser(c).id)));
 
+  /**
+   * Save a sheet — a new character, or one that has been to the market.
+   *
+   * EDITING SOMEBODY WHO IS STILL DOWN THERE IS REFUSED, the same way deleting
+   * them is and for a neighbouring reason. A run plays from its own copy of the
+   * sheet and writes what survives back when it ends, so a write from up here
+   * would either be overwritten without warning or overwrite the run's own
+   * result. The shop is the only caller that can reach this with an existing
+   * character and it does not offer the button to anyone in a run; this is the
+   * rule rather than the manners.
+   */
   app.post("/api/characters", async (c) => {
+    const user = currentUser(c);
     const pc = (await c.req.json()) as PlayerCharacter;
-    return c.json(await repo.saveCharacter(pc, currentUser(c).id));
+    const active = await repo.activeRunFor(pc.id, user.id);
+    if (active) {
+      return c.json(
+        { error: "that character is in a run — what they are carrying is the run's now", runId: active.id },
+        409
+      );
+    }
+    return c.json(await repo.saveCharacter(pc, user.id));
   });
 
   /**
@@ -267,6 +286,55 @@ export function createApp(): Hono<AuthEnv> {
 
   /** The player's own worlds. Summaries — nobody needs six whole dungeons. */
   app.get("/api/dungeons", async (c) => c.json(await repo.listDungeons(currentUser(c).id)));
+
+  /**
+   * THE LIBRARY — every complete world somebody else made, newest first.
+   *
+   * Registered before the `:id` routes below because `library` would otherwise
+   * be a plausible dungeon id, and a route that can be shadowed by a parameter
+   * is a route that works until somebody changes the order.
+   *
+   * SUMMARIES AND A CURSOR, and the cursor goes back out exactly as it came in.
+   * The client never composes one — see `listLibrary`.
+   */
+  app.get("/api/dungeons/library", async (c) => {
+    const cursor = c.req.query("cursor");
+    const limit = Number(c.req.query("limit"));
+    return c.json(
+      await repo.listLibrary(currentUser(c).id, {
+        ...(cursor ? { cursor } : {}),
+        // A limit that is not a number is no limit stated, which `listLibrary`
+        // reads as the default batch. It clamps whatever it is given besides.
+        ...(Number.isFinite(limit) ? { limit } : {}),
+      })
+    );
+  });
+
+  /**
+   * TAKE A COPY OF A WORLD.
+   *
+   * The one route that names a dungeon the caller does not own, and it is why
+   * the Phase 11 key split had to happen first: under 10a's schema, where the
+   * derived `dungeon_<seed>` name WAS the primary key, a second copy of one
+   * world collided on it.
+   *
+   * IT STILL SERVES NOTHING OF THE SOURCE. The reply is the id of the caller's
+   * OWN new row, and the source's `doc` — which is every answer in the world —
+   * is never on the wire. What "another player may see a dungeon" means is
+   * exactly this: they may have one of their own like it.
+   *
+   * `already` for the second click, in the shape `/finish` answers in. A copy is
+   * recorded as a copy (`dungeons.copied_from`), so pressing the button twice
+   * hands back the first copy rather than minting a second half-megabyte row.
+   */
+  app.post("/api/dungeons/:id/duplicate", async (c) => {
+    const id = c.req.param("id");
+    const made = await repo.duplicateDungeon(id, currentUser(c).id);
+    // "Not there" and "still being written" are one answer. A caller who may
+    // not copy it either way should not learn which of the two it was.
+    if (!made) throw new HTTPException(404, { message: `no such finished dungeon: ${id}` });
+    return c.json({ dungeonId: made.id, already: made.already });
+  });
 
   // -------------------------------------------------------------------------
   // RUNS

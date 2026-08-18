@@ -123,16 +123,22 @@ export type {
 // rather than star-exported into a collision.
 export * from "./character-creation.ts";
 export * as knave from "./knave-tables.ts";
-export { WEAPON_CLASSES, weaponClass, weaponsIn } from "./knave-tables.ts";
+export { SHOP_SECTIONS, WEAPON_CLASSES, weaponClass, weaponsIn } from "./knave-tables.ts";
 export type {
   ArmorKey,
   ArmorStat,
   GearEntry,
+  ShopSection,
   Spell,
   WeaponClass,
   WeaponClassKey,
   WeaponStat,
 } from "./knave-tables.ts";
+
+// --- the shop --------------------------------------------------------------
+// The other half of the equipment step: what a purse buys, and what buying it
+// does to a sheet. Pure, and the only thing that spends copper.
+export * from "./shop.ts";
 
 // --- the floorplan ---------------------------------------------------------
 // `Point` and `Rect` are declared here; nothing else in the engine has them.
