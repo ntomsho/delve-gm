@@ -1013,6 +1013,460 @@ function generateValid(seed, params, maxAttempts = 50) {
 	};
 }
 //#endregion
+//#region src/engine/knave-tables.ts
+var t$2 = (s) => s.split("|");
+t$2("Athletic|Brawny|Corpulent|Delicate|Gaunt|Hulking|Lanky|Ripped|Rugged|Scrawny|Short|Sinewy|Slender|Flabby|Statuesque|Stout|Tiny|Towering|Willowy|Wiry");
+t$2("Bloated|Blunt|Bony|Chiseled|Delicate|Elongated|Patrician|Pinched|Hawkish|Broken|Impish|Narrow|Ratlike|Round|Sunken|Sharp|Soft|Square|Wide|Wolfish");
+t$2("Battle scar|Birthmark|Burn scar|Dark|Makeup|Oily|Pale|Perfect|Pierced|Pockmarked|Reeking|Tattooed|Rosy|Rough|Sallow|Sunburned|Tanned|War paint|Weathered|Whip scar");
+t$2("Bald|Braided|Bristly|Cropped|Curly|Disheveled|Dreadlocks|Filthy|Frizzy|Greased|Limp|Long|Luxurious|Mohawk|Oily|Ponytail|Silky|Topknot|Wavy|Wispy");
+t$2("Antique|Bloody|Ceremonial|Decorated|Eccentric|Elegant|Fashionable|Filthy|Flamboyant|Stained|Foreign|Frayed|Frumpy|Livery|Oversized|Patched|Perfumed|Rancid|Torn|Undersized");
+t$2("Ambitious|Cautious|Courageous|Courteous|Curious|Disciplined|Focused|Generous|Gregarious|Honest|Honorable|Humble|Idealistic|Just|Loyal|Merciful|Righteous|Serene|Stoic|Tolerant");
+t$2("Aggressive|Arrogant|Bitter|Cowardly|Cruel|Deceitful|Flippant|Gluttonous|Greedy|Irascible|Lazy|Nervous|Prejudiced|Reckless|Rude|Suspicious|Vain|Vengeful|Wasteful|Whiny");
+t$2("Blunt|Booming|Breathy|Cryptic|Drawling|Droning|Flowery|Formal|Gravelly|Hoarse|Mumbling|Precise|Quaint|Rambling|Rapid-fire|Dialect|Slow|Squeaky|Stuttering|Whispery");
+t$2("Alchemist|Beggar|Butcher|Burglar|Charlatan|Cleric|Cook|Cultist|Gambler|Herbalist|Magician|Mariner|Mercenary|Merchant|Outlaw|Performer|Pickpocket|Smuggler|Student|Tracker");
+t$2("Abandoned|Addicted|Blackmailed|Condemned|Cursed|Defrauded|Demoted|Discredited|Disowned|Exiled|Framed|Haunted|Kidnapped|Mutilated|Poor|Pursued|Rejected|Replaced|Robbed|Suspected");
+[
+	...Array(5).fill("Law"),
+	...Array(10).fill("Neutrality"),
+	...Array(5).fill("Chaos")
+];
+/** The armor rows, worst to best — which is also cheapest to dearest. */
+var ARMOR_KEYS = [
+	"gambeson",
+	"brigandine",
+	"chain_armor",
+	"half_plate",
+	"full_plate",
+	"helmet",
+	"shield"
+];
+var WEAPON_CLASSES = [
+	{
+		key: "light",
+		label: "Light",
+		members: [
+			"dagger",
+			"cudgel",
+			"sickle",
+			"staff"
+		]
+	},
+	{
+		key: "medium",
+		label: "Medium",
+		members: [
+			"spear",
+			"sword",
+			"mace",
+			"axe",
+			"flail"
+		]
+	},
+	{
+		key: "heavy",
+		label: "Heavy",
+		members: [
+			"halberd",
+			"war_hammer",
+			"long_sword",
+			"battle_axe"
+		]
+	},
+	{
+		key: "sling",
+		label: "Sling",
+		members: ["sling"]
+	},
+	{
+		key: "bow",
+		label: "Bow",
+		members: ["bow"]
+	},
+	{
+		key: "crossbow",
+		label: "Crossbow",
+		members: ["crossbow"]
+	}
+];
+/** Every weapon, in class order. The class list is what the picker walks. */
+var WEAPONS = WEAPON_CLASSES.flatMap((c) => c.members);
+var DUNGEONEERING_GEAR = [
+	{ key: "rope" },
+	{ key: "block_and_tackle" },
+	{
+		key: "candle",
+		amount: "5",
+		value: 5
+	},
+	{ key: "chain" },
+	{ key: "chalk" },
+	{ key: "crowbar" },
+	{ key: "tinderbox" },
+	{ key: "grappling_hook" },
+	{ key: "hammer" },
+	{ key: "waterskin" },
+	{ key: "lantern" },
+	{ key: "lamp_oil" },
+	{ key: "padlock" },
+	{ key: "manacles" },
+	{ key: "mirror" },
+	{ key: "pole" },
+	{ key: "sack" },
+	{ key: "tent_personal" },
+	{
+		key: "iron_spike",
+		amount: "5",
+		value: 25
+	},
+	{
+		key: "torch",
+		amount: "5",
+		value: 5
+	}
+];
+var GENERAL_GEAR_1 = [
+	{ key: "air_bladder" },
+	{ key: "bear_trap" },
+	{ key: "shovel" },
+	{ key: "bellows" },
+	{ key: "grease" },
+	{ key: "saw" },
+	{ key: "bucket" },
+	{ key: "caltrops" },
+	{ key: "chisel" },
+	{ key: "drill" },
+	{ key: "fishing_rod" },
+	{ key: "glass_marbles" },
+	{ key: "glue" },
+	{ key: "pick" },
+	{ key: "hourglass" },
+	{ key: "net" },
+	{ key: "iron_tongs" },
+	{ key: "lockpicks" },
+	{ key: "metal_file" },
+	{ key: "nails" }
+];
+var GENERAL_GEAR_2 = [
+	{ key: "incense" },
+	{ key: "sponge" },
+	{ key: "lens" },
+	{ key: "perfume" },
+	{ key: "horn" },
+	{ key: "bottle" },
+	{ key: "soap" },
+	{ key: "spyglass" },
+	{ key: "tar" },
+	{ key: "twine" },
+	{ key: "fake_jewels" },
+	{ key: "blank_book" },
+	{ key: "card_deck" },
+	{ key: "dice_set" },
+	{ key: "cookpots" },
+	{ key: "face_paint" },
+	{ key: "whistle" },
+	{ key: "musical_instrument" },
+	{ key: "quill_and_ink" },
+	{ key: "small_bell" }
+];
+var SHOP_SECTIONS = [
+	{
+		key: "tools",
+		label: "Tools & gear",
+		entries: [
+			"air_bladder",
+			"bear_trap",
+			"bedroll",
+			"bellows",
+			"grease",
+			"block_and_tackle",
+			"blank_book",
+			"reading_book",
+			"bottle",
+			"bucket",
+			"caltrops",
+			"marked_cards",
+			"chain",
+			"chalk",
+			"chisel",
+			"cookpots",
+			"crowbar",
+			"drill",
+			"face_paint",
+			"fake_jewels",
+			"fishing_rod",
+			"glass_marbles",
+			"glue",
+			"grappling_hook",
+			"hammer",
+			"holy_water",
+			"horn",
+			"hourglass",
+			"incense",
+			"iron_tongs",
+			"ladder",
+			"sponge",
+			"lens",
+			"lockpicks",
+			"manacles",
+			"metal_file",
+			"mirror",
+			"musical_instrument",
+			"nails",
+			"net",
+			"oilskin_bag",
+			"oilskin_trousers",
+			"padlock",
+			"perfume",
+			"pick",
+			"pole",
+			"quill_and_ink",
+			"rope",
+			"sack",
+			"saw",
+			"loaded_dice",
+			"shovel",
+			"small_bell",
+			"soap",
+			"iron_spike",
+			"wood_spike",
+			"spiked_boots",
+			"spyglass",
+			"tar",
+			"tent_3man",
+			"tent_personal",
+			"twine",
+			"waterskin",
+			"whistle"
+		]
+	},
+	{
+		key: "light",
+		label: "Light",
+		note: "Burn times are the book's.",
+		entries: [
+			"candle",
+			"lantern",
+			"lamp_oil",
+			"tinderbox",
+			"torch"
+		]
+	},
+	{
+		key: "ammunition",
+		label: "Ammunition",
+		entries: ["arrows", "quiver"]
+	},
+	{
+		key: "clothing",
+		label: "Clothing",
+		entries: [
+			"poor_clothing",
+			"standard_clothing",
+			"winter_clothing",
+			"noble_clothing",
+			"furs"
+		]
+	},
+	{
+		key: "food",
+		label: "Food & drink",
+		entries: [
+			"rations",
+			"animal_feed",
+			"bacon",
+			"bread",
+			"cheese",
+			"cider",
+			"cod",
+			"eggs",
+			"flour",
+			"fruit",
+			"garlic",
+			"grain",
+			"herbs",
+			"lard",
+			"onions",
+			"salt",
+			"spices",
+			"sugar",
+			"wine"
+		]
+	}
+];
+/**
+* ARMOR (d20). **House-ruled.** As printed: 1-3 no armor · 4-14 Gambeson ·
+* 15-19 Brigandine · 20 Chain. Ours widens the empty band by two and pays for
+* it with a spellbook, which is the trade the book itself suggests one line
+* above the table — *"allow new PCs to roll a random spell in exchange for not
+* starting with any armor"*. Written out per face rather than as bands so the
+* divergence is visible rather than arithmetic.
+*/
+function rollArmorTable(d20) {
+	if (d20 <= 5) return {
+		armor: null,
+		spellbooks: 1
+	};
+	if (d20 <= 14) return {
+		armor: "gambeson",
+		spellbooks: 0
+	};
+	if (d20 <= 19) return {
+		armor: "brigandine",
+		spellbooks: 0
+	};
+	return {
+		armor: "chain_armor",
+		spellbooks: 0
+	};
+}
+/**
+* HELMETS AND SHIELDS (d20). **House-ruled.** As printed: 1-13 none ·
+* 14-16 Helmet · 17-19 Shield · 20 both. Ours gives the dead band to
+* spellbooks and hands out protection far more often — a helmet from 6, a
+* shield from 12.
+*/
+function rollHelmetShieldTable(d20) {
+	if (d20 <= 5) return {
+		helmet: false,
+		shield: false,
+		spellbooks: 1
+	};
+	if (d20 <= 11) return {
+		helmet: true,
+		shield: false,
+		spellbooks: 0
+	};
+	if (d20 <= 19) return {
+		helmet: false,
+		shield: true,
+		spellbooks: 0
+	};
+	return {
+		helmet: true,
+		shield: true,
+		spellbooks: 0
+	};
+}
+var spell = (s) => {
+	const i = s.indexOf(": ");
+	return {
+		name: s.slice(0, i),
+		effect: s.slice(i + 2)
+	};
+};
+/**
+* A spellbook holds exactly one of these and can be read once per day, so a
+* rolled spellbook is a whole item rather than a line on a sheet. `L` is the
+* caster's level; ongoing effects last L×10 minutes and reach 40 feet unless
+* the entry says otherwise.
+*
+* NOTE: 90 is printed as Summon Idol, out of the alphabetical run the rest of
+* the list keeps. Preserved as printed — same treatment as the duplicate
+* "Tinker" in `dungeon-blueprint.ts`.
+*/
+var SPELLS = [
+	"Adhere: Object is covered in extremely sticky slime.",
+	"Animate Object: Object obeys your commands as best it can. It can walk 15ft per round.",
+	"Anthropomorphize: A touched animal either gains human intelligence or human appearance for L days.",
+	"Arcane Eye: You can see through a magical floating eyeball that flies around at your command.",
+	"Astral Prison: An object is frozen in time and space within an invulnerable crystal shell.",
+	"Attract: L+1 objects are strongly magnetically attracted to each other if they come within 10 feet.",
+	"Auditory Illusion: You create illusory sounds that seem to come from a direction of your choice.",
+	"Babble: A creature must loudly and clearly repeat everything you think. It is otherwise mute.",
+	"Beast Form: You and your possessions transform into a mundane animal.",
+	"Befuddle: L creatures of your choice are unable to form new short-term memories for the duration of the spell.",
+	"Bend Fate: Roll L+1 d20s. Whenever you must roll a d20 after casting the spell, you must choose and then discard one of the rolled results until they are all gone.",
+	"Bird Person: Your arms turn into huge bird wings.",
+	"Body Swap: You switch bodies with a creature you touch. If one body dies, the other dies as well.",
+	"Catherine: A woman wearing a blue dress appears until end of spell. She will obey polite, safe requests.",
+	"Charm: L creatures treat you like a friend.",
+	"Command: A creature obeys a single, three-word command that does not harm it.",
+	"Comprehend: You become fluent in all languages.",
+	"Control Plants: Nearby plants and trees obey you and gain the ability to move at 5 feet per round.",
+	"Control Weather: You may alter the type of weather at will, but you do not otherwise control it.",
+	"Counterspell: Make an opposed Intelligence save against the Intelligence of the caster of a nearby spell. You may do this out of turn as a reaction, or against an ongoing magical effect. On a success, you may cancel the spell.",
+	"Deafen: All nearby creatures are deafened.",
+	"Detect Magic: You hear nearby magical auras singing.",
+	"Disassemble: Any of your body parts may be detached and reattached at will, without causing pain or damage. You can still control them.",
+	"Disguise: You may alter the appearance of L characters at will as long as they remain humanoid. Attempts to duplicate other characters will seem uncanny.",
+	"Displace: An object appears to be up to L×10ft from its actual position.",
+	"Earthquake: The ground begins shaking violently. Structures may be damaged or collapse.",
+	"Elasticity: Your body can stretch up to L×10ft.",
+	"Elemental Wall: A straight wall of ice or fire L×40ft long and 10ft high rises from the ground.",
+	"Filch: L visible items teleport to your hands.",
+	"Fog Cloud: Dense fog spreads out from you.",
+	"Frenzy: L creatures erupt in a frenzy of violence.",
+	"Gate: A portal to a random plane opens.",
+	"Gravity Shift: You can change the direction of gravity (for yourself only) up to once per round.",
+	"Greed: L creatures develop an overwhelming urge to possess a visible item of your choice.",
+	"Haste: Your movement speed is tripled.",
+	"Hatred: L creatures develop a deep hatred of another creature or group of creatures and wish to destroy it.",
+	"Hear Whispers: You can hear faint sounds clearly.",
+	"Hover: An object hovers, frictionless, 2ft above the ground. It can hold up to L humanoids.",
+	"Hypnotize: A creature enters a trance and will truthfully answer L yes or no questions you ask it.",
+	"Icy Touch: A thick ice layer spreads across a touched surface, up to L×10ft in radius.",
+	"Illuminate: A floating light moves as you command.",
+	"Increase Gravity: The gravity in an area triples.",
+	"Invisible Tether: Two objects within 10ft of each other cannot be moved more than 10ft apart.",
+	"Knock: L nearby mundane or magical locks unlock.",
+	"Leap: You can jump up to L×10ft in the air.",
+	"Liquid Air: The air around you becomes swimmable.",
+	"Magic Dampener: All nearby magical effects have their effectiveness halved.",
+	"Manse: A sturdy, furnished cottage appears for L×12 hours. You can permit and forbid entry to it at will.",
+	"Marble Madness: Your pockets are full of marbles, and will refill every round.",
+	"Masquerade: Appearances and voices become identical to a touched character.",
+	"Miniaturize: You and L other touched creatures are reduced to the size of a mouse.",
+	"Mirror Image: L illusory duplicates of yourself appear under your control.",
+	"Mirrorwalk: A mirror becomes a gateway to another mirror that you looked into today.",
+	"Multiarm: You gain L extra arms.",
+	"Night Sphere: An L×40ft wide sphere of darkness displaying the night sky appears.",
+	"Objectify: You become any inanimate object between the size of a grand piano and an apple.",
+	"Ooze Form: You become a living jelly.",
+	"Pacify: L creatures have an aversion to violence.",
+	"Phantom Coach: A ghostly coach appears until end of spell. It moves unnaturally fast over any terrain, including water.",
+	"Phobia: L creatures become terrified of an object of your choice.",
+	"Pit: A pit 10ft wide and L×5ft deep opens in the ground.",
+	"Primeval Surge: An object grows to the size of an elephant. If it is an animal, it is enraged.",
+	"Psychometry: The referee answers L yes or no questions about a touched object.",
+	"Pull: An object of any size is pulled directly towards you with the strength of L men for one round.",
+	"Push: An object of any size is pushed directly away from you with the strength of L men for one round.",
+	"Raise Dead: L skeletons rise from the ground to serve you. They are incredibly stupid and can only obey simple orders.",
+	"Raise Spirit: The spirit of a dead body manifests and will answer L questions.",
+	"Read Mind: You can hear the surface thoughts of nearby creatures.",
+	"Repel: L+1 objects are strongly magnetically repelled from each other if they come within 10 feet.",
+	"Scry: You can see through the eyes of a creature you touched earlier today.",
+	"Sculpt Elements: All inanimate material behaves like clay in your hands.",
+	"Shroud: L creatures are invisible until they move.",
+	"Shuffle: L creatures instantly switch places. Determine where they end up randomly.",
+	"Sleep: L creatures fall into a light sleep.",
+	"Smoke Form: Your body becomes living smoke.",
+	"Snail Knight: 10 minutes after casting, a knight sitting astride a giant snail rides into view. He is able to answer most questions related to quests and chivalry, and may aid you if he finds you worthy.",
+	"Sniff: You can smell even the faintest traces of scents.",
+	"Sort: Inanimate items sort themselves according to categories you set. The categories must be visually verifiable.",
+	"Spectacle: A clearly unreal but impressive illusion of your choice appears, under your control. It may be up to the size of a palace and has full motion and sound.",
+	"Spellseize: Cast this as a reaction to another spell going off to make a temporary copy of it that you can cast at any time before this spell ends.",
+	"Spider Climb: You can climb surfaces like a spider.",
+	"Summon Cube: Once per second, (6 times per round) you may summon or banish a 3-foot-wide cube of earth. New cubes must be affixed to the earth or to other cubes.",
+	"Swarm: You become a swarm of crows, rats, or piranhas. You only take damage from area effects.",
+	"Telekinesis: You may mentally move L items.",
+	"Telepathy: L+1 creatures can hear each other's thoughts, no matter how far apart they move.",
+	"Teleport: An object disappears and reappears on the ground in a visible, clear area up to L×40ft away.",
+	"Thaumaturgic Anchor: Object becomes the target of every spell cast near it.",
+	"Thicket: A thicket of trees and dense brush up to L×40ft wide suddenly sprouts up.",
+	"Time Jump: An object disappears as it jumps L×10 minutes into the future. When it returns, it appears in the unoccupied area nearest to where it left.",
+	"Summon Idol: A carved stone statue the size of a four poster bed rises from the ground.",
+	"Time Rush: Time in a 40ft bubble starts moving 10 times faster.",
+	"Time Slow: Time in a 40ft bubble slows to 10%.",
+	"True Sight: You see through all nearby illusions.",
+	"Upwell: A spring of seawater appears.",
+	"Vision: You completely control what a creature sees.",
+	"Visual Illusion: A silent, immobile, illusion of your choice appears, up to the size of a bedroom.",
+	"Ward: A silver circle 40ft across appears on the ground. Choose one thing that cannot cross it: living creatures, dead creatures, projectiles or metal.",
+	"Web: Your wrists can shoot thick webbing.",
+	"Wizard Mark: Your finger can shoot a stream of ulfire-colored paint. This paint is only visible to you, and can be seen at any distance, even through solid objects.",
+	"X-Ray Vision: You gain X-Ray vision."
+].map(spell);
+//#endregion
 //#region src/engine/dungeon-blueprint.ts
 /**
 * dungeon-blueprint.ts
@@ -1085,13 +1539,13 @@ var Rng = class {
 		return this.f() < .5;
 	}
 };
-var t$2 = (s) => s.split("|");
-var DUNGEON_FORMS = t$2("Arena|Asylum|Aviary|Bank|Baths|Body|{Building Room}|Casino|Catacombs|Cave|Court|{Dungeon Room}|Forge|Garden|Hideout|Hotel|{L. Cl. Building}|Laboratory|Library|Market|Mine|Monastery|Museum|Nursery|Orphanage|Palace|Prison|Sewer|Ship|Slave pit|Temple|Theater|{U. Cl. Building}|University|Vault|Zoo");
-var DUNGEON_REWARDS = t$2("Ancient lore|Animal ally|Army|Blessing|Blueprints|Cultural artifact|Enemy weakness|Faction ally|Forewarning|Guide|Holy relic|Influential ally|Instructions|Jewels|Key|Lost formula|Machine|Magic item|Magical ally|Map|Marital ally|Masterpiece|{Monster} ally|Oracle|Piles of loot|Planar portal|Prophecy|Renown|Spell|Transformation|Transport|{Treasure Item}|Uncovered plot|{Val. Material}|Vision|Weapon");
-var BUILDING_ROOMS = t$2("Arboretum|Atrium|Attic|Aviary|Ballroom|Baths|Bed chamber|Cabinet|Chapel|Cloakroom|Dining room|Dressing room|{Dungeon Room}|Garden|Garret|Greenhouse|Junk room|Kitchen|Larder|Library|Map room|Menagerie|Mews|Nursery|Pantry|Parlor|Privy|Root cellar|Saucery|Scullery|Smoking room|Spicery|Still room|Study|Trophy room|Wardrobe");
-var DUNGEON_ROOMS = t$2("Armory|Banquet hall|Barracks|{Building Room}|Catacombs|Cavern|Chasm|Courtyard|Crypt|Dormitory|Fighting pit|Forge|Fountain|Gate house|Guard room|Kennel|{L. Cl. Building}|Laboratory|Mess hall|Mine shaft|Museum|Oubliette|Pool|Prison|Record room|Shrine|Slaughterhouse|Stables|Storeroom|Throne room|Torture room|Treasury|{U. Cl. Building}|Vault|Well|Workshop");
-var LOWER_CLASS_BUILDINGS = t$2("Apothecary|Asylum|Baker|Brewery|Butcher|Candlemaker|Catacombs|Cheesemaker|Criminal den|Curiosity shop|Dock|Fighting pit|Forge|Fortuneteller|Gambling hall|Leatherworks|Marketplace|Mason|Mill|Moneylender|Orphanage|Outfitter|Prison|Sewers|Shipyards|Shrine|Stockyard|Stonecarver|Tattooist|Tavern|Theater|Veterinarian|Warehouse|Watchtower|Weaver|Workshop");
-var UPPER_CLASS_BUILDINGS = t$2("Academy|Alchemist|Archive|Art dealer|Barber|Bookbinder|Bookseller|Castle|Clockmaker|Clothier|Courthouse|Furrier|Gallery|Garden|Haberdashery|Jeweler|Law office|Locksmith|Lounge|Manor|Museum|Observatory|Opera house|Park|Physician|Printer|Public baths|Restaurant|Salon|Stables|Taxidermist|Temple|Tobacconist|Townhouse|Winery|Zoo");
+var t$1 = (s) => s.split("|");
+var DUNGEON_FORMS = t$1("Arena|Asylum|Aviary|Bank|Baths|Body|{Building Room}|Casino|Catacombs|Cave|Court|{Dungeon Room}|Forge|Garden|Hideout|Hotel|{L. Cl. Building}|Laboratory|Library|Market|Mine|Monastery|Museum|Nursery|Orphanage|Palace|Prison|Sewer|Ship|Slave pit|Temple|Theater|{U. Cl. Building}|University|Vault|Zoo");
+var DUNGEON_REWARDS = t$1("Ancient lore|Animal ally|Army|Blessing|Blueprints|Cultural artifact|Enemy weakness|Faction ally|Forewarning|Guide|Holy relic|Influential ally|Instructions|Jewels|Key|Lost formula|Machine|Magic item|Magical ally|Map|Marital ally|Masterpiece|{Monster} ally|Oracle|Piles of loot|Planar portal|Prophecy|Renown|Spell|Transformation|Transport|{Treasure Item}|Uncovered plot|{Val. Material}|Vision|Weapon");
+var BUILDING_ROOMS = t$1("Arboretum|Atrium|Attic|Aviary|Ballroom|Baths|Bed chamber|Cabinet|Chapel|Cloakroom|Dining room|Dressing room|{Dungeon Room}|Garden|Garret|Greenhouse|Junk room|Kitchen|Larder|Library|Map room|Menagerie|Mews|Nursery|Pantry|Parlor|Privy|Root cellar|Saucery|Scullery|Smoking room|Spicery|Still room|Study|Trophy room|Wardrobe");
+var DUNGEON_ROOMS = t$1("Armory|Banquet hall|Barracks|{Building Room}|Catacombs|Cavern|Chasm|Courtyard|Crypt|Dormitory|Fighting pit|Forge|Fountain|Gate house|Guard room|Kennel|{L. Cl. Building}|Laboratory|Mess hall|Mine shaft|Museum|Oubliette|Pool|Prison|Record room|Shrine|Slaughterhouse|Stables|Storeroom|Throne room|Torture room|Treasury|{U. Cl. Building}|Vault|Well|Workshop");
+var LOWER_CLASS_BUILDINGS = t$1("Apothecary|Asylum|Baker|Brewery|Butcher|Candlemaker|Catacombs|Cheesemaker|Criminal den|Curiosity shop|Dock|Fighting pit|Forge|Fortuneteller|Gambling hall|Leatherworks|Marketplace|Mason|Mill|Moneylender|Orphanage|Outfitter|Prison|Sewers|Shipyards|Shrine|Stockyard|Stonecarver|Tattooist|Tavern|Theater|Veterinarian|Warehouse|Watchtower|Weaver|Workshop");
+var UPPER_CLASS_BUILDINGS = t$1("Academy|Alchemist|Archive|Art dealer|Barber|Bookbinder|Bookseller|Castle|Clockmaker|Clothier|Courthouse|Furrier|Gallery|Garden|Haberdashery|Jeweler|Law office|Locksmith|Lounge|Manor|Museum|Observatory|Opera house|Park|Physician|Printer|Public baths|Restaurant|Salon|Stables|Taxidermist|Temple|Tobacconist|Townhouse|Winery|Zoo");
 /**
 * Corridors are rooms whose identity is a passage. A room designated a corridor
 * during stocking rolls `identity` here instead of on DUNGEON_ROOMS; `detail`
@@ -1106,304 +1560,104 @@ var UPPER_CLASS_BUILDINGS = t$2("Academy|Alchemist|Archive|Art dealer|Barber|Boo
 * flavour-only status of stairs and shafts: it matters inside the room it names
 * and nowhere else.
 */
-var DUNGEON_CORRIDORS = t$2("Antechamber|Atrium|Bridge|Burrow|Chute|Cloister|Concourse|Corridor|Gallery|Hallway|Hollow wall|Passageway|Ramp|Sewer|Shaft|Stairwell|Steps|Tunnel|Walkway|Waterway");
-var DUNGEON_ENTRANCES = t$2("All libraries|Beaver dam|Behind waterfall|Chalk rectangle|Chest bottom|Chimney|Cupboard|Dolmen shadow|Down a well|Fiery pit|Fog road|Forest spring|Giant book|Gypsy wagon|Hollow tree|Huge keyhole|Iron maiden|Living tattoo|Magic painting|Man-shape hole|Maze potion|Mirror|Monster mouth|Monster wound|Narrow alley|Rain door|Sewer grate|Sudden rift|Tidal cave|Tower top|Tree roots|Under the bed|Unfolded map|Up a tree|Whirlpool|Wine barrel");
-var DUNGEON_ROOM_DETAILS = t$2("Bas-relief|Blood trail|Bones|Chains|Chalk marks|Claw marks|Corpses|Cracked beams|Crumbling walls|Decaying food|Decaying nest|Dripping water|Fading murals|Faint breeze|Faint footsteps|Fallen pillars|Fungus|Furniture|Graffiti|Mosaics|Recent repairs|Rotting books|Rubble|Shed skin|Slime trails|Spider webs|Stalactites|Stench|Smoke stains|Thick dust|Torn clothes|Tree roots|Unusual smell|Vibrations|Vines|Whispers");
-var DUNGEON_TRICKS = t$2("Absorption|Activation|Animation|Blessings|Communication|Confusion|Consumption|Creation|Curses|Deception|Duplication|{Ethereal Effect}|Exchange|Imprisonment|Instructions|Interrogation|Mind-control|{Mission}|Mood-alteration|Nullification|{Physical Effect}|Planeshift|Protection|Rejuvenation|Release|Reversal|Rotation|Scrying|Size-alteration|Summoning|Theft|Time-alteration|Transformation|Transmutation|Transportation|Wonder");
-var DUNGEON_HAZARDS = t$2("Acid drip|Bloodsuckers|Cave-in|Choking dust|Crude oil|Crystal shards|Deafening noise|Dense fog|Ensnaring vines|Fallen floor|Flooding|Freezing|Geysers|Magma|Magnetic field|Mud flow|Narrow ledge|Narrow passage|Poison goo|Poison plants|Precipice|Quicksand|Radiation|Rockslide|Rotten ceiling|Rotten floor|Sinkhole|Slippery slope|Spider webs|Spores|Steam vents|Strong winds|Tar pit|Tight passage|Toppling object|Toxic fumes");
+var DUNGEON_CORRIDORS = t$1("Antechamber|Atrium|Bridge|Burrow|Chute|Cloister|Concourse|Corridor|Gallery|Hallway|Hollow wall|Passageway|Ramp|Sewer|Shaft|Stairwell|Steps|Tunnel|Walkway|Waterway");
+var DUNGEON_ENTRANCES = t$1("All libraries|Beaver dam|Behind waterfall|Chalk rectangle|Chest bottom|Chimney|Cupboard|Dolmen shadow|Down a well|Fiery pit|Fog road|Forest spring|Giant book|Gypsy wagon|Hollow tree|Huge keyhole|Iron maiden|Living tattoo|Magic painting|Man-shape hole|Maze potion|Mirror|Monster mouth|Monster wound|Narrow alley|Rain door|Sewer grate|Sudden rift|Tidal cave|Tower top|Tree roots|Under the bed|Unfolded map|Up a tree|Whirlpool|Wine barrel");
+var DUNGEON_ROOM_DETAILS = t$1("Bas-relief|Blood trail|Bones|Chains|Chalk marks|Claw marks|Corpses|Cracked beams|Crumbling walls|Decaying food|Decaying nest|Dripping water|Fading murals|Faint breeze|Faint footsteps|Fallen pillars|Fungus|Furniture|Graffiti|Mosaics|Recent repairs|Rotting books|Rubble|Shed skin|Slime trails|Spider webs|Stalactites|Stench|Smoke stains|Thick dust|Torn clothes|Tree roots|Unusual smell|Vibrations|Vines|Whispers");
+var DUNGEON_TRICKS = t$1("Absorption|Activation|Animation|Blessings|Communication|Confusion|Consumption|Creation|Curses|Deception|Duplication|{Ethereal Effect}|Exchange|Imprisonment|Instructions|Interrogation|Mind-control|{Mission}|Mood-alteration|Nullification|{Physical Effect}|Planeshift|Protection|Rejuvenation|Release|Reversal|Rotation|Scrying|Size-alteration|Summoning|Theft|Time-alteration|Transformation|Transmutation|Transportation|Wonder");
+var DUNGEON_HAZARDS = t$1("Acid drip|Bloodsuckers|Cave-in|Choking dust|Crude oil|Crystal shards|Deafening noise|Dense fog|Ensnaring vines|Fallen floor|Flooding|Freezing|Geysers|Magma|Magnetic field|Mud flow|Narrow ledge|Narrow passage|Poison goo|Poison plants|Precipice|Quicksand|Radiation|Rockslide|Rotten ceiling|Rotten floor|Sinkhole|Slippery slope|Spider webs|Spores|Steam vents|Strong winds|Tar pit|Tight passage|Toppling object|Toxic fumes");
 /**
 * Maze Rats prints these as separate Trap Effects / Trap Triggers tables. A good
 * trap should have a fairly obvious trigger -- the challenge is avoiding the
 * effect, avoiding the trigger, or finding a way to deactivate it.
 */
-var TRAP_EFFECTS = t$2("Acid pool|Adhesive|Alarm|Armor melts|Bear trap|Blinding spray|Blunt pendulum|Boiling tar|Collapsing floor|Crocodile pit|Crushing walls|Deep pit|Falling cage|Falling ceiling|Fills with sand|Flooding|Giant magnet|Hard vacuum|Lava flow|Lightning|Living statues|Missile fire|{Monster} freed|Net trap|Pendulum blade|Poison gas|Poison needle|Quicksand|Rage gas|Rolling boulder|Room freezes|Room on fire|Sleeping gas|Spiked pit|Tombs open|Wall spikes");
-var TRAP_TRIGGERS = t$2("Blow|Break|Burn|Choice|Countdown|Darkness|Drain|Eat|Insert|Kill|Knock|Light|Magic|Melody|Noise|Open|Phrase|Pour|Press|Proximity|Pull|Read|Reflect|Release|Remove|Retrieve|Rudeness|Shut|Sit|Sleep|Slide|Touch|Turn|Unbalance|Unearth|Write");
-var CAIRN_BUILT_BY = t$2("A Fallen Hero|A Fanatical Cult|A Forgotten Empire|A Long-Dead Poet|A Militant Order|A Renowned Alchemist|A Royal Dynasty|A Secret Society|A Tyrannical Ruler|A Warrior Tribe|A Wealthy Recluse|Desperate Rebels|Heretical Alchemists|Heretical Monks|Immoral Sorcerers|Inverted Astrologers|Mob Families|Opulent Merchants|Pilgrims to a Dead God|Rogue Scholars");
-var CAIRN_RUIN_CONDITION = t$2("Corpse|Crumbling|Cursed|Desecrated|Devoured|Displaced|Divided|Frozen|Haunted|Infested|Overgrown|Overpopulated|Petrified|Plundered|Poisoned|Scorched|Shrouded in Mist|Submerged|Unending|Warped");
-var CAIRN_RUIN_CAUSE = t$2("Alchemical Accident|Ancient Curse|Cataclysmic Flood|Civil War|Competing Rituals|Consumed by a Beast|Disease|Hedonism|Invasion|Long-Term Abandonment|Magic Gone Awry|Magical Seal|Natural Disaster|Natural Erosion|Obfuscation|Overrun with Monsters|Sudden Change in Climate|Teleported to Another Realm|Turned to Stone|Unresolved Spirits");
-var CAIRN_COMPOSITION = t$2("Bone|Coral|Crystal|Earth|Ethereal Fabric|Flesh|Floating Platforms|Fungi|Glass|Ice|Living Plants|Marble|Metal|Obsidian|Petrified Wood|Sand|Shadow Material|Stone|Webs|Wood");
-var FACTIONS = t$2("Art movement|Beggar's guild|Black market|Brotherhood|City guard|Conspiracy|Craft guild|Crime family|Crime ring|Dark cult|Explorer's club|Free company|Gourmand club|Heist crew|Heretical sect|High council|Hired killers|Local militia|National church|Noble house|Outlander clan|Outlaw gang|Political party|Religious order|Religious sect|Resistance|Royal army|Royal house|Scholar's circle|Secret society|Spy network|Street artists|Street gang|Street musicians|Theater troupe|Trade company");
-var FACTION_TRAITS = t$2("Bankrupt|Bureaucratic|Charitable|Confused|Connected|Corrupt|Decadent|Decaying|Delusional|Divided|Dwindling|Efficient|Esoteric|Expanding|Hunted|Incompetent|Incorruptible|Insane|Insular|Manipulative|Martial|{Personality}|Pious|Popular|Righteous|Ruthless|Secret|Subversive|Suppressed|Threatened|Thriving|Unpopular|Up-and-coming|Wealthy|Well-prepared|Xenophobic");
-var FACTION_GOALS = t$2("Advise leader|Avoid detection|Awaken being|Collect artifacts|Construct base|Control {faction}|Control politics|Create artifact|Create {monster}|Defeat {faction}|Defend borders|Defend leader|Destroy artifacts|Destroy being|Destroy villain|Enforce law|Enrich members|Entertain|Exchange goods|Hear rumors|Indulge tastes|Infiltrate {faction}|Map the wild|Overthrow order|Preserve lineage|Preserve lore|Produce goods|Promote arts|Promote craft|Purge traitors|Sell services|Share knowledge|Spread beliefs|Summon evil|Survive|Transport goods");
-var AERIAL_ANIMALS = t$2("Albatross|Bat|Beetle|Bird of Paradise|Butterfly|Condor|Crane|Crow|Dragonfly|Eagle|Falcon|Firefly|Flamingo|Fly|Flying Squirrel|Goose|Gull|Hummingbird|Kingfisher|Locust|Magpie|Mantis|Mockingbird|Mosquito|Moth|Owl|Parrot|Peacock|Pelican|Pteranodon|Rooster|Sparrow|Swan|Vulture|Wasp|Woodpecker");
-var TERRESTRIAL_ANIMALS = t$2("Ant|Ape|Armadillo|Badger|Bear|Boar|Caterpillar|Centipede|Chameleon|Cockroach|Deer|Elephant|Ferret|Fox|Giraffe|Goat|Horse|Human|Mole|Ostrich|Ox|Porcupine|Rabbit|Raccoon|Rat|Rhinoceros|Scorpion|Sheep|Slug|Snail|Snake|Spider|Squirrel|Tiger|Wolf|Wolverine");
-var AQUATIC_ANIMALS = t$2("Alligator|Amoeba|Anglerfish|Beaver|Clam|Crab|Dolphin|Eel|Frog|Hippopotamus|Jellyfish|Leech|Lobster|Manatee|Manta Ray|Muskrat|Narwhal|Newt|Octopus|Otter|Penguin|Platypus|Pufferfish|Salamander|Sea Anemone|Sea Urchin|Seahorse|Seal|Shark|Shrimp|Squid|Swordfish|Tadpole|Turtle|Walrus|Whale");
-var MONSTER_TRAITS = t$2("Amphibious|Bloated|Brittle|Cannibal|Clay-like|Colossal|Crystalline|Decaying|{Ether. Element}|Ethereal|Ever-young|Eyeless|Fearless|Fluffy|Fungal|Gelatinous|Geometric|Hardened|Illusory|Intelligent|Iridescent|Luminous|Many-headed|Mechanical|{Phys. Element}|Planar|Reflective|Rubbery|Shadowy|Sharp|Skeletal|Slimy|Sticky|Stinking|Tiny|Translucent");
-var MONSTER_ABILITIES = t$2("Absorbing|Acid blood|Anti-magic|Blinding|Breath weapon|Camouflaging|Duplicating|Electric|Entangling|{Ethereal Effect}|Exploding|Flying|Gaze weapon|Hypnotizing|Impervious|Invisible|Life-draining|Magnetic|Mimicking|Mind-Reading|Paralyzing|Phasing|{Physical Effect}|Poisonous|Radioactive|Reflective|Regenerating|Shapeshifting|Spell-casting|Stealthy|Strangling|Super-strength|Telekinetic|Teleporting|Vampiric|Wall-Crawling");
-var MONSTER_FEATURES = t$2("Antlers|Beak|Carapace|Claws|Compound eyes|Eye Stalks|Fangs|Fins|Fur|Gills|Hooves|Horns|Legless|Long tongue|Many-eyed|Many-limbed|Mucus|Pincers|Plates|Plumage|Proboscis|Scales|Segments|Shaggy hair|Shell|Spikes|Spinnerets|Spines|Stinger|Suction cups|Tail|Talons|Tentacles|Trunk|Tusks|Wings");
-var MUTATIONS = t$2("Ages|Attracts birds|Child-form|Corpulence|Covered in hair|{Animal} arms|{Animal} eyes|{Animal} head|{Animal} legs|{Animal} mouth|{Animal} skin|{Animal}-form|Cyclops|Extra arms|Extra eyes|Extra legs|Forked tongue|Gender swap|Hunchback|{Item}-form|Long arms|Lose all hair|Loses teeth|{Monster Feature}|{Monster Trait}|No eyes|No mouth|{P. Element}-skin|Second face|Sheds skin|Shrinks|Shrivels|Skin boils|Slime trail|Translucent skin|Weeps blood");
-var MONSTER_TACTICS = t$2("Ambush|Call for support|Capture|Charge|Climb foes|Compel worship|Create barrier|Deceive|Demand duel|Disorient|Encircle|Evade|Gang up|Gather strength|Go berserk|Harry|Hurl foes|Immobilize|Manipulate|Mock|Monologue|Order minion|Protect leader|Protect self|Scatter foes|Stalk|Steal from|Swarm|Target insolent|Target leader|Target nearest|Target richest|Target strongest|Target weakest|Toy with|Use terrain");
-var MONSTER_WEAKNESS = t$2("Bells|Birdsong|Children|Cold|Cold Iron|Competition|Conversation|Deformity|Flattery|Flowers|Gifts|Gold|Heat|Holy Icon|Holy Water|Home Cooking|{Insanities}|Mirrors|Mistletoe|Moonlight|Music|{Methods}|Phylactery|{Phys. Elements}|Puzzles|Riddles|Rituals|Silver|Sunlight|Tears|True Name|{Val. Materials}|Weak Spot|{Weapon Items}|Wine|Wormwood");
-var MONSTER_PERSONALITY = t$2("Alien|Aloof|Bored|Cautious|Cowardly|Curious|Devious|Distractable|Educated|Embittered|Envious|Erudite|Fanatical|Forgetful|Generous|Hateful|Honorable|Humble|Jaded|Jovial|Legalistic|Manipulative|Megalomaniac|Melancholy|Meticulous|Mystical|Obsessive|Out of Touch|Paranoid|Polite|Psychopathic|Sophisticated|Touchy|Unimpressed|Vain|Xenophobic");
-var CIVILIZED_NPCS = t$2("Acolyte|Actor|Apothecary|Baker|Barber|Blacksmith|Brewer|Bureaucrat|Butcher|Carpenter|Clockmaker|Courier|Courtier|Diplomat|Fishmonger|Guard|Haberdasher|Innkeeper|Item-seller|Jeweler|Knight|Locksmith|Mason|Miller|Musician|Noble|Painter|Priest|Scholar|Scribe|Sculptor|Shipwright|Soldier|Tailor|Taxidermist|Wigmaker");
-var UNDERWORLD_NPCS = t$2("Alchemist|Beggar-prince|Blackmailer|Bounty-hunter|Chimney sweep|Coin-clipper|Contortionist|Counterfeiter|Cultist|Cutpurse|Debt-collector|Deserter|Fence|Fortuneteller|Galley slave|Gambler|Gravedigger|Headsman|Hedge knight|Highwayman|Housebreaker|Kidnapper|Mad prophet|Mountebank|Peddler|Pit-fighter|Poisoner|Rat-catcher|Scrivener|Sellsword|Slave|Smuggler|Street performer|Tattooist|Urchin|Usurer");
-var WILDERNESS_NPCS = t$2("Apiarist|Bandit|Caravan Guard|Caravaneer|Druid|Exile|Explorer|Farmer|Fisherman|Forager|Fugitive|Hedge wizard|Hermit|Hunter|Messenger|Minstrel|Monk|Monster hunter|Outlander|Tinker|Pilgrim|Poacher|Raider|Ranger|Sage|Scavenger|Scout|Seer|Shepherd|Surveyor|Tinker|Tomb raider|Trader|Trapper|Witch|Woodcutter");
+var TRAP_EFFECTS = t$1("Acid pool|Adhesive|Alarm|Armor melts|Bear trap|Blinding spray|Blunt pendulum|Boiling tar|Collapsing floor|Crocodile pit|Crushing walls|Deep pit|Falling cage|Falling ceiling|Fills with sand|Flooding|Giant magnet|Hard vacuum|Lava flow|Lightning|Living statues|Missile fire|{Monster} freed|Net trap|Pendulum blade|Poison gas|Poison needle|Quicksand|Rage gas|Rolling boulder|Room freezes|Room on fire|Sleeping gas|Spiked pit|Tombs open|Wall spikes");
+var TRAP_TRIGGERS = t$1("Blow|Break|Burn|Choice|Countdown|Darkness|Drain|Eat|Insert|Kill|Knock|Light|Magic|Melody|Noise|Open|Phrase|Pour|Press|Proximity|Pull|Read|Reflect|Release|Remove|Retrieve|Rudeness|Shut|Sit|Sleep|Slide|Touch|Turn|Unbalance|Unearth|Write");
+var CAIRN_BUILT_BY = t$1("A Fallen Hero|A Fanatical Cult|A Forgotten Empire|A Long-Dead Poet|A Militant Order|A Renowned Alchemist|A Royal Dynasty|A Secret Society|A Tyrannical Ruler|A Warrior Tribe|A Wealthy Recluse|Desperate Rebels|Heretical Alchemists|Heretical Monks|Immoral Sorcerers|Inverted Astrologers|Mob Families|Opulent Merchants|Pilgrims to a Dead God|Rogue Scholars");
+var CAIRN_RUIN_CONDITION = t$1("Corpse|Crumbling|Cursed|Desecrated|Devoured|Displaced|Divided|Frozen|Haunted|Infested|Overgrown|Overpopulated|Petrified|Plundered|Poisoned|Scorched|Shrouded in Mist|Submerged|Unending|Warped");
+var CAIRN_RUIN_CAUSE = t$1("Alchemical Accident|Ancient Curse|Cataclysmic Flood|Civil War|Competing Rituals|Consumed by a Beast|Disease|Hedonism|Invasion|Long-Term Abandonment|Magic Gone Awry|Magical Seal|Natural Disaster|Natural Erosion|Obfuscation|Overrun with Monsters|Sudden Change in Climate|Teleported to Another Realm|Turned to Stone|Unresolved Spirits");
+var CAIRN_COMPOSITION = t$1("Bone|Coral|Crystal|Earth|Ethereal Fabric|Flesh|Floating Platforms|Fungi|Glass|Ice|Living Plants|Marble|Metal|Obsidian|Petrified Wood|Sand|Shadow Material|Stone|Webs|Wood");
+var FACTIONS = t$1("Art movement|Beggar's guild|Black market|Brotherhood|City guard|Conspiracy|Craft guild|Crime family|Crime ring|Dark cult|Explorer's club|Free company|Gourmand club|Heist crew|Heretical sect|High council|Hired killers|Local militia|National church|Noble house|Outlander clan|Outlaw gang|Political party|Religious order|Religious sect|Resistance|Royal army|Royal house|Scholar's circle|Secret society|Spy network|Street artists|Street gang|Street musicians|Theater troupe|Trade company");
+var FACTION_TRAITS = t$1("Bankrupt|Bureaucratic|Charitable|Confused|Connected|Corrupt|Decadent|Decaying|Delusional|Divided|Dwindling|Efficient|Esoteric|Expanding|Hunted|Incompetent|Incorruptible|Insane|Insular|Manipulative|Martial|{Personality}|Pious|Popular|Righteous|Ruthless|Secret|Subversive|Suppressed|Threatened|Thriving|Unpopular|Up-and-coming|Wealthy|Well-prepared|Xenophobic");
+var FACTION_GOALS = t$1("Advise leader|Avoid detection|Awaken being|Collect artifacts|Construct base|Control {faction}|Control politics|Create artifact|Create {monster}|Defeat {faction}|Defend borders|Defend leader|Destroy artifacts|Destroy being|Destroy villain|Enforce law|Enrich members|Entertain|Exchange goods|Hear rumors|Indulge tastes|Infiltrate {faction}|Map the wild|Overthrow order|Preserve lineage|Preserve lore|Produce goods|Promote arts|Promote craft|Purge traitors|Sell services|Share knowledge|Spread beliefs|Summon evil|Survive|Transport goods");
+var AERIAL_ANIMALS = t$1("Albatross|Bat|Beetle|Bird of Paradise|Butterfly|Condor|Crane|Crow|Dragonfly|Eagle|Falcon|Firefly|Flamingo|Fly|Flying Squirrel|Goose|Gull|Hummingbird|Kingfisher|Locust|Magpie|Mantis|Mockingbird|Mosquito|Moth|Owl|Parrot|Peacock|Pelican|Pteranodon|Rooster|Sparrow|Swan|Vulture|Wasp|Woodpecker");
+var TERRESTRIAL_ANIMALS = t$1("Ant|Ape|Armadillo|Badger|Bear|Boar|Caterpillar|Centipede|Chameleon|Cockroach|Deer|Elephant|Ferret|Fox|Giraffe|Goat|Horse|Human|Mole|Ostrich|Ox|Porcupine|Rabbit|Raccoon|Rat|Rhinoceros|Scorpion|Sheep|Slug|Snail|Snake|Spider|Squirrel|Tiger|Wolf|Wolverine");
+var AQUATIC_ANIMALS = t$1("Alligator|Amoeba|Anglerfish|Beaver|Clam|Crab|Dolphin|Eel|Frog|Hippopotamus|Jellyfish|Leech|Lobster|Manatee|Manta Ray|Muskrat|Narwhal|Newt|Octopus|Otter|Penguin|Platypus|Pufferfish|Salamander|Sea Anemone|Sea Urchin|Seahorse|Seal|Shark|Shrimp|Squid|Swordfish|Tadpole|Turtle|Walrus|Whale");
+var MONSTER_TRAITS = t$1("Amphibious|Bloated|Brittle|Cannibal|Clay-like|Colossal|Crystalline|Decaying|{Ether. Element}|Ethereal|Ever-young|Eyeless|Fearless|Fluffy|Fungal|Gelatinous|Geometric|Hardened|Illusory|Intelligent|Iridescent|Luminous|Many-headed|Mechanical|{Phys. Element}|Planar|Reflective|Rubbery|Shadowy|Sharp|Skeletal|Slimy|Sticky|Stinking|Tiny|Translucent");
+var MONSTER_ABILITIES = t$1("Absorbing|Acid blood|Anti-magic|Blinding|Breath weapon|Camouflaging|Duplicating|Electric|Entangling|{Ethereal Effect}|Exploding|Flying|Gaze weapon|Hypnotizing|Impervious|Invisible|Life-draining|Magnetic|Mimicking|Mind-Reading|Paralyzing|Phasing|{Physical Effect}|Poisonous|Radioactive|Reflective|Regenerating|Shapeshifting|Spell-casting|Stealthy|Strangling|Super-strength|Telekinetic|Teleporting|Vampiric|Wall-Crawling");
+var MONSTER_FEATURES = t$1("Antlers|Beak|Carapace|Claws|Compound eyes|Eye Stalks|Fangs|Fins|Fur|Gills|Hooves|Horns|Legless|Long tongue|Many-eyed|Many-limbed|Mucus|Pincers|Plates|Plumage|Proboscis|Scales|Segments|Shaggy hair|Shell|Spikes|Spinnerets|Spines|Stinger|Suction cups|Tail|Talons|Tentacles|Trunk|Tusks|Wings");
+var MUTATIONS = t$1("Ages|Attracts birds|Child-form|Corpulence|Covered in hair|{Animal} arms|{Animal} eyes|{Animal} head|{Animal} legs|{Animal} mouth|{Animal} skin|{Animal}-form|Cyclops|Extra arms|Extra eyes|Extra legs|Forked tongue|Gender swap|Hunchback|{Item}-form|Long arms|Lose all hair|Loses teeth|{Monster Feature}|{Monster Trait}|No eyes|No mouth|{Phys. Element}-skin|Second face|Sheds skin|Shrinks|Shrivels|Skin boils|Slime trail|Translucent skin|Weeps blood");
+var MONSTER_TACTICS = t$1("Ambush|Call for support|Capture|Charge|Climb foes|Compel worship|Create barrier|Deceive|Demand duel|Disorient|Encircle|Evade|Gang up|Gather strength|Go berserk|Harry|Hurl foes|Immobilize|Manipulate|Mock|Monologue|Order minion|Protect leader|Protect self|Scatter foes|Stalk|Steal from|Swarm|Target insolent|Target leader|Target nearest|Target richest|Target strongest|Target weakest|Toy with|Use terrain");
+var MONSTER_WEAKNESS = t$1("Bells|Birdsong|Children|Cold|Cold Iron|Competition|Conversation|Deformity|Flattery|Flowers|Gifts|Gold|Heat|Holy Icon|Holy Water|Home Cooking|{Insanities}|Mirrors|Mistletoe|Moonlight|Music|{Methods}|Phylactery|{Phys. Element}|Puzzles|Riddles|Rituals|Silver|Sunlight|Tears|True Name|{Val. Materials}|Weak Spot|{Weapon Items}|Wine|Wormwood");
+var MONSTER_PERSONALITY = t$1("Alien|Aloof|Bored|Cautious|Cowardly|Curious|Devious|Distractable|Educated|Embittered|Envious|Erudite|Fanatical|Forgetful|Generous|Hateful|Honorable|Humble|Jaded|Jovial|Legalistic|Manipulative|Megalomaniac|Melancholy|Meticulous|Mystical|Obsessive|Out of Touch|Paranoid|Polite|Psychopathic|Sophisticated|Touchy|Unimpressed|Vain|Xenophobic");
+var CIVILIZED_NPCS = t$1("Acolyte|Actor|Apothecary|Baker|Barber|Blacksmith|Brewer|Bureaucrat|Butcher|Carpenter|Clockmaker|Courier|Courtier|Diplomat|Fishmonger|Guard|Haberdasher|Innkeeper|Item-seller|Jeweler|Knight|Locksmith|Mason|Miller|Musician|Noble|Painter|Priest|Scholar|Scribe|Sculptor|Shipwright|Soldier|Tailor|Taxidermist|Wigmaker");
+var UNDERWORLD_NPCS = t$1("Alchemist|Beggar-prince|Blackmailer|Bounty-hunter|Chimney sweep|Coin-clipper|Contortionist|Counterfeiter|Cultist|Cutpurse|Debt-collector|Deserter|Fence|Fortuneteller|Galley slave|Gambler|Gravedigger|Headsman|Hedge knight|Highwayman|Housebreaker|Kidnapper|Mad prophet|Mountebank|Peddler|Pit-fighter|Poisoner|Rat-catcher|Scrivener|Sellsword|Slave|Smuggler|Street performer|Tattooist|Urchin|Usurer");
+var WILDERNESS_NPCS = t$1("Apiarist|Bandit|Caravan Guard|Caravaneer|Druid|Exile|Explorer|Farmer|Fisherman|Forager|Fugitive|Hedge wizard|Hermit|Hunter|Messenger|Minstrel|Monk|Monster hunter|Outlander|Tinker|Pilgrim|Poacher|Raider|Ranger|Sage|Scavenger|Scout|Seer|Shepherd|Surveyor|Tinker|Tomb raider|Trader|Trapper|Witch|Woodcutter");
 /** MR character-creation Background table is identical to the Underworld NPC list. */
 var BACKGROUNDS = UNDERWORLD_NPCS;
-var FEMALE_NAMES = t$2("Adelaide|Alma|Barsaba|Beatrix|Bianca|Cleopha|Clover|Constance|Damaris|Daphne|Demona|Elsbeth|Esme|Fern|Hester|Hippolyta|Jessamine|Jilly|Morgot|Minerva|Nerissa|Odette|Olga|Orchid|Pepper|Phoebe|Piety|Poppy|Silence|Sybil|Trillby|Tuesday|Ursula|Vivian|Wendy|Zora");
-var MALE_NAMES = t$2("Balthazar|Basil|Bertram|Blaxton|Chadwick|Clovis|Destrian|Ellis|Erasmus|Faustus|Finn|Fitzhugh|Florian|Fox|Godwin|Hannibal|Jasper|Jiles|Jules|Leopold|Merrick|Mortimer|Ogden|Orion|Oswald|Percival|Peregrine|Quentin|Redmaine|Reinhold|Silas|Stilton|Stratford|Tenpiece|Waverly|Webster");
-var UPPER_SURNAMES = t$2("Belvedere|Bithesea|Calaver|Carvolo|De Rippe|Droll|Dunlow|Edevane|Erelong|Febland|Fernsby|Fisk|Gastrell|Girdwood|Gorgon|Grimeson|Gruger|Hitheryon|La Marque|Malmora|Miter|Oblington|Onymous|Phillifent|Portendorfer|Romatet|Rothery|Skorbeck|Slora|Southwark|Stavish|Vandermeer|Wellbelove|Westergren|Wexley|Wilberforce");
-var LOWER_SURNAMES = t$2("Barrow|Beetleman|Berrycloth|Birdwhistle|Bobich|Chips|Coffin|Crumpling|Culpepper|Dankworth|Digworthy|Dreggs|Gimble|Graveworm|Greelish|Hardwick|Hatman|Hovel|Knibbs|Midnighter|Needle|Nethercoat|Pestle|Relish|Rumbold|Rummage|Sallow|Saltmarsh|Silverless|Skitter|Slee|Slitherly|Stoker|Tarwater|Tumbler|Villin");
-var ASSETS = t$2("Authority|Avoids detection|Calls in favors|Charming|Cooks the books|Erases evidence|Excellent liar|Extremely rich|Faction-leader|Faction-member|Fortified base|Interrogator|Gorgeous|Hears rumors|Huge family|Huge library|Impersonator|Knows a guy|Knows a way in|Launders money|Learned|Local celebrity|Local knowledge|Loyal henchmen|Middling oracle|Nothing to lose|Owns the guards|Powerful spouse|Procures gear|Pulls the strings|Secret lab|Sells contraband|Smuggles goods|Spy network|War hero");
-var LIABILITIES = t$2("Addiction|Alcoholic|Corrupt ally|Coward|Decadent|Forbidden love|Gambler|Glutton|Greedy|Heretic|Huge debts|Imposter|{Insanity}|Jealous|Leaves evidence|Many enemies|Misinformed|Money trail|Narcissist|Needs medicine|OCD|Paranoid|Partyer|Poor equipment|Protective|Scandalous|Softhearted|Strict routines|Superstitious|Suspicious|Temper|Trusting|Vulnerable base|Wanted|Weak-willed|Widely despised");
-var METHODS = t$2("Alchemy|Blackmail|Bluster|Bribery|Bullying|Bureaucracy|Charm|Commerce|Cronies|Debate|Deduction|Eloquence|Espionage|Fast-talking|Favors|Hard Work|Humor|Investigation|Legal maneuvers|Manipulation|Misdirection|Money|Nagging|Negotiation|Persistence|Piety|Preparation|Quick Wit|Research|Rumors|Sabotage|Teamwork|Theft|Threats|Violence");
-var APPEARANCES = t$2("Aquiline|Athletic|Barrel-chested|Boney|Brawny|Brutish|Bullnecked|Chiseled|Coltish|Corpulent|Craggy|Delicate|Furrowed|Gaunt|Gorgeous|Grizzled|Haggard|Handsome|Hideous|Lanky|Pudgy|Ripped|Rosy|Scrawny|Sinewy|Slender|Slumped|Solid|Square-jawed|Statuesque|Towering|Trim|Weathered|Willowy|Wiry|Wrinkled");
-var PERSONALITIES = t$2("Bitter|Brave|Cautious|Chipper|Contrary|Cowardly|Cunning|Driven|Entitled|Gregarious|Grumpy|Heartless|Honor-bound|Hotheaded|Inquisitive|Irascible|Jolly|Know-it-all|Lazy|Loyal|Menacing|Mopey|Nervous|Protective|Righteous|Rude|Sarcastic|Savage|Scheming|Serene|Spacey|Stoic|Stubborn|Stuck-up|Suspicious|Wisecracking");
-var NPC_GOALS = t$2("A better life|Acceptance|Acquire {item}|Craft {item}|Destroy {faction}|Destroy {item}|Enlightenment|Fame|Found {faction}|Freedom|Glory|Impress {NPC}|Infamy|Infiltrate {faction}|Justice|Kidnap {NPC}|Lead {faction}|Learning|Locate {NPC}|Love|Mastery|Power|Reach location|Rescue {NPC}|Resolve dispute|Restore {faction}|Reveal a secret|Revenge|Sabotage {faction}|Serve a deity|Serve evil|Serve {faction}|Serve ideology|Serve leader|Serve the needy|Wealth");
-var PHYSICAL_DETAILS = t$2("Acid scars|Battle scars|Birthmark|Braided hair|Brand mark|Broken nose|Bronze skinned|Burn scars|Bushy eyebrows|Curly hair|Dark skinned|Dreadlocks|Exotic accent|Flogging scars|Freckles|Gold tooth|Hoarse voice|Huge beard|Long hair|Matted hair|Missing ear|Missing teeth|Mustache|Muttonchops|Nine fingers|Oiled hair|One-eyed|Pale skinned|Piercings|Ritual scars|Sallow skin|Shaved head|Sunburned|Tangled hair|Tattoos|Topknot");
-var CLOTHING$1 = t$2("Antique|Battle-torn|Bedraggled|Blood-stained|Ceremonial|Dated|Decaying|Eccentric|Elegant|Embroidered|Exotic|Fashionable|Flamboyant|Food-stained|Formal|Frayed|Frumpy|Garish|Grimy|Haute couture|Lacey|Livery|Mud-stained|Ostentatious|Oversized|Patched|Patterned|Perfumed|Practical|Rumpled|Sigils|Singed|Tasteless|Undersized|Wine-stained|Worn out");
-var MANNERISMS = t$2("Anecdotes|Breathy|Chuckles|Clipped|Cryptic|Deep voice|Drawl|Enunciates|Flowery speech|Gravelly voice|Highly formal|Hypnotic|Interrupts|Laconic|Laughs|Long pauses|Melodious|Monotone|Mumbles|Narrates|Overly casual|Quaint sayings|Rambles|Random facts|Rapid-fire|Rhyming|Robotic|Slow speech|Speechifies|Squeaky|Street slang|Stutters|Talks to self|Trails off|Very loud|Whispers");
-var SECRETS = t$2("Addicted|Artificial|Assassin|Bankrupt|Beholden|Counterspy|Cultist|Demigod|Evil lineage|Exile|Fence|Fugitive|Ghost|Has a child|Heretic|High born|Huge fortune|Illusion|Insurrectionist|Low born|Married|Mind-controlled|{Misfortune}|Monster hunter|Non-human|{NPC}|Polygamist|Protects relic|Scandalous birth|Secret police|Serial killer|Smuggler|Spy|Time traveler|Transformed|War criminal");
-var REPUTATIONS = t$2("Ambitious|Authoritative|Boor|Borrower|Celebrity|Charitable|Cheat|Dangerous|Entertainer|Gossip|Hardworking|Holy|Honest|Hypochondriac|Idiot|Influential|Layabout|Leader|Misanthrope|Miser|Neighborly|Nutjob|Obnoxious|Overeducated|Partier|Pious|Proper|Prophet of doom|Repulsive|Respected|Riffraff|Scandalous|Slime ball|Terrifying|Weirdo|Wise");
-var HOBBIES = t$2("Archaeology|Art collecting|Bad fiction|Calligraphy|Card games|Clockwork|Collecting cats|Cuisine|Dark lore|Dog breeding|Embroidery|Exercise|Falconry|Fashion|Fishing|Foreign cultures|Gardening|History|Horseracing|Hunting|Instrument|Knitting|Lawn games|Mountaineering|Opera|Painting|Poetry|Puzzle-solving|Riddling|Science|Sculpture|Sketching|Smoking|Theater|Weaving|Whiskey");
-var MISFORTUNES$1 = t$2("Abandoned|Addicted|Arrested|Blackmailed|Burgled|Challenged|Condemned|Crippled|Cursed|Defrauded|Demoted|Depressed|Discredited|Dismissed|Disowned|Exiled|Famished|Forgotten|Framed|Haunted|Humiliated|Impoverished|Kidnapped|Lost|Mobbed|Mutilated|Overworked|Poisoned|Pursued|Rejected|Replaced|Robbed|Sick|Sued|Suspected|Transformed");
-var RELATIONSHIPS = t$2("Adviser|Blackmailer|Business partner|Business rival|Buyer|Captor|Client|Confidant|Debtor|Disciple|Guardian|Henchman|Idol|Informant|Master|Mentor|Nemesis|Offspring|Parent|Patron|Political rival|Prisoner|Protege|Quarry|Right hand|Romantic rival|Servant|Sibling|Social rival|Spouse|Stalker|Suitor|Supplicant|Supplier|Sweetheart|Unrequited love");
-var MISSIONS = t$2("Apprehend|Assassinate|Blackmail|Burgle|Chart|Convince|Deface|Defraud|Deliver|Destroy|Discredit|Escort|Exfiltrate|Extort|Follow|Frame|Impersonate|Impress|Infiltrate|Interrogate|Investigate|Kidnap|Locate|Plant|Protect|Raid|Replace|Retrieve|Rob|Ruin|Sabotage|Smuggle|Surveil|Take Over|Terrorize|Threaten");
-var PHYSICAL_ELEMENTS = t$2("Acid|Amber|Bark|Blood|Bone|Brine|Clay|Crow|Crystal|Ember|Flesh|Fungus|Glass|Honey|Ice|Insect|Wood|Lava|Moss|Obsidian|Oil|Poison|Rat|Salt|Sand|Sap|Serpent|Slime|Stone|Tar|Thorn|Vine|Water|Wine|Wood|Worm");
-var ETHEREAL_ELEMENTS = t$2("Ash|Chaos|Distortion|Dream|Dust|Echo|Ectoplasm|Fire|Fog|Ghost|Harmony|Heat|Light|Lightning|Memory|Mind|Mutation|Negation|Plague|Plasma|Probability|Rain|Rot|Shadow|Smoke|Snow|Soul|Star|Stasis|Steam|Thunder|Time|Void|Warp|Whisper|Wind");
-var PHYSICAL_EFFECTS = t$2("Animating|Attracting|Binding|Blossoming|Consuming|Creeping|Crushing|Diminishing|Dividing|Duplicating|Enveloping|Expanding|Fusing|Grasping|Hastening|Hindering|Illuminating|Imprisoning|Levitating|Opening|Petrifying|Phasing|Piercing|Pursuing|Reflecting|Regenerating|Rending|Repelling|Resurrecting|Screaming|Sealing|Shapeshifting|Shielding|Spawning|Transmuting|Transporting");
-var ETHEREAL_EFFECTS = t$2("Avenging|Banishing|Bewildering|Blinding|Charming|Communicating|Compelling|Concealing|Deafening|Deceiving|Deciphering|Disguising|Dispelling|Emboldening|Encoding|Energizing|Enlightening|Enraging|Excruciating|Foreseeing|Intoxicating|Maddening|Mesmerizing|Mindreading|Nullifying|Paralyzing|Revealing|Revolting|Scrying|Silencing|Soothing|Summoning|Terrifying|Warding|Wearying|Withering");
-var INSANITIES = t$2("Always lies|Always polite|{Animal}-form|Cannot count|Cannot lie|Faceblind|Fears birds|Fears blood|Fears books|Fears darkness|Fears fire|Fears gold|Fears horses|Fears iron|Fears music|Fears own hand|Fears PC|Fears rain|Fears rivers|Fears silence|Fears sleep|Fears sunlight|Fears the moon|Fears trees|Genius|Gorgeous|Hates violence|Invisible|{Monster Ability}|{Monster Feature}|{Monster Trait}|Must sing|New {Personality}|Says thoughts|Sees dead people|Translucent");
-var VALUABLE_MATERIALS = t$2("Alabaster|Amber|Aquamarine|Azurite|Beryl|Black Pearl|Bloodstone|Bone China|Chalcedony|Cinnabar|Coral|Diamond|Ebony|Emerald|Fire Agate|Garnet|Gold|Ivory|Jade|Jasper|Jet|Lapis Lazuli|Malachite|Moonstone|Onyx|Opal|Pearl|Platinum|Porcelain|Ruby|Sapphire|Serpentine|Silver|Star Iron|Topaz|Turquoise");
-var WEAPON_ITEMS = t$2("Arming sword|Backsword|Battleaxe|Blowpipe|Claymore|Club|Crossbow|Cutlass|Dagger|Flail|Flanged mace|Glaive|Halberd|Hammer|Hatchet|Horsebow|Hunting knife|Lance|Longbow|Longsword|Mace|Maul|Morningstar|Pike|Scimitar|Shortbow|Sickle|Sling|Spear|Staff|Stake|Stiletto|Throwing axe|Warhammer|Warpick|Whip");
-var TREASURE_ITEMS = t$2("Alchemy recipe|Amulet|Astrolabe|Blueprints|Calligraphy|Carpet|Compass|Contract|Crown|Crystal|Deed|Embroidery|Fine china|Fine liquor|Instrument|Magical book|Microscope|Music box|Orrery|Painting|Perfume|Prayer book|Printing block|Rare textile|Royal robes|Saint's relic|Scrimshaw|Sextant|Sheet music|Signet ring|Silverware|Spices|Spyglass|Tapestry|Telescope|Treasure map");
+var FEMALE_NAMES = t$1("Adelaide|Alma|Barsaba|Beatrix|Bianca|Cleopha|Clover|Constance|Damaris|Daphne|Demona|Elsbeth|Esme|Fern|Hester|Hippolyta|Jessamine|Jilly|Morgot|Minerva|Nerissa|Odette|Olga|Orchid|Pepper|Phoebe|Piety|Poppy|Silence|Sybil|Trillby|Tuesday|Ursula|Vivian|Wendy|Zora");
+var MALE_NAMES = t$1("Balthazar|Basil|Bertram|Blaxton|Chadwick|Clovis|Destrian|Ellis|Erasmus|Faustus|Finn|Fitzhugh|Florian|Fox|Godwin|Hannibal|Jasper|Jiles|Jules|Leopold|Merrick|Mortimer|Ogden|Orion|Oswald|Percival|Peregrine|Quentin|Redmaine|Reinhold|Silas|Stilton|Stratford|Tenpiece|Waverly|Webster");
+var UPPER_SURNAMES = t$1("Belvedere|Bithesea|Calaver|Carvolo|De Rippe|Droll|Dunlow|Edevane|Erelong|Febland|Fernsby|Fisk|Gastrell|Girdwood|Gorgon|Grimeson|Gruger|Hitheryon|La Marque|Malmora|Miter|Oblington|Onymous|Phillifent|Portendorfer|Romatet|Rothery|Skorbeck|Slora|Southwark|Stavish|Vandermeer|Wellbelove|Westergren|Wexley|Wilberforce");
+var LOWER_SURNAMES = t$1("Barrow|Beetleman|Berrycloth|Birdwhistle|Bobich|Chips|Coffin|Crumpling|Culpepper|Dankworth|Digworthy|Dreggs|Gimble|Graveworm|Greelish|Hardwick|Hatman|Hovel|Knibbs|Midnighter|Needle|Nethercoat|Pestle|Relish|Rumbold|Rummage|Sallow|Saltmarsh|Silverless|Skitter|Slee|Slitherly|Stoker|Tarwater|Tumbler|Villin");
+var ASSETS = t$1("Authority|Avoids detection|Calls in favors|Charming|Cooks the books|Erases evidence|Excellent liar|Extremely rich|Faction-leader|Faction-member|Fortified base|Interrogator|Gorgeous|Hears rumors|Huge family|Huge library|Impersonator|Knows a guy|Knows a way in|Launders money|Learned|Local celebrity|Local knowledge|Loyal henchmen|Middling oracle|Nothing to lose|Owns the guards|Powerful spouse|Procures gear|Pulls the strings|Secret lab|Sells contraband|Smuggles goods|Spy network|War hero");
+var LIABILITIES = t$1("Addiction|Alcoholic|Corrupt ally|Coward|Decadent|Forbidden love|Gambler|Glutton|Greedy|Heretic|Huge debts|Imposter|{Insanity}|Jealous|Leaves evidence|Many enemies|Misinformed|Money trail|Narcissist|Needs medicine|OCD|Paranoid|Partyer|Poor equipment|Protective|Scandalous|Softhearted|Strict routines|Superstitious|Suspicious|Temper|Trusting|Vulnerable base|Wanted|Weak-willed|Widely despised");
+var METHODS = t$1("Alchemy|Blackmail|Bluster|Bribery|Bullying|Bureaucracy|Charm|Commerce|Cronies|Debate|Deduction|Eloquence|Espionage|Fast-talking|Favors|Hard Work|Humor|Investigation|Legal maneuvers|Manipulation|Misdirection|Money|Nagging|Negotiation|Persistence|Piety|Preparation|Quick Wit|Research|Rumors|Sabotage|Teamwork|Theft|Threats|Violence");
+var APPEARANCES = t$1("Aquiline|Athletic|Barrel-chested|Boney|Brawny|Brutish|Bullnecked|Chiseled|Coltish|Corpulent|Craggy|Delicate|Furrowed|Gaunt|Gorgeous|Grizzled|Haggard|Handsome|Hideous|Lanky|Pudgy|Ripped|Rosy|Scrawny|Sinewy|Slender|Slumped|Solid|Square-jawed|Statuesque|Towering|Trim|Weathered|Willowy|Wiry|Wrinkled");
+var PERSONALITIES = t$1("Bitter|Brave|Cautious|Chipper|Contrary|Cowardly|Cunning|Driven|Entitled|Gregarious|Grumpy|Heartless|Honor-bound|Hotheaded|Inquisitive|Irascible|Jolly|Know-it-all|Lazy|Loyal|Menacing|Mopey|Nervous|Protective|Righteous|Rude|Sarcastic|Savage|Scheming|Serene|Spacey|Stoic|Stubborn|Stuck-up|Suspicious|Wisecracking");
+var NPC_GOALS = t$1("A better life|Acceptance|Acquire {item}|Craft {item}|Destroy {faction}|Destroy {item}|Enlightenment|Fame|Found {faction}|Freedom|Glory|Impress {NPC}|Infamy|Infiltrate {faction}|Justice|Kidnap {NPC}|Lead {faction}|Learning|Locate {NPC}|Love|Mastery|Power|Reach location|Rescue {NPC}|Resolve dispute|Restore {faction}|Reveal a secret|Revenge|Sabotage {faction}|Serve a deity|Serve evil|Serve {faction}|Serve ideology|Serve leader|Serve the needy|Wealth");
+var PHYSICAL_DETAILS = t$1("Acid scars|Battle scars|Birthmark|Braided hair|Brand mark|Broken nose|Bronze skinned|Burn scars|Bushy eyebrows|Curly hair|Dark skinned|Dreadlocks|Exotic accent|Flogging scars|Freckles|Gold tooth|Hoarse voice|Huge beard|Long hair|Matted hair|Missing ear|Missing teeth|Mustache|Muttonchops|Nine fingers|Oiled hair|One-eyed|Pale skinned|Piercings|Ritual scars|Sallow skin|Shaved head|Sunburned|Tangled hair|Tattoos|Topknot");
+var CLOTHING = t$1("Antique|Battle-torn|Bedraggled|Blood-stained|Ceremonial|Dated|Decaying|Eccentric|Elegant|Embroidered|Exotic|Fashionable|Flamboyant|Food-stained|Formal|Frayed|Frumpy|Garish|Grimy|Haute couture|Lacey|Livery|Mud-stained|Ostentatious|Oversized|Patched|Patterned|Perfumed|Practical|Rumpled|Sigils|Singed|Tasteless|Undersized|Wine-stained|Worn out");
+var MANNERISMS = t$1("Anecdotes|Breathy|Chuckles|Clipped|Cryptic|Deep voice|Drawl|Enunciates|Flowery speech|Gravelly voice|Highly formal|Hypnotic|Interrupts|Laconic|Laughs|Long pauses|Melodious|Monotone|Mumbles|Narrates|Overly casual|Quaint sayings|Rambles|Random facts|Rapid-fire|Rhyming|Robotic|Slow speech|Speechifies|Squeaky|Street slang|Stutters|Talks to self|Trails off|Very loud|Whispers");
+var SECRETS = t$1("Addicted|Artificial|Assassin|Bankrupt|Beholden|Counterspy|Cultist|Demigod|Evil lineage|Exile|Fence|Fugitive|Ghost|Has a child|Heretic|High born|Huge fortune|Illusion|Insurrectionist|Low born|Married|Mind-controlled|{Misfortune}|Monster hunter|Non-human|{NPC}|Polygamist|Protects relic|Scandalous birth|Secret police|Serial killer|Smuggler|Spy|Time traveler|Transformed|War criminal");
+var REPUTATIONS = t$1("Ambitious|Authoritative|Boor|Borrower|Celebrity|Charitable|Cheat|Dangerous|Entertainer|Gossip|Hardworking|Holy|Honest|Hypochondriac|Idiot|Influential|Layabout|Leader|Misanthrope|Miser|Neighborly|Nutjob|Obnoxious|Overeducated|Partier|Pious|Proper|Prophet of doom|Repulsive|Respected|Riffraff|Scandalous|Slime ball|Terrifying|Weirdo|Wise");
+var HOBBIES = t$1("Archaeology|Art collecting|Bad fiction|Calligraphy|Card games|Clockwork|Collecting cats|Cuisine|Dark lore|Dog breeding|Embroidery|Exercise|Falconry|Fashion|Fishing|Foreign cultures|Gardening|History|Horseracing|Hunting|Instrument|Knitting|Lawn games|Mountaineering|Opera|Painting|Poetry|Puzzle-solving|Riddling|Science|Sculpture|Sketching|Smoking|Theater|Weaving|Whiskey");
+var MISFORTUNES = t$1("Abandoned|Addicted|Arrested|Blackmailed|Burgled|Challenged|Condemned|Crippled|Cursed|Defrauded|Demoted|Depressed|Discredited|Dismissed|Disowned|Exiled|Famished|Forgotten|Framed|Haunted|Humiliated|Impoverished|Kidnapped|Lost|Mobbed|Mutilated|Overworked|Poisoned|Pursued|Rejected|Replaced|Robbed|Sick|Sued|Suspected|Transformed");
+var RELATIONSHIPS = t$1("Adviser|Blackmailer|Business partner|Business rival|Buyer|Captor|Client|Confidant|Debtor|Disciple|Guardian|Henchman|Idol|Informant|Master|Mentor|Nemesis|Offspring|Parent|Patron|Political rival|Prisoner|Protege|Quarry|Right hand|Romantic rival|Servant|Sibling|Social rival|Spouse|Stalker|Suitor|Supplicant|Supplier|Sweetheart|Unrequited love");
+var MISSIONS = t$1("Apprehend|Assassinate|Blackmail|Burgle|Chart|Convince|Deface|Defraud|Deliver|Destroy|Discredit|Escort|Exfiltrate|Extort|Follow|Frame|Impersonate|Impress|Infiltrate|Interrogate|Investigate|Kidnap|Locate|Plant|Protect|Raid|Replace|Retrieve|Rob|Ruin|Sabotage|Smuggle|Surveil|Take Over|Terrorize|Threaten");
+var PHYSICAL_ELEMENTS = t$1("Acid|Amber|Bark|Blood|Bone|Brine|Clay|Crow|Crystal|Ember|Flesh|Fungus|Glass|Honey|Ice|Insect|Wood|Lava|Moss|Obsidian|Oil|Poison|Rat|Salt|Sand|Sap|Serpent|Slime|Stone|Tar|Thorn|Vine|Water|Wine|Wood|Worm");
+var ETHEREAL_ELEMENTS = t$1("Ash|Chaos|Distortion|Dream|Dust|Echo|Ectoplasm|Fire|Fog|Ghost|Harmony|Heat|Light|Lightning|Memory|Mind|Mutation|Negation|Plague|Plasma|Probability|Rain|Rot|Shadow|Smoke|Snow|Soul|Star|Stasis|Steam|Thunder|Time|Void|Warp|Whisper|Wind");
+var PHYSICAL_EFFECTS = t$1("Animating|Attracting|Binding|Blossoming|Consuming|Creeping|Crushing|Diminishing|Dividing|Duplicating|Enveloping|Expanding|Fusing|Grasping|Hastening|Hindering|Illuminating|Imprisoning|Levitating|Opening|Petrifying|Phasing|Piercing|Pursuing|Reflecting|Regenerating|Rending|Repelling|Resurrecting|Screaming|Sealing|Shapeshifting|Shielding|Spawning|Transmuting|Transporting");
+var ETHEREAL_EFFECTS = t$1("Avenging|Banishing|Bewildering|Blinding|Charming|Communicating|Compelling|Concealing|Deafening|Deceiving|Deciphering|Disguising|Dispelling|Emboldening|Encoding|Energizing|Enlightening|Enraging|Excruciating|Foreseeing|Intoxicating|Maddening|Mesmerizing|Mindreading|Nullifying|Paralyzing|Revealing|Revolting|Scrying|Silencing|Soothing|Summoning|Terrifying|Warding|Wearying|Withering");
 /**
-* THE SIX EMPTY ONES.
-*
-* Written as tables so the cascade keys below resolve today and the rows that
-* draw on them are exercised today; the entries themselves are still to be
-* transcribed. **An empty table is not an error** — the reward rows check for
-* one and draw a different row instead, so an unfilled list costs variety and
-* nothing else. See `rollTable` and `pickRow` in dungeon-rewards.ts.
-*
-* Fill them here and every consumer picks them up with no other change.
+* BARE `{Element}` AND `{Effect}`, which the treasure and potion tables use and
+* the magic tables do not. Maze Rats splits both physical from ethereal; an
+* entry that asks for neither half means either, so these are the two halves
+* concatenated and the draw is an even split between them.
 */
-var MISC_ITEMS = [
-	"Bowl",
-	"Brass bell",
-	"Brooch",
-	"Carved figurine",
-	"Cup",
-	"Deck of cards",
-	"Drawing",
-	"Foreign coin",
-	"Game piece",
-	"Glass eye",
-	"Glass jar",
-	"Hair comb",
-	"Handkerchief",
-	"Hinged box",
-	"Hourglass",
-	"Human tooth",
-	"Hunting horn",
-	"Loaded dice",
-	"Long fork",
-	"Numbered key",
-	"Oil lamp",
-	"Old doll",
-	"Pain pot",
-	"Pencil",
-	"Purse",
-	"Quill pen",
-	"Salve",
-	"Scissors",
-	"Scroll",
-	"Sealed letter",
-	"Sewing needle",
-	"Shaving razor",
-	"Silver button",
-	"Skull",
-	"Tobacco pipe",
-	"Wine bottle",
-];
-var WORN_ITEMS = [
-	"Belt",
-	"Blouse",
-	"Boots",
-	"Bracelet",
-	"Breastplate",
-	"Brigandine",
-	"Cincture",
-	"Cloak",
-	"Coat",
-	"Dress",
-	"Earing",
-	"Eyepatch",
-	"Gambeson",
-	"Gauntlets",
-	"Glove",
-	"Gown",
-	"Hat",
-	"Helmet",
-	"Hose",
-	"Leathers",
-	"Locket",
-	"Mail shirt",
-	"Mask",
-	"Necklace",
-	"Plate mail",
-	"Ring",
-	"Robe",
-	"Sandals",
-	"Scarf",
-	"Shirt",
-	"Shoes",
-	"Skirt",
-	"Slippers",
-	"Socks",
-	"Trousers",
-	"Veil",
-];
-var TOOL_ITEMS = [
-	"Acid flask",
-	"Bear trap",
-	"Bellows",
-	"Bolt-cutters",
-	"Chain",
-	"Chisel",
-	"Crowbar",
-	"Door ram",
-	"Ear trumpet",
-	"Fire oil",
-	"Fishing hook",
-	"Goggles",
-	"Grappling hook",
-	"Grease",
-	"Hacksaw",
-	"Hammer",
-	"Hand drill",
-	"Lantern",
-	"Lens",
-	"Lock/key",
-	"Lockpicks",
-	"Manacles",
-	"Metal file",
-	"Mortar/pestle",
-	"Needle",
-	"Pickaxe",
-	"Pitchfork",
-	"Pliers",
-	"Pole",
-	"Pulleys",
-	"Rope",
-	"Scissors",
-	"Shovel",
-	"Spikes",
-	"Steel wire",
-	"Tongs",
-];
-var TREASURE_TRAITS = [
-	"Altered",
-	"Ancient",
-	"Blessed",
-	"Bulky",
-	"Compact",
-	"Consumable",
-	"Cultural value",
-	"Cursed",
-	"Damaged",
-	"Disguised",
-	"Draws enemies",
-	{Effect},
-	{Element},
-	"Embellished",
-	"Encoded",
-	"Exotic",
-	"Extra-planar",
-	"Famous",
-	"Forbidden",
-	"Fragile",
-	"Heavy",
-	"Immovable",
-	"Impracticable",
-	"Indestructible",
-	"Intelligent",
-	"Masterwork",
-	"Military value",
-	"Non-human",
-	"Owned",
-	"Partial",
-	"Political value",
-	"Religious value",
-	"Repaired",
-	"Royal",
-	"Toxic",
-	"Vile",
-];
-var MAGICAL_INGREDIENTS = [
-	"Ancient liquor",
-	{Animal},
-	"Blind eye",
-	"Boiled cat",
-	{Book} page
-	"Bottled fog",
-	"Coffin nail",
-	"Corpse's hair",
-	"Crossroad dust",
-	"Cultist entrails",
-	{Edible Plant}
-	"Exotic spice",
-	"Killer's hand",
-	"King's tooth",
-	"Last breath",
-	"Liar's tongue",
-	"Lightning bolt",
-	"Lodestone",
-	"Monk's vow",
-	{Monster Feature}
-	"Newborn's cry",
-	"Oil portrait",
-	{Potion}
-	"Pyre ember",
-	"Queen bee",
-	"Queen's blood",
-	"Ship's barnacle",
-	"Star-metal",
-	"Thief's finger",
-	"Tomb flower",
-	{Valuable Material}
-	"Wedding ring",
-	"Widow's tears",
-	"Wizard skull",
-];
-var POTIONS = [
-	{Animal}-form
-	"Body swap",
-	"Camouflage",
-	"Control animals",
-	Control {Element},
-	"Cure affliction",
-	"Detect evil",
-	"Detect gold",
-	"Detect hidden",
-	"Direction sense",
-	{Element}-form
-	{Element}-skin
-	"Extra arm",
-	"Flight",
-	"Ghost-speech",
-	"Heat vision",
-	{Insanity}
-	"Invulnerable",
-	{Item}-form
-	"Magic immunity",
-	"Mirror image",
-	{Monster Ability}
-	{Monster Feature}
-	{Monster Trait}
-	{Mutation}
-	"Night vision",
-	{Spell}
-	"Restore health",
-	"Speed",
-	"Stretchy",
-	"Super-jump",
-	"Super-strength",
-	"Telekinesis",
-	"Tongues",
-	"Water-breathing",
-	"Water-walking",
-];
+var ELEMENTS = [...PHYSICAL_ELEMENTS, ...ETHEREAL_ELEMENTS];
+var EFFECTS = [...PHYSICAL_EFFECTS, ...ETHEREAL_EFFECTS];
+/**
+* `{Spell}` is Maze Rats' own spell generator in the original. We use Knave's
+* hundred instead — the same list `dungeon-rewards.ts` mints a spellbook from,
+* so a potion of X and a book of X name the same spell.
+*/
+var SPELL_NAMES = SPELLS.map((s) => s.name);
+/**
+* `{Edible Plant}` in MAGICAL_INGREDIENTS is the only reader of this one.
+*/
+var EDIBLE_PLANTS = t$1("Acorns|Apples|Asparagus|Blackberries|Blueberries|Carrots|Cattail|Cherries|Chickweed|Chicory|Clover|Dandelion|Dead-nettle|Elderberries|Fireweed|Gooseberries|Hazelnuts|Henbit|Hickory nuts|Honeysuckle|Leeks|Milk thistle|Mint|Mulberries|Mushrooms|Mustard|Onion|Pecans|Persimmons|Raspberries|Strawberries|Walnuts|Watercress|Wild garlic|Wild grapes|Wood sorrel");
+var POISONOUS_PLANTS = t$1("Angel's trumpet|Baneberry|Belladonna|Black truffle|Bleeding heart|Celandine|Cocklebur|Columbine|Crowncup|Deathcap|Dumbcane|Foxglove|Hemlock|Hogweed|Holly|Horse chestnut|Hyacinth|Ivy|Jessamine|Kudzu|Larkspur|Mandrake|Mangrove|Mistletoe|Moonflower|Nightshade|Oleander|Ragwort|Reindeer lichen|Snakeweed|Spindle|Stinkhorn|Waxcap|Wine-cap|Wolfsbane|Wormwood");
+var INSANITIES = t$1("Always lies|Always polite|{Animal}-form|Cannot count|Cannot lie|Faceblind|Fears birds|Fears blood|Fears books|Fears darkness|Fears fire|Fears gold|Fears horses|Fears iron|Fears music|Fears own hand|Fears PC|Fears rain|Fears rivers|Fears silence|Fears sleep|Fears sunlight|Fears the moon|Fears trees|Genius|Gorgeous|Hates violence|Invisible|{Monster Ability}|{Monster Feature}|{Monster Trait}|Must sing|New {Personality}|Says thoughts|Sees dead people|Translucent");
+var VALUABLE_MATERIALS = t$1("Alabaster|Amber|Aquamarine|Azurite|Beryl|Black Pearl|Bloodstone|Bone China|Chalcedony|Cinnabar|Coral|Diamond|Ebony|Emerald|Fire Agate|Garnet|Gold|Ivory|Jade|Jasper|Jet|Lapis Lazuli|Malachite|Moonstone|Onyx|Opal|Pearl|Platinum|Porcelain|Ruby|Sapphire|Serpentine|Silver|Star Iron|Topaz|Turquoise");
+var WEAPON_ITEMS = t$1("Arming sword|Backsword|Battleaxe|Blowpipe|Claymore|Club|Crossbow|Cutlass|Dagger|Flail|Flanged mace|Glaive|Halberd|Hammer|Hatchet|Horsebow|Hunting knife|Lance|Longbow|Longsword|Mace|Maul|Morningstar|Pike|Scimitar|Shortbow|Sickle|Sling|Spear|Staff|Stake|Stiletto|Throwing axe|Warhammer|Warpick|Whip");
+var TREASURE_ITEMS = t$1("Alchemy recipe|Amulet|Astrolabe|Blueprints|Calligraphy|Carpet|Compass|Contract|Crown|Crystal|Deed|Embroidery|Fine china|Fine liquor|Instrument|Magical book|Microscope|Music box|Orrery|Painting|Perfume|Prayer book|Printing block|Rare textile|Royal robes|Saint's relic|Scrimshaw|Sextant|Sheet music|Signet ring|Silverware|Spices|Spyglass|Tapestry|Telescope|Treasure map");
+/**
+* THE SIX THAT WERE EMPTY — Maze Rats, transcribed.
+*
+* They are the tables the reward rows draw on, and every one of them is now
+* filled. `rollTable` and `pickEquipmentRow` in dungeon-rewards.ts still guard
+* against an empty list, because that guard is what let these ship unfilled;
+* it is now unreachable for these six and stays for the next stub.
+*
+* THE CASCADE TOKENS IN HERE RESOLVE THROUGH `CONTENT_CASCADES` BELOW, and
+* every one of them is registered — see the block comment on that table for
+* the four keys these entries are the only readers of.
+*/
+var MISC_ITEMS = t$1("Bowl|Brass bell|Brooch|Carved figurine|Cup|Deck of cards|Drawing|Foreign coin|Game piece|Glass eye|Glass jar|Hair comb|Handkerchief|Hinged box|Hourglass|Human tooth|Hunting horn|Loaded dice|Long fork|Numbered key|Oil lamp|Old doll|Pain pot|Pencil|Purse|Quill pen|Salve|Scissors|Scroll|Sealed letter|Sewing needle|Shaving razor|Silver button|Skull|Tobacco pipe|Wine bottle");
+var WORN_ITEMS = t$1("Belt|Blouse|Boots|Bracelet|Breastplate|Brigandine|Cincture|Cloak|Coat|Dress|Earring|Eyepatch|Gambeson|Gauntlets|Glove|Gown|Hat|Helmet|Hose|Leathers|Locket|Mail shirt|Mask|Necklace|Plate mail|Ring|Robe|Sandals|Scarf|Shirt|Shoes|Skirt|Slippers|Socks|Trousers|Veil");
+var TOOL_ITEMS = t$1("Acid flask|Bear trap|Bellows|Bolt-cutters|Chain|Chisel|Crowbar|Door ram|Ear trumpet|Fire oil|Fishing hook|Goggles|Grappling hook|Grease|Hacksaw|Hammer|Hand drill|Lantern|Lens|Lock/key|Lockpicks|Manacles|Metal file|Mortar/pestle|Needle|Pickaxe|Pitchfork|Pliers|Pole|Pulleys|Rope|Scissors|Shovel|Spikes|Steel wire|Tongs");
+var TREASURE_TRAITS = t$1("Altered|Ancient|Blessed|Bulky|Compact|Consumable|Cultural value|Cursed|Damaged|Disguised|Draws enemies|{Effect}|{Element}|Embellished|Encoded|Exotic|Extra-planar|Famous|Forbidden|Fragile|Heavy|Immovable|Impracticable|Indestructible|Intelligent|Masterwork|Military value|Non-human|Owned|Partial|Political value|Religious value|Repaired|Royal|Toxic|Vile");
+var MAGICAL_INGREDIENTS = t$1("Ancient liquor|{Animal}|Blind eye|Boiled cat|{Book} book page|Bottled fog|Coffin nail|Corpse's hair|Crossroad dust|Cultist entrails|{Edible Plant}|Exotic spice|Killer's hand|King's tooth|Last breath|Liar's tongue|Lightning bolt|Lodestone|Monk's vow|{Monster Feature}|Newborn's cry|Oil portrait|{Potion}|{Phys. Element}|{Poisonous Plant}|Pyre ember|Queen bee|Queen's blood|Ship's barnacle|Star-metal|Thief's finger|Tomb flower|{Valuable Material}|Wedding ring|Widow's tears|Wizard skull");
+var POTIONS = t$1("{Animal}-form|Body swap|Camouflage|Control animals|Control {Element}|Cure affliction|Detect evil|Detect gold|Detect hidden|Direction sense|{Element}-form|{Element}-skin|Extra arm|Flight|Ghost-speech|Heat vision|{Insanity}|Invulnerable|{Item}-form|Magic immunity|Mirror image|{Monster Ability}|{Monster Feature}|{Monster Trait}|{Mutation}|Night vision|{Spell}|Restore health|Speed|Stretchy|Super-jump|Super-strength|Telekinesis|Tongues|Water-breathing|Water-walking");
 /**
 * WHAT A BOOK IS ABOUT — Maze Rats.
 *
@@ -1474,8 +1728,6 @@ var CONTENT_CASCADES = {
 	"Mon. Ability": MONSTER_ABILITIES,
 	"Monster Trait": MONSTER_TRAITS,
 	"Phys. Element": PHYSICAL_ELEMENTS,
-	"Phys. Elements": PHYSICAL_ELEMENTS,
-	"P. Element": PHYSICAL_ELEMENTS,
 	"Ether. Element": ETHEREAL_ELEMENTS,
 	"Physical Effect": PHYSICAL_EFFECTS,
 	"Ethereal Effect": ETHEREAL_EFFECTS,
@@ -1483,7 +1735,7 @@ var CONTENT_CASCADES = {
 	Insanities: INSANITIES,
 	Methods: METHODS,
 	Personality: PERSONALITIES,
-	Misfortune: MISFORTUNES$1,
+	Misfortune: MISFORTUNES,
 	"Val. Material": VALUABLE_MATERIALS,
 	"Val. Materials": VALUABLE_MATERIALS,
 	"Weapon Items": WEAPON_ITEMS,
@@ -1495,7 +1747,16 @@ var CONTENT_CASCADES = {
 	"Tool Item": TOOL_ITEMS,
 	"Treasure Trait": TREASURE_TRAITS,
 	"Magical Ingredient": MAGICAL_INGREDIENTS,
-	Potion: POTIONS
+	Potion: POTIONS,
+	Item: TREASURE_ITEMS,
+	"Valuable Material": VALUABLE_MATERIALS,
+	Element: ELEMENTS,
+	Effect: EFFECTS,
+	Mutation: MUTATIONS,
+	Spell: SPELL_NAMES,
+	Book: BOOK_SUBJECTS,
+	"Edible Plant": EDIBLE_PLANTS,
+	"Poisonous Plant": POISONOUS_PLANTS
 };
 var ENTITY_CASCADES$1 = /* @__PURE__ */ new Set([
 	"NPC",
@@ -1620,7 +1881,7 @@ var FLAVOR_TABLES = [
 	},
 	{
 		name: "Clothing",
-		table: CLOTHING$1
+		table: CLOTHING
 	},
 	{
 		name: "Mannerisms",
@@ -1640,7 +1901,7 @@ var FLAVOR_TABLES = [
 	},
 	{
 		name: "Misfortunes",
-		table: MISFORTUNES$1
+		table: MISFORTUNES
 	},
 	{
 		name: "Relationships",
@@ -2193,460 +2454,6 @@ function pushNpc(out, m) {
 		property: npc.asset
 	});
 }
-//#endregion
-//#region src/engine/knave-tables.ts
-var t$1 = (s) => s.split("|");
-t$1("Athletic|Brawny|Corpulent|Delicate|Gaunt|Hulking|Lanky|Ripped|Rugged|Scrawny|Short|Sinewy|Slender|Flabby|Statuesque|Stout|Tiny|Towering|Willowy|Wiry");
-t$1("Bloated|Blunt|Bony|Chiseled|Delicate|Elongated|Patrician|Pinched|Hawkish|Broken|Impish|Narrow|Ratlike|Round|Sunken|Sharp|Soft|Square|Wide|Wolfish");
-t$1("Battle scar|Birthmark|Burn scar|Dark|Makeup|Oily|Pale|Perfect|Pierced|Pockmarked|Reeking|Tattooed|Rosy|Rough|Sallow|Sunburned|Tanned|War paint|Weathered|Whip scar");
-t$1("Bald|Braided|Bristly|Cropped|Curly|Disheveled|Dreadlocks|Filthy|Frizzy|Greased|Limp|Long|Luxurious|Mohawk|Oily|Ponytail|Silky|Topknot|Wavy|Wispy");
-t$1("Antique|Bloody|Ceremonial|Decorated|Eccentric|Elegant|Fashionable|Filthy|Flamboyant|Stained|Foreign|Frayed|Frumpy|Livery|Oversized|Patched|Perfumed|Rancid|Torn|Undersized");
-t$1("Ambitious|Cautious|Courageous|Courteous|Curious|Disciplined|Focused|Generous|Gregarious|Honest|Honorable|Humble|Idealistic|Just|Loyal|Merciful|Righteous|Serene|Stoic|Tolerant");
-t$1("Aggressive|Arrogant|Bitter|Cowardly|Cruel|Deceitful|Flippant|Gluttonous|Greedy|Irascible|Lazy|Nervous|Prejudiced|Reckless|Rude|Suspicious|Vain|Vengeful|Wasteful|Whiny");
-t$1("Blunt|Booming|Breathy|Cryptic|Drawling|Droning|Flowery|Formal|Gravelly|Hoarse|Mumbling|Precise|Quaint|Rambling|Rapid-fire|Dialect|Slow|Squeaky|Stuttering|Whispery");
-t$1("Alchemist|Beggar|Butcher|Burglar|Charlatan|Cleric|Cook|Cultist|Gambler|Herbalist|Magician|Mariner|Mercenary|Merchant|Outlaw|Performer|Pickpocket|Smuggler|Student|Tracker");
-t$1("Abandoned|Addicted|Blackmailed|Condemned|Cursed|Defrauded|Demoted|Discredited|Disowned|Exiled|Framed|Haunted|Kidnapped|Mutilated|Poor|Pursued|Rejected|Replaced|Robbed|Suspected");
-[
-	...Array(5).fill("Law"),
-	...Array(10).fill("Neutrality"),
-	...Array(5).fill("Chaos")
-];
-/** The armor rows, worst to best — which is also cheapest to dearest. */
-var ARMOR_KEYS = [
-	"gambeson",
-	"brigandine",
-	"chain_armor",
-	"half_plate",
-	"full_plate",
-	"helmet",
-	"shield"
-];
-var WEAPON_CLASSES = [
-	{
-		key: "light",
-		label: "Light",
-		members: [
-			"dagger",
-			"cudgel",
-			"sickle",
-			"staff"
-		]
-	},
-	{
-		key: "medium",
-		label: "Medium",
-		members: [
-			"spear",
-			"sword",
-			"mace",
-			"axe",
-			"flail"
-		]
-	},
-	{
-		key: "heavy",
-		label: "Heavy",
-		members: [
-			"halberd",
-			"war_hammer",
-			"long_sword",
-			"battle_axe"
-		]
-	},
-	{
-		key: "sling",
-		label: "Sling",
-		members: ["sling"]
-	},
-	{
-		key: "bow",
-		label: "Bow",
-		members: ["bow"]
-	},
-	{
-		key: "crossbow",
-		label: "Crossbow",
-		members: ["crossbow"]
-	}
-];
-/** Every weapon, in class order. The class list is what the picker walks. */
-var WEAPONS = WEAPON_CLASSES.flatMap((c) => c.members);
-var DUNGEONEERING_GEAR = [
-	{ key: "rope" },
-	{ key: "block_and_tackle" },
-	{
-		key: "candle",
-		amount: "5",
-		value: 5
-	},
-	{ key: "chain" },
-	{ key: "chalk" },
-	{ key: "crowbar" },
-	{ key: "tinderbox" },
-	{ key: "grappling_hook" },
-	{ key: "hammer" },
-	{ key: "waterskin" },
-	{ key: "lantern" },
-	{ key: "lamp_oil" },
-	{ key: "padlock" },
-	{ key: "manacles" },
-	{ key: "mirror" },
-	{ key: "pole" },
-	{ key: "sack" },
-	{ key: "tent_personal" },
-	{
-		key: "iron_spike",
-		amount: "5",
-		value: 25
-	},
-	{
-		key: "torch",
-		amount: "5",
-		value: 5
-	}
-];
-var GENERAL_GEAR_1 = [
-	{ key: "air_bladder" },
-	{ key: "bear_trap" },
-	{ key: "shovel" },
-	{ key: "bellows" },
-	{ key: "grease" },
-	{ key: "saw" },
-	{ key: "bucket" },
-	{ key: "caltrops" },
-	{ key: "chisel" },
-	{ key: "drill" },
-	{ key: "fishing_rod" },
-	{ key: "glass_marbles" },
-	{ key: "glue" },
-	{ key: "pick" },
-	{ key: "hourglass" },
-	{ key: "net" },
-	{ key: "iron_tongs" },
-	{ key: "lockpicks" },
-	{ key: "metal_file" },
-	{ key: "nails" }
-];
-var GENERAL_GEAR_2 = [
-	{ key: "incense" },
-	{ key: "sponge" },
-	{ key: "lens" },
-	{ key: "perfume" },
-	{ key: "horn" },
-	{ key: "bottle" },
-	{ key: "soap" },
-	{ key: "spyglass" },
-	{ key: "tar" },
-	{ key: "twine" },
-	{ key: "fake_jewels" },
-	{ key: "blank_book" },
-	{ key: "card_deck" },
-	{ key: "dice_set" },
-	{ key: "cookpots" },
-	{ key: "face_paint" },
-	{ key: "whistle" },
-	{ key: "musical_instrument" },
-	{ key: "quill_and_ink" },
-	{ key: "small_bell" }
-];
-var SHOP_SECTIONS = [
-	{
-		key: "tools",
-		label: "Tools & gear",
-		entries: [
-			"air_bladder",
-			"bear_trap",
-			"bedroll",
-			"bellows",
-			"grease",
-			"block_and_tackle",
-			"blank_book",
-			"reading_book",
-			"bottle",
-			"bucket",
-			"caltrops",
-			"marked_cards",
-			"chain",
-			"chalk",
-			"chisel",
-			"cookpots",
-			"crowbar",
-			"drill",
-			"face_paint",
-			"fake_jewels",
-			"fishing_rod",
-			"glass_marbles",
-			"glue",
-			"grappling_hook",
-			"hammer",
-			"holy_water",
-			"horn",
-			"hourglass",
-			"incense",
-			"iron_tongs",
-			"ladder",
-			"sponge",
-			"lens",
-			"lockpicks",
-			"manacles",
-			"metal_file",
-			"mirror",
-			"musical_instrument",
-			"nails",
-			"net",
-			"oilskin_bag",
-			"oilskin_trousers",
-			"padlock",
-			"perfume",
-			"pick",
-			"pole",
-			"quill_and_ink",
-			"rope",
-			"sack",
-			"saw",
-			"loaded_dice",
-			"shovel",
-			"small_bell",
-			"soap",
-			"iron_spike",
-			"wood_spike",
-			"spiked_boots",
-			"spyglass",
-			"tar",
-			"tent_3man",
-			"tent_personal",
-			"twine",
-			"waterskin",
-			"whistle"
-		]
-	},
-	{
-		key: "light",
-		label: "Light",
-		note: "Burn times are the book's.",
-		entries: [
-			"candle",
-			"lantern",
-			"lamp_oil",
-			"tinderbox",
-			"torch"
-		]
-	},
-	{
-		key: "ammunition",
-		label: "Ammunition",
-		entries: ["arrows", "quiver"]
-	},
-	{
-		key: "clothing",
-		label: "Clothing",
-		entries: [
-			"poor_clothing",
-			"standard_clothing",
-			"winter_clothing",
-			"noble_clothing",
-			"furs"
-		]
-	},
-	{
-		key: "food",
-		label: "Food & drink",
-		entries: [
-			"rations",
-			"animal_feed",
-			"bacon",
-			"bread",
-			"cheese",
-			"cider",
-			"cod",
-			"eggs",
-			"flour",
-			"fruit",
-			"garlic",
-			"grain",
-			"herbs",
-			"lard",
-			"onions",
-			"salt",
-			"spices",
-			"sugar",
-			"wine"
-		]
-	}
-];
-/**
-* ARMOR (d20). **House-ruled.** As printed: 1-3 no armor · 4-14 Gambeson ·
-* 15-19 Brigandine · 20 Chain. Ours widens the empty band by two and pays for
-* it with a spellbook, which is the trade the book itself suggests one line
-* above the table — *"allow new PCs to roll a random spell in exchange for not
-* starting with any armor"*. Written out per face rather than as bands so the
-* divergence is visible rather than arithmetic.
-*/
-function rollArmorTable(d20) {
-	if (d20 <= 5) return {
-		armor: null,
-		spellbooks: 1
-	};
-	if (d20 <= 14) return {
-		armor: "gambeson",
-		spellbooks: 0
-	};
-	if (d20 <= 19) return {
-		armor: "brigandine",
-		spellbooks: 0
-	};
-	return {
-		armor: "chain_armor",
-		spellbooks: 0
-	};
-}
-/**
-* HELMETS AND SHIELDS (d20). **House-ruled.** As printed: 1-13 none ·
-* 14-16 Helmet · 17-19 Shield · 20 both. Ours gives the dead band to
-* spellbooks and hands out protection far more often — a helmet from 6, a
-* shield from 12.
-*/
-function rollHelmetShieldTable(d20) {
-	if (d20 <= 5) return {
-		helmet: false,
-		shield: false,
-		spellbooks: 1
-	};
-	if (d20 <= 11) return {
-		helmet: true,
-		shield: false,
-		spellbooks: 0
-	};
-	if (d20 <= 19) return {
-		helmet: false,
-		shield: true,
-		spellbooks: 0
-	};
-	return {
-		helmet: true,
-		shield: true,
-		spellbooks: 0
-	};
-}
-var spell = (s) => {
-	const i = s.indexOf(": ");
-	return {
-		name: s.slice(0, i),
-		effect: s.slice(i + 2)
-	};
-};
-/**
-* A spellbook holds exactly one of these and can be read once per day, so a
-* rolled spellbook is a whole item rather than a line on a sheet. `L` is the
-* caster's level; ongoing effects last L×10 minutes and reach 40 feet unless
-* the entry says otherwise.
-*
-* NOTE: 90 is printed as Summon Idol, out of the alphabetical run the rest of
-* the list keeps. Preserved as printed — same treatment as the duplicate
-* "Tinker" in `dungeon-blueprint.ts`.
-*/
-var SPELLS = [
-	"Adhere: Object is covered in extremely sticky slime.",
-	"Animate Object: Object obeys your commands as best it can. It can walk 15ft per round.",
-	"Anthropomorphize: A touched animal either gains human intelligence or human appearance for L days.",
-	"Arcane Eye: You can see through a magical floating eyeball that flies around at your command.",
-	"Astral Prison: An object is frozen in time and space within an invulnerable crystal shell.",
-	"Attract: L+1 objects are strongly magnetically attracted to each other if they come within 10 feet.",
-	"Auditory Illusion: You create illusory sounds that seem to come from a direction of your choice.",
-	"Babble: A creature must loudly and clearly repeat everything you think. It is otherwise mute.",
-	"Beast Form: You and your possessions transform into a mundane animal.",
-	"Befuddle: L creatures of your choice are unable to form new short-term memories for the duration of the spell.",
-	"Bend Fate: Roll L+1 d20s. Whenever you must roll a d20 after casting the spell, you must choose and then discard one of the rolled results until they are all gone.",
-	"Bird Person: Your arms turn into huge bird wings.",
-	"Body Swap: You switch bodies with a creature you touch. If one body dies, the other dies as well.",
-	"Catherine: A woman wearing a blue dress appears until end of spell. She will obey polite, safe requests.",
-	"Charm: L creatures treat you like a friend.",
-	"Command: A creature obeys a single, three-word command that does not harm it.",
-	"Comprehend: You become fluent in all languages.",
-	"Control Plants: Nearby plants and trees obey you and gain the ability to move at 5 feet per round.",
-	"Control Weather: You may alter the type of weather at will, but you do not otherwise control it.",
-	"Counterspell: Make an opposed Intelligence save against the Intelligence of the caster of a nearby spell. You may do this out of turn as a reaction, or against an ongoing magical effect. On a success, you may cancel the spell.",
-	"Deafen: All nearby creatures are deafened.",
-	"Detect Magic: You hear nearby magical auras singing.",
-	"Disassemble: Any of your body parts may be detached and reattached at will, without causing pain or damage. You can still control them.",
-	"Disguise: You may alter the appearance of L characters at will as long as they remain humanoid. Attempts to duplicate other characters will seem uncanny.",
-	"Displace: An object appears to be up to L×10ft from its actual position.",
-	"Earthquake: The ground begins shaking violently. Structures may be damaged or collapse.",
-	"Elasticity: Your body can stretch up to L×10ft.",
-	"Elemental Wall: A straight wall of ice or fire L×40ft long and 10ft high rises from the ground.",
-	"Filch: L visible items teleport to your hands.",
-	"Fog Cloud: Dense fog spreads out from you.",
-	"Frenzy: L creatures erupt in a frenzy of violence.",
-	"Gate: A portal to a random plane opens.",
-	"Gravity Shift: You can change the direction of gravity (for yourself only) up to once per round.",
-	"Greed: L creatures develop an overwhelming urge to possess a visible item of your choice.",
-	"Haste: Your movement speed is tripled.",
-	"Hatred: L creatures develop a deep hatred of another creature or group of creatures and wish to destroy it.",
-	"Hear Whispers: You can hear faint sounds clearly.",
-	"Hover: An object hovers, frictionless, 2ft above the ground. It can hold up to L humanoids.",
-	"Hypnotize: A creature enters a trance and will truthfully answer L yes or no questions you ask it.",
-	"Icy Touch: A thick ice layer spreads across a touched surface, up to L×10ft in radius.",
-	"Illuminate: A floating light moves as you command.",
-	"Increase Gravity: The gravity in an area triples.",
-	"Invisible Tether: Two objects within 10ft of each other cannot be moved more than 10ft apart.",
-	"Knock: L nearby mundane or magical locks unlock.",
-	"Leap: You can jump up to L×10ft in the air.",
-	"Liquid Air: The air around you becomes swimmable.",
-	"Magic Dampener: All nearby magical effects have their effectiveness halved.",
-	"Manse: A sturdy, furnished cottage appears for L×12 hours. You can permit and forbid entry to it at will.",
-	"Marble Madness: Your pockets are full of marbles, and will refill every round.",
-	"Masquerade: Appearances and voices become identical to a touched character.",
-	"Miniaturize: You and L other touched creatures are reduced to the size of a mouse.",
-	"Mirror Image: L illusory duplicates of yourself appear under your control.",
-	"Mirrorwalk: A mirror becomes a gateway to another mirror that you looked into today.",
-	"Multiarm: You gain L extra arms.",
-	"Night Sphere: An L×40ft wide sphere of darkness displaying the night sky appears.",
-	"Objectify: You become any inanimate object between the size of a grand piano and an apple.",
-	"Ooze Form: You become a living jelly.",
-	"Pacify: L creatures have an aversion to violence.",
-	"Phantom Coach: A ghostly coach appears until end of spell. It moves unnaturally fast over any terrain, including water.",
-	"Phobia: L creatures become terrified of an object of your choice.",
-	"Pit: A pit 10ft wide and L×5ft deep opens in the ground.",
-	"Primeval Surge: An object grows to the size of an elephant. If it is an animal, it is enraged.",
-	"Psychometry: The referee answers L yes or no questions about a touched object.",
-	"Pull: An object of any size is pulled directly towards you with the strength of L men for one round.",
-	"Push: An object of any size is pushed directly away from you with the strength of L men for one round.",
-	"Raise Dead: L skeletons rise from the ground to serve you. They are incredibly stupid and can only obey simple orders.",
-	"Raise Spirit: The spirit of a dead body manifests and will answer L questions.",
-	"Read Mind: You can hear the surface thoughts of nearby creatures.",
-	"Repel: L+1 objects are strongly magnetically repelled from each other if they come within 10 feet.",
-	"Scry: You can see through the eyes of a creature you touched earlier today.",
-	"Sculpt Elements: All inanimate material behaves like clay in your hands.",
-	"Shroud: L creatures are invisible until they move.",
-	"Shuffle: L creatures instantly switch places. Determine where they end up randomly.",
-	"Sleep: L creatures fall into a light sleep.",
-	"Smoke Form: Your body becomes living smoke.",
-	"Snail Knight: 10 minutes after casting, a knight sitting astride a giant snail rides into view. He is able to answer most questions related to quests and chivalry, and may aid you if he finds you worthy.",
-	"Sniff: You can smell even the faintest traces of scents.",
-	"Sort: Inanimate items sort themselves according to categories you set. The categories must be visually verifiable.",
-	"Spectacle: A clearly unreal but impressive illusion of your choice appears, under your control. It may be up to the size of a palace and has full motion and sound.",
-	"Spellseize: Cast this as a reaction to another spell going off to make a temporary copy of it that you can cast at any time before this spell ends.",
-	"Spider Climb: You can climb surfaces like a spider.",
-	"Summon Cube: Once per second, (6 times per round) you may summon or banish a 3-foot-wide cube of earth. New cubes must be affixed to the earth or to other cubes.",
-	"Swarm: You become a swarm of crows, rats, or piranhas. You only take damage from area effects.",
-	"Telekinesis: You may mentally move L items.",
-	"Telepathy: L+1 creatures can hear each other's thoughts, no matter how far apart they move.",
-	"Teleport: An object disappears and reappears on the ground in a visible, clear area up to L×40ft away.",
-	"Thaumaturgic Anchor: Object becomes the target of every spell cast near it.",
-	"Thicket: A thicket of trees and dense brush up to L×40ft wide suddenly sprouts up.",
-	"Time Jump: An object disappears as it jumps L×10 minutes into the future. When it returns, it appears in the unoccupied area nearest to where it left.",
-	"Summon Idol: A carved stone statue the size of a four poster bed rises from the ground.",
-	"Time Rush: Time in a 40ft bubble starts moving 10 times faster.",
-	"Time Slow: Time in a 40ft bubble slows to 10%.",
-	"True Sight: You see through all nearby illusions.",
-	"Upwell: A spring of seawater appears.",
-	"Vision: You completely control what a creature sees.",
-	"Visual Illusion: A silent, immobile, illusion of your choice appears, up to the size of a bedroom.",
-	"Ward: A silver circle 40ft across appears on the ground. Choose one thing that cannot cross it: living creatures, dead creatures, projectiles or metal.",
-	"Web: Your wrists can shoot thick webbing.",
-	"Wizard Mark: Your finger can shoot a stream of ulfire-colored paint. This paint is only visible to you, and can be seen at any distance, even through solid objects.",
-	"X-Ray Vision: You gain X-Ray vision."
-].map(spell);
 //#endregion
 //#region src/engine/equipment.ts
 /**
@@ -4035,8 +3842,9 @@ function rollEquipment(rng) {
 }
 /**
 * A row whose table is still empty draws nothing, so it is not offered. The six
-* stubs in `dungeon-blueprint.ts` are the reason this check exists; fill
-* `POTIONS` and the potion row starts appearing with no other change.
+* stubs in `dungeon-blueprint.ts` are the reason this check exists; `POTIONS`
+* is filled now and the row is offered, so the guard is dead for this row and
+* stays for the next one.
 */
 function pickEquipmentRow(rng) {
 	const rows = [
@@ -4076,7 +3884,7 @@ function drawsFor(row, rng) {
 			const content = rollTable(POTIONS, rng);
 			return content ? [{
 				kind: "rolled",
-				content,
+				content: `Potion of ${content}`,
 				value: rng.range(...KEY_VALUE_BAND)
 			}] : [spellbookDraw(rng)];
 		}
@@ -5481,7 +5289,7 @@ function equipmentItem(d, parentId, rng) {
 	}, parentId);
 	return {
 		id: makeId(),
-		name: "",
+		name: d.content,
 		type: "Item",
 		parentId,
 		slots: 1,
