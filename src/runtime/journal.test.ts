@@ -226,6 +226,7 @@ describe("the transcript", () => {
       kind: "commit",
       commit: {
         nextStage: "awaiting_action",
+        timeSpent: "instant",
         nextStep: "1-target",
         diffs: [
           { entityId: "room-1", path: "composed", value: long },
@@ -272,7 +273,7 @@ describe("the transcript", () => {
   it("says plainly when a commit was refused", () => {
     const text = render({
       kind: "commit",
-      commit: { nextStage: "awaiting_action", nextStep: "1-target", diffs: [] },
+      commit: { timeSpent: "instant", nextStage: "awaiting_action", nextStep: "1-target", diffs: [] },
       ok: false,
       reasons: ["name: that field is never writable"],
       seq: 1,

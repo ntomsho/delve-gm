@@ -24,9 +24,42 @@ export interface Diff {
   value: unknown;
 }
 
+/**
+ * HOW LONG THE PLAYER'S ACTION TOOK — AND THERE IS NO CLOCK.
+ *
+ * The obvious shape was a number of minutes, because "rest for the night" and
+ * "swing a sword" plainly differ and a number is how you say so. But nothing in
+ * this game consumes elapsed time — light and rations are prototype non-goals —
+ * so the number would exist to be read back by the thing that wrote it. `RunState`
+ * gains no `elapsedMinutes` and `turnCount` stays what it is: closed turns.
+ *
+ * What the difference is actually FOR is deciding which creatures get to act
+ * while the player was busy. That is a scope selector, not a quantity, so it is
+ * typed as one:
+ *
+ *   instant  a glance, a word, drawing a blade — nobody moves
+ *   round    ≤10s, one exchange — the alerted move a room
+ *   short    up to an hour, searching or picking a lock — likewise
+ *   long     a night's rest — anything may go anywhere it likes
+ *
+ * The applier reads exactly one thing off it: whether `approach` advances. See
+ * the sweep at the foot of `applyCommit`.
+ *
+ * `long` is unsayable until the Rest button exists (Phase 16) and is refused in
+ * `referee.ts` until then. It ships anyway, because the alternative is touching
+ * the schema, two step files and the tests a second time for nothing.
+ */
+export type TimeSpent = "instant" | "round" | "short" | "long";
+
 export interface Commit {
   nextStage: Stage;
   nextStep: Step;
+  /**
+   * What the turn cost in time, and so who else got to move. Required: a commit
+   * that did not say is a commit the applier would have to guess for, and the
+   * guess would be wrong in whichever direction mattered.
+   */
+  timeSpent: TimeSpent;
   /** present iff nextStage === "roll_offered" */
   rollRequest?: RollSpec;
   /** MUST be empty when nextStage is "clarifying" or "rejected" */
@@ -106,6 +139,8 @@ export interface WorldEvent {
     | "overburdened"
     | "player-died"
     | "entity-created"
+    /** a book gave up the last of what it had — the reading still happened */
+    | "book-exhausted"
     /** a walk ended short of where it was aimed — `detail` says what stopped it */
     | "movement-stopped"
     /** the objective was accomplished this turn; the run is not over yet */

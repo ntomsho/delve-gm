@@ -62,6 +62,7 @@ import type {
   StockedDungeon,
 } from "./dungeon-rooms-loop.ts";
 import { properName } from "./dungeon-entities.ts";
+import { rollItemValue } from "./equipment.ts";
 import type {
   CreatureStats,
   ICreature,
@@ -1505,7 +1506,17 @@ function createGoalEntity(
 ): IRoom | IRoomFeature | IItem | ICreature {
   const kw: KW = { Reward: ep.pendingGoal.reward, Mission: ep.pendingGoal.mission };
   if (goal.entityType === "Item") {
-    const it: IItem = { id: makeId(), name: goal.name, type: "Item", base: goal.base, parentId: roomId, slots: 1 };
+    // The thing the whole run is about, so it is priced as a significant find
+    // whatever room it ended up in.
+    const it: IItem = {
+      id: makeId(),
+      name: goal.name,
+      type: "Item",
+      base: goal.base,
+      parentId: roomId,
+      slots: 1,
+      value: rollItemValue(rng, "significant"),
+    };
     it.keywords = kw;
     ep.items.push(it);
     return it;

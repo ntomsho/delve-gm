@@ -9,7 +9,7 @@
  *   system, block 1   SKILL.md — the conventions, the commit, the dice
  *   system, block 2   dungeonContext — theme, history, the goal      ← cached
  *   system, block 3   the current step's files, and only those
- *   user              the character sheet and the room, re-rendered
+ *   user              the character sheet, the room, and every creature elsewhere
  *   user/assistant    the exchange for the action in progress, capped
  *   user              what has just happened, and what to do about it
  *
@@ -36,9 +36,15 @@ import type { GeneratedDungeon } from "../generate.ts";
 import type { RunState, TranscriptEntry } from "../../store/game.ts";
 import type { Step } from "../types.ts";
 import type { RolledOutcome } from "../turn.ts";
-import { characterView, needsComposition, roomView } from "../../store/selectors.ts";
+import { characterView, censusView, needsComposition, roomView } from "../../store/selectors.ts";
 import { SKILL, stepPrompt } from "./loader.ts";
-import { renderCharacter, renderRecords, renderRoll, renderRoom } from "./render.ts";
+import {
+  renderCharacter,
+  renderOtherRoomCreatures,
+  renderRecords,
+  renderRoll,
+  renderRoom,
+} from "./render.ts";
 
 /**
  * A player renegotiating forever cannot blow the budget: the exchange is cut to
@@ -141,6 +147,16 @@ function brief(req: PromptInput): Message {
       renderCharacter(characterView(run)),
       ``,
       room ? renderRoom(room) : `## The room the player is standing in\n\n(missing — this is a bug)`,
+      // AFTER THE ROOM, AND EVERY CALL. Until this existed the referee held one
+      // room and nothing in the dungeon did anything until the player walked in
+      // on it. Sending all of them every time was measured rather than assumed —
+      // see `censusView` — and it costs about a twentieth of a resolution turn.
+      //
+      // Under the room's own heading on purpose: it is a `###` beside "In it"
+      // and "Ways out", because what it says is *where everything else is*, and
+      // that is the same subject as the room the player is standing in.
+      ``,
+      renderOtherRoomCreatures(censusView(run)),
       records.length ? `\n${renderRecords(records)}` : ``,
     ].join("\n"),
   };

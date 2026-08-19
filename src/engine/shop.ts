@@ -12,11 +12,12 @@
  * afforded; every rule about what a purchase *does* is here, where it can be
  * asserted without a DOM.
  *
- * WHERE THE PRICES COME FROM. `SHOP_SECTIONS` in `knave-tables.ts` is the Item
- * Costs page minus its armor and weapon halves, which were already transcribed
- * for character creation as `ARMOR_STATS` and `WEAPON_CLASSES`. Those are what
- * the armor rows and the weapon picker read, so the shop and the creation step
- * price a gambeson from one line of one file.
+ * WHERE THE PRICES COME FROM. Every row is a key into `STANDARD_EQUIPMENT`, and
+ * a good's price is that entry's `value`. The sections in `knave-tables.ts` say
+ * which keys are on sale and under which heading; the armor rows and the weapon
+ * picker walk `ARMOR_KEYS` and `WEAPON_CLASSES`, which are the same two
+ * groupings character creation rolls on. So the shop and the creation step
+ * price a gambeson from one line of one file, and neither owns it.
  *
  * A WEAPON IS A CLASS AND THEN A NAME, exactly as it is at creation — the class
  * fixes damage, hands, slots, quality and price, and the name on top of it is
@@ -34,7 +35,7 @@
  * because dropping one of them has to be possible.
  */
 
-import type { IItem } from "./dungeon-entities.ts";
+import type { AnyItem } from "./dungeon-entities.ts";
 import {
   EQUIP_SLOTS,
   addItem,
@@ -45,18 +46,19 @@ import {
   type EquipSlot,
   type PlayerCharacter,
 } from "./dungeon-character.ts";
-import { purse, setPurse, weaponItem } from "./character-creation.ts";
-import { makeId } from "./dungeon-blueprint.ts";
+import { purse, setPurse } from "./character-creation.ts";
+import type { Rng } from "./dungeon-blueprint.ts";
 import {
-  ARMOR_STATS,
+  STANDARD_EQUIPMENT,
+  mintItem,
+  type EquipmentKey,
+  type ItemTemplate,
+} from "./equipment.ts";
+import {
+  ARMOR_KEYS,
   SHOP_SECTIONS,
   WEAPON_CLASSES,
-  weaponsIn,
-  type ArmorKey,
-  type ArmorStat,
-  type GearEntry,
   type ShopSection,
-  type WeaponStat,
 } from "./knave-tables.ts";
 
 // ===========================================================================
@@ -66,13 +68,17 @@ import {
 /**
  * One thing with a price on it.
  *
- * `toItem` is what a purchase mints — a closure rather than a stored template,
- * so every copy bought gets its own id and no two rows on a sheet can be the
- * same object. `kind` is what the screen reads to decide how much of a stat
- * line a row needs; nothing mechanical branches on it.
+ * A row is a key into `STANDARD_EQUIPMENT` and the template behind it, and the
+ * price IS the template's `value` — a shop that sold at one number and valued
+ * at another would be the two-tables problem all over again. `kind` is what the
+ * screen reads to decide how much of a stat line a row needs; nothing
+ * mechanical branches on it.
+ *
+ * `toItem` mints a fresh copy, so every purchase gets its own id and no two
+ * rows on a sheet can be the same object.
  */
 export interface ShopGood {
-  key: string;
+  key: EquipmentKey;
   name: string;
   amount?: string;
   cost: number;
@@ -80,93 +86,41 @@ export interface ShopGood {
   kind: "gear" | "armor" | "weapon";
   /** Which section it is displayed under. */
   section: string;
-  /** Set on an armor good, for the row that has to print its defense. */
-  armor?: ArmorStat;
-  /** Set on a weapon good, for the same reason. */
-  weapon?: WeaponStat;
-  toItem: () => IItem;
+  /** Everything else about it, for a row that has to print defense or damage. */
+  template: ItemTemplate;
+  toItem: (rng: Rng) => AnyItem;
 }
 
-/** Keys are display-stable and human-legible, so a failing test names a thing. */
-const slug = (s: string): string =>
-  s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-
-const gearKey = (section: string, e: GearEntry): string =>
-  `gear:${section}:${slug(e.name)}${e.amount ? `-${slug(e.amount)}` : ""}`;
-
-function gearGood(section: string, e: GearEntry): ShopGood {
+function good(key: EquipmentKey, kind: ShopGood["kind"], section: string): ShopGood {
+  const t: ItemTemplate = STANDARD_EQUIPMENT[key];
   return {
-    key: gearKey(section, e),
-    name: e.name,
-    ...(e.amount ? { amount: e.amount } : {}),
-    cost: e.cost,
-    slots: e.slots ?? 1,
-    kind: "gear",
+    key,
+    name: t.name,
+    ...(t.amount ? { amount: t.amount } : {}),
+    cost: t.value,
+    slots: t.slots ?? 1,
+    kind,
     section,
-    toItem: () => ({
-      id: makeId(),
-      name: e.name,
-      type: "Item",
-      parentId: "",
-      slots: e.slots ?? 1,
-      ...(e.amount ? { amount: e.amount } : {}),
-    }),
-  };
-}
-
-function armorGood(key: ArmorKey): ShopGood {
-  const a = ARMOR_STATS[key];
-  return {
-    key: `armor:${key}`,
-    name: a.name,
-    cost: a.cost,
-    slots: a.slots,
-    kind: "armor",
-    section: "armor",
-    armor: a,
-    toItem: () => ({
-      id: makeId(),
-      name: a.name,
-      type: "Item",
-      parentId: "",
-      slots: a.slots,
-      quality: a.quality,
-      currentQuality: a.quality,
-      armor: { armorType: a.armorType, defense: a.defense },
-    }),
-  };
-}
-
-function weaponGood(w: WeaponStat): ShopGood {
-  return {
-    key: `weapon:${slug(w.name)}`,
-    name: w.name,
-    cost: w.cost,
-    slots: w.slots,
-    kind: "weapon",
-    section: "weapons",
-    weapon: w,
-    toItem: () => weaponItem(w),
+    template: t,
+    toItem: (rng: Rng) => mintItem(key, "", rng),
   };
 }
 
 /** The armor rows, worst to best — which is also cheapest to dearest. */
-export const ARMOR_GOODS: readonly ShopGood[] = (
-  ["gambeson", "brigandine", "chain", "halfPlate", "fullPlate", "helmet", "shield"] as const
-).map(armorGood);
+export const ARMOR_GOODS: readonly ShopGood[] = ARMOR_KEYS.map((k) => good(k, "armor", "armor"));
 
 /** Every named weapon, in class order. The screen groups them by class again. */
 export const WEAPON_GOODS: readonly ShopGood[] = WEAPON_CLASSES.flatMap((c) =>
-  weaponsIn(c).map(weaponGood)
+  c.members.map((k) => good(k, "weapon", "weapons"))
 );
 
 export const GEAR_GOODS: readonly ShopGood[] = SHOP_SECTIONS.flatMap((s) =>
-  s.entries.map((e) => gearGood(s.key, e))
+  s.entries.map((k) => good(k, "gear", s.key))
 );
 
 export const ALL_GOODS: readonly ShopGood[] = [...ARMOR_GOODS, ...WEAPON_GOODS, ...GEAR_GOODS];
 
-const BY_KEY = new Map(ALL_GOODS.map((g) => [g.key, g]));
+const BY_KEY = new Map<string, ShopGood>(ALL_GOODS.map((g) => [g.key, g]));
 
 export function goodByKey(key: string): ShopGood | undefined {
   return BY_KEY.get(key);
@@ -279,7 +233,7 @@ export interface Purchase {
   /** The sheet after buying. A new object; the one passed in is untouched. */
   pc: PlayerCharacter;
   /** What was minted, in cart order. */
-  bought: IItem[];
+  bought: AnyItem[];
   spent: number;
   /** What went straight onto them, and into which slot. */
   equipped: EquipSlot[];
@@ -306,7 +260,7 @@ export interface Purchase {
  * argument for undoing it. `canEquip` is the strict check, so a shield bought
  * beside a two-hander stays in the pack exactly as a rolled one does.
  */
-export function checkout(pc: PlayerCharacter, cart: Cart): Purchase {
+export function checkout(pc: PlayerCharacter, cart: Cart, rng: Rng): Purchase {
   const lines = cartLines(cart);
   const spent = lines.reduce((n, l) => n + l.cost, 0);
   const held = purse(pc);
@@ -315,10 +269,10 @@ export function checkout(pc: PlayerCharacter, cart: Cart): Purchase {
   }
 
   const next = structuredClone(pc);
-  const bought: IItem[] = [];
+  const bought: AnyItem[] = [];
   for (const line of lines) {
     for (let i = 0; i < line.qty; i++) {
-      const item = line.good.toItem();
+      const item = line.good.toItem(rng);
       addItem(next, item, { force: true });
       bought.push(item);
     }

@@ -34,26 +34,29 @@ import {
   type StartingKit,
 } from "./character-creation.ts";
 import {
-  ARMOR_STATS,
   DUNGEONEERING_GEAR,
   GENERAL_GEAR_1,
   GENERAL_GEAR_2,
   SPELLS,
   TRAIT_TABLES,
+  ARMOR_KEYS,
   WEAPON_CLASSES,
   rollArmorTable,
   rollHelmetShieldTable,
   weaponClass,
   weaponsIn,
+  type WeaponKey,
 } from "./knave-tables.ts";
 import { Rng } from "./index.ts";
 import { isOverburdened, slotCapacity, slotsUsed, validateEquipment } from "./dungeon-character.ts";
-import type { IItem } from "./dungeon-entities.ts";
+import { isArmor, isSpellbook, isWeapon, type AnyItem } from "./dungeon-entities.ts";
+import { STANDARD_EQUIPMENT, armorFacts, equipment, weaponFacts } from "./equipment.ts";
 
-const weapon = (name: string) => {
-  const w = WEAPONS.find((x) => x.name === name);
-  if (!w) throw new Error(`no weapon called ${name}`);
-  return w;
+/** The tests still name weapons the way the book prints them. */
+const weapon = (name: string): WeaponKey => {
+  const k = WEAPONS.find((x) => equipment(x).name === name);
+  if (!k) throw new Error(`no weapon called ${name}`);
+  return k;
 };
 
 // ===========================================================================
@@ -98,7 +101,7 @@ describe("the armor table", () => {
   it("runs gambeson 6-14, brigandine 15-19, chain on 20", () => {
     for (let d = 6; d <= 14; d++) expect(rollArmorTable(d).armor, `d20=${d}`).toBe("gambeson");
     for (let d = 15; d <= 19; d++) expect(rollArmorTable(d).armor, `d20=${d}`).toBe("brigandine");
-    expect(rollArmorTable(20).armor).toBe("chain");
+    expect(rollArmorTable(20).armor).toBe("chain_armor");
   });
 
   it("never gives a spellbook alongside armor", () => {
@@ -292,13 +295,14 @@ describe("hit points", () => {
 // ===========================================================================
 
 /** Every route into the inventory has to produce something the engine accepts. */
-function expectLegalItem(it: IItem) {
+function expectLegalItem(it: AnyItem) {
   expect(it.id, it.name).toBeTruthy();
   expect(it.name).toBeTruthy();
   expect(it.type).toBe("Item");
   expect(it.slots, it.name).toBeGreaterThanOrEqual(0);
-  if (it.armor) expect(["body", "helmet", "shield"], it.name).toContain(it.armor.armorType);
-  if (it.weapon) expect(it.weapon.damage, it.name).toMatch(/^1d(4|6|8|10)$/);
+  expect(it.value, it.name).toBeGreaterThanOrEqual(0);
+  if (isArmor(it)) expect(["body", "helmet", "shield"], it.name).toContain(it.armor.armorType);
+  if (isWeapon(it)) expect(it.weapon.damage, it.name).toMatch(/^1d(4|6|8|10)$/);
   if (it.quality !== undefined) expect(it.currentQuality, it.name).toBe(it.quality);
 }
 
@@ -343,7 +347,7 @@ describe("the rolled kit", () => {
         if (g.slot !== "armor" && g.slot !== "helmetShield") continue;
         const expected =
           g.slot === "armor" ? rollArmorTable(g.d20).spellbooks : rollHelmetShieldTable(g.d20).spellbooks;
-        expect(g.items.filter((i) => i.spellBook).length, `seed ${seed} ${g.slot} d20=${g.d20}`).toBe(expected);
+        expect(g.items.filter(isSpellbook).length, `seed ${seed} ${g.slot} d20=${g.d20}`).toBe(expected);
       }
     }
   });
@@ -352,8 +356,8 @@ describe("the rolled kit", () => {
     let found = 0;
     for (let seed = 0; seed < 200 && found < 5; seed++) {
       for (const item of kitItems(rollKit(new Rng(seed), weapon("Sword")))) {
+        if (!isSpellbook(item)) continue;
         const book = item.spellBook;
-        if (!book) continue;
         found++;
         expect(item.name).toBe(`Spellbook: ${book.spellName}`);
         expect(book.exhausted).toBe(false);
@@ -372,7 +376,7 @@ describe("the rolled kit", () => {
 
   it("equips the shield when the weapon leaves a hand free", () => {
     const withShield = Array.from({ length: 200 }, (_, s) => rollKit(new Rng(s), weapon("Sword")))
-      .filter((k) => kitItems(k).some((i) => i.armor?.armorType === "shield"));
+      .filter((k) => kitItems(k).some((i) => isArmor(i) && i.armor.armorType === "shield"));
     expect(withShield.length).toBeGreaterThan(0);
     for (const k of withShield) expect(kitEquipped(k).shield).toBeTruthy();
   });
@@ -397,13 +401,13 @@ describe("rerolling one slot", () => {
   it("rolls the slot's own table and nothing else's", () => {
     for (let seed = 0; seed < 50; seed++) {
       const g = rollGearSlot(new Rng(seed), "general2");
-      expect(GENERAL_GEAR_2.map((e) => e.name)).toContain(g.items[0].name);
+      expect(GENERAL_GEAR_2.map((e) => equipment(e.key).name)).toContain(g.items[0].name);
     }
   });
 
   it("keeps the weapon swappable without disturbing the dice", () => {
     const kit = rollKit(new Rng(5), weapon("Sword"));
-    const next = withWeapon(kit, weapon("Bow"));
+    const next = withWeapon(kit, new Rng(9), weapon("Bow"));
     expect(next.weapon.name).toBe("Bow");
     expect(strip(next)).toEqual(strip(kit));
     expect(next.rations).toBe(kit.rations);
@@ -522,11 +526,18 @@ describe("the weapon classes", () => {
       "Bow",
       "Crossbow",
     ]);
-    expect(WEAPON_CLASSES.map((c) => c.damage)).toEqual(["1d6", "1d8", "1d10", "1d4", "1d6", "1d8"]);
+    expect(WEAPON_CLASSES.map((c) => weaponFacts(c.members[0])?.damage)).toEqual([
+      "1d6",
+      "1d8",
+      "1d10",
+      "1d4",
+      "1d6",
+      "1d8",
+    ]);
   });
 
   it("names the melee classes and leaves the ranged ones alone", () => {
-    const names = (key: string) => weaponClass(key as never).names;
+    const names = (key: string) => weaponsIn(weaponClass(key as never)).map((k) => equipment(k).name);
     expect(names("light")).toEqual(["Dagger", "Cudgel", "Sickle", "Staff"]);
     expect(names("medium")).toEqual(["Spear", "Sword", "Mace", "Axe", "Flail"]);
     expect(names("heavy")).toEqual(["Halberd", "War Hammer", "Long Sword", "Battle Axe"]);
@@ -537,36 +548,59 @@ describe("the weapon classes", () => {
   });
 
   // The class is the whole of the mechanical choice — that is why the interface
-  // asks for it first and treats the name as fiction on top.
+  // asks for it first and treats the name as fiction on top. Now that a weapon
+  // is a catalog entry rather than a row derived from its class, this is a
+  // statement about 16 hand-written entries and worth more than it used to be.
   it("gives every weapon in a class identical numbers", () => {
     for (const c of WEAPON_CLASSES) {
-      for (const w of weaponsIn(c)) {
-        expect(w, w.name).toMatchObject({
-          classKey: c.key,
-          damage: c.damage,
-          hands: c.hands,
-          slots: c.slots,
-          quality: c.quality,
-          cost: c.cost,
-        });
-        expect(Boolean(w.ranged), w.name).toBe(Boolean(c.ranged));
+      const first = equipment(c.members[0]);
+      for (const k of weaponsIn(c)) {
+        const t = equipment(k);
+        expect({ ...weaponFacts(k) }, k).toEqual({ ...weaponFacts(c.members[0]) });
+        expect(t.slots, k).toBe(first.slots);
+        expect(t.quality, k).toBe(first.quality);
+        expect(t.value, k).toBe(first.value);
       }
     }
   });
 
   it("flattens to every weapon exactly once, all of them quality 3", () => {
-    expect(WEAPONS).toHaveLength(WEAPON_CLASSES.reduce((n, c) => n + c.names.length, 0));
-    expect(new Set(WEAPONS.map((w) => w.name)).size).toBe(WEAPONS.length);
-    for (const w of WEAPONS) {
-      if (w.damage === "1d10") expect(w.hands, w.name).toBe(2);
-      expect(w.quality, w.name).toBe(3);
-      expect(w.slots, w.name).toBeGreaterThanOrEqual(1);
+    expect(WEAPONS).toHaveLength(WEAPON_CLASSES.reduce((n, c) => n + c.members.length, 0));
+    expect(new Set(WEAPONS).size).toBe(WEAPONS.length);
+    for (const k of WEAPONS) {
+      const w = weaponFacts(k)!;
+      if (w.damage === "1d10") expect(w.hands, k).toBe(2);
+      expect(equipment(k).quality, k).toBe(3);
+      expect(equipment(k).slots ?? 1, k).toBeGreaterThanOrEqual(1);
     }
   });
 
   it("prices armor the way the book does", () => {
-    expect(ARMOR_STATS.gambeson).toMatchObject({ defense: 12, slots: 1, quality: 3, cost: 60 });
-    expect(ARMOR_STATS.chain).toMatchObject({ defense: 14, slots: 3, quality: 5, cost: 1200 });
-    expect(ARMOR_STATS.helmet).toMatchObject({ armorType: "helmet", defense: 1, slots: 1 });
+    expect(STANDARD_EQUIPMENT.gambeson).toMatchObject({
+      armor: { defense: 12 },
+      slots: 1,
+      quality: 3,
+      value: 60,
+    });
+    expect(STANDARD_EQUIPMENT.chain_armor).toMatchObject({
+      armor: { defense: 14 },
+      slots: 3,
+      quality: 5,
+      value: 1200,
+    });
+    expect(STANDARD_EQUIPMENT.helmet).toMatchObject({
+      armor: { armorType: "helmet", defense: 1 },
+      slots: 1,
+    });
+  });
+
+  it("keeps the armor table pointing at real armor, worst to best", () => {
+    for (const k of ARMOR_KEYS) expect(armorFacts(k), k).toBeDefined();
+    const body = ARMOR_KEYS.filter((k) => armorFacts(k)!.armorType === "body");
+    const defenses = body.map((k) => armorFacts(k)!.defense);
+    expect(defenses).toEqual([...defenses].sort((a, b) => a - b));
+    expect(body.map((k) => equipment(k).value)).toEqual(
+      [...body.map((k) => equipment(k).value)].sort((a, b) => a - b)
+    );
   });
 });

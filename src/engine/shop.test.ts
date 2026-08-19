@@ -39,10 +39,15 @@ import {
 } from "./index.ts";
 import { Rng, buyKit, finishCharacter, rollAbilities, rollTraits, bonusesOf } from "./index.ts";
 import { WEAPONS } from "./knave-tables.ts";
+import { armorFacts, equipment, weaponFacts } from "./equipment.ts";
+import { isArmor, isWeapon } from "./dungeon-entities.ts";
+
+/** Purchases roll — a book rolls for what is in it — so the till needs a stream. */
+const till = () => new Rng(SEED);
 
 const SEED = 20260817;
 
-const weapon = (name: string) => WEAPONS.find((w) => w.name === name)!;
+const weapon = (name: string) => WEAPONS.find((k) => equipment(k).name === name)!;
 
 /**
  * A buyer, with a purse of a stated size and a weapon already in their hands.
@@ -70,9 +75,9 @@ const good = (key: string) => {
   return g;
 };
 
-const LANTERN = "gear:light:lantern";
-const TORCH = "gear:light:torch-1-hour";
-const GAMBESON = "armor:gambeson";
+const LANTERN = "lantern";
+const TORCH = "torch";
+const GAMBESON = "gambeson";
 
 describe("the catalogue", () => {
   it("prices everything, in whole copper", () => {
@@ -93,9 +98,9 @@ describe("the catalogue", () => {
     // because somebody transcribed the Item Costs page twice, which is the one
     // thing `knave-tables.ts` opens by refusing to do.
     expect(good(GAMBESON).cost).toBe(60);
-    expect(good(GAMBESON).armor?.defense).toBe(12);
-    expect(good("weapon:crossbow").cost).toBe(60);
-    expect(good("weapon:crossbow").weapon?.damage).toBe("1d8");
+    expect(armorFacts(GAMBESON)?.defense).toBe(12);
+    expect(good("crossbow").cost).toBe(60);
+    expect(weaponFacts("crossbow")?.damage).toBe("1d8");
     expect(GEAR_GOODS.some((g) => g.kind !== "gear")).toBe(false);
     expect(ARMOR_GOODS).toHaveLength(7);
     expect(WEAPON_GOODS).toHaveLength(WEAPONS.length);
@@ -107,8 +112,8 @@ describe("the catalogue", () => {
   });
 
   it("mints a fresh item every time, ids and all", () => {
-    const a = good(TORCH).toItem();
-    const b = good(TORCH).toItem();
+    const a = good(TORCH).toItem(till());
+    const b = good(TORCH).toItem(till());
     expect(a.id).not.toBe(b.id);
     expect(a.name).toBe("Torch");
     expect(a.amount).toBe("1 hour");
@@ -116,13 +121,13 @@ describe("the catalogue", () => {
   });
 
   it("mints armor and weapons with their stats on", () => {
-    const g = good(GAMBESON).toItem();
-    expect(g.armor).toEqual({ armorType: "body", defense: 12 });
+    const g = good(GAMBESON).toItem(till());
+    expect(isArmor(g) && g.armor).toEqual({ armorType: "body", defense: 12 });
     expect(g.quality).toBe(3);
     expect(g.currentQuality).toBe(3);
 
-    const bow = good("weapon:bow").toItem();
-    expect(bow.weapon).toEqual({ damage: "1d6", hands: 2, ranged: true });
+    const bow = good("bow").toItem(till());
+    expect(isWeapon(bow) && bow.weapon).toEqual({ damage: "1d6", hands: 2, ranged: true });
   });
 });
 
@@ -182,7 +187,7 @@ describe("the cart", () => {
   });
 
   it("ignores a key with no good behind it", () => {
-    const cart = setQty(EMPTY_CART, "gear:tools:nonesuch", 2);
+    const cart = setQty(EMPTY_CART, "nonesuch", 2);
     expect(cartLines(cart)).toHaveLength(0);
     expect(cartTotal(cart)).toBe(0);
   });
@@ -201,7 +206,7 @@ describe("checkout", () => {
   it("hands back a new sheet and leaves the old one alone", () => {
     const pc = buyer(400);
     const before = structuredClone(pc);
-    const { pc: after } = checkout(pc, addToCart(EMPTY_CART, LANTERN));
+    const { pc: after } = checkout(pc, addToCart(EMPTY_CART, LANTERN), till());
 
     expect(pc).toEqual(before);
     expect(after).not.toBe(pc);
@@ -210,7 +215,7 @@ describe("checkout", () => {
 
   it("takes the money and binds every purchase to the buyer", () => {
     const pc = buyer(400);
-    const { pc: after, bought, spent } = checkout(pc, addToCart(EMPTY_CART, TORCH, 5));
+    const { pc: after, bought, spent } = checkout(pc, addToCart(EMPTY_CART, TORCH, 5), till());
 
     expect(spent).toBe(5);
     expect(purse(after)).toBe(395);
@@ -222,12 +227,12 @@ describe("checkout", () => {
 
   it("refuses a cart the purse cannot cover", () => {
     const pc = buyer(10);
-    expect(() => checkout(pc, addToCart(EMPTY_CART, LANTERN))).toThrow(/30 cp and the purse holds 10/);
+    expect(() => checkout(pc, addToCart(EMPTY_CART, LANTERN), till())).toThrow(/30 cp and the purse holds 10/);
   });
 
   it("spends the purse to exactly nothing without leaving a copper row", () => {
     const pc = buyer(30);
-    const { pc: after } = checkout(pc, addToCart(EMPTY_CART, LANTERN));
+    const { pc: after } = checkout(pc, addToCart(EMPTY_CART, LANTERN), till());
     expect(purse(after)).toBe(0);
     expect(after.inventory.some((i) => i.name === "Copper")).toBe(false);
   });
@@ -236,7 +241,7 @@ describe("checkout", () => {
     const pc = buyer(400);
     expect(pc.equipped.armor).toBeUndefined();
 
-    const { pc: after, equipped } = checkout(pc, addToCart(EMPTY_CART, GAMBESON));
+    const { pc: after, equipped } = checkout(pc, addToCart(EMPTY_CART, GAMBESON), till());
     expect(equipped).toContain("armor");
     const worn = after.inventory.find((i) => i.id === after.equipped.armor);
     expect(worn?.name).toBe("Gambeson");
@@ -247,7 +252,7 @@ describe("checkout", () => {
     const sword = pc.equipped.weapon;
     expect(sword).toBeDefined();
 
-    const { pc: after, equipped } = checkout(pc, addToCart(EMPTY_CART, "weapon:dagger"));
+    const { pc: after, equipped } = checkout(pc, addToCart(EMPTY_CART, "dagger"), till());
     expect(after.equipped.weapon).toBe(sword);
     expect(equipped).not.toContain("weapon");
     expect(after.inventory.some((i) => i.name === "Dagger")).toBe(true);
@@ -259,7 +264,7 @@ describe("checkout", () => {
     const pc = buyer(400, "Halberd");
     expect(pc.equipped.shield).toBeUndefined();
 
-    const { pc: after, equipped } = checkout(pc, addToCart(EMPTY_CART, "armor:shield"));
+    const { pc: after, equipped } = checkout(pc, addToCart(EMPTY_CART, "shield"), till());
 
     expect(equipped).not.toContain("shield");
     expect(after.equipped.shield).toBeUndefined();
@@ -268,7 +273,7 @@ describe("checkout", () => {
 
   it("gives a shield to somebody with a hand free", () => {
     const pc = buyer(400, "Sword");
-    const { pc: after, equipped } = checkout(pc, addToCart(EMPTY_CART, "armor:shield"));
+    const { pc: after, equipped } = checkout(pc, addToCart(EMPTY_CART, "shield"), till());
 
     expect(equipped).toContain("shield");
     expect(after.equipped.shield).toBeDefined();
@@ -277,7 +282,7 @@ describe("checkout", () => {
   it("reports being over capacity and buys anyway", () => {
     const pc = buyer(400);
     const room = pc.abilities.con + 10 - slotsUsed(pc);
-    const { pc: after, overburdened } = checkout(pc, addToCart(EMPTY_CART, TORCH, room + 2));
+    const { pc: after, overburdened } = checkout(pc, addToCart(EMPTY_CART, TORCH, room + 2), till());
 
     expect(overburdened).toBe(true);
     expect(after.inventory.filter((i) => i.name === "Torch")).toHaveLength(room + 2);
@@ -285,7 +290,7 @@ describe("checkout", () => {
 
   it("buys nothing on an empty cart, and takes nothing for it", () => {
     const pc = buyer(400);
-    const { pc: after, bought, spent } = checkout(pc, EMPTY_CART);
+    const { pc: after, bought, spent } = checkout(pc, EMPTY_CART, till());
     expect(bought).toHaveLength(0);
     expect(spent).toBe(0);
     expect(purse(after)).toBe(400);

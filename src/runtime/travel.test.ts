@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { routeTo } from "./travel.ts";
+import { roomDistances, routeTo, stepToward } from "./travel.ts";
 import type { World } from "./diffs/types.ts";
 import type {
   EntityPassResult,
@@ -258,5 +258,103 @@ describe("choosing between routes", () => {
     const r = routeTo(w, "c");
     expect(r.endsAt).toBe("b");
     expect(r.stoppedBy).toMatch(/vines have sealed it/);
+  });
+});
+
+// ===========================================================================
+// THE OTHER GRAPH: WHAT A CREATURE KNOWS
+// ===========================================================================
+//
+// The same corridor and loop. What changes is the rule: `roomDistances` expands
+// through everything, because a creature knows its own home and the player's
+// map is not its map. D — which no route may pass through for the player — is
+// an ordinary room here.
+
+describe("roomDistances", () => {
+  it("measures every room from where it starts", () => {
+    const d = roomDistances(makeWorld(), "a");
+    expect(d.get("a")).toBe(0);
+    expect(d.get("b")).toBe(1);
+    expect(d.get("e")).toBe(1);
+    expect(d.get("c")).toBe(2);
+    expect(d.get("d")).toBe(3);
+  });
+
+  it("is symmetric", () => {
+    const w = makeWorld();
+    for (const [from, to] of [["a", "d"], ["b", "e"], ["c", "a"]]) {
+      expect(roomDistances(w, from).get(to)).toBe(roomDistances(w, to).get(from));
+    }
+  });
+
+  // The one thing that separates this from `shortestPath`. D has never been
+  // stood in — `routeTo` refuses to pass THROUGH it — and a creature standing
+  // in D is three rooms from the entrance all the same.
+  it("crosses rooms the player has never been in", () => {
+    const w = makeWorld();
+    // The Oubliette has no `composed`, which is what "never stood in it" means.
+    expect(w.entities.rooms.find((r) => r.id === "d")!.composed).toBeUndefined();
+    expect(roomDistances(w, "d").get("a")).toBe(3);
+  });
+
+  it("leaves an unreachable room out entirely", () => {
+    const w = makeWorld();
+    w.entities.rooms.push({ id: "z", name: "The Sealed Vault", type: "Room", base: "" });
+    expect(roomDistances(w, "a").get("z")).toBeUndefined();
+  });
+
+  // `walkable` again, and for the reason it exists: an undiscovered way is not
+  // a way, and neither is the stair to the surface — which joins one room to
+  // nothing, so it is a terminus rather than an edge.
+  it("will not cross a way the player has not discovered", () => {
+    const w = corridor();
+    w.entities.connectors.find((c) => c.id === "bc")!.isHidden = true;
+    const d = roomDistances(w, "a");
+    expect(d.get("b")).toBe(1);
+    expect(d.get("c")).toBeUndefined();
+  });
+
+  it("does not treat the way out of the dungeon as an edge", () => {
+    const w = corridor();
+    w.entities.connectors.push({
+      id: "stair", name: "The stair", type: "RoomConnector", base: "",
+      endpointA: "a", endpointB: null,
+    } as unknown as (typeof w.entities.connectors)[number]);
+    expect(roomDistances(w, "a").size).toBe(4);
+  });
+
+  // A creature does not stop at a fire the way the player does — what it does
+  // about one is the referee's to say, so the graph does not pre-empt it.
+  it("ignores what would stop a player's walk", () => {
+    const w = corridor({ creatures: [ghoul("b")] });
+    w.entities.connectors.find((c) => c.id === "bc")!.conditional = "barred";
+    expect(roomDistances(w, "a").get("c")).toBe(2);
+  });
+});
+
+describe("stepToward", () => {
+  it("returns the next room, not the destination", () => {
+    expect(stepToward(makeWorld(), "a", "d")).toBe("b");
+  });
+
+  it("gets there one room at a time", () => {
+    const w = makeWorld();
+    let at = "a";
+    const walked: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      at = stepToward(w, at, "d")!;
+      walked.push(at);
+    }
+    expect(walked).toEqual(["b", "c", "d"]);
+  });
+
+  it("says so when it is already there", () => {
+    expect(stepToward(makeWorld(), "c", "c")).toBe("c");
+  });
+
+  it("is undefined when no way leads there at all", () => {
+    const w = makeWorld();
+    w.entities.rooms.push({ id: "z", name: "The Sealed Vault", type: "Room", base: "" });
+    expect(stepToward(w, "a", "z")).toBeUndefined();
   });
 });

@@ -24,6 +24,7 @@ import {
   meleeAttackBonus,
   pcArmorDefense,
   rangedAttackBonus,
+  itemValue,
   resolveBase,
   type Ability,
   type AnyEntity,
@@ -37,10 +38,11 @@ import {
   type SlotReport,
   type TemplateRegistry,
 } from "../engine/index.ts";
-import { EQUIP_SLOTS, farSide, heldItem, isSurfaceExit, itemSummary, touches } from "../engine/index.ts";
+import { EQUIP_SLOTS, farSide, heldItem, isArmor, isBook, isSurfaceExit, itemSummary, touches } from "../engine/index.ts";
 import { describeGeometry, exitPhrase, positionPhrase, siteRooms } from "../engine/index.ts";
 import type { RoomGeometry } from "../engine/index.ts";
 import { directContents, heldItems } from "../runtime/occupancy.ts";
+import { roomDistances } from "../runtime/travel.ts";
 import {
   pointLayout,
   type Layout,
@@ -97,6 +99,27 @@ export interface EntityView {
   slots?: number;
   quality?: { current: number; original: number };
   /**
+   * How much of it is left — "3 days", "50 feet", "a handful".
+   *
+   * Writable since the applier existed and rendered nowhere until Phase 15: the
+   * referee could write how many rations were down to and neither it nor the
+   * player could read it back. It surfaces here because a meal is the one thing
+   * rest cannot happen without.
+   */
+  amount?: string;
+  /** items only: what it is worth in copper. Absent when it is worth nothing. */
+  value?: number;
+  /**
+   * books only: what it is about, how many readings it has had, and whether
+   * there is anything left in it.
+   *
+   * Carried through to the referee rather than kept for the panel, because the
+   * `consult` roll takes the current `uses` and the suggestion rule in step 3
+   * turns on the subject. A book the referee cannot see the subject of is a
+   * book nobody is ever told they are carrying.
+   */
+  book?: { subject: string; uses: number; exhausted: boolean };
+  /**
    * Where in the room it stands, as one of the position words — "the north
    * wall", "the far end". Absent for anything that was never placed, which is
    * every creature and every dungeon generated without a drawing.
@@ -151,8 +174,13 @@ function toView(
   if (entity.type === "Item") {
     const i = entity as IItem;
     view.slots = i.slots;
+    if (i.amount !== undefined) view.amount = i.amount;
     if (i.quality !== undefined) {
       view.quality = { current: i.currentQuality ?? i.quality, original: i.quality };
+    }
+    if (itemValue(i) > 0) view.value = itemValue(i);
+    if (isBook(i)) {
+      view.book = { ...i.book, exhausted: i.book.exhausted === true };
     }
   }
   return view;
@@ -331,6 +359,81 @@ export function roomView(
     fiction: dungeon.dungeonContext,
     geometry: drawn && describeGeometry(drawn.geometry, { omit: concealed }),
   };
+}
+
+// ===========================================================================
+// EVERY OTHER CREATURE IN THE DUNGEON
+// ===========================================================================
+
+/**
+ * One line of the census — a creature the player is not standing next to.
+ *
+ * REFEREE ONLY, like `CombatView` above and for a stronger reason: this is the
+ * one thing the runtime hands over that the *character* does not have. Nothing
+ * in `ui/` reads it.
+ */
+export interface CensusEntry {
+  id: string;
+  name: string;
+  /** how many bodies; 1 for a lone specimen */
+  count: number;
+  roomId: string;
+  roomName: string;
+  /** rooms crossed to get there; absent when no way leads to it at all */
+  roomsAway?: number;
+  /** the player has stood in that room, so they could name it */
+  roomVisited: boolean;
+  /** hurt, without saying how badly — the numbers are `renderRoom`'s job */
+  wounded: boolean;
+  activity?: string;
+}
+
+/**
+ * ALL OF THEM, EVERY CALL.
+ *
+ * The whole design turns on how many there are, so it was measured before it
+ * was designed: the largest dump in the repo — 18 rooms — holds 12 creature
+ * entities across 6 rooms, and a full census one line each is about 625 tokens
+ * against ~11,500 for a resolution turn. There is no version of this worth
+ * being clever about, so there is no filtering, no radius and no budget.
+ *
+ * WHAT IS NOT IN IT is the room the player is standing in. `roomView` already
+ * carries those creatures with `base`, `state`, `composed`, `activity`,
+ * defenses and hit points; a census line for them would be a second, poorer
+ * copy, and two renderings of one creature is an invitation for the two to
+ * disagree.
+ *
+ * A GROUP OF NONE IS GONE. `count: 0` is a wiped-out group the applier has not
+ * removed, and listing it invites the referee to send a dead pack somewhere.
+ *
+ * Distances come from `roomDistances`, which walks the graph WITHOUT the
+ * visited-only rule `shortestPath` applies to the player — a creature knows its
+ * own home. One BFS answers for every line.
+ */
+export function censusView(run: RunState): CensusEntry[] {
+  const e = run.entities;
+  const away = roomDistances(run, run.currentRoomId);
+
+  return e.creatures
+    .filter((c) => c.roomId !== run.currentRoomId)
+    .filter((c) => c.count === undefined || c.count > 0)
+    .map((c): CensusEntry => {
+      const room = e.rooms.find((r) => r.id === c.roomId);
+      const distance = away.get(c.roomId);
+      return {
+        id: c.id,
+        name: c.name,
+        count: c.count ?? 1,
+        roomId: c.roomId,
+        roomName: room?.name ?? "(nowhere)",
+        ...(distance !== undefined ? { roomsAway: distance } : {}),
+        // The same test the map uses for "the player has been here" — a room's
+        // `composed` is written the first time they walk in and never before.
+        roomVisited: room?.composed !== undefined,
+        wounded: c.stats.hp < maxHp(c.stats),
+        ...(c.activity !== undefined ? { activity: c.activity } : {}),
+      };
+    });
 }
 
 /**
@@ -545,7 +648,7 @@ export function creatureDefense(creature: ICreature, ability: Ability): number {
 export function armorPieces(pc: PlayerCharacter): { slot: EquipSlot; name: string; defense: number }[] {
   return EQUIP_SLOTS.flatMap((slot) => {
     const item = heldItem(pc, pc.equipped[slot]);
-    if (!item?.armor) return [];
+    if (!item || !isArmor(item)) return [];
     return [{ slot, name: item.name, defense: slot === "armor" ? item.armor.defense : 1 }];
   });
 }

@@ -49,6 +49,7 @@ const commit = (input: Record<string, unknown>) =>
     post: "The turn passes.",
     nextStage: "awaiting_action",
     nextStep: "1-target",
+    timeSpent: "instant",
     diffs: [],
     ...input,
   });
@@ -173,7 +174,12 @@ describe("an ordinary turn", () => {
     expect(out.narration).toBe("The door gives, and the smell comes out to meet you.");
     // The post is NOT on the commit the applier sees. `Commit` is what the
     // applier and the store consume and neither has any business with prose.
-    expect(out.commit).toEqual({ nextStage: "awaiting_action", nextStep: "1-target", diffs: [] });
+    expect(out.commit).toEqual({
+      nextStage: "awaiting_action",
+      nextStep: "1-target",
+      timeSpent: "instant",
+      diffs: [],
+    });
     expect(sent).toHaveLength(1);
   });
 
@@ -732,3 +738,75 @@ describe("what the model is shown", () => {
     expect(sent[0].messages.at(-1).content).toContain("never writable");
   });
 });
+
+// ---------------------------------------------------------------------------
+
+/*
+ * TIME SPENT, AND THE TURNS THAT DID NOT HAPPEN.
+ *
+ * `timeSpent` is the only thing that lets a creature elsewhere in the dungeon
+ * cross a room, so the stages that end a turn without one having taken place
+ * have to be pinned to `instant`. It is a rule about what a stage MEANS, which
+ * is why it is checked here rather than asked for in the playbook — the same
+ * family as the no-diffs rule on a rejection.
+ */
+describe("timeSpent", () => {
+  const refusal = () => sent[1].messages.at(-1).content[0];
+
+  it.each(["clarifying", "rejected", "roll_offered"] as const)(
+    "refuses a %s turn that spent time",
+    async (nextStage) => {
+      queue.push(reply(commit({ nextStage, nextStep: "4-confirm-roll", timeSpent: "short", ...offer(nextStage) })));
+      queue.push(reply(commit({})));
+
+      const out = await referee()(request());
+
+      expect(refusal().is_error).toBe(true);
+      expect(refusal().content).toContain("has not happened yet");
+      expect(out.commit.timeSpent).toBe("instant");
+    }
+  );
+
+  // A room entry is the consequence of a move that has already been paid for.
+  // Without this, walking through a door moves everything else twice.
+  it("refuses a room entry that spent time", async () => {
+    queue.push(reply(commit({ timeSpent: "round" })));
+    queue.push(reply(commit({})));
+
+    await referee()(request({ step: "room-entry" as Step }));
+
+    expect(refusal().is_error).toBe(true);
+    expect(refusal().content).toContain("not a turn");
+  });
+
+  it("refuses long, and says what would produce one", async () => {
+    queue.push(reply(commit({ timeSpent: "long" })));
+    queue.push(reply(commit({ timeSpent: "short" })));
+
+    const out = await referee()(request());
+
+    expect(refusal().is_error).toBe(true);
+    expect(refusal().content).toContain("Rest button");
+    expect(out.commit.timeSpent).toBe("short");
+  });
+
+  it("takes an ordinary turn that spent time, and carries it to the applier", async () => {
+    queue.push(reply(commit({ timeSpent: "short" })));
+    expect((await referee()(request())).commit.timeSpent).toBe("short");
+  });
+});
+
+/** `roll_offered` needs something to roll, or it is refused for that instead. */
+function offer(nextStage: string): Record<string, unknown> {
+  return nextStage === "roll_offered"
+    ? {
+        rollRequest: {
+          kind: "save",
+          ability: "dex",
+          bonus: 1,
+          edge: "none",
+          description: "Jump it.",
+        },
+      }
+    : {};
+}

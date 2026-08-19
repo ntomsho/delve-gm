@@ -14,8 +14,8 @@
  * trip is not.
  *
  * Every kind maps onto `engine/dungeon-rolls`, which means advantage keep-best,
- * the natural 20's extra die, the well-suited bonus and damage summation stay
- * in tested code rather than moving into the prompt. Nothing here decides a
+ * the natural 20's extra die, the well-suited bonus, the d6 that empties a book
+ * and damage summation stay in tested code rather than moving into the prompt. Nothing here decides a
  * rule; it translates a request and reports what the dice said.
  *
  * The RNG is the run's, positioned where the run left off — the same stream the
@@ -25,6 +25,7 @@
 
 import {
   attackRoll,
+  consultRoll,
   DEFAULT_MORALE,
   dcFromDefense,
   moraleRoll,
@@ -126,6 +127,21 @@ function one(rng: RollRng, r: RollRequestParsed): DiceOutcome {
         id: r.id,
         kind: r.kind,
         line: `morale — 2d6 [${o.rolled.join(", ")}] = ${o.total} vs ${rating} — ${o.holds ? "THEY HOLD" : "THEY BREAK"}`,
+        failed: false,
+      };
+    }
+
+    case "consult": {
+      const o = consultRoll(rng, r.uses ?? 0);
+      // Says what to write, for the same reason a crit does: the referee is
+      // reporting a number it was given, never choosing one.
+      const verdict = o.exhausted
+        ? `THE LAST OF IT · write book.uses ${o.uses} and book.exhausted true`
+        : `THERE IS MORE IN IT · write book.uses ${o.uses}`;
+      return {
+        id: r.id,
+        kind: r.kind,
+        line: `consult — reading ${o.uses}, d6 [${o.rolled}] vs ${o.uses} — ${verdict}`,
         failed: false,
       };
     }

@@ -3,10 +3,11 @@ import { applyCommit } from "./apply.ts";
 import { PLAYER_ID, type Commit, type Diff, type World } from "./types.ts";
 import { normalizePath } from "./paths.ts";
 import { roomIndex } from "../occupancy.ts";
+import { isBook } from "../../engine/index.ts";
 import type {
   EntityPassResult,
   ICreature,
-  IItem,
+  AnyItem,
   IRoom,
   IRoomConnector,
   IRoomFeature,
@@ -18,15 +19,15 @@ import type {
 // ===========================================================================
 // Two rooms joined by a barred door. A ghoul in the far room. The player
 // carries a sword, a halberd, a shield and a gambeson, and there is a chest in
-// the near room with a dagger inside it.
+// the near room with a dagger and a herbal inside it.
 
 const ROOM_A = "room-a";
 const ROOM_B = "room-b";
 /** On the map, reachable from neither — the far side of a move that isn't one. */
 const ROOM_C = "room-c";
 
-function item(id: string, over: Partial<IItem> = {}): IItem {
-  return { id, name: id, type: "Item", base: `a ${id}`, parentId: ROOM_A, slots: 1, ...over };
+function item(id: string, over: Partial<AnyItem> = {}): AnyItem {
+  return { id, name: id, type: "Item", base: `a ${id}`, parentId: ROOM_A, slots: 1, value: 0, ...over } as AnyItem;
 }
 
 function makeWorld(): World {
@@ -71,7 +72,10 @@ function makeWorld(): World {
     connectors,
     creatures: [ghoul],
     features: [chest, flagstone],
-    items: [item("dagger", { parentId: "chest", weapon: { damage: "1d6", hands: 1 }, quality: 3, currentQuality: 3 })],
+    items: [
+      item("dagger", { parentId: "chest", itemKind: "weapon", weapon: { damage: "1d6", hands: 1 }, quality: 3, currentQuality: 3 }),
+      item("herbal", { parentId: "chest", itemKind: "book", book: { subject: "Herbs", uses: 3 } }),
+    ],
     hazards: [],
     effects: [],
     bindings: [],
@@ -91,10 +95,10 @@ function makeWorld(): World {
       misfortunes: "Exiled", alignment: "Neutrality",
     },
     inventory: [
-      item("sword", { parentId: "pc-1", weapon: { damage: "1d8", hands: 1 }, quality: 3, currentQuality: 3 }),
-      item("halberd", { parentId: "pc-1", weapon: { damage: "1d10", hands: 2 }, slots: 3, quality: 2, currentQuality: 2 }),
-      item("shield", { parentId: "pc-1", armor: { armorType: "shield", defense: 1 }, quality: 1, currentQuality: 1 }),
-      item("gambeson", { parentId: "pc-1", armor: { armorType: "body", defense: 12 }, quality: 3, currentQuality: 3 }),
+      item("sword", { parentId: "pc-1", itemKind: "weapon", weapon: { damage: "1d8", hands: 1 }, quality: 3, currentQuality: 3 }),
+      item("halberd", { parentId: "pc-1", itemKind: "weapon", weapon: { damage: "1d10", hands: 2 }, slots: 3, quality: 2, currentQuality: 2 }),
+      item("shield", { parentId: "pc-1", itemKind: "armor", armor: { armorType: "shield", defense: 1 }, quality: 1, currentQuality: 1 }),
+      item("gambeson", { parentId: "pc-1", itemKind: "armor", armor: { armorType: "body", defense: 12 }, quality: 3, currentQuality: 3 }),
     ],
     equipped: {},
     conditions: [],
@@ -109,6 +113,7 @@ beforeEach(() => { world = makeWorld(); });
 const commit = (...diffs: Diff[]): Commit => ({
   nextStage: "awaiting_action",
   nextStep: "1-target",
+  timeSpent: "instant",
   diffs,
 });
 
@@ -200,6 +205,7 @@ describe("atomicity", () => {
   it("a clarifying turn carrying diffs changes nothing", () => {
     const r = applyCommit(world, {
       nextStage: "clarifying",
+      timeSpent: "instant",
       nextStep: "1-target",
       diffs: [{ entityId: "ghoul", path: "state", value: "wounded" }],
     });
@@ -210,6 +216,7 @@ describe("atomicity", () => {
   it("a rejected turn carrying diffs changes nothing", () => {
     const r = applyCommit(world, {
       nextStage: "rejected",
+      timeSpent: "instant",
       nextStep: "1-target",
       diffs: [{ entityId: PLAYER_ID, path: "hp.current", value: 1 }],
     });
@@ -221,6 +228,7 @@ describe("atomicity", () => {
   it("a rejected turn cannot write the fiction either", () => {
     const r = applyCommit(world, {
       nextStage: "rejected",
+      timeSpent: "instant",
       nextStep: "1-target",
       diffs: [],
       fictionNote: "The gaol was built over a mine.",
@@ -237,6 +245,7 @@ describe("atomicity", () => {
 describe("fictionNote", () => {
   const note = (fictionNote: string): Commit => ({
     nextStage: "awaiting_action",
+    timeSpent: "instant",
     nextStep: "1-target",
     diffs: [],
     fictionNote,
@@ -837,6 +846,7 @@ describe("leaving the dungeon", () => {
   const depart = (over: Partial<Commit> = {}): Commit => ({
     nextStage: "departed",
     nextStep: "5-resolution",
+    timeSpent: "instant",
     diffs: [],
     ...over,
   });
@@ -880,6 +890,7 @@ describe("leaving the dungeon", () => {
   /** An ordinary turn that reports the objective done. Not itself an ending. */
   const achieve = (): Commit => ({
     nextStage: "awaiting_action",
+    timeSpent: "instant",
     nextStep: "1-target",
     diffs: [],
     goalMet: true,
@@ -1027,5 +1038,229 @@ describe("children[] — newly established things", () => {
     );
     expect(r.ok).toBe(false);
     expect(r.rejected[0].reason).toMatch(/only Item and RoomFeature/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// BOOKS
+// ---------------------------------------------------------------------------
+
+describe("consulting a book", () => {
+  const book = (w: World) => {
+    const it = w.entities.items.find((i) => i.id === "herbal")!;
+    return isBook(it) ? it.book : undefined;
+  };
+
+  it("records a reading", () => {
+    expect(book(ok(commit({ entityId: "herbal", path: "book.uses", value: 4 })))?.uses).toBe(4);
+  });
+
+  // One reading at a time and none un-read: the count is what `consultRoll`
+  // just handed back, and any other number is the referee inventing one.
+  it("only ever counts up, and only ever by one", () => {
+    expect(book(ok(commit({ entityId: "herbal", path: "book.uses", value: 9 })))?.uses).toBe(4);
+    expect(book(ok(commit({ entityId: "herbal", path: "book.uses", value: 1 })))?.uses).toBe(3);
+  });
+
+  it("reads a book out without destroying it", () => {
+    const w = ok(
+      commit(
+        { entityId: "herbal", path: "book.uses", value: 4 },
+        { entityId: "herbal", path: "book.exhausted", value: true }
+      )
+    );
+    expect(book(w)?.exhausted).toBe(true);
+    expect(w.entities.items.some((i) => i.id === "herbal")).toBe(true);
+  });
+
+  it("says so, so the narration can acknowledge it", () => {
+    const r = applyCommit(makeWorld(), commit({ entityId: "herbal", path: "book.exhausted", value: true }));
+    expect(r.events.some((e) => e.kind === "book-exhausted")).toBe(true);
+  });
+
+  // A latch: a book that has given up everything does not get it back.
+  it("never un-exhausts a book", () => {
+    const spent = ok(commit({ entityId: "herbal", path: "book.exhausted", value: true }));
+    const r = applyCommit(spent, commit({ entityId: "herbal", path: "book.exhausted", value: false }));
+    expect(r.ok).toBe(true);
+    expect(
+      r.world!.entities.items.find((i) => i.id === "herbal") as { book?: { exhausted?: boolean } }
+    ).toMatchObject({ book: { exhausted: true } });
+  });
+
+  it("refuses to count consultations of something that is not a book", () => {
+    const r = applyCommit(makeWorld(), commit({ entityId: "sword", path: "book.uses", value: 1 }));
+    expect(r.ok).toBe(false);
+    expect(r.rejected[0].reason).toMatch(/not a book/);
+  });
+});
+
+// ===========================================================================
+// CREATURES THAT WALK THEMSELVES ACROSS THE DUNGEON
+// ===========================================================================
+//
+// A longer corridor than `makeWorld` has, because the whole point of `approach`
+// is the rooms in between. The ghoul starts in ROOM_B, at the far end:
+//
+//   room-a — room-b — far-1 — far-2         and room-c is joined to nothing
+//
+// `timeSpent` is what buys a step, so it is stated on every commit here rather
+// than left to the helper's "instant".
+
+const FAR_1 = "far-1";
+const FAR_2 = "far-2";
+
+/** The corridor extended, with the ghoul stood at the far end of it. */
+function longWorld(): World {
+  const w = makeWorld();
+  w.entities.rooms.push(
+    { id: FAR_1, name: "Passage", type: "Room", base: "a passage" },
+    { id: FAR_2, name: "Crypt", type: "Room", base: "a crypt" }
+  );
+  w.entities.connectors.push(
+    { id: "b-f1", name: "A gap", type: "RoomConnector", base: "a gap", endpointA: ROOM_B, endpointB: FAR_1 },
+    { id: "f1-f2", name: "A stair", type: "RoomConnector", base: "a stair", endpointA: FAR_1, endpointB: FAR_2 }
+  );
+  w.entities.creatures[0].roomId = FAR_2;
+  return w;
+}
+
+const walks = (...diffs: Diff[]): Commit => ({ ...commit(...diffs), timeSpent: "short" });
+const where = (w: World) => w.entities.creatures[0].roomId;
+const heading = (w: World) => w.entities.creatures[0].approach;
+
+describe("approach", () => {
+  it("a creature three rooms off arrives in three turns", () => {
+    let w = longWorld();
+    const r = applyCommit(w, walks({ entityId: "ghoul", path: "approach", value: ROOM_A }));
+    expect(r.rejected).toEqual([]);
+    w = r.world!;
+
+    // The write sets the destination and the sweep spends one room of it, so
+    // the turn it was told to come is already a turn of walking.
+    expect(where(w)).toBe(FAR_1);
+    expect(heading(w)).toBe(ROOM_A);
+
+    w = applyCommit(w, walks()).world!;
+    expect(where(w)).toBe(ROOM_B);
+
+    w = applyCommit(w, walks()).world!;
+    expect(where(w)).toBe(ROOM_A);
+  });
+
+  it("clears the destination the moment it arrives, and then stays put", () => {
+    let w = longWorld();
+    for (let i = 0; i < 3; i++) {
+      w = applyCommit(w, i === 0 ? walks({ entityId: "ghoul", path: "approach", value: ROOM_A }) : walks()).world!;
+    }
+    expect(where(w)).toBe(ROOM_A);
+    expect(heading(w)).toBeUndefined();
+
+    // Two more turns of nothing in particular, and it has not wandered off.
+    w = applyCommit(w, walks()).world!;
+    expect(where(w)).toBe(ROOM_A);
+  });
+
+  // The whole reason `roomId` and `approach` are different writes: this is the
+  // relational-key rule in BUILD-PLAN §4.3, and one assignment is all of it.
+  it("leaves the old room's occupancy and joins the new one", () => {
+    const w = applyCommit(longWorld(), walks({ entityId: "ghoul", path: "approach", value: ROOM_A })).world!;
+    const index = roomIndex(w.entities);
+    expect(index.get(FAR_1)!.map((e) => e.id)).toContain("ghoul");
+    expect(index.get(FAR_2)?.map((e) => e.id) ?? []).not.toContain("ghoul");
+  });
+
+  // Refused rather than dropped. A write that vanishes is a creature the
+  // referee believes is on its way and that never arrives.
+  it("refuses a destination with no route to it", () => {
+    const r = applyCommit(longWorld(), walks({ entityId: "ghoul", path: "approach", value: ROOM_C }));
+    expect(r.ok).toBe(false);
+    expect(r.rejected[0].reason).toMatch(/no way leads/);
+  });
+
+  it("refuses a destination that is not a room", () => {
+    expect(applyCommit(longWorld(), walks({ entityId: "ghoul", path: "approach", value: "chest" })).ok).toBe(false);
+  });
+
+  it("nobody moves on an instant turn", () => {
+    let w = applyCommit(longWorld(), walks({ entityId: "ghoul", path: "approach", value: ROOM_A })).world!;
+    expect(where(w)).toBe(FAR_1);
+
+    // A glance, a word, a question back — the world does not get a turn for it.
+    w = applyCommit(w, commit()).world!;
+    expect(where(w)).toBe(FAR_1);
+    expect(heading(w)).toBe(ROOM_A);
+  });
+
+  it("naming the room it is already in is satisfied, not refused", () => {
+    const r = applyCommit(longWorld(), walks({ entityId: "ghoul", path: "approach", value: FAR_2 }));
+    expect(r.ok).toBe(true);
+    expect(where(r.world!)).toBe(FAR_2);
+    expect(heading(r.world!)).toBeUndefined();
+  });
+
+  // Put somewhere outright and whatever it was walking toward is settled.
+  it("a direct roomId write cancels the walk", () => {
+    let w = applyCommit(longWorld(), walks({ entityId: "ghoul", path: "approach", value: ROOM_A })).world!;
+    w = applyCommit(w, walks({ entityId: "ghoul", path: "roomId", value: FAR_2 })).world!;
+    expect(where(w)).toBe(FAR_2);
+    expect(heading(w)).toBeUndefined();
+  });
+});
+
+// ===========================================================================
+// HOW MUCH IS LEFT
+// ===========================================================================
+
+describe("amount", () => {
+  const rations = (over: Partial<AnyItem> = {}) =>
+    item("rations", { parentId: "pc-1", amount: "2 days", ...over });
+
+  /** The world with the rations in the player's pack. */
+  function fed(over: Partial<AnyItem> = {}): World {
+    const w = makeWorld();
+    w.pc.inventory.push(rations(over));
+    return w;
+  }
+
+  const carried = (w: World) => w.pc.inventory.find((i) => i.id === "rations");
+
+  it("writes what is left down", () => {
+    const r = applyCommit(fed(), commit({ entityId: "rations", path: "amount", value: "1 day" }));
+    expect(r.ok).toBe(true);
+    expect(carried(r.world!)!.amount).toBe("1 day");
+  });
+
+  // `setPurse` made this call for money first — "a purse of nothing is no row
+  // at all" — and this is that decision generalised to everything measured.
+  it("a stated zero uses the thing up", () => {
+    const r = applyCommit(fed(), commit({ entityId: "rations", path: "amount", value: "0 days" }));
+    expect(r.ok).toBe(true);
+    expect(carried(r.world!)).toBeUndefined();
+    expect(r.events.some((e) => e.kind === "item-destroyed")).toBe(true);
+  });
+
+  // The failure the player could not recover from: an item deleted by a turn
+  // of phrase. An amount with no number in it is not an amount of nothing.
+  it("an amount with no number in it survives", () => {
+    const r = applyCommit(fed(), commit({ entityId: "rations", path: "amount", value: "a handful" }));
+    expect(r.ok).toBe(true);
+    expect(carried(r.world!)!.amount).toBe("a handful");
+  });
+
+  it("and neither 'no days left' nor '10 days' is zero", () => {
+    for (const [value, gone] of [["no days left", false], ["10 days", false]] as const) {
+      const r = applyCommit(fed(), commit({ entityId: "rations", path: "amount", value }));
+      expect(carried(r.world!) === undefined, value).toBe(gone);
+    }
+  });
+
+  it("an erase out of an equipped slot says the slot emptied", () => {
+    const w = fed({ itemKind: "weapon", weapon: { damage: "1d4", hands: 1 } });
+    w.pc.equipped.weapon = "rations";
+    const r = applyCommit(w, commit({ entityId: "rations", path: "amount", value: "0" }));
+    expect(r.ok).toBe(true);
+    expect(r.events.some((e) => e.kind === "unequipped")).toBe(true);
+    expect(r.world!.pc.equipped.weapon).toBeUndefined();
   });
 });

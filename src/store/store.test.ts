@@ -229,7 +229,7 @@ describe("the game store", () => {
   beforeEach(() => { useGame.getState().reset(); });
 
   it("refuses a commit with no run in progress", () => {
-    expect(useGame.getState().commit({ nextStage: "awaiting_action", nextStep: "1-target", diffs: [] }).ok)
+    expect(useGame.getState().commit({ timeSpent: "instant", nextStage: "awaiting_action", nextStep: "1-target", diffs: [] }).ok)
       .toBe(false);
   });
 
@@ -237,6 +237,7 @@ describe("the game store", () => {
     useGame.getState().start(dungeon(), pc());
     const r = useGame.getState().commit({
       nextStage: "awaiting_action",
+      timeSpent: "instant",
       nextStep: "1-target",
       diffs: [{ entityId: ROOM, path: "composed", value: "A cold, bare room." }],
     });
@@ -250,6 +251,7 @@ describe("the game store", () => {
     useGame.getState().start(dungeon(), pc());
     const r = useGame.getState().commit({
       nextStage: "awaiting_action",
+      timeSpent: "instant",
       nextStep: "1-target",
       diffs: [{ entityId: ROOM, path: "base", value: "rewritten" }],
     });
@@ -263,6 +265,7 @@ describe("the game store", () => {
     const r = useGame.getState().commit({
       // The referee wants to carry on; hit points say otherwise.
       nextStage: "awaiting_action",
+      timeSpent: "instant",
       nextStep: "1-target",
       diffs: [{ entityId: PLAYER_ID, path: "hp.current", value: 0 }],
     });
@@ -276,10 +279,10 @@ describe("the game store", () => {
       kind: "save" as const, ability: "dex" as const, bonus: 1, edge: "none" as const,
       description: "Vault the pillar", dc: 16,
     };
-    useGame.getState().commit({ nextStage: "roll_offered", nextStep: "4-confirm-roll", rollRequest: spec, diffs: [] });
+    useGame.getState().commit({ timeSpent: "instant", nextStage: "roll_offered", nextStep: "4-confirm-roll", rollRequest: spec, diffs: [] });
     expect(useGame.getState().run!.pendingRoll).toEqual(spec);
 
-    useGame.getState().commit({ nextStage: "awaiting_action", nextStep: "1-target", diffs: [] });
+    useGame.getState().commit({ timeSpent: "instant", nextStage: "awaiting_action", nextStep: "1-target", diffs: [] });
     expect(useGame.getState().run!.pendingRoll).toBeUndefined();
   });
 

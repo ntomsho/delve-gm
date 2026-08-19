@@ -17,7 +17,7 @@
  * slot helpers below.
  */
 
-import type { IItem, ArmorType } from "./dungeon-entities.ts";
+import { isArmor, isBook, isWeapon, type ArmorType, type IItem } from "./dungeon-entities.ts";
 
 export interface CharacterAbilities {
   str: number;
@@ -184,14 +184,14 @@ export function heldItem(pc: PlayerCharacter, itemId: string | undefined): IItem
 }
 
 function isTwoHanded(item: IItem | undefined): boolean {
-  return item?.weapon?.hands === 2;
+  return item !== undefined && isWeapon(item) && item.weapon.hands === 2;
 }
 
 /** Whether an item is the right kind of thing for a slot (ignores conflicts). */
 function slotAcceptsItem(slot: EquipSlot, item: IItem): boolean {
-  const armorType: ArmorType | undefined = item.armor?.armorType;
+  const armorType: ArmorType | undefined = isArmor(item) ? item.armor.armorType : undefined;
   switch (slot) {
-    case "weapon": return !!item.weapon;
+    case "weapon": return isWeapon(item);
     case "armor": return armorType === "body";
     case "helmet": return armorType === "helmet";
     case "shield": return armorType === "shield";
@@ -319,7 +319,8 @@ export function rangedAttackBonus(pc: PlayerCharacter): number {
  * shield. Parallels the creature-side `armorDefense(stats)` in dungeon-entities.
  */
 export function armorDefense(pc: PlayerCharacter): number {
-  const base = heldItem(pc, pc.equipped.armor)?.armor?.defense ?? 11;
+  const worn = heldItem(pc, pc.equipped.armor);
+  const base = worn && isArmor(worn) ? worn.armor.defense : 11;
   const helmet = heldItem(pc, pc.equipped.helmet) ? 1 : 0;
   const shield = heldItem(pc, pc.equipped.shield) ? 1 : 0;
   return base + helmet + shield;
@@ -342,11 +343,15 @@ export function equippedSummary(pc: PlayerCharacter): string {
 export function itemSummary(it: IItem): string {
   const bits: string[] = [it.name || "unnamed item"];
   if (it.amount) bits.push(`(${it.amount})`);
-  if (it.weapon) {
+  if (isWeapon(it)) {
     const w = it.weapon;
     bits.push(`[${w.ranged ? "ranged " : ""}${w.damage}${w.hands === 2 ? ", 2h" : ""}]`);
   }
-  if (it.armor) bits.push(`[armor def ${it.armor.defense}]`);
+  if (isArmor(it)) bits.push(`[armor def ${it.armor.defense}]`);
+  if (isBook(it)) {
+    const subject = it.book.subject || "no stated subject";
+    bits.push(it.book.exhausted ? `[${subject}, read out]` : `[${subject}]`);
+  }
   const q = it.currentQuality ?? it.quality;
   if (q !== undefined) bits.push(`q${q}`);
   const s = it.slots ?? 1;

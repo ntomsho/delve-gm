@@ -38,7 +38,8 @@
  */
 
 import { Rng, makeId } from "./dungeon-blueprint.ts";
-import type { Ability, IItem } from "./dungeon-entities.ts";
+import { isArmor, isWeapon, type Ability, type AnyItem } from "./dungeon-entities.ts";
+import { mintItem, mintSpellbook, type EquipmentKey } from "./equipment.ts";
 import type {
   CharacterAbilities,
   CharacterTraits,
@@ -48,7 +49,6 @@ import type {
   PlayerCharacter,
 } from "./dungeon-character.ts";
 import {
-  ARMOR_STATS,
   DUNGEONEERING_GEAR,
   GENERAL_GEAR_1,
   GENERAL_GEAR_2,
@@ -58,10 +58,9 @@ import {
   WEAPONS,
   rollArmorTable,
   rollHelmetShieldTable,
-  type ArmorKey,
-  type GearEntry,
+  type GearRow,
   type Spell,
-  type WeaponStat,
+  type WeaponKey,
 } from "./knave-tables.ts";
 
 /**
@@ -301,7 +300,7 @@ export const GEAR_SLOT_LABEL: Record<GearSlot, string> = {
 export interface GearGroup {
   slot: GearSlot;
   d20: number;
-  items: IItem[];
+  items: AnyItem[];
 }
 
 /**
@@ -310,63 +309,26 @@ export interface GearGroup {
  * shape says so without a discriminant nobody would read.
  */
 export interface StartingKit {
-  rations: IItem;
-  weapon: IItem;
+  rations: AnyItem;
+  weapon: AnyItem;
   groups: GearGroup[];
   copper: number;
-  coin?: IItem;
+  coin?: AnyItem;
 }
 
+/**
+ * Nobody holds it yet. `finishCharacter` binds every item's `parentId` to the
+ * character it mints, which is the last moment at which a kit is still a kit
+ * rather than somebody's belongings.
+ */
 const PLACEHOLDER_PARENT = "";
 
-function gearItem(e: GearEntry): IItem {
-  return {
-    id: makeId(),
-    name: e.name,
-    type: "Item",
-    parentId: PLACEHOLDER_PARENT,
-    slots: e.slots ?? 1,
-    ...(e.amount ? { amount: e.amount } : {}),
-  };
-}
-
-function armorItem(key: ArmorKey): IItem {
-  const a = ARMOR_STATS[key];
-  return {
-    id: makeId(),
-    name: a.name,
-    type: "Item",
-    parentId: PLACEHOLDER_PARENT,
-    slots: a.slots,
-    quality: a.quality,
-    currentQuality: a.quality,
-    armor: { armorType: a.armorType, defense: a.defense },
-  };
-}
-
-export function weaponItem(w: WeaponStat): IItem {
-  return {
-    id: makeId(),
-    name: w.name,
-    type: "Item",
-    parentId: PLACEHOLDER_PARENT,
-    slots: w.slots,
-    quality: w.quality,
-    currentQuality: w.quality,
-    weapon: { damage: w.damage, hands: w.hands, ...(w.ranged ? { ranged: true } : {}) },
-  };
-}
-
-/** A spellbook holds one spell and is read once a day. One slot, per the book. */
-export function spellbookItem(spell: Spell): IItem {
-  return {
-    id: makeId(),
-    name: `Spellbook: ${spell.name}`,
-    type: "Item",
-    parentId: PLACEHOLDER_PARENT,
-    slots: 1,
-    spellBook: { spellName: spell.name, spellDescription: spell.effect, exhausted: false },
-  };
+/** One line of a d20 gear table, in the quantity that table prints. */
+function gearItem(row: GearRow, rng: Rng): AnyItem {
+  return mintItem(row.key, PLACEHOLDER_PARENT, rng, {
+    ...(row.amount !== undefined ? { amount: row.amount } : {}),
+    ...(row.value !== undefined ? { value: row.value } : {}),
+  });
 }
 
 export function rollSpell(rng: Rng): Spell {
@@ -383,19 +345,20 @@ export function rollSpell(rng: Rng): Spell {
  */
 export const COPPER_NAME = "Copper";
 
-export function copperItem(amount: number): IItem {
-  return {
-    id: makeId(),
-    name: COPPER_NAME,
-    type: "Item",
-    parentId: PLACEHOLDER_PARENT,
-    slots: 0,
+/**
+ * A purse is the one item whose `value` is not a fact about what kind of thing
+ * it is: sixty copper is worth sixty copper. Written from the amount at every
+ * mint, so the two can never disagree.
+ */
+export function copperItem(amount: number): AnyItem {
+  return mintItem("copper", PLACEHOLDER_PARENT, undefined, {
     amount: `${amount} cp`,
-  };
+    value: amount,
+  });
 }
 
 /** The copper row, if they are carrying one. */
-export function purseItem(pc: PlayerCharacter): IItem | undefined {
+export function purseItem(pc: PlayerCharacter): AnyItem | undefined {
   return pc.inventory.find((i) => i.name === COPPER_NAME && i.amount?.endsWith(" cp"));
 }
 
@@ -419,11 +382,13 @@ export function setPurse(pc: PlayerCharacter, amount: number): void {
     if (held) pc.inventory.splice(pc.inventory.indexOf(held), 1);
     return;
   }
-  if (held) held.amount = `${amount} cp`;
-  else pc.inventory.push({ ...copperItem(amount), parentId: pc.id });
+  if (held) {
+    held.amount = `${amount} cp`;
+    held.value = amount;
+  } else pc.inventory.push({ ...copperItem(amount), parentId: pc.id });
 }
 
-const PLAIN_TABLE: Partial<Record<GearSlot, readonly GearEntry[]>> = {
+const PLAIN_TABLE: Partial<Record<GearSlot, readonly GearRow[]>> = {
   dungeoneering1: DUNGEONEERING_GEAR,
   dungeoneering2: DUNGEONEERING_GEAR,
   general1: GENERAL_GEAR_1,
@@ -442,21 +407,23 @@ export function rollGearSlot(rng: Rng, slot: GearSlot): GearGroup {
   const plain = PLAIN_TABLE[slot];
   if (plain) {
     const d20 = rng.d(20);
-    return { slot, d20, items: [gearItem(plain[d20 - 1])] };
+    return { slot, d20, items: [gearItem(plain[d20 - 1], rng)] };
   }
 
   const d20 = rng.d(20);
-  const items: IItem[] = [];
+  const items: AnyItem[] = [];
+  const armorItem = (key: EquipmentKey) => mintItem(key, PLACEHOLDER_PARENT, rng);
+  const spellbook = () => mintSpellbook(rollSpell(rng), PLACEHOLDER_PARENT);
 
   if (slot === "armor") {
     const r = rollArmorTable(d20);
     if (r.armor) items.push(armorItem(r.armor));
-    for (let i = 0; i < r.spellbooks; i++) items.push(spellbookItem(rollSpell(rng)));
+    for (let i = 0; i < r.spellbooks; i++) items.push(spellbook());
   } else {
     const r = rollHelmetShieldTable(d20);
     if (r.helmet) items.push(armorItem("helmet"));
     if (r.shield) items.push(armorItem("shield"));
-    for (let i = 0; i < r.spellbooks; i++) items.push(spellbookItem(rollSpell(rng)));
+    for (let i = 0; i < r.spellbooks; i++) items.push(spellbook());
   }
 
   return { slot, d20, items };
@@ -467,10 +434,10 @@ export function rollGearSlot(rng: Rng, slot: GearSlot): GearGroup {
  * one roll each on Armor, Helmets & Shields, General Gear 1 and General Gear 2,
  * and **two** on Dungeoneering Gear.
  */
-export function rollKit(rng: Rng, weapon: WeaponStat): StartingKit {
+export function rollKit(rng: Rng, weapon: WeaponKey): StartingKit {
   return {
-    rations: gearItem(STARTING_RATIONS),
-    weapon: weaponItem(weapon),
+    rations: gearItem(STARTING_RATIONS, rng),
+    weapon: mintItem(weapon, PLACEHOLDER_PARENT, rng),
     groups: GEAR_SLOTS.map((slot) => rollGearSlot(rng, slot)),
     copper: 0,
   };
@@ -482,11 +449,11 @@ export function startingCopper(rng: Rng): number {
 }
 
 /** Rations, the chosen weapon, and the money. What a buyer walks in with. */
-export function buyKit(rng: Rng, weapon: WeaponStat): StartingKit {
+export function buyKit(rng: Rng, weapon: WeaponKey): StartingKit {
   const copper = startingCopper(rng);
   return {
-    rations: gearItem(STARTING_RATIONS),
-    weapon: weaponItem(weapon),
+    rations: gearItem(STARTING_RATIONS, rng),
+    weapon: mintItem(weapon, PLACEHOLDER_PARENT, rng),
     groups: [],
     copper,
     coin: copperItem(copper),
@@ -494,8 +461,8 @@ export function buyKit(rng: Rng, weapon: WeaponStat): StartingKit {
 }
 
 /** Swap the weapon without disturbing anything the dice decided. */
-export function withWeapon(kit: StartingKit, weapon: WeaponStat): StartingKit {
-  return { ...kit, weapon: weaponItem(weapon) };
+export function withWeapon(kit: StartingKit, rng: Rng, weapon: WeaponKey): StartingKit {
+  return { ...kit, weapon: mintItem(weapon, PLACEHOLDER_PARENT, rng) };
 }
 
 /** Replace one slot's roll, leaving the other five where they are. */
@@ -505,7 +472,7 @@ export function rerollGearSlot(kit: StartingKit, rng: Rng, slot: GearSlot): Star
 }
 
 /** Everything carried, in the order it should be read. */
-export function kitItems(kit: StartingKit): IItem[] {
+export function kitItems(kit: StartingKit): AnyItem[] {
   return [
     kit.rations,
     kit.weapon,
@@ -525,10 +492,11 @@ export function kitItems(kit: StartingKit): IItem[] {
  */
 export function kitEquipped(kit: StartingKit): EquippedSlots {
   const equipped: EquippedSlots = { weapon: kit.weapon.id };
-  const twoHanded = kit.weapon.weapon?.hands === 2;
+  const twoHanded = isWeapon(kit.weapon) && kit.weapon.weapon.hands === 2;
 
   for (const item of kit.groups.flatMap((g) => g.items)) {
-    switch (item.armor?.armorType) {
+    if (!isArmor(item)) continue;
+    switch (item.armor.armorType) {
       case "body": equipped.armor = item.id; break;
       case "helmet": equipped.helmet = item.id; break;
       case "shield": if (!twoHanded) equipped.shield = item.id; break;

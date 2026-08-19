@@ -24,7 +24,6 @@ import {
   rollAbilities,
   rollTraits,
   setPurse,
-  WEAPONS,
   type PlayerCharacter,
 } from "../../engine/index.ts";
 
@@ -39,7 +38,7 @@ function buyer(copper: number): PlayerCharacter {
     abilities: bonusesOf(rollAbilities(rng, "normal")),
     traits: rollTraits(rng),
     hp: 9,
-    kit: buyKit(rng, WEAPONS.find((w) => w.name === "Sword")!),
+    kit: buyKit(rng, "sword"),
   });
   setPurse(pc, copper);
   return pc;

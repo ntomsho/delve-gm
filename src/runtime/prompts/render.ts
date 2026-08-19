@@ -24,7 +24,13 @@
  * and the referee cannot end up looking at different rooms.
  */
 
-import { exitLabel, type CharacterView, type EntityView, type RoomView } from "../../store/selectors.ts";
+import {
+  exitLabel,
+  type CensusEntry,
+  type CharacterView,
+  type EntityView,
+  type RoomView,
+} from "../../store/selectors.ts";
 import { positionPhrase } from "../../engine/index.ts";
 import type { TurnRecord } from "../../store/game.ts";
 import type { RolledOutcome } from "../turn.ts";
@@ -75,18 +81,46 @@ export function renderCharacter(pc: CharacterView): string {
   ]);
 }
 
-/** An item's own numbers: what it costs to carry, and how worn it is. */
+/** An item's own numbers: how much is left, what it costs to carry, how worn it is, what it is worth. */
 function itemDetail(i: EntityView): string | undefined {
   const bits = [
+    // FIRST, because it is the field that runs out. A ration is food because of
+    // its name and still there because of this, and the referee spends it by
+    // writing the next value down — at nothing, the row goes.
+    i.amount,
     i.slots !== undefined ? `${i.slots} slot${i.slots === 1 ? "" : "s"}` : undefined,
     i.quality ? `quality ${i.quality.current}/${i.quality.original}` : undefined,
+    i.value ? `worth ${i.value} cp` : undefined,
+    // Everything the `consult` roll and the suggestion rule need: what it is
+    // about, and the count to pass back in.
+    i.book
+      ? i.book.exhausted
+        ? `a book on ${i.book.subject || "no stated subject"} — READ OUT, nothing left in it`
+        : `a book on ${i.book.subject || "no stated subject"} — book.uses ${i.book.uses}`
+      : undefined,
   ].filter((x): x is string => x !== undefined);
   return bits.length ? bits.join(", ") : undefined;
 }
 
-function renderItemLine(i: EntityView): string {
+/**
+ * A carried thing, on the sheet.
+ *
+ * `composed` hangs under the row rather than beside it, and item `base` is not
+ * here at all. That is a token decision and it was measured: a `base` averages
+ * 453 characters, so ten carried things would be a thousand tokens every turn —
+ * larger than the whole creature census, which is the point of the phase this
+ * arrived in. `composed` is nearly free by comparison, because the 122 standard
+ * equipment templates carry `base: ""` and `mintCommon` falls `composed` back to
+ * `base`; carried starting gear renders its name and its amount and nothing
+ * else, and a found "Wheel of pale cheese" is exactly what the field is for.
+ */
+function renderItemLine(i: EntityView, indent = ""): string {
   const detail = itemDetail(i);
-  return `[${i.id}] ${i.name}${detail ? ` — ${detail}` : ""}`;
+  const head = `[${i.id}] ${i.name}${detail ? ` — ${detail}` : ""}`;
+  const described = i.composed?.trim();
+  return described
+    ? `${head}\n${indent}    ${described.replace(/\s*\n\s*/g, " ")}`
+    : head;
 }
 
 // ---------------------------------------------------------------------------
@@ -220,6 +254,74 @@ export function renderRoom(room: RoomView): string {
     ``,
     `### Ways out`,
     exits,
+  ]);
+}
+
+// ---------------------------------------------------------------------------
+// EVERYTHING ELSE THAT IS ALIVE DOWN HERE
+// ---------------------------------------------------------------------------
+
+/**
+ * THE CENSUS. Every creature that is not in the room the player is standing in,
+ * one line each, on every call.
+ *
+ * The name is the definition: creatures the player is with are twenty lines up
+ * in `renderRoom` already, carrying `base`, `state`, `composed`, `activity`,
+ * defenses and hit points. A census line for them would be a second and poorer
+ * copy of a thing already on the page.
+ *
+ * WHAT EACH LINE CARRIES, AND WHY.
+ *
+ *   the id       so a diff can name it — the rule the whole file is built on
+ *   name, count  a count of zero is a group that is gone, and is filtered out
+ *   room, name   where it is, and where it can be sent
+ *   rooms away   what replaces handing over the graph; see `roomDistances`
+ *   WOUNDED      rather than hit points, which are wanted only in front of the
+ *                player, where `renderRoom` supplies them
+ *   activity     the field this whole thing exists to let the referee rewrite
+ *
+ * EVERY ROOM IS NAMED, AND UNVISITED ONES ARE MARKED. `renderRoom`'s ways-out
+ * list deliberately withholds a far room's name until the player has been
+ * through, so that what the referee can route to and what the player can say
+ * are the same set. This does not follow that rule, and the departure is the
+ * point: the referee is being asked to judge what the CHARACTER plausibly
+ * knows, and it cannot make that call from a redacted page. The marker keeps
+ * both things true at once — it sees the name, and it sees that the player
+ * could not say it.
+ *
+ * THIS IS REFEREE-ONLY KNOWLEDGE, in the same class as creature defenses and
+ * concealed things (see the head of this file). It is the one thing the runtime
+ * hands over that the character does not have.
+ */
+export function renderOtherRoomCreatures(census: CensusEntry[]): string {
+  if (census.length === 0) {
+    return lines([
+      `### Every other creature in this dungeon`,
+      ``,
+      `- (none — everything alive down here is in the room with them)`,
+    ]);
+  }
+
+  return lines([
+    `### Every other creature in this dungeon`,
+    ``,
+    `Not in the room with the player. Yours to change — their \`state\`, their`,
+    `\`activity\`, where they are heading — and NOT to describe or narrate: the`,
+    `player is not there to see any of it.`,
+    ``,
+    ...census.map((c) => {
+      const where = [
+        `in [${c.roomId}] "${c.roomName}"`,
+        c.roomsAway === undefined
+          ? `NO WAY LEADS THERE from where the player stands`
+          : `${c.roomsAway} room${c.roomsAway === 1 ? "" : "s"} away`,
+        c.wounded ? `WOUNDED` : undefined,
+        c.roomVisited ? undefined : `THE PLAYER HAS NOT BEEN HERE`,
+      ].filter((x): x is string => x !== undefined);
+
+      const head = `- [${c.id}] ${c.name}${c.count > 1 ? ` ×${c.count}` : ""} — ${where.join(" · ")}`;
+      return c.activity ? `${head}\n  doing: ${c.activity.replace(/\s*\n\s*/g, " ")}` : head;
+    }),
   ]);
 }
 

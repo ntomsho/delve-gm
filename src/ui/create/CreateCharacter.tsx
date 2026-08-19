@@ -25,7 +25,6 @@ import { useMemo, useRef, useState } from "react";
 import {
   CREATION_RULES,
   Rng,
-  WEAPONS,
   bonusesOf,
   buyKit,
   finishCharacter,
@@ -50,7 +49,7 @@ import {
   type PlayerCharacter,
   type StartingKit,
   type TraitKey,
-  type WeaponStat,
+  type WeaponKey,
 } from "../../engine/index.ts";
 import { randomSeed } from "../../runtime/seeds.ts";
 import { Button } from "./shared.tsx";
@@ -64,7 +63,8 @@ import { StepConfirm } from "./StepConfirm.tsx";
 const STEPS = ["Which rules", "Abilities", "Traits", "Hit points", "Equipment", "Name & confirm"] as const;
 const LAST = STEPS.length - 1;
 
-const DEFAULT_WEAPON = WEAPONS.find((w) => w.name === "Sword") ?? WEAPONS[0];
+/** The picker opens on a sword, which is the middle of the middle class. */
+const DEFAULT_WEAPON: WeaponKey = "sword";
 
 interface Draft {
   mode: CreationMode;
@@ -80,7 +80,7 @@ interface Draft {
   swapFrom: Ability | null;
   traits: CharacterTraits;
   hp: HpRoll;
-  weapon: WeaponStat;
+  weapon: WeaponKey;
   eqMode: EquipmentMode;
   /**
    * Both kits are rolled up front and kept. Toggling between them has to be
@@ -190,8 +190,12 @@ export function CreateCharacter({
   const kit = draft.eqMode === "roll" ? draft.rolled : draft.bought;
 
   /** A weapon change rewrites both kits and disturbs no die. */
-  const pickWeapon = (w: WeaponStat) =>
-    edit((d) => ({ weapon: w, rolled: withWeapon(d.rolled, w), bought: withWeapon(d.bought, w) }));
+  const pickWeapon = (w: WeaponKey) =>
+    edit((d) => ({
+      weapon: w,
+      rolled: withWeapon(d.rolled, rng, w),
+      bought: withWeapon(d.bought, rng, w),
+    }));
 
   // --- the sheet -----------------------------------------------------------
 

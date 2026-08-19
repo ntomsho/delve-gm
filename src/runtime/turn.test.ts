@@ -50,6 +50,7 @@ const say = (narration: string, commit: Commit): RefereeReply => ({ narration, c
 
 const open = (diffs: Diff[] = []): Commit => ({
   nextStage: "awaiting_action",
+  timeSpent: "instant",
   nextStep: "1-target",
   diffs,
 });
@@ -239,6 +240,7 @@ describe("stage transitions", () => {
       say("Here.", describeRoom()),
       say("It will come down to the swing.", {
         nextStage: "roll_offered",
+        timeSpent: "instant",
         nextStep: "4-confirm-roll",
         rollRequest: {
           kind: "save", ability: "str", bonus: 2, edge: "none",
@@ -280,6 +282,7 @@ describe("stage transitions", () => {
       say("Here.", describeRoom()),
       say("Then swing.", {
         nextStage: "roll_offered",
+        timeSpent: "instant",
         nextStep: "4-confirm-roll",
         rollRequest: {
           kind: "save", ability: "str", bonus: 2, edge: "none",
@@ -323,6 +326,7 @@ describe("stage transitions", () => {
       say("Here.", describeRoom()),
       say("You have it.", {
         nextStage: "goal_met",
+        timeSpent: "instant",
         nextStep: "5-resolution",
         diffs: [{ entityId: state().currentRoomId, path: "state", value: "left behind" }],
       })
@@ -357,7 +361,7 @@ describe("rejections and clarifications", () => {
   it("clarifying leaves the world alone and the floor open", async () => {
     const s = script(
       say("Here.", describeRoom()),
-      say("Which door?", { nextStage: "clarifying", nextStep: "1-target", diffs: [] })
+      say("Which door?", { timeSpent: "instant", nextStage: "clarifying", nextStep: "1-target", diffs: [] })
     );
     const m = createTurnMachine(s.referee);
     await m.enterRoom();
@@ -376,7 +380,7 @@ describe("rejections and clarifications", () => {
   it("rejected leaves the world alone and does not spend a turn", async () => {
     const s = script(
       say("Here.", describeRoom()),
-      say("There is no window.", { nextStage: "rejected", nextStep: "1-target", diffs: [] })
+      say("There is no window.", { timeSpent: "instant", nextStage: "rejected", nextStep: "1-target", diffs: [] })
     );
     const m = createTurnMachine(s.referee);
     await m.enterRoom();
@@ -390,6 +394,7 @@ describe("rejections and clarifications", () => {
     const bad = (): RefereeReply =>
       say("Which door?", {
         nextStage: "clarifying",
+        timeSpent: "instant",
         nextStep: "1-target",
         diffs: [{ entityId: state().currentRoomId, path: "state", value: "should never land" }],
       });
@@ -413,6 +418,7 @@ describe("rejections and clarifications", () => {
       say("Here.", describeRoom()),
       say("The roll is there if you want it.", {
         nextStage: "roll_offered",
+        timeSpent: "instant",
         nextStep: "4-confirm-roll",
         rollRequest: { kind: "save", ability: "dex", bonus: 1, edge: "none", description: "Jump it.", dc: 16 },
         diffs: [],
@@ -674,7 +680,7 @@ describe("moving between rooms", () => {
       if (req.step === "room-entry") {
         return req.run.currentRoomId === entrance
           ? say("Here.", describeRoom())
-          : say("", { nextStage: "awaiting_action", nextStep: "1-target", diffs: [] });
+          : say("", { timeSpent: "instant", nextStage: "awaiting_action", nextStep: "1-target", diffs: [] });
       }
       return say("You go through.", open([{ entityId: PLAYER_ID, path: "roomId", value: there }]));
     });
@@ -717,7 +723,7 @@ describe("moving between rooms", () => {
       if (req.step === "room-entry") return say("Here.", describeRoom());
       reasons = req.rejections;
       return req.rejections
-        ? say("Never mind.", { nextStage: "awaiting_action", nextStep: "1-target", diffs: [] })
+        ? say("Never mind.", { timeSpent: "instant", nextStage: "awaiting_action", nextStep: "1-target", diffs: [] })
         : say("Off you go.", open([{ entityId: PLAYER_ID, path: "roomId", value: far.id }]));
     });
 
@@ -755,6 +761,7 @@ describe("moving between rooms", () => {
 describe("walking out of the dungeon", () => {
   const leave = (goalMet?: boolean): Commit => ({
     nextStage: "departed",
+    timeSpent: "instant",
     nextStep: "5-resolution",
     diffs: [],
     ...(goalMet ? { goalMet } : {}),
@@ -855,7 +862,7 @@ describe("the scrollback and the exchange", () => {
   it("keeps the log across a closed turn while the transcript clears", async () => {
     const s = script(
       say("Here.", describeRoom()),
-      say("Which door?", { nextStage: "clarifying", nextStep: "1-target", diffs: [] }),
+      say("Which door?", { timeSpent: "instant", nextStage: "clarifying", nextStep: "1-target", diffs: [] }),
       say("You open it.", open([{ entityId: state().currentRoomId, path: "state", value: "opened" }]))
     );
     const m = createTurnMachine(s.referee);
@@ -902,6 +909,7 @@ describe("the dice", () => {
       say("Here.", describeRoom()),
       say("A roll.", {
         nextStage: "roll_offered",
+        timeSpent: "instant",
         nextStep: "4-confirm-roll",
         rollRequest: {
           kind: "attack", ability: "str", bonus: 2, edge: "advantage",

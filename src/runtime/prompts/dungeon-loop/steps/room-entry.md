@@ -230,6 +230,9 @@ Commit the `state` and `composed` diffs, then hand the turn back:
 ```
 nextStage: "awaiting_action"
 nextStep:  "1-target"
+timeSpent: "instant"
 ```
+
+**Always `instant` here, and the interface enforces it.** Walking in is not a turn — it is the consequence of the move that brought them, and that move has already been paid for. Charging again for the arrival would give everything else in the dungeon two turns for one step through a door.
 
 The player is standing in the room. Ask them what they do.

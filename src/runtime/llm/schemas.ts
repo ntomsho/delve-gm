@@ -11,7 +11,7 @@ import { z } from "zod";
 import type { DungeonPassResponse } from "../../engine/dungeon-pass.ts";
 import type { ContentPassResponse, Omission } from "../../engine/dungeon-content-pass.ts";
 import type { SeamsPassResponse } from "../../engine/dungeon-seams-pass.ts";
-import type { Diff, EntitySpec } from "../diffs/types.ts";
+import type { Diff, EntitySpec, TimeSpent } from "../diffs/types.ts";
 import type { Stage, Step } from "../types.ts";
 
 const nonEmpty = z.string().trim().min(1);
@@ -199,6 +199,25 @@ const refereeStage = z.enum([
 const refereeStep = z.enum(["1-target", "4-confirm-roll", "5-resolution"]);
 
 /**
+ * HOW LONG THE ACTION TOOK, which is how the rest of the dungeon finds out that
+ * a turn has passed. Not a duration — see `TimeSpent` for why there is no clock
+ * — but the four cases named so the referee reads what each one covers.
+ *
+ * `long` is on the wire and is refused on the way back in until Phase 16 exists
+ * to produce it; the description says so, because a model offered a value it
+ * cannot use will reach for it.
+ */
+const timeSpent = z.enum(["instant", "round", "short", "long"]).describe(
+  "How long this action took, which decides who else got to move. " +
+    'instant — a glance, a word, drawing a blade: nobody moves. ' +
+    'round — ten seconds or less, one exchange, a lunge, a shove. ' +
+    'short — up to an hour: searching, picking a lock, binding a wound. ' +
+    'long — a night\'s rest, and ONLY that; nothing else you can be asked to ' +
+    "resolve is long, and a turn that says so is refused. Forced to instant on " +
+    "clarifying, rejected and roll_offered, because those turns have not happened yet."
+);
+
+/**
  * What goes on the table. The player-facing terms sit alongside the two
  * referee-side numbers, and the interface renders only the former — see
  * RollSpec, and `InputArea` which never reads `dc`.
@@ -286,6 +305,7 @@ export const commitSchema = z.object({
   post: z.string().trim().min(1).optional(),
   nextStage: refereeStage,
   nextStep: refereeStep,
+  timeSpent,
   rollRequest: rollRequest.optional(),
   diffs: z.array(diff),
   /**
@@ -318,7 +338,7 @@ export const commitSchema = z.object({
 const rollSpecRequest = z.object({
   /** the caller's own label, so the results can be told apart */
   id: nonEmpty,
-  kind: z.enum(["save", "attack", "stunt", "morale", "damage"]),
+  kind: z.enum(["save", "attack", "stunt", "morale", "damage", "consult"]),
   /**
    * Whose roll this is — and `"player"` is deliberately unsayable, because the
    * player's own roll is offered rather than thrown (see `playersOwnDice`).
@@ -344,6 +364,12 @@ const rollSpecRequest = z.object({
   wellSuited: z.boolean().optional(),
   /** morale: the group's rating. Defaults to 7. */
   rating: z.number().int().optional(),
+  /**
+   * consult: how many times that book has been read ALREADY — its current
+   * `book.uses`, and 0 for one nobody has opened. This reading is added by the
+   * tool, which then says what to write back.
+   */
+  uses: z.number().int().optional(),
 });
 
 export const rollBatchSchema = z.object({ rolls: z.array(rollSpecRequest).min(1) });
@@ -386,6 +412,7 @@ export type CommitParsed = z.infer<typeof commitSchema>;
 // step, and the diffs go through untouched.
 export type CommitStageIsAStage = Assignable<CommitParsed["nextStage"], Stage>;
 export type CommitStepIsAStep = Assignable<CommitParsed["nextStep"], Step>;
+export type CommitTimeIsATimeSpent = Assignable<CommitParsed["timeSpent"], TimeSpent>;
 export type CommitDiffIsADiff = Assignable<CommitParsed["diffs"][number], Diff>;
 export type NewEntityIsAnEntitySpec = Assignable<z.infer<typeof entitySpec>, EntitySpec>;
 

@@ -15,7 +15,7 @@ import {
   needsComposition,
   properName,
   type PlayerCharacter,
-  type IItem,
+  type AnyItem,
   type IEntity,
   type Size,
 } from "./index.ts";
@@ -182,11 +182,11 @@ describe("determinism", () => {
 // EQUIPMENT  (D1 — armorType now exists; guard the behaviour that depended on it)
 // ===========================================================================
 
-function item(id: string, over: Partial<IItem> = {}): IItem {
-  return { id, name: id, type: "Item", parentId: "pc", slots: 1, ...over };
+function item(id: string, over: Partial<AnyItem> = {}): AnyItem {
+  return { id, name: id, type: "Item", parentId: "pc", slots: 1, value: 0, ...over } as AnyItem;
 }
 
-function pcWith(...items: IItem[]): PlayerCharacter {
+function pcWith(...items: AnyItem[]): PlayerCharacter {
   return {
     id: "pc",
     name: "Test",
@@ -204,11 +204,11 @@ function pcWith(...items: IItem[]): PlayerCharacter {
   };
 }
 
-const gambeson = () => item("gambeson", { armor: { armorType: "body", defense: 12 } });
-const helmet = () => item("helmet", { armor: { armorType: "helmet", defense: 1 } });
-const shield = () => item("shield", { armor: { armorType: "shield", defense: 1 } });
-const sword = () => item("sword", { weapon: { damage: "1d8", hands: 1 } });
-const halberd = () => item("halberd", { weapon: { damage: "1d10", hands: 2 }, slots: 3 });
+const gambeson = () => item("gambeson", { itemKind: "armor", armor: { armorType: "body", defense: 12 } });
+const helmet = () => item("helmet", { itemKind: "armor", armor: { armorType: "helmet", defense: 1 } });
+const shield = () => item("shield", { itemKind: "armor", armor: { armorType: "shield", defense: 1 } });
+const sword = () => item("sword", { itemKind: "weapon", weapon: { damage: "1d8", hands: 1 } });
+const halberd = () => item("halberd", { itemKind: "weapon", weapon: { damage: "1d10", hands: 2 }, slots: 3 });
 
 describe("equipment", () => {
   it("each armor kind fits its own slot and no other", () => {

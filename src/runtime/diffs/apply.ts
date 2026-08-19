@@ -21,7 +21,9 @@
 
 import {
   addItem,
+  amountCount,
   EQUIP_SLOTS,
+  isBook,
   isOverburdened,
   makeId,
   maxHp,
@@ -45,7 +47,7 @@ import {
 import { equipResolving, unequip as unequipSlot } from "../../engine/index.ts";
 import { NO_CHANGE_STAGES } from "../types.ts";
 import { heldItems } from "../occupancy.ts";
-import { routeTo } from "../travel.ts";
+import { routeTo, stepToward } from "../travel.ts";
 import { isWritable, normalizePath, writablePaths, type EntityKind } from "./paths.ts";
 import {
   PLAYER_ID,
@@ -54,6 +56,7 @@ import {
   type Diff,
   type EntitySpec,
   type Rejection,
+  type TimeSpent,
   type World,
   type WorldEvent,
 } from "./types.ts";
@@ -275,9 +278,51 @@ function applyProse(ctx: Ctx, entity: IEntity, path: string, value: unknown): bo
 
 function applyToItem(ctx: Ctx, item: IItem, path: string, value: unknown): void {
   switch (path) {
-    case "amount":
+    /*
+     * WHAT IS LEFT OF IT — AND NOTHING LEFT IS NO ROW AT ALL.
+     *
+     * `setPurse` made this call for money first: "A purse of nothing is no row
+     * at all", because a line reading "Copper (0 cp)" on a sheet is noise. This
+     * is that decision generalised to everything measured. The last ration eaten
+     * is not a ration of zero days in the pack; it is no rations.
+     *
+     * ONLY ON A STATED ZERO. `amountCount` reads the leading integer or nothing,
+     * and "a handful" is nothing — an unparseable amount must not delete a
+     * thing. Getting that backwards would erase items on a referee's turn of
+     * phrase, which is the one failure here that the player could not recover
+     * from.
+     */
+    case "amount": {
       item.amount = asString(value, "amount");
+      if (amountCount(item.amount) === 0) destroyItem(ctx, item, "is used up");
       return;
+    }
+
+    case "book.uses": {
+      // One reading at a time, and no reading un-read. The count only ever
+      // moves up, and only ever by one, because that is what a consultation is
+      // — see `consultRoll`, which is the only thing that should be producing
+      // this number.
+      if (!isBook(item)) return fail(`${item.name} is not a book, so it has no consultations`);
+      const uses = asNumber(value, "book.uses");
+      item.book.uses = Math.min(Math.max(uses, item.book.uses), item.book.uses + 1);
+      return;
+    }
+
+    case "book.exhausted": {
+      // A LATCH. A book that has given up everything in it does not get it
+      // back, so this only ever goes one way — see BookFacts.
+      if (!isBook(item)) return fail(`${item.name} is not a book, so it cannot be read out`);
+      if (asBoolean(value, "book.exhausted")) {
+        item.book.exhausted = true;
+        ctx.events.push({
+          kind: "book-exhausted",
+          entityId: item.id,
+          detail: `${item.name || "the book"} has nothing further to tell anyone`,
+        });
+      }
+      return;
+    }
 
     case "currentQuality": {
       const q = asNumber(value, "currentQuality");
@@ -324,6 +369,48 @@ function applyToCreature(ctx: Ctx, creature: ICreature, path: string, value: unk
       const room = requireEntity(ctx, asString(value, "roomId"));
       if (room.kind !== "Room") fail("roomId must name a room");
       creature.roomId = resolveId(ctx, value as string);
+      // Put somewhere outright, so whatever it was walking toward is settled
+      // one way or the other. Leaving the destination on would have it turn
+      // round and set off again next turn.
+      delete creature.approach;
+      return;
+    }
+
+    /*
+     * THE CREATURE WALKS. It does not appear.
+     *
+     * `walkTo` for creatures, and the same bargain: the destination is what is
+     * asked for, and the world answers back with where it actually got to. The
+     * referee holds one room and cannot see the graph; it says "it hears the
+     * fight and comes" and the applier spends the three rooms of walking, one
+     * per turn, in the sweep at the foot of this file.
+     *
+     * A DESTINATION WITH NO ROUTE IS REFUSED, not quietly dropped. A silently
+     * ignored write is a creature the referee believes is on its way and that
+     * never arrives, and the referee finds out about it never.
+     *
+     * Nothing moves here. The write sets the destination; the sweep does the
+     * stepping, and it does it for this creature too — so a creature told to
+     * come is one room closer by the end of the same commit, and exactly one.
+     */
+    case "approach": {
+      const room = requireEntity(ctx, asString(value, "approach"));
+      if (room.kind !== "Room") fail("approach must name a room");
+      const to = resolveId(ctx, value as string);
+
+      if (to === creature.roomId) {
+        // Already standing in it. Not an error — "come here" said of something
+        // that is here is satisfied, not impossible.
+        delete creature.approach;
+        return;
+      }
+      if (stepToward(ctx.world, creature.roomId, to) === undefined) {
+        fail(
+          `no way leads from ${creature.name || "that creature"}'s room to ${JSON.stringify(to)}. ` +
+            `It cannot walk somewhere no corridor reaches.`
+        );
+      }
+      creature.approach = to;
       return;
     }
 
@@ -518,6 +605,11 @@ function createEntity(ctx: Ctx, holderId: string, value: unknown): void {
       parentId: holder.kind === "PlayerCharacter" ? ctx.world.pc.id : resolvedHolder,
       slots: spec.slots ?? 1,
       ...(spec.amount ? { amount: spec.amount } : {}),
+      // Worth nothing until something says otherwise, and the something cannot
+      // be the referee: a price is a number, and the model does not write those.
+      // What it may name is a grade for `rollItemValue` to roll against, which
+      // needs a stream the applier does not have yet.
+      value: 0,
     };
     if (spec.state) setState(item, spec.state);
     // Through the same door a pickup uses, so something minted straight into
@@ -633,6 +725,52 @@ function applyOne(ctx: Ctx, diff: Diff): void {
 }
 
 // ---------------------------------------------------------------------------
+// THE WORLD MOVES WHILE THE PLAYER IS BUSY
+// ---------------------------------------------------------------------------
+
+/**
+ * EVERY CREATURE WITH SOMEWHERE TO BE GETS ONE ROOM CLOSER.
+ *
+ * Run once per applied commit, after the diffs and before anything that reads
+ * where things are. The referee names destinations; this is the only thing that
+ * spends them, so "three rooms off" is three turns and not a number the referee
+ * has to keep in its head.
+ *
+ * TIME SPENT IS THE GATE, and it is the whole of what the applier reads off
+ * `timeSpent`. `instant` is a glance or a word — nobody crosses a room in the
+ * time it takes to look at something, so nobody moves. Every other category is
+ * a turn actually passing, and one room is what passing buys. WHICH creatures
+ * are given a destination in the first place is the referee's judgement and is
+ * described in the step file; this only ever spends what it was handed.
+ *
+ * The creature that was told to come THIS commit is stepped here too, and once.
+ * The write above deliberately moves nothing, so there is exactly one stepper
+ * and no case where a creature covers two rooms for one turn.
+ *
+ * `roomId` is the whole of the move: occupancy is relational (BUILD-PLAN §4.3),
+ * so leaving one room and joining another is one assignment and there is no
+ * second list to keep in step with it.
+ *
+ * A destination that has become unreachable — the only way to it barred by an
+ * earlier diff in this same commit — leaves the creature standing and keeps the
+ * destination. It is trying, and the way may open again.
+ */
+function walkApproaching(ctx: Ctx, timeSpent: TimeSpent): void {
+  if (timeSpent === "instant") return;
+
+  for (const creature of ctx.world.entities.creatures) {
+    const to = creature.approach;
+    if (to === undefined) continue;
+
+    const next = stepToward(ctx.world, creature.roomId, to);
+    if (next === undefined) continue;
+
+    creature.roomId = next;
+    if (next === to) delete creature.approach;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // ENTRY POINT
 // ---------------------------------------------------------------------------
 
@@ -712,6 +850,8 @@ export function applyCommit(world: World, commit: Commit): ApplyOutcome {
   }
 
   if (rejected.length > 0) return { ok: false, applied: [], rejected, events: [] };
+
+  walkApproaching(ctx, commit.timeSpent);
 
   // LEAVING IS A PLACE, NOT A DECISION. A run can only end on the surface, and
   // only from a room with an unblocked way to it — checked after the diffs, so

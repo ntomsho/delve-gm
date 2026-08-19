@@ -68,7 +68,8 @@ import { NO_JOURNAL, type Journal } from "./journal.ts";
 
 const COMMIT_TOOL: ToolDefinition = toolFor(
   "commit_state",
-  "End your turn. Carries the words the player reads (`post`), where the game goes next, and " +
+  "End your turn. Carries the words the player reads (`post`), where the game goes next, how long " +
+    "the action took (`timeSpent`, which decides who else got to move), and " +
     "what changed. Exactly one call per turn, always — even a turn that changes nothing commits, " +
     "to say what the player's input area should be waiting on. Call this LAST. Anything you " +
     "write outside this call is your own working-out and is never shown to anyone.",
@@ -210,7 +211,10 @@ function playersOwnDice(req: RefereeRequest, batch: RollBatchParsed): string[] {
 
   const out: string[] = [];
   for (const r of batch.rolls) {
-    if (r.kind === "morale" || r.kind === "damage") continue;
+    // Never theirs, whatever the numbers: morale and damage belong to something
+    // else, and a consultation is the book running dry rather than the player
+    // being tested — they carry no bonus into it and cannot fail it.
+    if (r.kind === "morale" || r.kind === "damage" || r.kind === "consult") continue;
     if (r.actor !== undefined) continue;
     if (r.bonus === undefined || !theirs.has(r.bonus)) continue;
     if (r.kind === "attack" && r.targetDefense === armor) continue;
@@ -264,6 +268,59 @@ function missingPost(req: RefereeRequest, c: CommitParsed): string[] {
       `working-out and is never shown. Put the words meant for the player in \`post\` and commit again.`,
   ];
 }
+
+/**
+ * WHAT A TURN THAT DID NOT HAPPEN COST IN TIME: nothing.
+ *
+ * Beside `missingPost`, and the same family as the no-diffs rule the applier
+ * keeps — a rule about what a STAGE MEANS, so it is checked rather than asked
+ * for. A `clarifying` turn is a question back to the player and a `rejected` one
+ * is an action turned away; a `roll_offered` turn is the terms going on the
+ * table with nobody having touched them yet. None of the three is a turn that
+ * happened, so none of them may let a creature cross a room.
+ *
+ * A ROOM ENTRY IS NOT A TURN EITHER, and it is the case the design did not
+ * name. It is the consequence of one — `turn.ts` says so where it decides what
+ * closes a turn: "the move that caused it has already ticked the clock, and
+ * counting it would charge the player twice for walking through a door."
+ * Without this line, walking through a door advances every approaching creature
+ * twice for one move.
+ *
+ * `long` IS A NIGHT'S REST AND THERE IS NO WAY TO SAY SO YET. Rest is Phase 16
+ * and arrives as a button, resolved client-side like the player's own d20; until
+ * that exists a `long` turn is the referee inventing an hour that nothing in the
+ * interface offered. It is on the wire so Phase 16 does not have to reopen the
+ * schema, and refused here so it cannot be reached early.
+ */
+function timeNotSpent(req: RefereeRequest, c: CommitParsed): string[] {
+  if (c.timeSpent === "long") {
+    return [
+      `timeSpent "long" is a night's rest, and there is no way to take one yet — ` +
+        `it arrives with the Rest button, not out of an action the player typed. ` +
+        `Whatever this was, it took an hour at most: say "short".`,
+    ];
+  }
+
+  if (c.timeSpent === "instant") return [];
+
+  const why =
+    req.step === "room-entry"
+      ? `a room entry is not a turn — it is the consequence of the move that caused it, ` +
+        `and that move has already been paid for`
+      : IDLE_STAGES.includes(c.nextStage)
+        ? `a "${c.nextStage}" turn has not happened yet: nothing was resolved and nothing changed`
+        : undefined;
+
+  return why === undefined
+    ? []
+    : [
+        `timeSpent is "${c.timeSpent}", but ${why}. No time passes, so nothing anywhere ` +
+          `in the dungeon gets to move. Commit timeSpent "instant".`,
+      ];
+}
+
+/** The three stages that end a turn without one having taken place. */
+const IDLE_STAGES: readonly CommitParsed["nextStage"][] = ["clarifying", "rejected", "roll_offered"];
 
 /**
  * The cross-field rules a JSON Schema cannot state.
@@ -371,6 +428,7 @@ export function createModelReferee(opts: ModelRefereeOptions): Referee {
       if (commit) {
         const read = readCommit(commit, (parsed, c) => [
           ...missingPost(req, parsed),
+          ...timeNotSpent(req, parsed),
           // Dice already in hand — the player's, or a batch rolled this turn —
           // mean the numbers have a provenance and nothing needs checking.
           ...(rolled || req.roll ? [] : unearnedDamage(req, c)),
@@ -500,6 +558,7 @@ function readCommit(
   const commit: Commit = {
     nextStage: parsed.nextStage,
     nextStep: parsed.nextStep,
+    timeSpent: parsed.timeSpent,
     diffs: parsed.diffs,
     ...(parsed.rollRequest ? { rollRequest: toRollSpec(parsed.rollRequest) } : {}),
     ...(parsed.goalMet ? { goalMet: true } : {}),

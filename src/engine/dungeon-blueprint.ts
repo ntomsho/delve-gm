@@ -362,6 +362,61 @@ const TREASURE_ITEMS = t(
   "Alchemy recipe|Amulet|Astrolabe|Blueprints|Calligraphy|Carpet|Compass|Contract|Crown|Crystal|Deed|Embroidery|Fine china|Fine liquor|Instrument|Magical book|Microscope|Music box|Orrery|Painting|Perfume|Prayer book|Printing block|Rare textile|Royal robes|Saint's relic|Scrimshaw|Sextant|Sheet music|Signet ring|Silverware|Spices|Spyglass|Tapestry|Telescope|Treasure map"
 );
 
+/**
+ * WHAT A BOOK IS ABOUT — Maze Rats.
+ *
+ * Rolled once, when the book is made, and it is the whole of what the book IS:
+ * how much is in it is not decided here but found out by reading it, one d6 at
+ * a time. See `BookFacts` and `consultRoll`.
+ *
+ * The referee reads the subject generously — a heading, not a boundary — which
+ * is what makes a book worth the slot it costs. Step 3 of the playbook owns
+ * that rule.
+ */
+export const BOOK_SUBJECTS: readonly string[] = [
+  "Alchemy",
+  "Art",
+  "Astrology",
+  "Blackmail",
+  "Charts & Maps",
+  "Conspiracies",
+  "Cookbook",
+  "Criminals",
+  "Divination",
+  "Etiquette",
+  "Fashion",
+  "Genealogy",
+  "Hagiography",
+  "History",
+  "Journal",
+  "Language",
+  "Laws",
+  "Letters",
+  "Lost empires",
+  "Lost places",
+  "Love poems",
+  "Monsters",
+  "Mythology",
+  "Odd customs",
+  "Oratory",
+  "Propaganda",
+  "Prophecies",
+  "Siegecraft",
+  "Songs",
+  "State secrets",
+  "Sword fighting",
+  "Theology",
+  "Treasures",
+  "War chronicle",
+  "Who's who",
+  "Witch-hunting"
+];
+
+/** Empty string only if the table is ever emptied — a book with no subject is legal. */
+export function rollBookSubject(rng: Rng): string {
+  return BOOK_SUBJECTS.length ? rng.pick(BOOK_SUBJECTS) : "";
+}
+
 // ---------------------------------------------------------------------------
 // CASCADES
 // ---------------------------------------------------------------------------

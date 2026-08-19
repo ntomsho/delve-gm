@@ -17,6 +17,7 @@
     "generate": "node src/dev/cli-generate.ts",
     "generate:dry": "node src/dev/cli-generate.ts --dry",
     "play": "node src/dev/cli-play.ts",
+    "transcript": "node src/dev/cli-transcript.ts",
     "play:offline": "node src/dev/cli-play.ts --offline",
     "test:db": "node --env-file=.env.local ./node_modules/vitest/vitest.mjs run --config vite.db.config.ts"
   },

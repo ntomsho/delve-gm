@@ -47,9 +47,18 @@ const COMMON = ["state", "composed", "isHidden"] as const;
 const WRITABLE: Record<EntityKind, readonly string[]> = {
   Room: ["state", "composed"],
   RoomConnector: [...COMMON, "conditional"],
-  Creature: [...COMMON, "activity", "count", "stats.hp", "roomId"],
+  // Two ways to move a creature, and they are not the same instruction.
+  // `roomId` puts it there — for one already next door, or one being placed
+  // outright. `approach` names somewhere it is heading and lets the applier do
+  // the walking, a room per turn: routing is a graph question with one right
+  // answer, so nothing about it should be guessed. See `stepToward`.
+  Creature: [...COMMON, "activity", "count", "stats.hp", "roomId", "approach"],
   RoomFeature: [...COMMON, "roomId"],
-  Item: [...COMMON, "currentQuality", "amount", "parentId"],
+  // `value` is deliberately absent: what a thing is worth is a number, and the
+  // referee does not write numbers. The two book fields are not the same kind
+  // of thing — they are a reading being recorded, and both come back off the
+  // `consult` roll rather than out of the referee's head.
+  Item: [...COMMON, "currentQuality", "amount", "parentId", "book.uses", "book.exhausted"],
   MobileEffect: [...COMMON, "roomIds"],
   Hazard: [...COMMON, "sprung", "active"],
   PlayerCharacter: [

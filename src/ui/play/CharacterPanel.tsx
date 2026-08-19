@@ -125,8 +125,16 @@ export function CharacterPanel({ pc }: { pc: CharacterView }) {
         )}
         <ul className="space-y-[2px] font-mono text-[11px]">
           {pc.inventory.map((i) => (
-            <li key={i.id} className="flex justify-between gap-3">
-              <span className="truncate text-ink">{i.name}</span>
+            /* The description hangs off the row rather than filling the panel:
+               a pack of ten things is a list, and a list of paragraphs is not. */
+            <li key={i.id} className="flex justify-between gap-3" title={i.composed ?? i.base}>
+              <span className="truncate text-ink">
+                {i.name}
+                {/* How much is left, which is the only part of a carried thing
+                    that changes on its own. Muted and inline: it belongs to the
+                    name — "Rations (2 days)" is one thing, not two columns. */}
+                {i.amount && <span className="text-graphite"> ({i.amount})</span>}
+              </span>
               <span className="shrink-0 text-graphite">{i.slots ?? 1}</span>
             </li>
           ))}

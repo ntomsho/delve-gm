@@ -863,3 +863,180 @@ describe("what a character brings back up", () => {
     });
   });
 });
+
+/**
+ * THE PLAYBOOK IS STORED ONCE
+ * ===========================
+ *
+ * A `system` event carries 25–45 kB of standing instructions, and before the
+ * blocks were split out it carried them again on every referee call — the
+ * journal's own "write this once per run" set lives on a journal object, and the
+ * server makes one per REQUEST. Two thirds of a measured run's journal was the
+ * same three blocks three times.
+ *
+ * WHAT THESE ASSERT, in one sentence: the column holds each distinct block once,
+ * and a reader still gets back exactly what was written. The second half is the
+ * one that matters — a deduplication that loses a byte is not a saving, it is a
+ * corrupted record of what a model was told.
+ */
+describe("prompt blocks", () => {
+  const SKILL = "the playbook, and it is long".repeat(400);
+  const CONTEXT = "# This dungeon\n\nA damp hole.";
+
+  /** A `system` event as `logSystem` writes one, with `cache_control` and all. */
+  const systemEvent = (seq: number, step: string, tail: string) =>
+    ({
+      seq,
+      at: new Date().toISOString(),
+      kind: "system",
+      step,
+      blocks: [
+        { type: "text", text: SKILL },
+        { type: "text", text: CONTEXT, cache_control: { type: "ephemeral" } },
+        { type: "text", text: tail },
+      ],
+    }) as never;
+
+  async function aRun(tx: postgres.Sql) {
+    const owner = await makeUser(tx, "a");
+    const dungeonId = await repo.insertPartialDungeon(dungeon(4201), owner, tx);
+    const run = await repo.createRun({ dungeonId, state: runState(), owner }, tx);
+    return { owner, dungeonId, run };
+  }
+
+  const stored = (tx: postgres.Sql, runId: string) =>
+    tx<{ payload: { blocks: { sha: string; chars: number; text?: string }[] } }[]>`
+      select payload from journal_events where run_id = ${runId} order by seq asc
+    `;
+
+  it("writes the text out of the event and leaves a sha behind", async () => {
+    await inRollback(async (tx) => {
+      const { run } = await aRun(tx);
+      await repo.appendEvents(run.id, [systemEvent(1, "1-target", "step one")], tx);
+
+      const [row] = await stored(tx, run.id);
+      expect(row.payload.blocks).toHaveLength(3);
+      for (const b of row.payload.blocks) {
+        expect(b.text).toBeUndefined();
+        expect(b.sha).toMatch(/^[0-9a-f]{64}$/);
+      }
+      // `chars` rides along so the compact form is readable without a join —
+      // "how much prose did this call carry" without going to `prompt_blocks`.
+      expect(row.payload.blocks.map((b) => b.chars)).toEqual([
+        SKILL.length,
+        CONTEXT.length,
+        "step one".length,
+      ]);
+    });
+  });
+
+  /**
+   * THE ONE THAT WOULD HAVE CAUGHT A SILENT LOSS. Everything else here is about
+   * size; this is about the record still being the record.
+   */
+  it("gives back exactly what was written, cache_control and all", async () => {
+    await inRollback(async (tx) => {
+      const { dungeonId, run } = await aRun(tx);
+      const event = systemEvent(1, "1-target", "step one");
+      await repo.appendEvents(run.id, [event], tx);
+
+      const [read] = await repo.readJournal(run.id, dungeonId, tx);
+      // `seq` is renumbered on the way out of `readJournal` — it is an order,
+      // not a key — so the comparison is of everything else.
+      expect({ ...read, seq: 1 }).toEqual(event);
+    });
+  });
+
+  /**
+   * THE SAVING, MEASURED. Three calls under three steps share `SKILL.md` and the
+   * dungeon's fiction and differ only in their step files, which is exactly the
+   * shape of a real turn.
+   */
+  it("stores one row per distinct block however many events refer to it", async () => {
+    await inRollback(async (tx) => {
+      const { run } = await aRun(tx);
+      await repo.appendEvents(
+        run.id,
+        [
+          systemEvent(1, "room-entry", "entering a room"),
+          systemEvent(2, "1-target", "finding the target"),
+          systemEvent(3, "5-resolution", "the dice came back"),
+        ],
+        tx
+      );
+
+      // Nine blocks referred to; five distinct — the playbook and the fiction
+      // once each, plus one step file per event.
+      const [{ count }] = await tx<{ count: number }[]>`
+        select count(distinct b ->> 'sha')::int as count
+          from journal_events j, jsonb_array_elements(j.payload -> 'blocks') b
+         where j.run_id = ${run.id}
+      `;
+      expect(count).toBe(5);
+
+      // And the column no longer holds three copies of a 11 kB playbook.
+      const [{ bytes }] = await tx<{ bytes: number }[]>`
+        select sum(pg_column_size(payload))::int as bytes
+          from journal_events where run_id = ${run.id}
+      `;
+      expect(bytes).toBeLessThan(SKILL.length);
+    });
+  });
+
+  /**
+   * A block written by one run is the same block when another run writes it, and
+   * `on conflict do nothing` is what makes the second write free. Content
+   * addressing has no owner in it — see the migration.
+   */
+  it("shares a block between two runs belonging to different players", async () => {
+    await inRollback(async (tx) => {
+      const first = await aRun(tx);
+      const second = await aRun(tx);
+      await repo.appendEvents(first.run.id, [systemEvent(1, "1-target", "step one")], tx);
+      await repo.appendEvents(second.run.id, [systemEvent(1, "1-target", "step one")], tx);
+
+      const [a] = await stored(tx, first.run.id);
+      const [b] = await stored(tx, second.run.id);
+      expect(a.payload.blocks[0].sha).toBe(b.payload.blocks[0].sha);
+
+      // Both still read back whole, which is the half that could quietly break.
+      const readA = await repo.readJournal(first.run.id, first.dungeonId, tx);
+      const readB = await repo.readJournal(second.run.id, second.dungeonId, tx);
+      expect((readA[0] as never as { blocks: { text: string }[] }).blocks[0].text).toBe(SKILL);
+      expect((readB[0] as never as { blocks: { text: string }[] }).blocks[0].text).toBe(SKILL);
+    });
+  });
+
+  /** Generation's events go down the same path, and come back up the same way. */
+  it("does the same for a dungeon's own journal", async () => {
+    await inRollback(async (tx) => {
+      const { dungeonId } = await aRun(tx);
+      const event = systemEvent(1, "room-entry", "generation asked something");
+      await repo.appendDungeonEvents(dungeonId, [event], tx);
+
+      const [read] = await repo.readDungeonEvents(dungeonId, tx);
+      expect(read).toEqual(event);
+    });
+  });
+
+  /**
+   * Everything that is not a `system` event is stored as it always was. The
+   * other repeated payloads are one write per dungeon rather than one per turn,
+   * so they do not grow with play and are deliberately left alone.
+   */
+  it("leaves every other kind of event untouched", async () => {
+    await inRollback(async (tx) => {
+      const { dungeonId, run } = await aRun(tx);
+      const events = [
+        { seq: 1, at: new Date().toISOString(), kind: "player", text: "open the door" },
+        { seq: 2, at: new Date().toISOString(), kind: "narration", text: "It gives.", arrival: false },
+      ] as never;
+      await repo.appendEvents(run.id, events, tx);
+
+      const read = await repo.readJournal(run.id, dungeonId, tx);
+      expect(read.map((e) => ({ ...e, seq: 0, at: "" }))).toEqual(
+        (events as unknown as Record<string, unknown>[]).map((e) => ({ ...e, seq: 0, at: "" }))
+      );
+    });
+  });
+});

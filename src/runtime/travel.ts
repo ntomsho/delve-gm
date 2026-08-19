@@ -26,6 +26,10 @@
  * steps, and you cannot retrace a step you never took. The far end may be
  * somewhere new, because walking into the next room is the ordinary case and
  * that room is new by definition.
+ *
+ * ALL OF THAT IS ABOUT THE PLAYER. Creatures cross the same graph under none of
+ * those rules — see `roomDistances` and `stepToward` at the foot of the file,
+ * which are the same argument made for a thing that lives here.
  */
 
 import { farSide, isSurfaceExit, touches } from "../engine/index.ts";
@@ -240,4 +244,84 @@ export function routeTo(world: World, to: string): Route {
 
 function roomName(world: World, id: string): string {
   return world.entities.rooms.find((r) => r.id === id)?.name || id;
+}
+
+// ---------------------------------------------------------------------------
+// THE OTHER GRAPH: WHAT A CREATURE KNOWS
+// ---------------------------------------------------------------------------
+
+/**
+ * HOW FAR EVERY ROOM IS FROM `from`, IN ROOMS CROSSED.
+ *
+ * The same graph `shortestPath` walks and deliberately NOT the same rule. That
+ * one expands only through rooms the player has stood in, because a route is
+ * retracing steps. This one expands through everything, because the thing being
+ * routed is not the player: a creature knows its own dungeon, and the player's
+ * map is not its map.
+ *
+ * That is why it is a second function rather than a flag on the first. A
+ * parameter would make "where may the player walk" configurable, and it is not
+ * — it is the one restriction that keeps a walk honest.
+ *
+ * Feeds two things: the "N rooms away" on every census line, and `stepToward`.
+ * `from` itself is in the map at 0; a room with no route to it is absent, which
+ * reads as `undefined` and is the answer.
+ *
+ * OBSTACLES ARE NOT CONSULTED. `routeTo` runs its clear-then-blocked two-pass
+ * because the player's walk stops in front of whatever is in the way and the
+ * turn resolves it. A creature crossing its own home is not that, and what it
+ * does about a fire in the next room is the referee's to say.
+ */
+export function roomDistances(world: World, from: string): Map<string, number> {
+  const out = new Map<string, number>([[from, 0]]);
+  let frontier = [from];
+  let depth = 0;
+
+  while (frontier.length > 0) {
+    depth += 1;
+    const next: string[] = [];
+    for (const here of frontier) {
+      for (const c of world.entities.connectors) {
+        if (!touches(c, here) || !walkable(c)) continue;
+        // Never null: `walkable` has already refused the surface.
+        const there = farSide(c, here)!;
+        if (out.has(there)) continue;
+        out.set(there, depth);
+        next.push(there);
+      }
+    }
+    frontier = next;
+  }
+  return out;
+}
+
+/**
+ * ONE ROOM ALONG THE WAY FROM `from` TO `to` — which is all a creature moves in
+ * a turn.
+ *
+ * Read off distances measured from the DESTINATION, so the next room is
+ * whichever neighbour stands one closer to it. That is a shortest path by
+ * construction and needs no path to be built or reversed.
+ *
+ * Deterministic: connectors are visited in world order, so two neighbours tied
+ * at the same distance always resolve the same way — the same guarantee
+ * `shortestPath` makes, for the same reason.
+ *
+ * `undefined` means no route at all, and the applier turns that into a refusal
+ * rather than a creature that quietly stays put. Returns `from` itself when it
+ * is already there, which is how arrival is recognised.
+ */
+export function stepToward(world: World, from: string, to: string): string | undefined {
+  if (from === to) return from;
+
+  const away = roomDistances(world, to);
+  const here = away.get(from);
+  if (here === undefined) return undefined;
+
+  for (const c of world.entities.connectors) {
+    if (!touches(c, from) || !walkable(c)) continue;
+    const there = farSide(c, from)!;
+    if (away.get(there) === here - 1) return there;
+  }
+  return undefined;
 }

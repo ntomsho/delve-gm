@@ -22,11 +22,14 @@
  * the commonest way to waste a purse is to buy a second crowbar.
  */
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   EMPTY_CART,
+  Rng,
   SHOP_DISPLAY,
+  WEAPON_CLASSES,
   addToCart,
+  armorFacts,
   canAffordOneMore,
   cartLines,
   cartSlots,
@@ -36,12 +39,13 @@ import {
   setQty,
   slotCapacity,
   slotsUsed,
-  weaponClass,
+  weaponFacts,
   checkout,
   type Cart,
   type PlayerCharacter,
   type ShopGood,
 } from "../../engine/index.ts";
+import { randomSeed } from "../../runtime/seeds.ts";
 import { Button, LABEL, SlotMeter } from "../create/shared.tsx";
 
 /** Copper, written the way every other number on these screens is. */
@@ -52,14 +56,17 @@ const cp = (n: number) => `${n.toLocaleString()} cp`;
  * the numbers that decide whether to buy them; a sack does not need a sentence.
  */
 function goodNote(good: ShopGood): string | null {
-  if (good.armor) {
-    return good.armor.armorType === "body"
-      ? `body armor · defense ${good.armor.defense} · quality ${good.armor.quality}`
-      : `+1 defense · quality ${good.armor.quality}`;
+  const quality = good.template.quality;
+  const armor = armorFacts(good.key);
+  if (armor) {
+    return armor.armorType === "body"
+      ? `body armor · defense ${armor.defense} · quality ${quality}`
+      : `+1 defense · quality ${quality}`;
   }
-  if (good.weapon) {
-    const w = good.weapon;
-    return `${w.damage} · ${w.ranged ? "ranged" : `${w.hands} hand${w.hands === 1 ? "" : "s"}`} · quality ${w.quality}`;
+  const w = weaponFacts(good.key);
+  if (w) {
+    const hands = w.hands ?? 1;
+    return `${w.damage} · ${w.ranged ? "ranged" : `${hands} hand${hands === 1 ? "" : "s"}`} · quality ${quality}`;
   }
   return null;
 }
@@ -131,12 +138,23 @@ export function Shop({
   pc,
   onBuy,
   onLeave,
+  seed,
 }: {
   pc: PlayerCharacter;
   /** The sheet after buying. The parent saves exactly this. */
   onBuy: (pc: PlayerCharacter) => void;
   onLeave: () => void;
+  /**
+   * The stream a purchase draws from — a book rolls for what is in it, so even
+   * a shop needs one. Pinnable for the same reason creation's is: a seeded
+   * thing you cannot fix is a thing you cannot test.
+   */
+  seed?: number;
 }) {
+  const rngRef = useRef<Rng>(null);
+  if (rngRef.current === null) rngRef.current = new Rng(seed ?? randomSeed());
+  const rng = rngRef.current;
+
   const [cart, setCart] = useState<Cart>(EMPTY_CART);
   const [section, setSection] = useState<string>(SHOP_DISPLAY[0].key);
 
@@ -164,26 +182,25 @@ export function Shop({
    * the class is every number that matters and the names inside it are the same
    * weapon called different things.
    */
-  const weaponBlocks = () => {
-    const classes = [...new Set(open.goods.map((g) => g.weapon?.classKey))].filter(
-      (k): k is NonNullable<typeof k> => k !== undefined
-    );
-    return classes.map((key) => {
-      const c = weaponClass(key);
+  const weaponBlocks = () =>
+    WEAPON_CLASSES.map((c) => {
+      const goods = open.goods.filter((g) => (c.members as readonly string[]).includes(g.key));
+      if (goods.length === 0) return null;
+      const first = goods[0];
+      const w = weaponFacts(first.key);
       return (
-        <div key={key} className="border-b border-rule last:border-b-0">
+        <div key={c.key} className="border-b border-rule last:border-b-0">
           <div className="flex items-baseline justify-between gap-4 bg-desk px-4 py-2">
             <span className="font-display text-[13px] tracking-[0.1em] text-ink">{c.label}</span>
             <span className="font-mono text-[11px] text-graphite">
-              {c.damage} · {c.ranged ? "ranged" : `${c.hands}h`} · {c.slots} slot
-              {c.slots === 1 ? "" : "s"} · {cp(c.cost)}
+              {w?.damage} · {w?.ranged ? "ranged" : `${w?.hands ?? 1}h`} · {first.slots} slot
+              {first.slots === 1 ? "" : "s"} · {cp(first.cost)}
             </span>
           </div>
-          {open.goods.filter((g) => g.weapon?.classKey === key).map(row)}
+          {goods.map(row)}
         </div>
       );
     });
-  };
 
   return (
     <main className="min-h-screen bg-desk text-ink">
@@ -306,7 +323,7 @@ export function Shop({
               <Button
                 tone="primary"
                 disabled={lines.length === 0}
-                onClick={() => onBuy(checkout(pc, cart).pc)}
+                onClick={() => onBuy(checkout(pc, cart, rng).pc)}
                 className="px-5 py-3 text-[14px]"
               >
                 {lines.length === 0 ? "Buy" : `Buy · ${cp(total)}`}

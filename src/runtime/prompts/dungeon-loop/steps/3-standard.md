@@ -128,7 +128,7 @@ Tell the player, in a post:
 
 **You do not roll this. Not now, and not with the `roll` tool — not ever.** The dice for the player's own attempt are thrown by the interface when *they* take it. Your job was to settle the terms; having settled them, get out of the way.
 
-So the turn ends here. Commit `nextStage: "roll_offered"` and `nextStep: "4-confirm-roll"`, carrying the roll as the `rollRequest`, and change no state — nothing has happened yet. The player takes it, or argues with it, and either way the action reaches you again with the result already made.
+So the turn ends here. Commit `nextStage: "roll_offered"` and `nextStep: "4-confirm-roll"`, carrying the roll as the `rollRequest`, and change no state — nothing has happened yet. `timeSpent` is `"instant"` for the same reason: the attempt has not been made, so it has not cost anybody anything yet. Whatever you judged it would cost at step 2, you spend at step 5 when it actually happens. The player takes it, or argues with it, and either way the action reaches you again with the result already made.
 
 Rolling it yourself would hand them the outcome of something they never agreed to attempt. The `roll` tool refuses a save or an attack made at one of their own bonuses for exactly this reason, so reaching for it here costs you the round as well as the point.
 

@@ -240,3 +240,34 @@ export function moraleRoll(rng: RollRng, rating: number = DEFAULT_MORALE): Moral
   const total = rolled[0] + rolled[1];
   return { rolled, total, holds: total <= rating };
 }
+
+// ---------------------------------------------------------------------------
+// CONSULTING A BOOK
+// ---------------------------------------------------------------------------
+
+export interface ConsultResult {
+  /** consultations made, this one included */
+  uses: number;
+  rolled: number;
+  /** this reading was the last the book had in it */
+  exhausted: boolean;
+}
+
+/**
+ * A book gives up what it has, and then it has no more.
+ *
+ * Add one to the count of readings, roll a d6, and the book is spent when the
+ * die comes up at or under that count. Nothing decides in advance how much is
+ * in a book: the first reading is safe five times in six, the third is even
+ * money, the sixth is certain, and the expected book answers between two and
+ * three questions.
+ *
+ * The roll happens at the READING, not at the writing — which is the difference
+ * between a book whose depth is a fact about the world and one whose depth is
+ * found out by using it. Only the second can surprise the person holding it.
+ */
+export function consultRoll(rng: RollRng, priorUses = 0): ConsultResult {
+  const uses = Math.max(0, priorUses) + 1;
+  const rolled = die(rng, 6);
+  return { uses, rolled, exhausted: rolled <= uses };
+}

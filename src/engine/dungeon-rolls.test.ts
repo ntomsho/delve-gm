@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   attackRoll,
+  consultRoll,
   critEffects,
   d20,
   dcFromDefense,
@@ -197,6 +198,56 @@ describe("morale", () => {
       expect(total).toBeGreaterThanOrEqual(2);
       expect(total).toBeLessThanOrEqual(12);
     }
+  });
+});
+
+// ===========================================================================
+// CONSULTING A BOOK
+// ===========================================================================
+
+describe("consulting a book", () => {
+  it("counts the reading, and is spent when the die comes up at or under it", () => {
+    // Third reading: a 3 is at the count, so that is the last of it.
+    expect(consultRoll(scripted(face(3, 6)), 2)).toMatchObject({ uses: 3, rolled: 3, exhausted: true });
+    // Third reading again, on a 4 — there is more in it.
+    expect(consultRoll(scripted(face(4, 6)), 2)).toMatchObject({ uses: 3, rolled: 4, exhausted: false });
+  });
+
+  it("cannot be spent by the first reading except on a 1", () => {
+    for (let n = 2; n <= 6; n++) {
+      expect(consultRoll(scripted(face(n, 6))).exhausted, `d6=${n}`).toBe(false);
+    }
+    expect(consultRoll(scripted(face(1, 6))).exhausted).toBe(true);
+  });
+
+  it("is certain by the sixth", () => {
+    for (let n = 1; n <= 6; n++) {
+      expect(consultRoll(scripted(face(n, 6)), 5).exhausted, `d6=${n}`).toBe(true);
+    }
+  });
+
+  it("starts from unread when nothing is passed", () => {
+    expect(consultRoll(scripted(face(6, 6))).uses).toBe(1);
+  });
+
+  // Not a rule, a sanity check on the shape of the curve: a book answers a
+  // couple of questions and then stops, and it is the reading that finds out.
+  it("gives up after two or three readings on average", () => {
+    const rng = new Rng(4242);
+    let total = 0;
+    const books = 2000;
+    for (let i = 0; i < books; i++) {
+      let uses = 0;
+      for (;;) {
+        const o = consultRoll(rng, uses);
+        uses = o.uses;
+        if (o.exhausted) break;
+      }
+      total += uses;
+    }
+    const mean = total / books;
+    expect(mean).toBeGreaterThan(2);
+    expect(mean).toBeLessThan(3);
   });
 });
 

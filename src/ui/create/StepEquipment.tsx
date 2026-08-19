@@ -24,13 +24,18 @@
 import {
   GEAR_SLOT_LABEL,
   WEAPON_CLASSES,
+  classOfWeapon,
+  equipment,
+  isArmor,
+  isBook,
+  isSpellbook,
   kitItems,
-  weaponsIn,
+  weaponFacts,
+  type AnyItem,
   type GearSlot,
-  type IItem,
   type StartingKit,
   type WeaponClass,
-  type WeaponStat,
+  type WeaponKey,
 } from "../../engine/index.ts";
 import { Button, LABEL, RerollGlyph, SlotMeter, StepHeading, Toggle } from "./shared.tsx";
 
@@ -41,18 +46,34 @@ const MODES = [
   { value: "buy" as const, label: "BUY INSTEAD" },
 ];
 
-const classLine = (c: WeaponClass) =>
-  `${c.damage} · ${c.ranged ? "ranged" : `${c.hands}h`} · ${c.slots} slot${c.slots === 1 ? "" : "s"}`;
+/**
+ * The numbers a class fixes, read off its first member — every name in a class
+ * carries the same ones, which is the whole reason the class is the question.
+ */
+function classLine(c: WeaponClass): string {
+  const first = c.members[0];
+  const w = weaponFacts(first);
+  const slots = equipment(first).slots ?? 1;
+  if (!w) return "";
+  return `${w.damage} · ${w.ranged ? "ranged" : `${w.hands ?? 1}h`} · ${slots} slot${slots === 1 ? "" : "s"}`;
+}
 
 /**
  * What an item is, in the few words a row has space for. A spellbook's effect
  * is a sentence rather than a clause, so it is not one of these — it goes on
  * its own line under the name, where it can be read rather than skimmed past.
  */
-function itemNote(item: IItem): string | null {
-  if (item.spellBook) return "one spell, once a day";
-  if (item.armor?.armorType === "body") return `body armor, defense ${item.armor.defense}`;
-  if (item.armor) return "+1 defense";
+function itemNote(item: AnyItem): string | null {
+  if (isSpellbook(item)) return "one spell, once a day";
+  if (isBook(item)) {
+    const subject = item.book.subject ? `on ${item.book.subject.toLowerCase()}` : "on no stated subject";
+    return item.book.exhausted ? `${subject} — read out` : `${subject}, can be consulted`;
+  }
+  if (isArmor(item)) {
+    return item.armor.armorType === "body"
+      ? `body armor, defense ${item.armor.defense}`
+      : "+1 defense";
+  }
   return null;
 }
 
@@ -70,11 +91,11 @@ export function StepEquipment({
 }: {
   kit: StartingKit;
   eqMode: EquipmentMode;
-  weapon: WeaponStat;
+  weapon: WeaponKey;
   capacity: number;
   rerollsLeft: number;
   onEqMode: (m: EquipmentMode) => void;
-  onWeapon: (w: WeaponStat) => void;
+  onWeapon: (w: WeaponKey) => void;
   onRerollSlot: (slot: GearSlot) => void;
   onRerollAll: () => void;
   onRerollCopper: () => void;
@@ -82,7 +103,7 @@ export function StepEquipment({
   const carried = kitItems(kit);
   const used = carried.reduce((n, i) => n + i.slots, 0);
   const spent = rerollsLeft <= 0;
-  const chosenClass = WEAPON_CLASSES.find((c) => c.key === weapon.classKey) ?? WEAPON_CLASSES[0];
+  const chosenClass = classOfWeapon(weapon);
 
   return (
     <div>
@@ -99,14 +120,14 @@ export function StepEquipment({
           <div className={`${LABEL} mb-2.5`}>Your weapon — what kind</div>
           <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 xl:grid-cols-6">
             {WEAPON_CLASSES.map((c) => {
-              const chosen = c.key === weapon.classKey;
+              const chosen = c.key === chosenClass.key;
               return (
                 <button
                   key={c.key}
                   type="button"
                   aria-pressed={chosen}
                   aria-label={`${c.label} weapon`}
-                  onClick={() => onWeapon(weaponsIn(c)[0])}
+                  onClick={() => onWeapon(c.members[0])}
                   className={`p-3 text-left transition-colors ${
                     chosen ? "border-2 border-torch bg-torch-wash" : "border border-rule bg-paper hover:border-ink"
                   }`}
@@ -120,27 +141,27 @@ export function StepEquipment({
 
           {/* The second question, and only where there is one to ask: a sling
               is a sling. Nothing below this line changes a single number. */}
-          {chosenClass.names.length > 1 ? (
+          {chosenClass.members.length > 1 ? (
             <div className="mt-5">
               <div className={`${LABEL} mb-2.5`} id="weapon-name-label">
                 And which one — {chosenClass.label.toLowerCase()}, {classLine(chosenClass)}
               </div>
               <div role="group" aria-labelledby="weapon-name-label" className="flex flex-wrap gap-2.5">
-                {weaponsIn(chosenClass).map((w) => {
-                  const chosen = w.name === weapon.name;
+                {chosenClass.members.map((k) => {
+                  const chosen = k === weapon;
                   return (
                     <button
-                      key={w.name}
+                      key={k}
                       type="button"
                       aria-pressed={chosen}
-                      onClick={() => onWeapon(w)}
+                      onClick={() => onWeapon(k)}
                       className={`px-4 py-2 font-prose text-[17px] transition-colors ${
                         chosen
                           ? "border-2 border-torch bg-torch-wash text-ink"
                           : "border border-rule bg-paper text-graphite hover:border-ink hover:text-ink"
                       }`}
                     >
-                      {w.name}
+                      {equipment(k).name}
                     </button>
                   );
                 })}
@@ -171,7 +192,7 @@ export function StepEquipment({
                           {itemNote(item) ? (
                             <span className="text-[14px] text-graphite"> — {itemNote(item)}</span>
                           ) : null}
-                          {item.spellBook ? (
+                          {isSpellbook(item) ? (
                             <span className="mt-0.5 block max-w-[52ch] text-[14px] italic leading-snug text-graphite">
                               {item.spellBook.spellDescription}
                             </span>

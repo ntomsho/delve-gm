@@ -5,7 +5,7 @@ import { createGameStore, newRun } from "./game.ts";
 const useGame = createGameStore();
 
 import {
-  characterView, exitLabel, mapView, needsComposition, roomView, UNARMORED_DEFENSE,
+  characterView, censusView, exitLabel, mapView, needsComposition, roomView, UNARMORED_DEFENSE,
 } from "./selectors.ts";
 import { floorplanLayout, pathMidpoint, pointLayout, shapeCenter } from "../runtime/layout.ts";
 import type { Diff } from "../runtime/diffs/types.ts";
@@ -14,11 +14,13 @@ import {
   isSurfaceExit,
   positionPhrase,
   POSITION_WORDS,
+  maxHp,
   setState,
   siteRooms,
 } from "../engine/index.ts";
-import type { IItem } from "../engine/index.ts";
+import type { IArmor, IItem } from "../engine/index.ts";
 import { placedThings } from "../runtime/occupancy.ts";
+import { roomDistances } from "../runtime/travel.ts";
 
 const SEED = 1005;
 const dungeon = generateOffline(SEED, 2);
@@ -41,7 +43,7 @@ function barehandedRun() {
 }
 
 const turn = (...diffs: Diff[]) =>
-  ({ nextStage: "awaiting_action", nextStep: "1-target", diffs }) as const;
+  ({ nextStage: "awaiting_action", nextStep: "1-target", timeSpent: "instant", diffs }) as const;
 
 // ===========================================================================
 // LAYOUT
@@ -142,7 +144,7 @@ describe("roomView", () => {
     const run = freshRun();
     const room = run.entities.rooms[0].id;
     const chest = { id: "chest", name: "Chest", type: "RoomFeature" as const, base: "a chest", roomId: room };
-    const coin: IItem = { id: "coin", name: "Coin", type: "Item", base: "a coin", parentId: "chest", slots: 1 };
+    const coin: IItem = { id: "coin", name: "Coin", type: "Item", base: "a coin", parentId: "chest", slots: 1, value: 24 };
     run.entities.features.push(chest);
     run.entities.items.push(coin);
 
@@ -208,7 +210,7 @@ describe("roomView", () => {
     });
     run.entities.items.push({
       // Nobody marked the coin — it is unseen because the drawer is.
-      id: "coin", name: "Coin", type: "Item", base: "a copper penny", parentId: "drawer", slots: 1,
+      id: "coin", name: "Coin", type: "Item", base: "a copper penny", parentId: "drawer", slots: 1, value: 1,
     });
 
     const shown = roomView(run, dungeon, room)!;
@@ -405,7 +407,7 @@ describe("characterView", () => {
     const capacity = characterView(run).slots.capacity;
     for (let i = 0; i < capacity + 1; i++) {
       run.pc.inventory.push({
-        id: `rock-${i}`, name: "Rock", type: "Item", base: "a rock", parentId: run.pc.id, slots: 1,
+        id: `rock-${i}`, name: "Rock", type: "Item", base: "a rock", parentId: run.pc.id, slots: 1, value: 0,
       });
     }
     const view = characterView(run);
@@ -414,9 +416,10 @@ describe("characterView", () => {
   });
 
   it("reports every equipment slot, filled or not", () => {
-    const gambeson: IItem = {
+    const gambeson: IArmor = {
       id: "gambeson", name: "Gambeson", type: "Item", base: "a quilted coat",
-      parentId: "pc-1", slots: 1, armor: { armorType: "body", defense: 12 },
+      parentId: "pc-1", slots: 1, value: 60,
+      itemKind: "armor", armor: { armorType: "body", defense: 12 },
     };
     const run = barehandedRun();
     run.pc.inventory.push(gambeson);
@@ -875,5 +878,91 @@ describe("mapView fixtures", () => {
     // watching, so the dot going is what they saw.
     item!.parentId = run.pc.id;
     expect(mapView(run, dungeon, layout).fixtures.find((f) => f.id === item!.id)).toBeUndefined();
+  });
+});
+
+// ===========================================================================
+// EVERY OTHER CREATURE IN THE DUNGEON
+// ===========================================================================
+//
+// The census is what makes the world able to move while the player is elsewhere.
+// It is referee-only, so nothing here is asserted about the screen — what is
+// asserted is that it names everything alive that is NOT in front of the player,
+// and says how far off it is.
+
+describe("censusView", () => {
+  /** A run with a creature stood in a room the player is not in. */
+  function stocked() {
+    const run = freshRun();
+    expect(run.entities.creatures.length, "the fixture stocked no creatures").toBeGreaterThan(0);
+    // Somewhere with something in it, and the player nowhere near it.
+    run.currentRoomId = dungeon.stocked.entranceRoomId;
+    return run;
+  }
+
+  it("names every creature the player is not standing with", () => {
+    const run = stocked();
+    const census = censusView(run);
+    const elsewhere = run.entities.creatures.filter((c) => c.roomId !== run.currentRoomId);
+    expect(census.map((c) => c.id).sort()).toEqual(elsewhere.map((c) => c.id).sort());
+  });
+
+  // The room the player is in is `renderRoom`'s job, in far more detail. Two
+  // renderings of one creature is an invitation for the two to disagree.
+  it("and leaves out the ones in the room with them", () => {
+    const run = stocked();
+    run.currentRoomId = run.entities.creatures[0].roomId;
+    expect(censusView(run).map((c) => c.id)).not.toContain(run.entities.creatures[0].id);
+  });
+
+  it("filters out a group that has been wiped out", () => {
+    const run = stocked();
+    const doomed = run.entities.creatures.find((c) => c.roomId !== run.currentRoomId)!;
+    doomed.count = 0;
+    expect(censusView(run).map((c) => c.id)).not.toContain(doomed.id);
+  });
+
+  it("counts the rooms between, and agrees with the graph", () => {
+    const run = stocked();
+    for (const entry of censusView(run)) {
+      expect(entry.roomsAway, entry.name).toBe(roomDistances(run, run.currentRoomId).get(entry.roomId));
+      expect(entry.roomsAway, entry.name).toBeGreaterThan(0);
+    }
+  });
+
+  // The departure from `renderRoom`'s ways-out rule, and the point of it: the
+  // referee sees the name so it can judge what the character plausibly knows,
+  // and sees the mark so it knows the player could not say it.
+  it("names an unvisited room and marks it as one", () => {
+    const run = stocked();
+    const entry = censusView(run)[0];
+    expect(entry.roomName).not.toBe("");
+    expect(entry.roomVisited).toBe(false);
+
+    run.entities.rooms.find((r) => r.id === entry.roomId)!.composed = "They have stood here.";
+    expect(censusView(run)[0].roomVisited).toBe(true);
+  });
+
+  it("says WOUNDED rather than hit points, and only when it is hurt", () => {
+    const run = stocked();
+    const hurt = run.entities.creatures.find((c) => c.roomId !== run.currentRoomId)!;
+    expect(censusView(run).find((c) => c.id === hurt.id)!.wounded).toBe(
+      hurt.stats.hp < maxHp(hurt.stats)
+    );
+
+    hurt.stats.hp = 1;
+    expect(censusView(run).find((c) => c.id === hurt.id)!.wounded).toBe(true);
+  });
+
+  it("leaves the distance off a room nothing leads to", () => {
+    const run = stocked();
+    const stranded = run.entities.creatures.find((c) => c.roomId !== run.currentRoomId)!;
+    // A room on no graph edge at all — the far side of a connector nobody cut.
+    run.entities.rooms.push({ id: "sealed", name: "The Sealed Vault", type: "Room", base: "" });
+    stranded.roomId = "sealed";
+
+    const entry = censusView(run).find((c) => c.id === stranded.id)!;
+    expect(entry.roomsAway).toBeUndefined();
+    expect(entry.roomName).toBe("The Sealed Vault");
   });
 });

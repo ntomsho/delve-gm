@@ -239,6 +239,16 @@ export interface ICreature extends IEntity {
   /** One-line description of what the creature is doing when first encountered. */
   activity?: string;
   /**
+   * A room it is making for, one room per turn. Absent means it is where it
+   * means to be.
+   *
+   * "It hears the fight and comes" is one instruction and three rooms of
+   * walking, and the walking is a graph question the referee has no business
+   * guessing at — the same argument `routeTo` makes for the player. The referee
+   * writes the destination; the applier moves it and clears this on arrival.
+   */
+  approach?: string;
+  /**
    * Set when a creature belongs to an inhabitant group but does NOT share its
    * seed -- a Solo's young, thralls, or attendant creatures, which are rolled
    * separately. `narrative.blueprintId` points at their own template, so
@@ -284,27 +294,84 @@ export interface IRoomFeature extends IEntity {
   place?: Placement;
 }
 
+/**
+ * What KIND of thing an item is, where the kind carries facts of its own.
+ *
+ * Not the same axis as `EntityType`, which says an item is an item. This says
+ * which of the four fact blocks below it carries, and it is the discriminant
+ * the guards at the bottom of this section read. Absent means `gear`: a rope is
+ * a rope, and nothing about it needs a field.
+ */
+export type ItemKind = "gear" | "weapon" | "armor" | "book" | "spellbook";
+
+export interface WeaponFacts {
+  damage: string;
+  hands?: 1 | 2;
+  ranged?: boolean;
+}
+
+/**
+ * Armor bonus is derived: defense - 10. Only `body` pieces carry a meaningful
+ * defense (Gambeson 12 through Full Plate 16); a helmet and a shield each
+ * contribute a flat +1, so they store `defense: 1` and nothing reads it as a
+ * total. Unarmored is 11.
+ */
+export interface ArmorFacts {
+  armorType: ArmorType;
+  defense: number;
+}
+
+/**
+ * Maze Rats' books: a subject, and a well that runs dry as it is drawn on.
+ *
+ * `uses` COUNTS UP — it is how many times the book has been consulted, and it
+ * starts at nothing. Each consultation adds one and rolls a d6; the reading
+ * that comes up at or under the count is the last the book has in it. So the
+ * first is safe five times in six and the sixth is certain, and how much is in
+ * a given book is never decided in advance — it is found out by reading it.
+ *
+ * `exhausted` is that answer, once it has arrived. A LATCH: a book that has
+ * given up everything is never un-given. It is not destroyed and not thrown
+ * away — the pages are still there, they simply have nothing further to tell
+ * anyone. See `consultRoll` in dungeon-rolls.ts.
+ */
+export interface BookFacts {
+  subject: string;
+  /** consultations made so far. Starts at 0. */
+  uses: number;
+  exhausted?: boolean;
+}
+
+/** Knave: one spell, readable once a day. */
+export interface SpellbookFacts {
+  spellName: string;
+  spellDescription: string;
+  exhausted: boolean;
+}
+
 export interface IItem extends IEntity {
   type: "Item";
   /** an IRoom, an ICreature, or an IRoomFeature (chests, etc.) */
   parentId: string;
   /** Knave inventory slots; default 1 */
   slots: number;
+  /**
+   * What it is worth, in copper pennies. Zero for anything nobody would buy.
+   *
+   * The same number for a bought thing and a found one — the shop's price list
+   * IS the value list (`STANDARD_EQUIPMENT` in equipment.ts), and treasure is
+   * valued by `rollItemValue` from the seeded RNG rather than by whoever is
+   * describing it. A model naming a price would be a model generating a number.
+   */
+  value: number;
   /** starting / maximum quality */
   quality?: number;
   /** adjusted in play as the item degrades */
   currentQuality?: number;
   /** count or measurement WITH its unit, e.g. "300 feet", "6 doses" */
   amount?: string;
-  weapon?: { damage: string; hands?: 1 | 2; ranged?: boolean };
-  /**
-   * Armor bonus is derived: defense - 10. Only `body` pieces carry a meaningful
-   * defense (Gambeson 12 through Full Plate 16); a helmet and a shield each
-   * contribute a flat +1, so they store `defense: 1` and nothing reads it as a
-   * total. Unarmored is 11.
-   */
-  armor?: { armorType: ArmorType; defense: number };
-  spellBook?: { spellName: string; spellDescription: string; exhausted: boolean; };
+  /** which of the four fact blocks it carries; absent means plain gear */
+  itemKind?: ItemKind;
   /**
    * Where it lies, for an item whose `parentId` is a ROOM.
    *
@@ -315,6 +382,80 @@ export interface IItem extends IEntity {
    * a backpack costs nothing and clearing it is one more thing to get wrong.
    */
   place?: Placement;
+}
+
+/**
+ * THE FOUR KINDS THAT CARRY FACTS.
+ *
+ * Children rather than four more optional fields on `IItem`, so that a thing
+ * claiming to be a weapon has a damage die by construction. `IItem` stays the
+ * general case and the supertype — an inventory is an `IItem[]` and always was
+ * — and the guards below are how anything gets at the facts. They check the
+ * FIELD and not just the tag: a subtype is a promise about what is there, and a
+ * tag on its own is only a promise about what was meant.
+ *
+ * A spellbook is not a book. Knave's spellbook holds one spell and is read once
+ * a day; Maze Rats' book holds a subject and answers questions six times and
+ * then never again. They share the word and nothing else, so neither extends
+ * the other.
+ */
+export interface IWeapon extends IItem {
+  itemKind: "weapon";
+  weapon: WeaponFacts;
+}
+
+export interface IArmor extends IItem {
+  itemKind: "armor";
+  armor: ArmorFacts;
+}
+
+export interface IBook extends IItem {
+  itemKind: "book";
+  book: BookFacts;
+}
+
+export interface ISpellbook extends IItem {
+  itemKind: "spellbook";
+  spellBook: SpellbookFacts;
+}
+
+/** Every shape an item can have. Narrow to it with the guards below. */
+export type AnyItem = IItem | IWeapon | IArmor | IBook | ISpellbook;
+
+export function isItem(e: IEntity): e is IItem {
+  return e.type === "Item";
+}
+
+export function isWeapon(i: IItem): i is IWeapon {
+  return i.itemKind === "weapon" && (i as IWeapon).weapon !== undefined;
+}
+
+export function isArmor(i: IItem): i is IArmor {
+  return i.itemKind === "armor" && (i as IArmor).armor !== undefined;
+}
+
+export function isBook(i: IItem): i is IBook {
+  return i.itemKind === "book" && (i as IBook).book !== undefined;
+}
+
+export function isSpellbook(i: IItem): i is ISpellbook {
+  return i.itemKind === "spellbook" && (i as ISpellbook).spellBook !== undefined;
+}
+
+/**
+ * What it is worth, in copper.
+ *
+ * Through a helper because `value` arrived after the first characters were
+ * saved, and a sheet written before it is a sheet with no prices on it rather
+ * than a sheet that should crash the panel adding them up.
+ */
+export function itemValue(i: IItem): number {
+  return i.value ?? 0;
+}
+
+/** A book nobody has read to the end of yet. */
+export function canConsult(i: IItem): boolean {
+  return isBook(i) && i.book.exhausted !== true;
 }
 
 /** Fires, gas, weather: self-mobile and may span several rooms at once. */

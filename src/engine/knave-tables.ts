@@ -29,7 +29,9 @@
  * book verbatim, including the printed ordering quirk at spell 90.
  */
 
-import type { ArmorType } from "./dungeon-entities.ts";
+// Types only, and equipment.ts imports `Spell` back from here the same way, so
+// the cycle between the two is erased at compile time and never runs.
+import type { EquipmentKey } from "./equipment.ts";
 
 const t = (s: string): readonly string[] => s.split("|");
 
@@ -107,29 +109,24 @@ export const TRAIT_TABLES = {
 // ===========================================================================
 // ARMOR AND WEAPONS  (the Item Costs page, p.3)
 // ===========================================================================
+//
+// THE NUMBERS MOVED. A gambeson's defense, slots, quality and price are four
+// facts about one object, and that object is `STANDARD_EQUIPMENT.gambeson` in
+// `equipment.ts`. What stays here is what the book GROUPS and the interface
+// still asks for: armor worst to best, and weapons by class.
 
-export interface ArmorStat {
-  name: string;
-  armorType: ArmorType;
-  /** For `body`, the armor defense. For a helmet or a shield, the flat +1. */
-  defense: number;
-  slots: number;
-  quality: number;
-  /** copper pennies */
-  cost: number;
-}
+/** The armor rows, worst to best — which is also cheapest to dearest. */
+export const ARMOR_KEYS = [
+  "gambeson",
+  "brigandine",
+  "chain_armor",
+  "half_plate",
+  "full_plate",
+  "helmet",
+  "shield",
+] as const satisfies readonly EquipmentKey[];
 
-export const ARMOR_STATS = {
-  gambeson: { name: "Gambeson", armorType: "body", defense: 12, slots: 1, quality: 3, cost: 60 },
-  brigandine: { name: "Brigandine", armorType: "body", defense: 13, slots: 2, quality: 4, cost: 500 },
-  chain: { name: "Chain", armorType: "body", defense: 14, slots: 3, quality: 5, cost: 1200 },
-  halfPlate: { name: "Half plate", armorType: "body", defense: 15, slots: 4, quality: 6, cost: 4000 },
-  fullPlate: { name: "Full plate", armorType: "body", defense: 16, slots: 5, quality: 7, cost: 8000 },
-  helmet: { name: "Helmet", armorType: "helmet", defense: 1, slots: 1, quality: 1, cost: 40 },
-  shield: { name: "Shield", armorType: "shield", defense: 1, slots: 1, quality: 1, cost: 40 },
-} as const satisfies Record<string, ArmorStat>;
-
-export type ArmorKey = keyof typeof ARMOR_STATS;
+export type ArmorKey = (typeof ARMOR_KEYS)[number];
 
 export type WeaponClassKey = "light" | "medium" | "heavy" | "sling" | "bow" | "crossbow";
 
@@ -152,48 +149,54 @@ export type WeaponClassKey = "light" | "medium" | "heavy" | "sling" | "bow" | "c
  * NOTE: `CODING-PLAN.md` §3 gives the d10 class `quality 2`. The PDF says
  * 3 quality, and the PDF wins.
  */
+/**
+ * Every weapon in the book, flat. Declared before the classes rather than
+ * derived from them, so that `members` can be typed as weapons instead of as
+ * "any equipment key at all" — a class listing a lantern should not compile.
+ */
+export const WEAPON_KEYS = [
+  "dagger",
+  "cudgel",
+  "sickle",
+  "staff",
+  "spear",
+  "sword",
+  "mace",
+  "axe",
+  "flail",
+  "halberd",
+  "war_hammer",
+  "long_sword",
+  "battle_axe",
+  "sling",
+  "bow",
+  "crossbow",
+] as const satisfies readonly EquipmentKey[];
+
+export type WeaponKey = (typeof WEAPON_KEYS)[number];
+
 export interface WeaponClass {
   key: WeaponClassKey;
   label: string;
-  damage: string;
-  hands: 1 | 2;
-  ranged?: boolean;
-  slots: number;
-  quality: number;
-  cost: number;
-  /** The names this class can be called. One, for a ranged class. */
-  names: readonly string[];
+  /** the weapons this class covers. One, for a ranged class. */
+  members: readonly WeaponKey[];
 }
 
-export const WEAPON_CLASSES: readonly WeaponClass[] = [
-  { key: "light", label: "Light", damage: "1d6", hands: 1, slots: 1, quality: 3, cost: 5, names: t("Dagger|Cudgel|Sickle|Staff") },
-  { key: "medium", label: "Medium", damage: "1d8", hands: 1, slots: 2, quality: 3, cost: 10, names: t("Spear|Sword|Mace|Axe|Flail") },
-  { key: "heavy", label: "Heavy", damage: "1d10", hands: 2, slots: 3, quality: 3, cost: 20, names: t("Halberd|War Hammer|Long Sword|Battle Axe") },
-  { key: "sling", label: "Sling", damage: "1d4", hands: 1, ranged: true, slots: 1, quality: 3, cost: 5, names: ["Sling"] },
-  { key: "bow", label: "Bow", damage: "1d6", hands: 2, ranged: true, slots: 2, quality: 3, cost: 15, names: ["Bow"] },
-  { key: "crossbow", label: "Crossbow", damage: "1d8", hands: 2, ranged: true, slots: 3, quality: 3, cost: 60, names: ["Crossbow"] },
-];
+export const WEAPON_CLASSES = [
+  { key: "light", label: "Light", members: ["dagger", "cudgel", "sickle", "staff"] },
+  { key: "medium", label: "Medium", members: ["spear", "sword", "mace", "axe", "flail"] },
+  { key: "heavy", label: "Heavy", members: ["halberd", "war_hammer", "long_sword", "battle_axe"] },
+  { key: "sling", label: "Sling", members: ["sling"] },
+  { key: "bow", label: "Bow", members: ["bow"] },
+  { key: "crossbow", label: "Crossbow", members: ["crossbow"] },
+] as const satisfies readonly WeaponClass[];
 
-/** One named weapon, with its class's numbers already on it. */
-export interface WeaponStat {
-  name: string;
-  classKey: WeaponClassKey;
-  damage: string;
-  hands: 1 | 2;
-  ranged?: boolean;
-  slots: number;
-  quality: number;
-  cost: number;
+export function weaponsIn(c: WeaponClass): readonly WeaponKey[] {
+  return c.members;
 }
 
-export function weaponsIn(c: WeaponClass): readonly WeaponStat[] {
-  const { key, label: _label, names, ...spec } = c;
-  void _label;
-  return names.map((name) => ({ name, classKey: key, ...spec }));
-}
-
-/** Every weapon, flattened. The class list is what the picker walks. */
-export const WEAPONS: readonly WeaponStat[] = WEAPON_CLASSES.flatMap((c) => weaponsIn(c));
+/** Every weapon, in class order. The class list is what the picker walks. */
+export const WEAPONS: readonly WeaponKey[] = WEAPON_CLASSES.flatMap((c) => c.members);
 
 export function weaponClass(key: WeaponClassKey): WeaponClass {
   const found = WEAPON_CLASSES.find((c) => c.key === key);
@@ -201,232 +204,236 @@ export function weaponClass(key: WeaponClassKey): WeaponClass {
   return found;
 }
 
+/** Which class a named weapon belongs to — the picker's second question. */
+export function classOfWeapon(key: WeaponKey): WeaponClass {
+  const found = WEAPON_CLASSES.find((c) => (c.members as readonly string[]).includes(key));
+  if (!found) throw new Error(`${key} is not on any weapon class`);
+  return found;
+}
+
 // ===========================================================================
 // STARTING GEAR  (p.2)
 // ===========================================================================
 
-export interface GearEntry {
-  name: string;
-  /** count or measurement WITH its unit, matching `IItem.amount` */
+/**
+ * One line of a d20 gear table: which standard thing, and how much of it.
+ *
+ * The overrides exist because Knave's two lists disagree about quantity — the
+ * gear roll hands you five torches for five copper and the shop sells one for
+ * one — and that disagreement is the whole of the difference between them. A
+ * row with neither override is the shop's entry exactly.
+ */
+export interface GearRow {
+  key: EquipmentKey;
   amount?: string;
-  /** Knave: "most items take up one slot". Nothing on these three tables doesn't. */
-  slots?: number;
-  /** copper pennies, from the Item Costs page — for the shop, not for creation */
-  cost: number;
+  /** copper for the quantity on THIS table */
+  value?: number;
 }
 
-/** Roll TWICE on this one. */
-export const DUNGEONEERING_GEAR: readonly GearEntry[] = [
-  { name: "Rope", amount: "50 feet", cost: 10 },
-  { name: "Pulleys", cost: 30 },
-  { name: "Candles", amount: "5", cost: 5 },
-  { name: "Chain", amount: "10 feet", cost: 10 },
-  { name: "Chalk", amount: "10 pieces", cost: 1 },
-  { name: "Crowbar", cost: 10 },
-  { name: "Tinderbox", cost: 10 },
-  { name: "Grappling hook", cost: 10 },
-  { name: "Hammer", cost: 10 },
-  { name: "Waterskin", cost: 5 },
-  { name: "Lantern", cost: 30 },
-  { name: "Lamp oil", amount: "4 hours", cost: 5 },
-  { name: "Padlock", cost: 20 },
-  { name: "Manacles", cost: 10 },
-  { name: "Mirror", cost: 200 },
-  { name: "Pole", amount: "10 feet", cost: 5 },
-  { name: "Sack", cost: 1 },
-  { name: "Tent", cost: 50 },
-  { name: "Iron spikes", amount: "5", cost: 25 },
-  { name: "Torches", amount: "5", cost: 5 },
+export const DUNGEONEERING_GEAR: readonly GearRow[] = [
+  { key: "rope" },
+  { key: "block_and_tackle" },
+  { key: "candle", amount: "5", value: 5 }, // Candles (5)
+  { key: "chain" },
+  { key: "chalk" },
+  { key: "crowbar" },
+  { key: "tinderbox" },
+  { key: "grappling_hook" },
+  { key: "hammer" },
+  { key: "waterskin" },
+  { key: "lantern" },
+  { key: "lamp_oil" },
+  { key: "padlock" },
+  { key: "manacles" },
+  { key: "mirror" },
+  { key: "pole" },
+  { key: "sack" },
+  { key: "tent_personal" },
+  { key: "iron_spike", amount: "5", value: 25 }, // Iron spikes (5)
+  { key: "torch", amount: "5", value: 5 }, // Torches (5)
 ];
 
-export const GENERAL_GEAR_1: readonly GearEntry[] = [
-  { name: "Air bladder", cost: 5 },
-  { name: "Bear trap", cost: 20 },
-  { name: "Shovel", cost: 10 },
-  { name: "Bellows", cost: 10 },
-  { name: "Grease", cost: 1 },
-  { name: "Saw", cost: 10 },
-  { name: "Bucket", cost: 5 },
-  { name: "Caltrops", amount: "1 bag", cost: 10 },
-  { name: "Chisel", cost: 5 },
-  { name: "Drill", cost: 10 },
-  { name: "Fishing rod", cost: 10 },
-  { name: "Marbles", amount: "1 bag", cost: 5 },
-  { name: "Glue", amount: "1 bottle", cost: 1 },
-  { name: "Pick", cost: 10 },
-  { name: "Hourglass", cost: 300 },
-  { name: "Net", cost: 10 },
-  { name: "Tongs", cost: 10 },
-  { name: "Lockpicks", cost: 100 },
-  { name: "Metal file", cost: 5 },
-  { name: "Nails", amount: "12", cost: 5 },
+export const GENERAL_GEAR_1: readonly GearRow[] = [
+  { key: "air_bladder" },
+  { key: "bear_trap" },
+  { key: "shovel" },
+  { key: "bellows" },
+  { key: "grease" },
+  { key: "saw" },
+  { key: "bucket" },
+  { key: "caltrops" },
+  { key: "chisel" },
+  { key: "drill" },
+  { key: "fishing_rod" },
+  { key: "glass_marbles" },
+  { key: "glue" },
+  { key: "pick" },
+  { key: "hourglass" },
+  { key: "net" },
+  { key: "iron_tongs" },
+  { key: "lockpicks" },
+  { key: "metal_file" },
+  { key: "nails" },
 ];
 
-export const GENERAL_GEAR_2: readonly GearEntry[] = [
-  { name: "Incense", amount: "1 packet", cost: 10 },
-  { name: "Sponge", cost: 5 },
-  { name: "Lens", cost: 100 },
-  { name: "Perfume", cost: 50 },
-  { name: "Horn", cost: 10 },
-  { name: "Bottle", cost: 1 },
-  { name: "Soap", cost: 1 },
-  { name: "Spyglass", cost: 1000 },
-  { name: "Tar pot", cost: 10 },
-  { name: "Twine", amount: "300 feet", cost: 5 },
-  { name: "Fake jewels", cost: 50 },
-  { name: "Blank book", cost: 300 },
-  { name: "Card deck", cost: 5 },
-  { name: "Dice set", cost: 5 },
-  { name: "Cook pots", cost: 10 },
-  { name: "Face paint", cost: 10 },
-  { name: "Whistle", cost: 5 },
-  { name: "Instrument", cost: 200 },
-  { name: "Quill and ink", cost: 1 },
-  { name: "Small bell", cost: 20 },
+export const GENERAL_GEAR_2: readonly GearRow[] = [
+  { key: "incense" },
+  { key: "sponge" },
+  { key: "lens" },
+  { key: "perfume" },
+  { key: "horn" },
+  { key: "bottle" },
+  { key: "soap" },
+  { key: "spyglass" },
+  { key: "tar" },
+  { key: "twine" },
+  { key: "fake_jewels" },
+  { key: "blank_book" },
+  { key: "card_deck" },
+  { key: "dice_set" },
+  { key: "cookpots" },
+  { key: "face_paint" },
+  { key: "whistle" },
+  { key: "musical_instrument" },
+  { key: "quill_and_ink" },
+  { key: "small_bell" },
 ];
 
 /** Everyone starts with these two days, free, whichever path they take. */
-export const STARTING_RATIONS: GearEntry = { name: "Travel rations", amount: "2 days", cost: 10 };
+export const STARTING_RATIONS: GearRow = { key: "rations", amount: "2 days", value: 10 };
 
 // ===========================================================================
 // THE SHOP  (the Item Costs page, p.3)
 // ===========================================================================
 
 /**
- * What a market will sell you, in copper pennies.
+ * What a market will sell you, section by section, as keys into
+ * `STANDARD_EQUIPMENT`.
  *
- * ARMOR AND WEAPONS ARE NOT HERE. `ARMOR_STATS` and `WEAPON_CLASSES` above are
- * the same page of the same book and already carry the same prices, so the shop
- * reads those — its armor rows and its class-then-name weapon picker are the
- * ones character creation uses. Listing them again would be two copies of one
- * price list, which is the drift this file's header opens by refusing.
+ * ARMOR AND WEAPONS ARE NOT HERE. They are the same page of the same book and
+ * the shop builds their rows from `ARMOR_KEYS` and `WEAPON_CLASSES` above, so
+ * that the picker character creation uses and the rows a purse buys are one
+ * list.
  *
- * A NAME THAT APPEARS ON A GEAR TABLE TOO IS NOT A DUPLICATE. Rope, a crowbar
- * and a lantern are on both because the book prints them on both: the gear
- * tables are what a d20 can hand you, this is what a purse can. They are read by
- * different mechanisms and neither is derived from the other.
- *
- * EVERYTHING HERE IS ONE SLOT. Knave says most items take one and states
- * otherwise only for armor and weapons, so nothing on these five tables carries
- * a `slots` of its own. Coin is the exception and is minted by `copperItem`,
- * which has always been 0.
+ * A NAME THAT APPEARS ON A GEAR TABLE TOO IS NOT A SECOND THING. The book
+ * prints rope on both pages; there is one rope, and both tables point at it.
  */
 export interface ShopSection {
   key: string;
   label: string;
   /** A line of context under the heading, where the table wants one. */
   note?: string;
-  entries: readonly GearEntry[];
+  entries: readonly EquipmentKey[];
 }
 
-const TOOLS_AND_GEAR: readonly GearEntry[] = [
-  { name: "Air bladder", cost: 5 },
-  { name: "Bear trap", cost: 20 },
-  { name: "Bedroll", cost: 10 },
-  { name: "Bellows", cost: 10 },
-  { name: "Black grease", cost: 1 },
-  { name: "Block and tackle", cost: 30 },
-  { name: "Book", amount: "blank", cost: 300 },
-  { name: "Book", amount: "reading", cost: 600 },
-  { name: "Bottle", cost: 1 },
-  { name: "Bucket", cost: 5 },
-  { name: "Caltrops", amount: "1 bag", cost: 10 },
-  { name: "Cards with an extra ace", cost: 5 },
-  { name: "Chain", amount: "10 feet", cost: 10 },
-  { name: "Chalk", amount: "10 pieces", cost: 1 },
-  { name: "Chisel", cost: 5 },
-  { name: "Cookpots", cost: 10 },
-  { name: "Crowbar", cost: 10 },
-  { name: "Drill", cost: 10 },
-  { name: "Face paint", cost: 10 },
-  { name: "Fake jewels", cost: 50 },
-  { name: "Fishing rod and tackle", cost: 10 },
-  { name: "Glass marbles", amount: "1 bag", cost: 5 },
-  { name: "Glue", amount: "1 bottle", cost: 1 },
-  { name: "Grappling hook", cost: 10 },
-  { name: "Hammer", cost: 10 },
-  { name: "Holy water", cost: 25 },
-  { name: "Horn", cost: 10 },
-  { name: "Hourglass", cost: 300 },
-  { name: "Incense", amount: "1 packet", cost: 10 },
-  { name: "Iron tongs", cost: 10 },
-  { name: "Ladder", amount: "10 feet", cost: 10 },
-  { name: "Large sponge", cost: 5 },
-  { name: "Lens", cost: 100 },
-  { name: "Lockpicks", cost: 100 },
-  { name: "Manacles", cost: 10 },
-  { name: "Metal file", cost: 5 },
-  { name: "Mirror", amount: "small, silver", cost: 200 },
-  { name: "Musical instrument", cost: 200 },
-  { name: "Nails", amount: "12", cost: 5 },
-  { name: "Net", cost: 10 },
-  { name: "Oilskin bag", cost: 5 },
-  { name: "Oilskin trousers", cost: 10 },
-  { name: "Padlock and key", cost: 20 },
-  { name: "Perfume", cost: 50 },
-  { name: "Pick", cost: 10 },
-  { name: "Pole", amount: "10 feet", cost: 5 },
-  { name: "Quill and ink", cost: 1 },
-  { name: "Rope", amount: "50 feet", cost: 10 },
-  { name: "Sack", cost: 1 },
-  { name: "Saw", cost: 10 },
-  { name: "Set of loaded dice", cost: 5 },
-  { name: "Shovel", cost: 10 },
-  { name: "Small bell", cost: 20 },
-  { name: "Soap", cost: 1 },
-  { name: "Spike", amount: "iron", cost: 5 },
-  { name: "Spike", amount: "wood", cost: 1 },
-  { name: "Spiked boots", cost: 5 },
-  { name: "Spyglass", cost: 1000 },
-  { name: "Tar", amount: "1 pot", cost: 10 },
-  { name: "Tent", amount: "3 man", cost: 100 },
-  { name: "Tent", amount: "personal", cost: 50 },
-  { name: "Twine", amount: "300 feet", cost: 5 },
-  { name: "Waterskin", cost: 5 },
-  { name: "Whistle", cost: 5 },
+const TOOLS_AND_GEAR: readonly EquipmentKey[] = [
+  "air_bladder",
+  "bear_trap",
+  "bedroll",
+  "bellows",
+  "grease",
+  "block_and_tackle",
+  "blank_book",
+  "reading_book",
+  "bottle",
+  "bucket",
+  "caltrops",
+  "marked_cards",
+  "chain",
+  "chalk",
+  "chisel",
+  "cookpots",
+  "crowbar",
+  "drill",
+  "face_paint",
+  "fake_jewels",
+  "fishing_rod",
+  "glass_marbles",
+  "glue",
+  "grappling_hook",
+  "hammer",
+  "holy_water",
+  "horn",
+  "hourglass",
+  "incense",
+  "iron_tongs",
+  "ladder",
+  "sponge",
+  "lens",
+  "lockpicks",
+  "manacles",
+  "metal_file",
+  "mirror",
+  "musical_instrument",
+  "nails",
+  "net",
+  "oilskin_bag",
+  "oilskin_trousers",
+  "padlock",
+  "perfume",
+  "pick",
+  "pole",
+  "quill_and_ink",
+  "rope",
+  "sack",
+  "saw",
+  "loaded_dice",
+  "shovel",
+  "small_bell",
+  "soap",
+  "iron_spike",
+  "wood_spike",
+  "spiked_boots",
+  "spyglass",
+  "tar",
+  "tent_3man",
+  "tent_personal",
+  "twine",
+  "waterskin",
+  "whistle",
 ];
 
-const LIGHT: readonly GearEntry[] = [
-  { name: "Candle", amount: "4 hours", cost: 1 },
-  { name: "Lantern", cost: 30 },
-  { name: "Lamp oil", amount: "4 hours", cost: 5 },
-  { name: "Tinderbox", cost: 10 },
-  { name: "Torch", amount: "1 hour", cost: 1 },
+const LIGHT: readonly EquipmentKey[] = [
+  "candle",
+  "lantern",
+  "lamp_oil",
+  "tinderbox",
+  "torch",
 ];
 
-const AMMUNITION: readonly GearEntry[] = [
-  { name: "Arrows", amount: "20", cost: 5 },
-  { name: "Quiver", amount: "capacity 20", cost: 10 },
+const AMMUNITION: readonly EquipmentKey[] = [
+  "arrows",
+  "quiver",
 ];
 
-const CLOTHING_FOR_SALE: readonly GearEntry[] = [
-  { name: "Poor clothing", cost: 10 },
-  { name: "Standard clothing", cost: 50 },
-  { name: "Winter clothing", cost: 100 },
-  { name: "Noble clothing", cost: 3000 },
-  { name: "Furs", cost: 5000 },
+const CLOTHING_FOR_SALE: readonly EquipmentKey[] = [
+  "poor_clothing",
+  "standard_clothing",
+  "winter_clothing",
+  "noble_clothing",
+  "furs",
 ];
 
-const FOOD: readonly GearEntry[] = [
-  { name: "Travel rations", amount: "1 day", cost: 5 },
-  { name: "Animal feed", amount: "1 day", cost: 2 },
-  { name: "Bacon", amount: "1 side", cost: 10 },
-  { name: "Bread", amount: "1 loaf", cost: 1 },
-  { name: "Cheese", amount: "1 lb", cost: 2 },
-  { name: "Cider", amount: "4 gallons", cost: 1 },
-  { name: "Cod", amount: "whole", cost: 20 },
-  { name: "Eggs", amount: "24", cost: 1 },
-  { name: "Flour", amount: "5 lbs", cost: 1 },
-  { name: "Fruit", amount: "1 lb", cost: 1 },
-  { name: "Garlic", amount: "1 bunch", cost: 1 },
-  { name: "Grain", amount: "1 bushel", cost: 4 },
-  { name: "Herbs", amount: "1 bunch", cost: 1 },
-  { name: "Lard", amount: "5 lbs", cost: 1 },
-  { name: "Onions", amount: "1 bushel", cost: 8 },
-  { name: "Salt", amount: "1 bushel", cost: 3 },
-  { name: "Spices", amount: "1 lb", cost: 100 },
-  { name: "Sugar", amount: "1 lb", cost: 12 },
-  { name: "Wine or ale", amount: "1 bottle", cost: 1 },
+const FOOD: readonly EquipmentKey[] = [
+  "rations",
+  "animal_feed",
+  "bacon",
+  "bread",
+  "cheese",
+  "cider",
+  "cod",
+  "eggs",
+  "flour",
+  "fruit",
+  "garlic",
+  "grain",
+  "herbs",
+  "lard",
+  "onions",
+  "salt",
+  "spices",
+  "sugar",
+  "wine",
 ];
 
 export const SHOP_SECTIONS: readonly ShopSection[] = [
@@ -459,7 +466,7 @@ export function rollArmorTable(d20: number): ArmorTableResult {
   if (d20 <= 5) return { armor: null, spellbooks: 1 };
   if (d20 <= 14) return { armor: "gambeson", spellbooks: 0 };
   if (d20 <= 19) return { armor: "brigandine", spellbooks: 0 };
-  return { armor: "chain", spellbooks: 0 };
+  return { armor: "chain_armor", spellbooks: 0 };
 }
 
 export interface HelmetShieldResult {

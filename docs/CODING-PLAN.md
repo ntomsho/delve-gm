@@ -1283,6 +1283,14 @@ geometry sentence behind it, which is 8f's territory.
 
 ### 8e — Time, attention, and creatures acting on their own
 
+> **Half of this is answered. See §9d, Phase 15**, which settles every design
+> question under "the world moving while the player is elsewhere": no clock, all
+> creatures in context on every call, `approach` instead of the adjacency graph.
+> What is still open here is the **two other halves** — creatures acting on each
+> other inside the room the player is standing in, and creatures moving the
+> player. Both are named as out of scope in §9d.9 and both are still described
+> below.
+
 The largest item and the one that is genuinely new machinery, so it is last. **R2 doubled
 its size**: that run was almost entirely conversation, and it is the first evidence of how
 creatures behave when the player talks to them rather than fights them.
@@ -2636,19 +2644,413 @@ rows.
 
 ---
 
+## 9c. Phase 14 — One table of standard equipment ✅ **BUILT**
+
+Items became entities like everything else, and the two printed lists behind them
+became one table. 2026-08-18.
+
+### 9c.1 The two lists were one list
+
+Knave prints starting gear on p.2 and Item Costs on p.3. Between them: 155 rows
+for **113 distinct things** — 42 the same name twice, another 16 the same object
+under two labels (Torches and Torch, Padlock and Padlock and key, Instrument and
+Musical instrument). `character-creation.ts` read one, `shop.ts` read the other,
+and each minted items its own way.
+
+`src/engine/equipment.ts` is now the one table: **122 entries**, keyed, each an
+`ItemTemplate` — *an item minus what only a minted copy can know*: its id, who
+holds it, and whatever its kind rolls for. The gear tables and the shop's
+sections are indexes into it, and `mintItem(key, parentId, rng, over)` is the one
+door. The overrides exist because the two lists disagreed about quantity and
+price for the same object, and that disagreement is now three rows: five candles,
+five torches, five iron spikes.
+
+**The prose lives on the entry**, in the fields it ends up in — there is no
+second shape for "the description of a rope". A written entry mints described
+(`composed` falls back to `base`, `needUpdate: false`) and no composition pass
+ever spends a call on a gambeson; an unwritten one mints exactly what it minted
+before the file existed. That is what makes filling 122 entries a thing that can
+be done a few at a time.
+
+**Armor and weapons dissolved into it.** `ARMOR_STATS` and the per-class weapon
+rows are gone; a gambeson's price, slots, quality and defense are four facts
+about one object. What survives in `knave-tables.ts` is what the book *groups* —
+`ARMOR_KEYS` worst to best, and `WEAPON_CLASSES` as class → member keys, which is
+still the two questions the picker asks.
+
+### 9c.2 Four kinds of item, and a price
+
+`IItem` gained `value: number` (copper) and an `itemKind` discriminant;
+`IWeapon`, `IArmor`, `IBook` and `ISpellbook` carry the facts, and `isWeapon` /
+`isArmor` / `isBook` / `isSpellbook` are the only way in. The guards check the
+FIELD, not just the tag: a subtype is a promise about what is there, a tag alone
+is a promise about what was meant. `IItem` stays the supertype, so an inventory
+is still an `IItem[]`.
+
+**A spellbook is not a book.** Knave's holds one spell read once a day; Maze
+Rats' holds a subject and empties as it is read. They share the word and nothing
+else, so neither extends the other.
+
+**Nobody writes a price but the dice.** `rollItemValue(rng, grade)` takes the
+grade the stocking pass already assigned — mundane 10–120cp, notable 120–1200,
+significant 1200–12000, anchored to Knave's own numbers — so the reward parcels
+and the goal item are valued without a model naming a number. `value` is
+deliberately **not** on the writable-path allowlist.
+
+### 9c.3 A book empties as it is read
+
+The first design rolled `uses` at generation, which made a book's depth a fact
+about the world. It is now found out by using it: `uses` counts UP from 0, each
+reading adds one and rolls a d6, and the reading that comes up at or under the
+count is the last in it. First reading safe five times in six, sixth certain,
+average book answers between two and three questions.
+
+**The roll is a `consult` kind on the dice tool, not an applier consequence**,
+and that is the whole of why: the referee has to know whether the book just gave
+up its last answer *before* it writes the post. An applier that rolled would
+report it in a `WorldEvent` one turn too late. The tool hands back both numbers
+to write, the way a natural 20 already hands back the quality loss.
+
+`book.uses` and `book.exhausted` are writable; the applier only lets `uses` climb
+and only by one, and `exhausted` latches. Step 3 of the playbook owns the rest:
+a book is opened as an action, relevance to its subject is read generously and
+then stopped short of the absurd, **the answer stands whatever the die says**,
+and if a carried book bears on a question the player just asked, the referee says
+so after answering.
+
+### 9c.4 Deliberately not in this pass
+
+**The Take Item button.** Specified in full, built in none of it, and the reason
+it is parked rather than dropped is that the design survived being written down —
+this is what to build, not what to reconsider:
+
+- **`Commit.takeOffers?: TakeOffer[]`**, attached to a commit whose `nextStage`
+  is `awaiting_action`. An offer is either an item that already exists
+  (`itemId`), or one that is part of something else (`from: { sourceId,
+  sourceState, item: EntitySpec }`) — the gem in the statue's eye, where the
+  referee has already written both the new thing and what the statue looks like
+  without it.
+- **Clicking costs no model call**, which is the point. The offer already carries
+  everything the applier needs: `{itemId, "parentId", "player"}` for the first
+  case; `{player, "children[]", spec}` plus `{sourceId, "state", sourceState}`
+  for the second. Both paths exist and are tested.
+- **Stored as `RunState.takes`**, set in `store/game.ts` beside `pendingRoll`,
+  cleared by the next submit, by a take, and by a move.
+- **`TurnMachine.take(offerId)`** builds the diffs and calls `store.commit`
+  directly. `POST /api/runs/:id/take` beside `roll`; `session.take()`; buttons in
+  `InputArea` rendered like `RollOffer`.
+- **Taking does not close a turn or tick the clock** — nothing goes through
+  `ask`, so `turnCount` is untouched. A log line and a transcript entry, so the
+  next call knows.
+
+Two smaller things wait on it or beside it:
+
+- **An item the referee creates mid-run is worth 0.** The grade-rolled value
+  needs an `Rng` inside the applier, which is the same plumbing a take would
+  want. Until then `createEntity` writes `value: 0` and says so at the site.
+- **`spellBook.exhausted` is still unwritable** — a pre-existing gap, not one
+  this phase opened, but the obvious neighbour of `book.exhausted` and worth
+  closing when somebody is next in `paths.ts`.
+
+---
+
+## 9d. Phase 15 — Time categories and creature agency ✅ **BUILT**
+
+**This settles 8e.** The world moves because the player's action says how long it
+took, and it moves correctly because every creature in the dungeon is in front of
+the referee when it decides who moved.
+
+### 9d.1 There is no clock
+
+8e asked whether the world acts on a **clock** (every N turns) or on **events** (a
+loud noise, a fight). The answer is neither. It acts on **how long the player's
+action took**, judged per action, and nothing accumulates. `turnCount` stays what
+it is — closed turns — and `RunState` gains no `elapsedMinutes`.
+
+A clock was the obvious shape because "rest for the night" and "swing a sword"
+plainly differ and a number is how you say so. But nothing in the prototype
+consumes elapsed time — light and rations are §12 non-goals — so the clock would
+exist to be read back by the thing that wrote it. What the difference is actually
+*for* is deciding **which creatures get to act**. That is a scope selector, not a
+quantity, and it should be typed as one.
+
+`Commit.timeSpent`, required:
+
+| category | what it covers | reviewed | who moves |
+|---|---|---|---|
+| `instant` | a glance, a word, drawing a blade | nobody | nobody |
+| `round` | ≤10s — one exchange, a lunge, a shove | this room, plus anything in combat or crisis anywhere | alerted only, **1 room** |
+| `short` | up to an hour — searching, picking a lock, binding a wound | all, but only those responding to something or mid-transitory-action act | alerted or hastening, **1 room** |
+| `long` | a night's rest | all, and all generally change what they are doing | any, freely, via `approach` |
+
+Decided at **step 2**, which already classifies, and carried on the target record;
+spent at **step 5**, which is the only step that resolves anything. Forced to
+`instant` on `clarifying`, `rejected` and `roll_offered` — those turns have not
+happened yet — enforced in `referee.ts` beside `missingPost`, the same family as
+the no-diffs rule and for the same reason: it is a rule about what a stage means,
+so it is checked rather than asked for.
+
+**THE DICE MAY RAISE IT, AND THAT IS WHAT MAKES IT A CURRENCY** — added during the
+build, and the thing that turns `timeSpent` from a label into something a turn can
+be made to pay. Plenty of attempts have no honest "you cannot do this" in them:
+the lock opens eventually, the grate comes up eventually. For those, a failed roll
+is better spent on the **hour** than on the outcome — they get what they were
+after and the category goes up. It moves **upward only**: a good roll does not
+make searching a room faster than searching a room, and the ledger for good play
+is already step 3's odds and step 5's "cleverness shows up in the size of it".
+
+The guard is what keeps it a penalty. **A slower success only costs anything when
+something would use the time**, and the census is exactly the page that answers
+that — something already coming, something within earshot that would come if it
+heard them still at it, something bleeding, something spreading. Where the census
+is four creatures asleep at the far end, an hour is free, and a failure that costs
+nothing is a failure narrated as a success. Then it is the ordinary failure
+instead. Written into `5-resolution.md` §1 beside the unnoticed-save variant,
+which is the same shape of rule — a named third reading of a failed roll — and
+marked provisional at `2-validate-and-classify.md`, which now says the category it
+writes is the honest cost of the attempt going normally and that only step 5 may
+worsen it.
+
+**`long` is unsayable except through the Rest button**, which is Phase 16. Until
+that exists the enum has three reachable values. It ships with four because the
+fourth is what the rest turn will name, and adding it later means touching the
+schema, two step files and the tests a second time for nothing.
+
+### 9d.2 Every creature, every turn
+
+The whole design turns on how many there are, so it was measured before it was
+designed. `out/live-4201.json`, 18 rooms — the largest dump in the repo — holds
+**12 creature entities**, 32 bodies, across 6 rooms. The others run 2 to 5. A
+full census, one line each including the `activity` sentence, is **625 tokens
+against ~11,500 for a step-5 turn**. There is no version of this worth being
+clever about.
+
+So: **all of them, every call.** `renderOtherRoomCreatures` in `render.ts`, into
+`brief()` in `assemble.ts`, after the room.
+
+The name is the definition. Creatures in the player's room are ten lines up in
+`renderRoom` already carrying `base`, `state`, `composed`, `activity`, defenses
+and hp; a census line for them would be a second, poorer copy, and two renderings
+of one creature is an invitation for the two to disagree.
+
+```
+### Every other creature in this dungeon
+- [b77…] The Bloated Monks ×4 — in [fc0…] "Refectory", 2 rooms away · WOUNDED
+  doing: they slide and coil through the chamber in a slow, deliberate hunt…
+- [c91…] Shrike — in [d40…] "The Sump", 4 rooms away · THE PLAYER HAS NOT BEEN HERE
+  doing: picking through the silt at the water's edge
+```
+
+Id, so a diff can name it. Name and count, because a count of zero is a group
+that is gone and is filtered out. Room id and name, because that is where it is
+and where it can be sent. **Rooms of separation**, which is what replaces handing
+over the graph — see 9d.3. A `WOUNDED` flag rather than hit points, because the
+numbers are only wanted when the thing is in front of the player and `renderRoom`
+supplies them there. And `activity`, which is the field this whole phase exists to
+rewrite.
+
+**Every room is named, and unvisited ones are marked.** `renderRoom`'s ways-out
+list deliberately withholds a far room's name until the player has been through,
+so that what the referee can route to and what the player can say are the same
+set. The census does not follow that rule, and the departure is the point: the
+referee is being asked to judge what *the character* plausibly knows, and it
+cannot make that call from a redacted page. The marker is what keeps both things
+true at once — it sees the name, and it sees that the player could not say it.
+
+**The census is referee-only knowledge**, in the same class as creature defenses
+and concealed things (`render.ts`, "The referee sees more than the player"). It is
+named as such in the step file, because it is the one thing this phase hands over
+that the character does not have, and the safety read in Phase 16 is exactly where
+that would leak.
+
+### 9d.3 `approach`, because routing is not the referee's job
+
+"It hears the fight and comes" is one instruction and three rooms of walking.
+`travel.ts` already made this argument for the player and it transfers without
+amendment: *"It is a graph question with one right answer, and the referee is
+handed only the room it is standing in… Nothing about routing needs judgement, so
+nothing about it should be guessed."*
+
+- **`roomDistances(world, from)`** in `travel.ts` — BFS over walkable connectors,
+  **without** the visited-only restriction `shortestPath` applies, because a
+  creature knows its own home and the player's map is not its map. Feeds the "N
+  rooms away" on every census line.
+- **`approach` joins the Creature paths** in `paths.ts`. Writing it sets a
+  destination; the applier walks the creature **one room** along the shortest path
+  per turn and clears the field on arrival. A destination with no route is
+  refused, not silently dropped.
+- **`roomId` stays writable** and stays the direct write — for a creature already
+  adjacent, or one the referee means to place outright.
+
+This is `walkTo` (`apply.ts:187`) for creatures, and it inherits the same bargain:
+the destination is what is asked for, and the world answers back with where it
+actually got to.
+
+### 9d.4 How far a noise carries
+
+Keyed to the rooms-of-separation number the census already prints:
+
+- **2 rooms** — a fight, a scream, masonry down, a door forced
+- **1 room** — a raised voice, a dropped pack, a lock broken, running
+- **0** — the quiet default `SKILL.md` already assumes
+
+A creature that hears something moves 1 room toward it per `round` or `short`, via
+`approach`. This replaces the standing instruction in `5-resolution.md` §2 to
+record loud actions in the turn outcome and let room entry find them later; that
+was the best available answer when the referee held one room, and it is now the
+slower half of one.
+
+**Deliberately crude, and deliberately not obstruction-aware.** A barred door
+between them ought to dampen sound. But the referee sees only the current room's
+ways out and cannot check the ones in between, so a rule about it is a rule it
+cannot apply — worse than no rule. If it matters later, `roomDistances` can return
+an obstruction count and the guidance can start reading it.
+
+### 9d.5 What the player can see is what gets composed and narrated
+
+The one real hazard this phase opens: a referee that can move a creature two rooms
+away can also describe it doing so, to a player with no way to know.
+
+Half of the fix is a rule `SKILL.md` already carries — *"Write `state` whenever a
+thing changes. Write `composed` only for what the player can see right now"* —
+which until now had no creature capable of acting from another room to test it.
+The narration half is new. Both go in the `state and composed` section of
+`SKILL.md` and in `5-resolution.md` §2:
+
+> Creatures in the census are yours to change: write their `state`, rewrite their
+> `activity`, set them walking with `approach`. Two things you do not do at that
+> distance.
+>
+> **Do not write them a new `composed`.** `composed` is what the player has read,
+> and they have not been in the room to read it. It is written the next time they
+> lay eyes on the thing. The one exception is a creature that **starts this turn
+> in the player's room or ends up in it** — that one they can see, so it gets
+> both.
+>
+> **Do not narrate them.** The monks moving two rooms away is a thing that
+> happened, not a thing the player witnessed, and a post that reports it is
+> telling them something their character has no way to know. What reaches the page
+> is what a creature arriving in their room does, and whatever noise carried.
+> Everything else is in the state, waiting for them to walk in on it.
+
+One statement covers it: **anything the player can see this turn gets `state` +
+`composed` + narration; anything else gets `state` alone.**
+
+### 9d.6 The item fixes rest cannot happen without
+
+`amount` has been writable at `paths.ts:56` and rendered nowhere — not on
+`EntityView`, not in `itemDetail` in `render.ts`, not in `CharacterPanel.tsx`. The
+referee could write how many rations were left and never read it back, and neither
+could the player. It surfaces here because a meal is the one thing rest cannot
+happen without.
+
+- **`amount` and `composed` join the item line** in `render.ts` and the character
+  panel.
+- **An amount that reaches zero erases the item.** Beside `currentQuality` in
+  `applyToItem`, through the same `destroyItem`. `setPurse` already made this call
+  for money — *"A purse of nothing is no row at all"* — and this is that decision
+  generalized to everything measured.
+- **`amountCount()` in `equipment.ts`** parses the leading integer ("2 days" → 2,
+  "6 doses" → 6). It **erases only on a parsed zero, never on an unparseable
+  one**: "a handful" must not delete a thing. `purse` / `setPurse` keep parsing
+  their own string — that separation is deliberate and documented at the site.
+
+**Item `base` stays off the sheet.** 453 chars average in `live-4201`, ~110
+tokens, and ten carried things would be a thousand tokens every turn — larger than
+the census that is the point of this phase. `composed` is nearly free by
+comparison because all **122** standard equipment templates carry `base: ""` and
+`mintCommon` (`equipment.ts:944`) falls `composed` back to `base`, so carried
+starting gear renders its name and its amount and nothing else. What identifies
+rations as food is the name; what says whether any are left is the amount. A
+found "Wheel of pale cheese" is what `composed` is there for.
+
+### 9d.7 Two things the design left for the code
+
+Both were decided during the build, and both are load-bearing enough to record.
+
+**What gates the walk is `timeSpent`.** §9d.3 says the applier walks an
+approaching creature "one room per turn" and does not say what a turn is — and the
+applier has no notion of one. The answer was already in §9d.1's table: `instant`
+moves nobody, every other category moves the alerted a room. So `walkApproaching`
+runs on every applied commit and returns immediately on `instant`, which makes
+`timeSpent` a field the machine **consumes** rather than one the referee declares
+into the void. Writing `approach` moves nothing by itself; the sweep is the only
+stepper, so a creature told to come covers exactly one room that turn and three
+rooms takes three turns.
+
+**Room entry is forced to `instant` too**, which is a fourth case beside the three
+§9d.1 names. It falls out of the same rule the other three do — `turn.ts`, deciding
+what closes a turn: *"a room entry is not a turn. It is the consequence of one —
+the move that caused it has already ticked the clock."* Without the guard, walking
+through a door advances every approaching creature twice for one step.
+
+### 9d.8 What proves it
+
+- **`roomDistances`** — distances over a hand-built graph; symmetric; unreachable
+  is `undefined`; hidden connectors excluded, as `walkable` has it.
+- **`approach`** — a creature three rooms off arrives in three turns; arrival
+  clears the field; a destination with no route is refused rather than dropped;
+  the creature leaves the old room's occupancy and joins the new one, which is the
+  relational-key rule in BUILD-PLAN §4.3.
+- **`timeSpent`** — `instant` forced on `clarifying` / `rejected` /
+  `roll_offered`; `long` refused until Phase 16 exists to produce it.
+- **`amount`** — "2 days" → "1 day" survives; → "0 days" erases; "a handful"
+  survives; an erase out of an equipped slot emits `unequipped`.
+- **Prompt snapshot** — `assemble.test.ts.snap` gains the census, so a change to
+  it is a visible diff in review. BUILD-PLAN §8.
+
+### 9d.9 Not in this pass
+
+**Rest is Phase 16**, and it is what makes `long` reachable: a `rest_offered`
+stage and `pendingRest` built as the structural twin of `roll_offered` /
+`pendingRoll`, `TurnMachine.rest()` mirroring `roll()`, a `RestOffer` component
+beside `RollOffer` in `InputArea.tsx`, `steps/6-rest.md`, and `restRoll(rng,
+conBonus)` in `dungeon-rolls.ts` — there is no heal kind today. The heal is
+resolved **client-side on the button press**, like the player's d20 and for the
+same reason. Typing an action cancels the offer, which is free: `acceptsInput`
+stays true and `submit()` already resumes at `r.step`.
+
+**Long actions that are not rest** — digging out a passage, standing a watch — and
+**exhaustion** are post-MVP. `RestOffer` carries no `label` because of it; when
+those arrive they will want one.
+
+**Creatures moving the player** (8e) is untouched. Consent, followers, and what
+the map does with them are still open exactly as 8e leaves them.
+
+**Creature-on-creature awareness inside the current room** — the Wendy-and-Zora
+half of 8e — is not this. This phase is about who acts *elsewhere*; that one is
+about who reacts *here*, and it wants the group membership already on the entity
+through `registry.groups` rather than anything built here.
+
+---
+
 ## 10. Order of remaining work
 
 ```
   Phase 8a A7 ─┐
            8b ─┤
            8c ─┼─ independent of each other, any order or in parallel
-           8d ─┤
-           8e ─┤
-           8f ─┘
+           8d ─┘
+  Phase 16  — rest; unblocked, and specified in §9d.9
   Phase 7   — the three remaining affordances, independent
+  Take Item — parked, fully specified in §9c.4; independent of all of the above
 ```
 
+**Phase 15 is off this list — it landed; §9d.** `long` is on the wire and refused
+until Phase 16 produces it, which is now the only thing between rest and a build.
+
+**8e and 8f are off this list.** 8f landed. 8e was a list of design questions and
+§9d answers them: no clock, every creature in context every call, `approach`
+instead of the graph, and the two halves it does *not* cover named in §9d.9 —
+creatures moving the player, and creature-on-creature awareness in the room the
+player is standing in. Those two stay open and are still described in 8e.
+
 **The shop is done** and no longer on this list — §3.7.
+
+**Take Item is parked, not dropped.** §9c.4 is the build order for it, down to
+the diff shapes and the endpoint. It was cut from Phase 14 to keep that pass to
+the model and the tables; nothing in it is unresolved, and the session that picks
+it up should be able to start writing.
 
 **8a is done bar A7, and no longer leads this list.** It led because a machine that cannot
 finish a turn makes every other item hard to see: A8 refused a commit the player was
@@ -2716,6 +3118,13 @@ endpoints did not. **The duplicate half is built — §9a** — and what is left
   read `profiles.tier` yet** — every account defaults to `byok` while in fact
   spending the author's key, so a tier-aware limiter today exempts everyone.
 
+**Open out of Phase 14** — see §9c.4, which has the shape of each:
+
+- **The Take Item button**, parked with its design intact.
+- **Referee-created items are worth nothing** until the applier holds an `Rng`.
+- **Prose for the 122 equipment entries** is the author's to write, a few at a
+  time; an unwritten entry behaves exactly as it did before the table existed.
+
 **Open in Phase 8**, none of it blocking the rest of 8a, which is fully specified:
 
 - ~~Whether narration moves onto the commit or the last text block simply wins (8a A9)~~
@@ -2733,8 +3142,11 @@ endpoints did not. **The duplicate half is built — §9a** — and what is left
   cap needs no measurement — suggest 3 (8d).
 - How an effect with no written consequence — the magnetic field — reaches the resolution
   step at all (8d).
-- Everything about time and off-screen action: clock or events, code or model call, and how
-  the player finds out (8e).
+- ~~Everything about time and off-screen action: clock or events, code or model call, and how
+  the player finds out~~ — §9d, **done**. Neither clock nor events: `timeSpent` on the commit,
+  judged per action, selecting who moves rather than counting anything. Code, not a model
+  call — `approach` and `stepToward` do the walking. And the player finds out the only way
+  they honestly can: by what arrives in front of them, and by what carried to them as noise.
 - Whether a creature may move the player, and what a follower is made of (8e).
 - What survives of the seams pass once connectors are written with their first room, and
   whether §2.2's ownership rule is replaced or only narrowed (8f).

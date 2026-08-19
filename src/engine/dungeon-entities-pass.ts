@@ -50,6 +50,7 @@ import type {
   Tier,
 } from "./dungeon-blueprint.ts";
 import { Rng, TIER_COMPLEXITY, makeId } from "./dungeon-blueprint.ts";
+import { rollItemValue } from "./equipment.ts";
 import type {
   CreatureStats,
   CreatureTemplate,
@@ -421,6 +422,10 @@ export function runEntitiesPass(
           type: "Item",
           parentId: r.roomId,
           slots: 1,
+          // What it is worth comes off the grade the stocking pass already
+          // decided, through the seeded stream — the content pass writes what
+          // this thing IS, and a price is not that kind of fact.
+          value: rollItemValue(rng, r.reward.grade),
         };
         items.push(it);
         bind(it.id, r.roomId, "reward", kw(r.reward.content));

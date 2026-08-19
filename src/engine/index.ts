@@ -123,17 +123,29 @@ export type {
 // rather than star-exported into a collision.
 export * from "./character-creation.ts";
 export * as knave from "./knave-tables.ts";
-export { SHOP_SECTIONS, WEAPON_CLASSES, weaponClass, weaponsIn } from "./knave-tables.ts";
+export {
+  ARMOR_KEYS,
+  SHOP_SECTIONS,
+  WEAPON_CLASSES,
+  classOfWeapon,
+  weaponClass,
+  weaponsIn,
+} from "./knave-tables.ts";
 export type {
   ArmorKey,
-  ArmorStat,
-  GearEntry,
+  GearRow,
   ShopSection,
   Spell,
   WeaponClass,
   WeaponClassKey,
-  WeaponStat,
+  WeaponKey,
 } from "./knave-tables.ts";
+
+// --- the standard equipment table ------------------------------------------
+// One entry per thing a shop sells or a gear roll hands out, and the mint that
+// turns one into a carried item. The gear tables and the shop's sections are
+// both indexes into it.
+export * from "./equipment.ts";
 
 // --- the shop --------------------------------------------------------------
 // The other half of the equipment step: what a purse buys, and what buying it

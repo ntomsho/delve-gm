@@ -328,8 +328,12 @@ describe("what the referee is told that the player is not", () => {
       (r) => r.id === (exit.endpointA === run.currentRoomId ? exit.endpointB : exit.endpointA)
     )!;
 
-    expect(brief()).toContain("somewhere they have not been");
-    expect(brief()).not.toContain(beyond.name);
+    // Scoped to the ways-out list, because the census deliberately does NOT
+    // follow this rule — see below, and `renderOtherRoomCreatures`.
+    const waysOut = () => brief().split("### Ways out")[1].split("### Every other creature")[0];
+
+    expect(waysOut()).toContain("somewhere they have not been");
+    expect(waysOut()).not.toContain(beyond.name);
 
     beyond.composed = "they have stood in it";
     expect(brief()).toContain(`${beyond.name}, which they have been to`);
@@ -341,7 +345,31 @@ describe("what the referee is told that the player is not", () => {
       )!
     );
     expect(label).toBe(`${exit.name} to ${beyond.name}`);
-    expect(brief()).toContain(`"${label}"`);
+    expect(waysOut()).toContain(`"${label}"`);
+  });
+
+  /*
+   * THE CENSUS BREAKS THAT RULE ON PURPOSE.
+   *
+   * The ways-out list withholds a far room's name so that what the referee can
+   * route to and what the player can say are the same set. The census does not,
+   * and the departure is the point: the referee is being asked to judge what the
+   * CHARACTER plausibly knows — what could be heard from here, what would come
+   * if it heard — and it cannot make that call off a redacted page. The marker
+   * is what keeps both things true at once.
+   */
+  it("names a room in the census that the ways-out list withholds, and marks it", () => {
+    const run = fresh();
+    const brief = assemble({ step: "1-target", dungeon, run }).messages[0].content as string;
+    const census = brief.split("### Every other creature")[1];
+
+    const unvisited = run.entities.rooms.filter(
+      (r) => r.composed === undefined && run.entities.creatures.some((c) => c.roomId === r.id)
+    );
+    expect(unvisited.length, "the fixture put no creature in an unvisited room").toBeGreaterThan(0);
+
+    for (const room of unvisited) expect(census).toContain(`"${room.name}"`);
+    expect(census).toContain("THE PLAYER HAS NOT BEEN HERE");
   });
 
   // 8f. A concealed WAY OUT used to arrive here dressed exactly like an open

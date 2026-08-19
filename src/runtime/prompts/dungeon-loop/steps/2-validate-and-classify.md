@@ -25,6 +25,21 @@ There are two types. Classify by the action's **primary purpose**:
 
 When it is unclear, decide by what the player is *chiefly* trying to do: to learn (information) or to act on the world (standard).
 
+## And judge how long it takes
+
+The same reading of the action settles a third thing, so settle it here: **`timeSpent`** — see the table in the skill. It is not a duration anything counts up. It decides how much of a chance the rest of the dungeon got to move while the player was doing this.
+
+- **`instant`** — a glance, a word, a question, drawing a blade. Every information action is `instant`: looking at something and asking what you know about it cost nobody anything.
+- **`round`** — ten seconds. One exchange of blows, a lunge, a shove, a door pushed open, a step into the next room.
+- **`short`** — minutes to an hour. Searching a room properly, picking a lock, prising up a flagstone, binding a wound, talking a guard round.
+- **`long`** is a night's rest and nothing you can be asked to resolve is one. If it feels long, it is `short`.
+
+Judge it from the *attempt*, not from how it turns out — you do not know that yet, and most of the time the two are the same anyway: a lock picked first go and a lock that would not budge both took a few minutes. Carry the category forward; it is spent at step 5, which is where it costs anything.
+
+**Step 5 may raise it, and only step 5.** Some failures are better read as "it took an hour" than as "it did not work", and that is a judgement about a result you have not seen. So what you write here is the honest cost of the attempt going normally, and the dice may make it worse later. It never gets cheaper.
+
+An action that never resolves — you asked a question, you turned it away, the roll is still on the table — spends nothing at all and commits `instant`, whatever it would have cost had it happened.
+
 ## Output of this step
 
 On success, extend the target record from step 1:
@@ -33,7 +48,8 @@ On success, extend the target record from step 1:
 {
   ...target record...,
   "valid": true,
-  "actionType": "information" | "standard"
+  "actionType": "information" | "standard",
+  "timeSpent": "instant" | "round" | "short"
 }
 ```
 
@@ -41,12 +57,13 @@ On an invalid action, produce no advancing record: deliver the "not valid, here'
 
 ## Worked examples
 
-- "I examine the runes above the arch." → valid; **information**.
-- "I peer through the barred window into the next cell." → valid; **information** (gathering information, not acting).
-- "I swing my mace at the skeleton." → valid; **standard** (an attack is a standard action).
-- "I step through the western doorway." → valid; **standard** (moving between rooms is a standard action).
-- "I try to pry the gem from the idol's eye with my dagger." → valid (a plausible attempt, long odds are fine); **standard**.
-- "I pick the lock on the chest." — unknown to the player, the lock is rusted solid. → still **valid**; the hidden factor doesn't remove the plausible attempt (it may fail later); **standard**.
+- "I examine the runes above the arch." → valid; **information**; `instant`.
+- "I peer through the barred window into the next cell." → valid; **information** (gathering information, not acting); `instant`.
+- "I swing my mace at the skeleton." → valid; **standard** (an attack is a standard action); `round`.
+- "I step through the western doorway." → valid; **standard** (moving between rooms is a standard action); `round`.
+- "I try to pry the gem from the idol's eye with my dagger." → valid (a plausible attempt, long odds are fine); **standard**; `short`.
+- "I pick the lock on the chest." — unknown to the player, the lock is rusted solid. → still **valid**; the hidden factor doesn't remove the plausible attempt (it may fail later); **standard**; `short` (and `short` whether it opens or not).
+- "I search the whole storeroom for anything worth taking." → valid; **standard**; `short` — long enough that anything hunting them gets closer.
 - "I command the ogre to kneel and it obeys." → **invalid**: relies on a creature doing something unreasonable / presumes the response. Ask for a different action.
 - "The portcullis rises and I stroll under it." → **invalid**: not the player's own action / presumes a world event. Ask for a different action.
 - "I leap the twenty-foot chasm the room described in a single bound." → **invalid**: contradicts what the player already knows; no plausible chance. Ask for a different action.

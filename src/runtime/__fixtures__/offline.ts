@@ -27,7 +27,7 @@ import {
   siteRooms,
   stockDungeon,
   type ContentPassPayload,
-  type IItem,
+  type AnyItem,
   type ContentPassResponse,
   type DungeonPassResponse,
   type PlayerCharacter,
@@ -359,12 +359,12 @@ export function testCharacter(over: Partial<PlayerCharacter> = {}): PlayerCharac
  * flat +1 each on top of the body armour. See `armorDefense` in
  * dungeon-character.ts.
  */
-const testInventory: IItem[] = [
-  { id: 'test-sword', 'name': 'Sword', type: 'Item', parentId: 'pc-1', slots: 2, weapon: { damage: '1d8', hands: 1 }, quality: 3, currentQuality: 3 },
-  { id: 'test-chain', 'name': 'Chain', type: 'Item', parentId: 'pc-1', slots: 3, armor: { armorType: 'body', defense: 14 }, quality: 5, currentQuality: 5 },
-  { id: 'test-spellbook', 'name': 'Spellbook: Telekinesis', type: 'Item', parentId: 'pc-1', slots: 1, spellBook: { spellName: 'Telekinesis', spellDescription: 'You may mentally move items equal to your level.', exhausted: false } },
-  { id: 'test-helmet', 'name': 'Helmet', type: 'Item', parentId: 'pc-1', slots: 1, armor: { armorType: 'helmet', defense: 1 }, quality: 1, currentQuality: 1 },
-  { id: 'test-rations', 'name': 'Travel Rations', type: 'Item', parentId: 'pc-1', slots: 1, amount: '3 days' },
-  { id: 'test-lantern', 'name': 'Lantern', type: 'Item', parentId: 'pc-1', slots: 1 },
-  { id: 'test-rope', 'name': 'Rope', type: 'Item', parentId: 'pc-1', slots: 1, amount: '50 feet' },
+const testInventory: AnyItem[] = [
+  { id: 'test-sword', name: 'Sword', type: 'Item', parentId: 'pc-1', slots: 2, value: 10, itemKind: 'weapon', weapon: { damage: '1d8', hands: 1 }, quality: 3, currentQuality: 3 },
+  { id: 'test-chain', name: 'Chain', type: 'Item', parentId: 'pc-1', slots: 3, value: 1200, itemKind: 'armor', armor: { armorType: 'body', defense: 14 }, quality: 5, currentQuality: 5 },
+  { id: 'test-spellbook', name: 'Spellbook: Telekinesis', type: 'Item', parentId: 'pc-1', slots: 1, value: 0, itemKind: 'spellbook', spellBook: { spellName: 'Telekinesis', spellDescription: 'You may mentally move items equal to your level.', exhausted: false } },
+  { id: 'test-helmet', name: 'Helmet', type: 'Item', parentId: 'pc-1', slots: 1, value: 40, itemKind: 'armor', armor: { armorType: 'helmet', defense: 1 }, quality: 1, currentQuality: 1 },
+  { id: 'test-rations', name: 'Travel Rations', type: 'Item', parentId: 'pc-1', slots: 1, value: 15, amount: '3 days' },
+  { id: 'test-lantern', name: 'Lantern', type: 'Item', parentId: 'pc-1', slots: 1, value: 30 },
+  { id: 'test-rope', name: 'Rope', type: 'Item', parentId: 'pc-1', slots: 1, value: 10, amount: '50 feet' },
 ]

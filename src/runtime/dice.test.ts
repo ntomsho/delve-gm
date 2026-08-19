@@ -8,7 +8,7 @@
 import { describe, expect, it } from "vitest";
 import { rollBatch, renderOutcomes } from "./dice.ts";
 import { CountingRng } from "./rng.ts";
-import { attackRoll, dcFromDefense, moraleRoll, saveRoll } from "../engine/index.ts";
+import { attackRoll, consultRoll, dcFromDefense, moraleRoll, saveRoll } from "../engine/index.ts";
 
 const rng = (seed = 7) => new CountingRng(seed);
 
@@ -54,6 +54,23 @@ describe("kinds", () => {
     const expected = moraleRoll(rng(), 7);
     const [got] = rollBatch(rng(), [{ id: "nerve", kind: "morale" }]);
     expect(got.line).toContain(expected.holds ? "THEY HOLD" : "THEY BREAK");
+  });
+
+  it("adds the reading itself, and says what to write back", () => {
+    const expected = consultRoll(rng(), 2);
+    const [got] = rollBatch(rng(), [{ id: "herbal", kind: "consult", uses: 2 }]);
+
+    expect(got.failed).toBe(false);
+    // The referee passes what the book has HAD; the third reading is this one.
+    expect(got.line).toContain("reading 3");
+    expect(got.line).toContain("book.uses 3");
+    expect(got.line).toContain(expected.exhausted ? "THE LAST OF IT" : "THERE IS MORE IN IT");
+    expect(got.line.includes("book.exhausted true")).toBe(expected.exhausted);
+  });
+
+  it("treats a book with no count as one nobody has opened", () => {
+    const [got] = rollBatch(rng(), [{ id: "herbal", kind: "consult" }]);
+    expect(got.line).toContain("reading 1");
   });
 
   it("rolls loose damage from an expression", () => {

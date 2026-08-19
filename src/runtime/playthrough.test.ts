@@ -27,6 +27,7 @@ const SEED = 1005;
 
 const turn = (...diffs: Diff[]): Commit => ({
   nextStage: "awaiting_action",
+  timeSpent: "instant",
   nextStep: "1-target",
   diffs,
 });

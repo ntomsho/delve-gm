@@ -39,6 +39,7 @@ import {
   dcFromDefense,
   farSide,
   isSurfaceExit,
+  isWeapon,
   ORDINARY_DC,
   touches,
   type ICreature,
@@ -58,6 +59,7 @@ const reply = (narration: string, commit: Commit): RefereeReply => ({ narration,
 /** Where an ordinary turn leaves the game: open floor, top of the heuristic. */
 const open = (diffs: Diff[]): Commit => ({
   nextStage: "awaiting_action",
+  timeSpent: "instant",
   nextStep: "1-target",
   diffs,
 });
@@ -145,6 +147,7 @@ function offerAttack(req: RefereeRequest): RefereeReply {
   if (!target) {
     return reply("There is nothing in here to fight.", {
       nextStage: "rejected",
+      timeSpent: "instant",
       nextStep: "1-target",
       diffs: [],
     });
@@ -161,12 +164,13 @@ function offerAttack(req: RefereeRequest): RefereeReply {
     mode: "damage",
     // Already converted: the referee holds the defense, the machine does not.
     dc: dcFromDefense(creatureDefense(target, "str")),
-    damage: weapon?.weapon?.damage ?? "1d4",
+    damage: weapon && isWeapon(weapon) ? weapon.weapon.damage : "1d4",
     targetId: target.id,
   };
 
   return reply(`${target.name} turns toward you. It will come down to the swing.`, {
     nextStage: "roll_offered",
+    timeSpent: "instant",
     nextStep: "4-confirm-roll",
     rollRequest: spec,
     diffs: [],
@@ -185,6 +189,7 @@ function offerSave(req: RefereeRequest, input: string): RefereeReply {
 
   return reply("It will take some doing.", {
     nextStage: "roll_offered",
+    timeSpent: "instant",
     nextStep: "4-confirm-roll",
     rollRequest: spec,
     diffs: [],
@@ -288,6 +293,7 @@ export function respond(req: RefereeRequest): RefereeReply {
     // stands exactly as offered, which is the "weak reason" branch of step 4.
     return reply("That does not change the odds. The roll stands.", {
       nextStage: "roll_offered",
+      timeSpent: "instant",
       nextStep: "4-confirm-roll",
       rollRequest: req.run.pendingRoll!,
       diffs: [],
@@ -298,6 +304,7 @@ export function respond(req: RefereeRequest): RefereeReply {
   if (said.includes("window") || said.includes("sky") || said.includes("sun")) {
     return reply("There is no window. You are a long way underground.", {
       nextStage: "rejected",
+      timeSpent: "instant",
       nextStep: "1-target",
       diffs: [],
     });
@@ -306,6 +313,7 @@ export function respond(req: RefereeRequest): RefereeReply {
   if (said.includes("door")) {
     return reply("Which door — the one you came in by, or the other?", {
       nextStage: "clarifying",
+      timeSpent: "instant",
       nextStep: "1-target",
       diffs: [],
     });
@@ -318,6 +326,7 @@ export function respond(req: RefereeRequest): RefereeReply {
     // `error` with the world untouched.
     return reply("Something goes wrong that the referee cannot describe.", {
       nextStage: "awaiting_action",
+      timeSpent: "instant",
       nextStep: "1-target",
       diffs: [{ entityId: req.run.currentRoomId, path: "name", value: "Somewhere Else" }],
     });
@@ -327,6 +336,7 @@ export function respond(req: RefereeRequest): RefereeReply {
   if (said.includes("poison")) {
     return reply("It goes down cold, and then it does not stop going down.", {
       nextStage: "awaiting_action", // the store overrides this off the death event
+      timeSpent: "instant",
       nextStep: "1-target",
       diffs: [{ entityId: PLAYER_ID, path: "hp.current", value: 0 }],
     });
@@ -335,6 +345,7 @@ export function respond(req: RefereeRequest): RefereeReply {
   if (said.includes("goal") || said.includes("win")) {
     return reply("The way out is behind you, and what you came for is in your hand.", {
       nextStage: "goal_met",
+      timeSpent: "instant",
       nextStep: "5-resolution",
       diffs: [{ entityId: req.run.currentRoomId, path: "state", value: "left behind" }],
     });
@@ -354,6 +365,7 @@ export function respond(req: RefereeRequest): RefereeReply {
     if (!item) {
       return reply("There is nothing loose in here worth carrying.", {
         nextStage: "rejected",
+        timeSpent: "instant",
         nextStep: "1-target",
         diffs: [],
       });
@@ -397,6 +409,7 @@ export function respond(req: RefereeRequest): RefereeReply {
     if (!way) {
       return reply("Every way out of here is shut.", {
         nextStage: "rejected",
+        timeSpent: "instant",
         nextStep: "1-target",
         diffs: [],
       });
