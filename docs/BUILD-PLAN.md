@@ -267,7 +267,16 @@ Never writable on any type: `id`, `type`, `base`, `name`, `keywords`, `blueprint
 - Morale is 2d6, `holds = total <= morale`, default rating 7.
 - **0 HP is death.** Knave's unconscious-at-0 rule assumes a party to drag you out.
 - No initiative, no reaction table — both are in the book, neither has a caller.
-- Unarmored is defense 11 / bonus +1. Monster HP is HD × 4.
+- Unarmored is defense 11 / bonus +1 for the **player**, and that is a Knave
+  constant with no hit dice behind it — `UNARMORED_DEFENSE` states it rather than
+  deriving it through a stand-in creature, which is what it used to do.
+- Monster HP is HD × 4. **HD 0 is a real band, not a floor**: every bonus +0,
+  every defense 10, and half a hit die — `HALF_HIT_DIE_HP = 2`, what `1d4` and
+  `1d8/2` both average to. Bonuses and ability defenses fall out of the ordinary
+  formulas; `maxHp` and `armorDefense` are the two that special-case it, because
+  multiplying gives a creature with no hit points and the unarmoured default
+  gives it 11. A stored `armorDefense` still wins, so a level 0 thing in a
+  breastplate is armoured normally.
 
 **The player's roll is client-side**, thrown from the run RNG the moment the player
 takes it — that is what the `rolling` stage is. Everything else goes through the
@@ -617,8 +626,11 @@ questions:
 1. **Whether `dungeon-rooms-loop.ts` should produce groups that large at level 1** — a
    stocking parameter. **Measure first**: run the generator across a seed spread and get
    the actual distribution of group size against level.
-2. **Whether a ½ HD creature resolves as a mook** — dying to any hit, attacking as a group
-   rather than individually. A rules addition to `dungeon-rolls`.
+2. **Whether an HD 0 creature resolves as a mook** — dying to any hit, attacking as a
+   group rather than individually. A rules addition to `dungeon-rolls`. The band itself
+   now exists (§2.7): +0, defense 10, 2 HP, and reachable from the Easy difficulty. What
+   is still open is whether it gets its own *resolution*, since 2 HP already dies to most
+   single hits without a rule saying so.
 3. **A hard cap on how many creatures may attack the player in one exchange**, regardless
    of how many are in the room. The fiction carries the rest as pressing in, waiting for
    an opening, blocking the way — which is what a real melee looks like and what a crowded

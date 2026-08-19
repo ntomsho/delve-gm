@@ -2,9 +2,8 @@
  * RUN SETUP — what dungeon, and who goes in.
  *
  * A screen rather than a modal, which is a bet on where this goes: light and
- * ration clocks, difficulty, a named dungeon instead of a number. It will not
- * stay three fields, so it is not housed in something that only works while it
- * is.
+ * ration clocks, a named dungeon instead of a number. It will not stay three
+ * fields, so it is not housed in something that only works while it is.
  *
  * Size is the only control here that spends the player's real time and real
  * money — it sets the region count and every region is one writing call — so
@@ -18,9 +17,15 @@
  * bought a fresh dungeon whether or not the player already had one they wanted
  * to go back down, because there was no way to say so; a dungeon was written,
  * played once and then unreachable. So the screen asks WHICH WORLD first, and
- * size and level appear only under the branch that is actually rolling one —
- * they are facts about a world that already exists, and offering them beside a
+ * size and difficulty appear only under the branch that is actually rolling one
+ * — they are facts about a world that already exists, and offering them beside a
  * chosen dungeon would be offering controls that do nothing.
+ *
+ * DIFFICULTY IS ASKED, LEVEL IS SENT. The screen used to ask for a dungeon level
+ * outright, which is a number the player has no way to judge without holding
+ * their own sheet up against it. `levelFor` resolves the offset against the
+ * chosen character, so the question is easy/medium/hard and the answer is still
+ * the level generation has always taken.
  *
  * Confirm is the one piece of diegetic copy on the screen. Everything else
  * here is plainly the software asking a configuration question, but pressing
@@ -35,7 +40,38 @@ import type { PlayerCharacter, Size } from "../engine/index.ts";
 const LABEL = "font-mono text-[9px] tracking-[0.16em] text-graphite uppercase";
 
 const SIZES: Size[] = [1, 2, 3, 4, 5];
-const LEVELS = [1, 2, 3, 4, 5];
+
+/**
+ * TEMPORARILY OFF. A size 4 or 5 dungeon is four or five writing calls and
+ * several minutes, and the block plan still throws a graph away and retries at
+ * that size. They are shown rather than hidden so the ceiling is visible and
+ * putting them back is deleting one line.
+ */
+const SIZES_OFF: Size[] = [4, 5];
+
+/**
+ * DIFFICULTY IS RELATIVE TO THE CHARACTER, which is what a player is actually
+ * choosing when they pick a number. The dungeon level is still what generation
+ * takes and what the world is stored under — this screen just stops asking for
+ * it directly, because "level 3" means nothing without the sheet beside it.
+ */
+type Difficulty = "easy" | "medium" | "hard";
+
+const DIFFICULTY_OFFSET: Record<Difficulty, number> = { easy: -1, medium: 0, hard: 1 };
+
+const DIFFICULTIES: { value: Difficulty; label: string }[] = [
+  { value: "easy", label: "Easy" },
+  { value: "medium", label: "Medium" },
+  { value: "hard", label: "Hard" },
+];
+
+/**
+ * Floored at 0, and **0 is a real dungeon** rather than a clamp: its creatures
+ * are the fodder band — +0 to everything, defense 10, half a hit die — which is
+ * what Easy means for a level 1 character who has nowhere lower to go.
+ */
+const levelFor = (characterLevel: number, d: Difficulty): number =>
+  Math.max(0, characterLevel + DIFFICULTY_OFFSET[d]);
 
 /** A size-n dungeon is n regions of six rooms, and one writing call per region. */
 function costOf(size: Size): string {
@@ -52,30 +88,41 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function Segmented<T extends number>({
+/**
+ * A disabled option is still DRAWN. A control that silently loses two of its
+ * five choices reads as a smaller control; one that shows them refused reads as
+ * a ceiling, which is what it is.
+ */
+function Segmented<T extends string | number>({
   options,
   value,
   onChange,
+  width = "w-12",
 }: {
-  options: T[];
+  options: { value: T; label: string; disabled?: boolean; title?: string }[];
   value: T;
   onChange: (v: T) => void;
+  width?: string;
 }) {
   return (
     <div className="flex gap-[3px]">
       {options.map((o) => (
         <button
-          key={o}
+          key={o.value}
           type="button"
-          onClick={() => onChange(o)}
-          aria-pressed={o === value}
-          className={`w-12 border py-2 font-mono text-[13px] transition-colors ${
-            o === value
-              ? "border-ink bg-ink text-paper"
-              : "border-rule bg-paper text-graphite hover:border-graphite hover:text-ink"
+          disabled={o.disabled ?? false}
+          {...(o.title ? { title: o.title } : {})}
+          onClick={() => onChange(o.value)}
+          aria-pressed={o.value === value}
+          className={`${width} border py-2 font-mono text-[13px] transition-colors ${
+            o.disabled
+              ? "cursor-not-allowed border-rule-faint bg-paper text-pencil"
+              : o.value === value
+                ? "border-ink bg-ink text-paper"
+                : "border-rule bg-paper text-graphite hover:border-graphite hover:text-ink"
           }`}
         >
-          {o}
+          {o.label}
         </button>
       ))}
     </div>
@@ -160,7 +207,7 @@ export function RunSetup({
   onBack: () => void;
 }) {
   const [size, setSize] = useState<Size>(2);
-  const [level, setLevel] = useState(1);
+  const [difficulty, setDifficulty] = useState<Difficulty>("medium");
   const [characterId, setCharacterId] = useState(initialId ?? characters[0]?.id);
   /**
    * Which world, as an id or the absence of one.
@@ -173,6 +220,10 @@ export function RunSetup({
   const [dungeonId, setDungeonId] = useState<string>();
 
   const character = characters.find((c) => c.id === characterId);
+  // The level travels; the difficulty does not. Generation takes a level and the
+  // world is stored under one, so the offset is resolved here and nothing
+  // downstream learns a new word.
+  const level = levelFor(character?.level ?? 1, difficulty);
   const world = dungeons.find((d) => d.id === dungeonId);
   // A world chosen and then no longer on the list — the roster refreshed under
   // the screen — is nothing rather than a run into a dungeon we cannot name.
@@ -236,20 +287,39 @@ export function RunSetup({
         {fresh && (
           <>
             <Field label="Size">
-              <Segmented options={SIZES} value={size} onChange={setSize} />
+              <Segmented
+                options={SIZES.map((n) => ({
+                  value: n,
+                  label: String(n),
+                  ...(SIZES_OFF.includes(n)
+                    ? { disabled: true, title: "Not available yet" }
+                    : {}),
+                }))}
+                value={size}
+                onChange={setSize}
+              />
               <p className="mt-3 font-mono text-[11px] text-graphite">{costOf(size)}</p>
               <p className="mt-1.5 max-w-[46ch] font-prose text-[13px] leading-snug text-graphite">
-                {size >= 4
-                  ? "A big one. The dungeon is written before you go in, and at this size that is several minutes and a real bill."
-                  : "The dungeon is written before you go in, so this is what the wait will cost."}
+                The dungeon is written before you go in, so this is what the wait
+                will cost. The big ones are off for now.
               </p>
             </Field>
 
-            <Field label="Level">
-              <Segmented options={LEVELS} value={level} onChange={setLevel} />
+            <Field label="Difficulty">
+              <Segmented
+                options={DIFFICULTIES}
+                value={difficulty}
+                onChange={setDifficulty}
+                width="w-24"
+              />
               <p className="mt-3 max-w-[46ch] font-prose text-[13px] leading-snug text-graphite">
-                How dangerous the dungeon is — not how experienced your character is.
-                Those are different numbers.
+                Measured against the character going in, so it moves when you pick
+                a different one below.
+              </p>
+              <p className="mt-1.5 font-mono text-[11px] text-graphite">
+                {character
+                  ? `${character.name} is level ${character.level} · dungeon level ${level}`
+                  : `Dungeon level ${level}`}
               </p>
             </Field>
           </>

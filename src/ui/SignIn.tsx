@@ -55,11 +55,11 @@ export function SignIn({ onSignIn, notice }: Props) {
           className="text-3xl mb-2"
           style={{ fontFamily: font.display, color: color.ink, letterSpacing: "-0.02em" }}
         >
-          A Dungeon
+          AI Dungeon
         </h1>
         <p className="text-sm mb-8" style={{ fontFamily: font.prose, color: color.graphite }}>
-          One character, one dungeon, one way out. A referee that has read the
-          rules and will hold you to them.
+          An online platform to generate dynamic procedural dungeons and run
+          through them with an AI-powered dungeonmaster.
         </p>
 
         {notice && (

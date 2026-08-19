@@ -201,11 +201,20 @@ export type Ability = "str" | "dex" | "con" | "int" | "wis" | "cha";
 export type CreatureModifiers = Partial<Record<Ability | "attack", number>>;
 
 export interface CreatureStats {
-  /** the spine: fills abilities, attack, and max HP */
+  /**
+   * The spine: fills abilities, attack, and max HP.
+   *
+   * **0 IS A REAL BAND, not a floor that got hit.** A level 0 creature — the
+   * rat, the starved cultist, the thing a level 1 character is meant to be able
+   * to kill — is every bonus at +0, every defense at 10, and half a hit die.
+   * Every formula below falls out of `hitDice === 0` on its own except the two
+   * that cannot: HP, which would be 0, and armour defense, which would be the
+   * unarmoured 11.
+   */
   hitDice: number;
   hp: number;
   modifiers: CreatureModifiers;
-  /** default 11 (unarmored). Armor BONUS is derived: defense - 10. */
+  /** default 11 (unarmored), or 10 at HD 0. Armor BONUS is derived: defense - 10. */
   armorDefense?: number;
   /** die expression for the natural attack; default "1d6" */
   damage?: string;
@@ -542,12 +551,26 @@ export function attackBonus(s: CreatureStats): number {
   return s.hitDice + (s.modifiers.attack ?? 0);
 }
 
+/**
+ * HD x 4, and **half a hit die at HD 0** — 2, the same number `1d4` and `1d8/2`
+ * both average to. Multiplying would give a creature with no hit points at all,
+ * which is not a weak monster but an absent one.
+ */
 export function maxHp(s: CreatureStats): number {
-  return s.hitDice * 4;
+  return s.hitDice === 0 ? HALF_HIT_DIE_HP : s.hitDice * 4;
 }
 
+/** Half a hit die, taken as the average the way full HD are taken as 4. */
+export const HALF_HIT_DIE_HP = 2;
+
+/**
+ * Unarmoured is 11, and **10 at HD 0** — the +0 bonus band read through Knave's
+ * "a defense is always its bonus + 10", the same as every ability defense a
+ * level 0 creature has. A stored `armorDefense` still wins: a level 0 thing in
+ * a breastplate is armoured like anything else.
+ */
 export function armorDefense(s: CreatureStats): number {
-  return s.armorDefense ?? 11;
+  return s.armorDefense ?? (s.hitDice === 0 ? 10 : 11);
 }
 
 export function armorBonus(s: CreatureStats): number {

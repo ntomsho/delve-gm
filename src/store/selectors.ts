@@ -653,8 +653,17 @@ export function armorPieces(pc: PlayerCharacter): { slot: EquipSlot; name: strin
   });
 }
 
-/** Unarmoured is 11. Exposed so a panel can show what armour is worth. */
-export const UNARMORED_DEFENSE = bodyArmorDefense({ hitDice: 0, hp: 0, modifiers: {} });
+/**
+ * Unarmoured is 11. Exposed so a panel can show what armour is worth.
+ *
+ * STATED, NOT DERIVED THROUGH A FAKE CREATURE. This used to read
+ * `bodyArmorDefense({ hitDice: 0, ... })`, which was the same 11 only for as
+ * long as HD 0 meant nothing; it is now the fodder band and answers 10, so the
+ * borrowed derivation would have quietly cost the player a point of defense.
+ * The player's unarmoured defense is a Knave constant and has no hit dice
+ * behind it.
+ */
+export const UNARMORED_DEFENSE = 11;
 
 // ===========================================================================
 // THE MAP

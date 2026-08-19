@@ -64,6 +64,7 @@ import type {
   IRoomFeature,
   TemplateRegistry,
 } from "./dungeon-entities.ts";
+import { maxHp } from "./dungeon-entities.ts";
 
 // ---------------------------------------------------------------------------
 // OUTPUT
@@ -173,7 +174,9 @@ export function hitDiceFor(
 ): number {
   const [lo, hi] = COMPLEXITY_HD_OFFSET[complexity];
   const hd = level + rng.range(lo, hi) + (isLeader ? 1 : 0);
-  return Math.max(1, Math.min(10, hd));
+  // FLOORED AT 0, NOT 1. HD 0 is the fodder band -- +0 to everything, defense
+  // 10, half a hit die -- and it is what a level 0 dungeon is mostly made of.
+  return Math.max(0, Math.min(10, hd));
 }
 
 function statsFor(
@@ -183,7 +186,10 @@ function statsFor(
   isLeader = false
 ): CreatureStats {
   const hd = hitDiceFor(complexity, level, rng, isLeader);
-  return { hitDice: hd, hp: hd * 4, modifiers: {} };
+  // Through `maxHp` rather than `hd * 4`, so the half-hit-die band at HD 0 is
+  // stated once. The two spellings agreed until 0 became reachable.
+  const stats: CreatureStats = { hitDice: hd, hp: 0, modifiers: {} };
+  return { ...stats, hp: maxHp(stats) };
 }
 
 // ---------------------------------------------------------------------------

@@ -14,6 +14,14 @@ import {
   setComposed,
   needsComposition,
   properName,
+  hitDiceFor,
+  maxHp,
+  armorDefense,
+  attackBonus,
+  abilityBonus,
+  abilityDefense,
+  HALF_HIT_DIE_HP,
+  type CreatureStats,
   type PlayerCharacter,
   type AnyItem,
   type IEntity,
@@ -297,5 +305,57 @@ describe("properName", () => {
 
   it("trims, so a stray space cannot hide the first letter", () => {
     expect(properName("  brass key ")).toBe("Brass key");
+  });
+});
+
+// ===========================================================================
+// THE LEVEL 0 BAND
+// ===========================================================================
+
+/*
+ * HD 0 IS A BAND, NOT A FLOOR THAT GOT HIT. A level 0 creature is what a level
+ * 1 character is meant to be able to kill: +0 to everything, defense 10, half a
+ * hit die. Every formula falls out of `hitDice === 0` on its own except HP,
+ * which would multiply to nothing, and armour defense, which would be the
+ * unarmoured 11 -- so those two are what these tests are actually guarding.
+ */
+describe("level 0 creatures", () => {
+  const fodder: CreatureStats = { hitDice: 0, hp: HALF_HIT_DIE_HP, modifiers: {} };
+
+  it("is +0 to every bonus and 10 to every defense", () => {
+    expect(attackBonus(fodder)).toBe(0);
+    expect(abilityBonus(fodder, "str")).toBe(0);
+    expect(abilityDefense(fodder, "dex")).toBe(10);
+    expect(armorDefense(fodder)).toBe(10);
+  });
+
+  it("has half a hit die rather than no hit points", () => {
+    // 2 is what 1d4 and 1d8/2 both average to, taken the way full HD are taken
+    // as 4. Multiplying would give a creature that is absent, not weak.
+    expect(maxHp(fodder)).toBe(HALF_HIT_DIE_HP);
+    expect(maxHp(fodder)).toBe(2);
+    expect(maxHp({ ...fodder, hitDice: 1 })).toBe(4);
+  });
+
+  it("keeps armour it is actually wearing", () => {
+    // The 10 is a default for a bare creature, not a cap on the band.
+    expect(armorDefense({ ...fodder, armorDefense: 14 })).toBe(14);
+  });
+
+  it("is what a level 0 dungeon stocks", () => {
+    const rng = new Rng(4242);
+    const drawn = new Set<number>();
+    for (let i = 0; i < 200; i++) drawn.add(hitDiceFor("simple", 0, rng));
+    // `simple` is level-1..level+0, so a level 0 dungeon's simple creatures are
+    // the band itself and nothing below it.
+    expect(drawn.has(0)).toBe(true);
+    expect(Math.min(...drawn)).toBe(0);
+  });
+
+  it("still floors at 0 for anything that would go lower", () => {
+    const rng = new Rng(7);
+    for (let i = 0; i < 200; i++) {
+      expect(hitDiceFor("simple", 0, rng)).toBeGreaterThanOrEqual(0);
+    }
   });
 });
