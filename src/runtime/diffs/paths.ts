@@ -53,7 +53,10 @@ const WRITABLE: Record<EntityKind, readonly string[]> = {
   // the walking, a room per turn: routing is a graph question with one right
   // answer, so nothing about it should be guessed. See `stepToward`.
   Creature: [...COMMON, "activity", "count", "stats.hp", "roomId", "approach"],
-  RoomFeature: [...COMMON, "roomId"],
+  // `resolved` is the obstacle half of `Hazard.sprung`: the one bit of a puzzle
+  // that changes in play. `isObstacle` is deliberately absent beside it —
+  // whether a thing IS the puzzle was settled at generation.
+  RoomFeature: [...COMMON, "roomId", "resolved"],
   // `value` is deliberately absent: what a thing is worth is a number, and the
   // referee does not write numbers. The two book fields are not the same kind
   // of thing — they are a reading being recorded, and both come back off the

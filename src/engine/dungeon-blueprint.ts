@@ -26,6 +26,8 @@
  * length, so this is harmless; correct at leisure.
  */
 
+import { SPELLS } from "./knave-tables.ts";
+
 // ---------------------------------------------------------------------------
 // RNG
 // ---------------------------------------------------------------------------
@@ -216,7 +218,7 @@ const MONSTER_FEATURES = t(
 );
 
 const MUTATIONS = t(
-  "Ages|Attracts birds|Child-form|Corpulence|Covered in hair|{Animal} arms|{Animal} eyes|{Animal} head|{Animal} legs|{Animal} mouth|{Animal} skin|{Animal}-form|Cyclops|Extra arms|Extra eyes|Extra legs|Forked tongue|Gender swap|Hunchback|{Item}-form|Long arms|Lose all hair|Loses teeth|{Monster Feature}|{Monster Trait}|No eyes|No mouth|{P. Element}-skin|Second face|Sheds skin|Shrinks|Shrivels|Skin boils|Slime trail|Translucent skin|Weeps blood"
+  "Ages|Attracts birds|Child-form|Corpulence|Covered in hair|{Animal} arms|{Animal} eyes|{Animal} head|{Animal} legs|{Animal} mouth|{Animal} skin|{Animal}-form|Cyclops|Extra arms|Extra eyes|Extra legs|Forked tongue|Gender swap|Hunchback|{Item}-form|Long arms|Lose all hair|Loses teeth|{Monster Feature}|{Monster Trait}|No eyes|No mouth|{Phys. Element}-skin|Second face|Sheds skin|Shrinks|Shrivels|Skin boils|Slime trail|Translucent skin|Weeps blood"
 );
 
 const MONSTER_TACTICS = t(
@@ -224,7 +226,7 @@ const MONSTER_TACTICS = t(
 );
 
 const MONSTER_WEAKNESS = t(
-  "Bells|Birdsong|Children|Cold|Cold Iron|Competition|Conversation|Deformity|Flattery|Flowers|Gifts|Gold|Heat|Holy Icon|Holy Water|Home Cooking|{Insanities}|Mirrors|Mistletoe|Moonlight|Music|{Methods}|Phylactery|{Phys. Elements}|Puzzles|Riddles|Rituals|Silver|Sunlight|Tears|True Name|{Val. Materials}|Weak Spot|{Weapon Items}|Wine|Wormwood"
+  "Bells|Birdsong|Children|Cold|Cold Iron|Competition|Conversation|Deformity|Flattery|Flowers|Gifts|Gold|Heat|Holy Icon|Holy Water|Home Cooking|{Insanities}|Mirrors|Mistletoe|Moonlight|Music|{Methods}|Phylactery|{Phys. Element}|Puzzles|Riddles|Rituals|Silver|Sunlight|Tears|True Name|{Val. Materials}|Weak Spot|{Weapon Items}|Wine|Wormwood"
 );
 
 const MONSTER_PERSONALITY = t(
@@ -346,6 +348,34 @@ const ETHEREAL_EFFECTS = t(
   "Avenging|Banishing|Bewildering|Blinding|Charming|Communicating|Compelling|Concealing|Deafening|Deceiving|Deciphering|Disguising|Dispelling|Emboldening|Encoding|Energizing|Enlightening|Enraging|Excruciating|Foreseeing|Intoxicating|Maddening|Mesmerizing|Mindreading|Nullifying|Paralyzing|Revealing|Revolting|Scrying|Silencing|Soothing|Summoning|Terrifying|Warding|Wearying|Withering"
 );
 
+/**
+ * BARE `{Element}` AND `{Effect}`, which the treasure and potion tables use and
+ * the magic tables do not. Maze Rats splits both physical from ethereal; an
+ * entry that asks for neither half means either, so these are the two halves
+ * concatenated and the draw is an even split between them.
+ */
+const ELEMENTS: readonly string[] = [...PHYSICAL_ELEMENTS, ...ETHEREAL_ELEMENTS];
+const EFFECTS: readonly string[] = [...PHYSICAL_EFFECTS, ...ETHEREAL_EFFECTS];
+
+/**
+ * `{Spell}` is Maze Rats' own spell generator in the original. We use Knave's
+ * hundred instead — the same list `dungeon-rewards.ts` mints a spellbook from,
+ * so a potion of X and a book of X name the same spell.
+ */
+const SPELL_NAMES: readonly string[] = SPELLS.map((s) => s.name);
+
+/**
+ * `{Edible Plant}` in MAGICAL_INGREDIENTS is the only reader of this one.
+ */
+const EDIBLE_PLANTS = t(
+  "Acorns|Apples|Asparagus|Blackberries|Blueberries|Carrots|Cattail|Cherries|Chickweed|Chicory|Clover|Dandelion|Dead-nettle|Elderberries|Fireweed|Gooseberries|Hazelnuts|Henbit|Hickory nuts|Honeysuckle|Leeks|Milk thistle|Mint|Mulberries|Mushrooms|Mustard|Onion|Pecans|Persimmons|Raspberries|Strawberries|Walnuts|Watercress|Wild garlic|Wild grapes|Wood sorrel"
+);
+
+// NOTE: 35 entries, one short of the 36 a Maze Rats table carries.
+const POISONOUS_PLANTS = t(
+  "Angel's trumpet|Baneberry|Belladonna|Black truffle|Bleeding heart|Celandine|Cocklebur|Columbine|Crowncup|Deathcap|Dumbcane|Foxglove|Hemlock|Hogweed|Holly|Horse chestnut|Hyacinth|Ivy|Jessamine|Kudzu|Larkspur|Mandrake|Mangrove|Mistletoe|Moonflower|Nightshade|Oleander|Ragwort|Reindeer lichen|Snakeweed|Spindle|Stinkhorn|Waxcap|Wine-cap|Wolfsbane|Wormwood"
+);
+
 const INSANITIES = t(
   "Always lies|Always polite|{Animal}-form|Cannot count|Cannot lie|Faceblind|Fears birds|Fears blood|Fears books|Fears darkness|Fears fire|Fears gold|Fears horses|Fears iron|Fears music|Fears own hand|Fears PC|Fears rain|Fears rivers|Fears silence|Fears sleep|Fears sunlight|Fears the moon|Fears trees|Genius|Gorgeous|Hates violence|Invisible|{Monster Ability}|{Monster Feature}|{Monster Trait}|Must sing|New {Personality}|Says thoughts|Sees dead people|Translucent"
 );
@@ -360,6 +390,45 @@ const WEAPON_ITEMS = t(
 
 const TREASURE_ITEMS = t(
   "Alchemy recipe|Amulet|Astrolabe|Blueprints|Calligraphy|Carpet|Compass|Contract|Crown|Crystal|Deed|Embroidery|Fine china|Fine liquor|Instrument|Magical book|Microscope|Music box|Orrery|Painting|Perfume|Prayer book|Printing block|Rare textile|Royal robes|Saint's relic|Scrimshaw|Sextant|Sheet music|Signet ring|Silverware|Spices|Spyglass|Tapestry|Telescope|Treasure map"
+);
+
+/**
+ * THE SIX THAT WERE EMPTY — Maze Rats, transcribed.
+ *
+ * They are the tables the reward rows draw on, and every one of them is now
+ * filled. `rollTable` and `pickEquipmentRow` in dungeon-rewards.ts still guard
+ * against an empty list, because that guard is what let these ship unfilled;
+ * it is now unreachable for these six and stays for the next stub.
+ *
+ * THE CASCADE TOKENS IN HERE RESOLVE THROUGH `CONTENT_CASCADES` BELOW, and
+ * every one of them is registered — see the block comment on that table for
+ * the four keys these entries are the only readers of.
+ */
+const MISC_ITEMS = t(
+  "Bowl|Brass bell|Brooch|Carved figurine|Cup|Deck of cards|Drawing|Foreign coin|Game piece|Glass eye|Glass jar|Hair comb|Handkerchief|Hinged box|Hourglass|Human tooth|Hunting horn|Loaded dice|Long fork|Numbered key|Oil lamp|Old doll|Pain pot|Pencil|Purse|Quill pen|Salve|Scissors|Scroll|Sealed letter|Sewing needle|Shaving razor|Silver button|Skull|Tobacco pipe|Wine bottle"
+);
+
+const WORN_ITEMS = t(
+  "Belt|Blouse|Boots|Bracelet|Breastplate|Brigandine|Cincture|Cloak|Coat|Dress|Earring|Eyepatch|Gambeson|Gauntlets|Glove|Gown|Hat|Helmet|Hose|Leathers|Locket|Mail shirt|Mask|Necklace|Plate mail|Ring|Robe|Sandals|Scarf|Shirt|Shoes|Skirt|Slippers|Socks|Trousers|Veil"
+);
+
+const TOOL_ITEMS = t(
+  "Acid flask|Bear trap|Bellows|Bolt-cutters|Chain|Chisel|Crowbar|Door ram|Ear trumpet|Fire oil|Fishing hook|Goggles|Grappling hook|Grease|Hacksaw|Hammer|Hand drill|Lantern|Lens|Lock/key|Lockpicks|Manacles|Metal file|Mortar/pestle|Needle|Pickaxe|Pitchfork|Pliers|Pole|Pulleys|Rope|Scissors|Shovel|Spikes|Steel wire|Tongs"
+);
+
+const TREASURE_TRAITS = t(
+  "Altered|Ancient|Blessed|Bulky|Compact|Consumable|Cultural value|Cursed|Damaged|Disguised|Draws enemies|{Effect}|{Element}|Embellished|Encoded|Exotic|Extra-planar|Famous|Forbidden|Fragile|Heavy|Immovable|Impracticable|Indestructible|Intelligent|Masterwork|Military value|Non-human|Owned|Partial|Political value|Religious value|Repaired|Royal|Toxic|Vile"
+);
+
+const MAGICAL_INGREDIENTS = t(
+  "Ancient liquor|{Animal}|Blind eye|Boiled cat|{Book} book page|Bottled fog|Coffin nail|Corpse's hair|Crossroad dust|Cultist entrails|{Edible Plant}|Exotic spice|Killer's hand|King's tooth|Last breath|Liar's tongue|Lightning bolt|Lodestone|Monk's vow|{Monster Feature}|Newborn's cry|Oil portrait|{Potion}|{Phys. Element}|{Poisonous Plant}|Pyre ember|Queen bee|Queen's blood|Ship's barnacle|Star-metal|Thief's finger|Tomb flower|{Valuable Material}|Wedding ring|Widow's tears|Wizard skull"
+);
+
+// NOTE: `{Spell}` sits out of the alphabetical run the rest of the list keeps,
+// preserved as printed — same treatment as the duplicate "Wood" in Physical
+// Elements and "Tinker" further up.
+const POTIONS = t(
+  "{Animal}-form|Body swap|Camouflage|Control animals|Control {Element}|Cure affliction|Detect evil|Detect gold|Detect hidden|Direction sense|{Element}-form|{Element}-skin|Extra arm|Flight|Ghost-speech|Heat vision|{Insanity}|Invulnerable|{Item}-form|Magic immunity|Mirror image|{Monster Ability}|{Monster Feature}|{Monster Trait}|{Mutation}|Night vision|{Spell}|Restore health|Speed|Stretchy|Super-jump|Super-strength|Telekinesis|Tongues|Water-breathing|Water-walking"
 );
 
 /**
@@ -438,8 +507,6 @@ const CONTENT_CASCADES: Record<string, readonly string[]> = {
   "Mon. Ability": MONSTER_ABILITIES,
   "Monster Trait": MONSTER_TRAITS,
   "Phys. Element": PHYSICAL_ELEMENTS,
-  "Phys. Elements": PHYSICAL_ELEMENTS,
-  "P. Element": PHYSICAL_ELEMENTS,
   "Ether. Element": ETHEREAL_ELEMENTS,
   "Physical Effect": PHYSICAL_EFFECTS,
   "Ethereal Effect": ETHEREAL_EFFECTS,
@@ -454,6 +521,23 @@ const CONTENT_CASCADES: Record<string, readonly string[]> = {
   Mission: MISSIONS,
   "Treasure Item": TREASURE_ITEMS,
   item: TREASURE_ITEMS,
+  "Misc Item": MISC_ITEMS,
+  "Worn Item": WORN_ITEMS,
+  "Tool Item": TOOL_ITEMS,
+  "Treasure Trait": TREASURE_TRAITS,
+  "Magical Ingredient": MAGICAL_INGREDIENTS,
+  Potion: POTIONS,
+  // Read only by the six above. `Item` and `Valuable Material` are spelling
+  // aliases for keys that already existed; the rest are new pools.
+  Item: TREASURE_ITEMS,
+  "Valuable Material": VALUABLE_MATERIALS,
+  Element: ELEMENTS,
+  Effect: EFFECTS,
+  Mutation: MUTATIONS,
+  Spell: SPELL_NAMES,
+  Book: BOOK_SUBJECTS,
+  "Edible Plant": EDIBLE_PLANTS,
+  "Poisonous Plant": POISONOUS_PLANTS,
 };
 
 const ENTITY_CASCADES = new Set(["NPC", "faction", "monster", "Monster"]);
@@ -482,7 +566,11 @@ function resolveCascades(entry: string, rng: Rng, depth = 0): string {
       return token === "NPC" ? "an NPC" : token.toLowerCase() === "faction" ? "a faction" : "a monster";
     }
     const tbl = CONTENT_CASCADES[token];
-    if (!tbl) return token;
+    // An UNFILLED table is not a missing one. A reference to one leaves its
+    // own name inline, exactly as an unknown key does, rather than picking out
+    // of an empty array. Every table is filled today; this is what keeps the
+    // next stub from being a crash instead of a dull word.
+    if (!tbl || tbl.length === 0) return token;
     const pickRaw = rng.pick(tbl);
     if (depth >= MAX_CASCADE_DEPTH) return pickRaw.replace(/[{}]/g, "");
     return resolveCascades(pickRaw, rng, depth + 1);
@@ -497,6 +585,7 @@ function roll(table: readonly string[], rng: Rng): Rolled {
 
 export { DUNGEON_ENTRANCES, DUNGEON_ROOM_DETAILS, DUNGEON_TRICKS, DUNGEON_HAZARDS, TRAP_EFFECTS, TRAP_TRIGGERS };
 export { TREASURE_ITEMS, VALUABLE_MATERIALS, WEAPON_ITEMS };
+export { MISC_ITEMS, WORN_ITEMS, TOOL_ITEMS, TREASURE_TRAITS, MAGICAL_INGREDIENTS, POTIONS };
 export { DUNGEON_ROOMS, BUILDING_ROOMS, LOWER_CLASS_BUILDINGS, UPPER_CLASS_BUILDINGS };
 export { DUNGEON_CORRIDORS };
 
@@ -504,6 +593,19 @@ export const rollDungeonEntrance = (rng: Rng): Rolled => roll(DUNGEON_ENTRANCES,
 export const rollRoomDetail = (rng: Rng): Rolled => roll(DUNGEON_ROOM_DETAILS, rng);
 export const rollTrick = (rng: Rng): Rolled => roll(DUNGEON_TRICKS, rng);
 export const rollHazard = (rng: Rng): Rolled => roll(DUNGEON_HAZARDS, rng);
+
+/**
+ * Any table, cascade-resolved. The general form of the four rollers above, for
+ * callers outside this file that hold a table of their own — the reward rows
+ * pick which list to draw from and then need it resolved the same way
+ * everything else here is.
+ *
+ * Returns undefined for an empty table rather than throwing, because the six
+ * stubs above are empty on purpose and a caller's answer to that is to draw
+ * something else.
+ */
+export const rollTable = (table: readonly string[], rng: Rng): Rolled | undefined =>
+  table.length ? roll(table, rng) : undefined;
 
 /**
  * A trap is a trigger paired with an effect -- the two halves of a HazardSeed.

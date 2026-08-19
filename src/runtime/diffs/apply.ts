@@ -607,8 +607,9 @@ function createEntity(ctx: Ctx, holderId: string, value: unknown): void {
       ...(spec.amount ? { amount: spec.amount } : {}),
       // Worth nothing until something says otherwise, and the something cannot
       // be the referee: a price is a number, and the model does not write those.
-      // What it may name is a grade for `rollItemValue` to roll against, which
-      // needs a stream the applier does not have yet.
+      // Grades are gone with `rollItemValue`, so there is no longer even a
+      // judgement it could offer here — what a found thing is worth is decided
+      // at generation, from the conserved pot or from the catalog.
       value: 0,
     };
     if (spec.state) setState(item, spec.state);

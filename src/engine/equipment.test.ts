@@ -11,7 +11,6 @@ import {
   mintItem,
   mintSpellbook,
   mintTemplate,
-  rollItemValue,
   weaponFacts,
   type ItemTemplate,
 } from "./equipment.ts";
@@ -238,45 +237,6 @@ describe("spellbooks", () => {
     expect(book.spellBook.spellDescription).toBe(spell.effect);
     expect(book.spellBook.exhausted).toBe(false);
     expect(book.slots).toBe(1);
-  });
-});
-
-// ===========================================================================
-// WHAT A FOUND THING IS WORTH
-// ===========================================================================
-
-describe("rollItemValue", () => {
-  it("stays inside its band, whatever the seed", () => {
-    const bands = { mundane: [10, 120], notable: [120, 1200], significant: [1200, 12000] } as const;
-    for (const [grade, [lo, hi]] of Object.entries(bands)) {
-      for (let seed = 0; seed < 100; seed++) {
-        const v = rollItemValue(new Rng(seed), grade as keyof typeof bands);
-        expect(v, `${grade} seed ${seed}`).toBeGreaterThanOrEqual(lo);
-        expect(v, `${grade} seed ${seed}`).toBeLessThanOrEqual(hi);
-      }
-    }
-  });
-
-  it("climbs with the grade", () => {
-    const mean = (grade: "mundane" | "notable" | "significant") => {
-      const r = new Rng(3);
-      let total = 0;
-      for (let i = 0; i < 500; i++) total += rollItemValue(r, grade);
-      return total / 500;
-    };
-    expect(mean("mundane")).toBeLessThan(mean("notable"));
-    expect(mean("notable")).toBeLessThan(mean("significant"));
-  });
-
-  it("is the same number for the same seed", () => {
-    expect(rollItemValue(new Rng(11), "notable")).toBe(rollItemValue(new Rng(11), "notable"));
-  });
-
-  it("rounds to a number somebody could have written on a price list", () => {
-    for (let seed = 0; seed < 100; seed++) {
-      const v = rollItemValue(new Rng(seed), "significant");
-      expect(v % 100, `seed ${seed}`).toBe(0);
-    }
   });
 });
 

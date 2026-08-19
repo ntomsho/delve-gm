@@ -55,14 +55,14 @@ import {
 } from "./dungeon-fixtures.ts";
 import type {
   MobileEntity,
-  RewardParcel,
   RoomStock,
   SpecialContent,
   StockedConnector,
   StockedDungeon,
 } from "./dungeon-rooms-loop.ts";
+import { goalItemValue, type Reward } from "./dungeon-rewards.ts";
+import { CHALLENGE_LABEL } from "./dungeon-challenges.ts";
 import { properName } from "./dungeon-entities.ts";
-import { rollItemValue } from "./equipment.ts";
 import type {
   CreatureStats,
   ICreature,
@@ -366,16 +366,26 @@ function npcKeywords(n: NpcSeed): KW {
   return r;
 }
 
-const PARCEL_TABLE: Record<string, string> = {
-  material: "Valuable Material",
-  knowledge: "Knowledge",
-  leverage: "Leverage",
-  boon: "Boon",
-  relic: "Relic",
+const TREASURE_TABLE: Record<string, string> = {
+  coins: "Coin",
+  item: "Treasure Item",
+  "item-with-trait": "Treasure Item",
+  ingredients: "Magical Ingredient",
 };
 
-function itemKeywords(p: RewardParcel): KW {
-  return { [PARCEL_TABLE[p.type] ?? "Reward"]: p.content };
+/**
+ * What the writing pass is told about one reward entity.
+ *
+ * An equipment reward already knows what it is -- it came out of the catalog
+ * with a name, a price and its facts -- so the keyword is that name and the
+ * pass writes THIS coil of rope rather than choosing a thing. Treasure hands
+ * over its rolled content. A key hands over the fact it has to answer, which is
+ * the one case where the pass is being asked to invent the object.
+ */
+function rewardKeywords(rw: Reward, itemName: string): KW {
+  if (rw.kind === "equipment") return { Equipment: itemName };
+  if (rw.kind === "treasure") return { [TREASURE_TABLE[rw.row] ?? "Treasure"]: rw.content };
+  return { Key: rw.answers };
 }
 
 function hazardKeywords(s: SpecialContent): KW {
@@ -498,7 +508,11 @@ export function buildContentPassPayload(
   const mobById = new Map(sd.mobiles.map((m) => [m.id, m]));
   const ref = (r: RoomStock) => `room_${r.index}`;
 
+  const itemById = new Map(ep.items.map((i) => [i.id, i]));
   const itemIds = new Set(ep.items.map((i) => i.id));
+  const rewardById = new Map<string, Reward>();
+  for (const r of sd.rooms) for (const w of r.rewards) rewardById.set(w.id, w);
+  const challengeById = new Map(sd.challenges.map((c) => [c.id, c]));
   const hazardIds = new Set(ep.hazards.map((h) => h.id));
   const featureById = new Map(ep.features.map((f) => [f.id, f]));
 
@@ -574,9 +588,21 @@ export function buildContentPassPayload(
         case "hazard":
           if (r.special) keywords = hazardKeywords(r.special);
           break;
-        case "reward":
-          if (r.reward) keywords = itemKeywords(r.reward);
+        case "reward": {
+          const rw = b.rewardId ? rewardById.get(b.rewardId) : undefined;
+          if (rw) {
+            keywords = rewardKeywords(rw, itemById.get(b.entityId)?.name ?? "");
+            // A key is the one reward the pass has to invent rather than
+            // describe, so it is told what KIND of thing it answers. It has
+            // only the fact and the kind here, not the finished lock — that is
+            // the keys pass's job, and this is what it is going to replace.
+            if (rw.kind === "key") {
+              const c = challengeById.get(rw.challengeId);
+              note = `a key to ${c ? CHALLENGE_LABEL[c.kind] : "a challenge"}`;
+            }
+          }
           break;
+        }
       }
       entities.push({ ref: b.entityId, kind: b.element, entity, keywords, note, hidden: featureById.get(b.entityId)?.isHidden });
     }
@@ -1506,8 +1532,10 @@ function createGoalEntity(
 ): IRoom | IRoomFeature | IItem | ICreature {
   const kw: KW = { Reward: ep.pendingGoal.reward, Mission: ep.pendingGoal.mission };
   if (goal.entityType === "Item") {
-    // The thing the whole run is about, so it is priced as a significant find
-    // whatever room it ended up in.
+    // The thing the whole run is about, priced ABOVE every other single reward
+    // in this dungeon rather than out of its pot. Not a band and not a grade: a
+    // relative number, so the objective cannot be out-earned by a strongbox in
+    // a side room whatever the pot happened to roll.
     const it: IItem = {
       id: makeId(),
       name: goal.name,
@@ -1515,7 +1543,7 @@ function createGoalEntity(
       base: goal.base,
       parentId: roomId,
       slots: 1,
-      value: rollItemValue(rng, "significant"),
+      value: goalItemValue(sd.rooms.flatMap((r) => r.rewards), rng),
     };
     it.keywords = kw;
     ep.items.push(it);

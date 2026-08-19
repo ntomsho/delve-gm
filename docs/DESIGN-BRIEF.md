@@ -93,7 +93,7 @@ the static-mock deliverable the rest of this brief describes.
 Multi-step, back-navigable, nothing committed until the end.
 
 **Amended after this brief's first pass, and the amendments won where they
-disagree — see `CODING-PLAN.md` §3.** There are now two rule sets, normal and
+disagree — the character-creation session's record is in git history.** There are now two rule sets, normal and
 hardcore, chosen on a step of their own in front of the five below; rerolls are
 a budget rather than an unlimited affordance, so the reroll-all named in step 1
 is per-ability *as well*, and both cost the same one; the point-buy numbers here

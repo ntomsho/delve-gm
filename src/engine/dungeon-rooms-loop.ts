@@ -72,6 +72,8 @@ import {
 } from "./dungeon-blueprint.ts";
 
 import type { Dungeon, Edge, Room } from "./dungeon-phase-a.ts";
+import { enumerateChallenges, type Challenge } from "./dungeon-challenges.ts";
+import { placeRewards, type Pot, type Reward, type ReserveEntry } from "./dungeon-rewards.ts";
 import { sizeAllows, type SizeClass } from "./dungeon-room-size.ts";
 
 // ---------------------------------------------------------------------------
@@ -101,35 +103,6 @@ const CAIRN_FEATURE = t(
 
 const CAIRN_CLUE = t(
   "Decay|Decor|Draft|Echoes|Footprints|Leavings|Light|Markings|Moisture|Noise|Paraphernalia|Residue|Scurrying|Signs|Smell|Stains|Tapping|Temperature|Vibrations|Writing"
-);
-
-// --- Reward content ---------------------------------------------------------
-// MR's Dungeon Rewards table stays the GOAL-scope table (it holds campaign-scale
-// entries: Army, Renown, Planar portal...). Room-scope parcels draw from the
-// mid-scope subset below, plus injected mundane material that MR under-serves.
-
-const REWARD_SIGNIFICANT = t(
-  "Ancient lore|Cultural artifact|Holy relic|Lost formula|Machine|Magic item|Magical ally|Masterpiece|Oracle|Prophecy|Spell|Transformation|Vision|{Treasure Item}"
-);
-
-const REWARD_KNOWLEDGE = t(
-  "Enemy weakness|Forewarning|Blueprints|Instructions|Map fragment|Uncovered plot|Ancient lore|Faction secret|Location of a hidden way|Password or phrase"
-);
-
-const REWARD_LEVERAGE = t(
-  "Defensible chokepoint|Safe place to rest|Shortcut lever|Concealed hiding spot|Barricade materials|Vantage point|Working door bar|Escape route"
-);
-
-const REWARD_BOON = t(
-  "Blessing|Healing draught|Clean water and food|Restorative spring|Warm fire|Ward against the dungeon's affliction|Temporary strength|Removed condition"
-);
-
-const REWARD_COIN = t(
-  "Loose coin|Coin purse|Small strongbox|Buried cache|Pouch of trade bars|Tithe box"
-);
-
-const REWARD_EQUIPMENT = t(
-  "Rations|Rope and hooks|Lantern and oil|Torches|Tools|Spare armor|Bandages|Climbing gear|Antidote|Chalk and spikes"
 );
 
 // ---------------------------------------------------------------------------
@@ -172,24 +145,6 @@ function roll(table: readonly string[], rng: Rng): Rolled {
 export type Headline = "creature" | "special" | "quiet" | "none";
 export type RoomRole = "entrance" | "goal" | "normal";
 export type Disposition = "hostile" | "neutral" | "friendly";
-export type ParcelType =
-  | "material"
-  | "knowledge"
-  | "leverage"
-  | "boon"
-  | "relic";
-export type ParcelGrade = "mundane" | "notable" | "significant";
-
-export interface RewardParcel {
-  type: ParcelType;
-  grade: ParcelGrade;
-  content: Rolled;
-  /** true if this room was owed a parcel (dead end / non-hazard special) */
-  guaranteed: boolean;
-  /** for knowledge parcels that name a real roster creature's weakness */
-  aboutMobileId?: string;
-}
-
 export interface SpecialContent {
   kind: "hazard" | "obstacle";
   /** hazard: an environmental hazard, or a trap (trigger + effect) */
@@ -303,7 +258,12 @@ export interface RoomStock {
   danger: number;
   special?: SpecialContent;
   clue?: ClueContent;
-  reward?: RewardParcel;
+  /**
+   * Everything placed here, whoever ends up holding it. An array because there
+   * is deliberately NO CAP per room or per entity -- more than one reward in a
+   * room is fine, and sometimes you stumble on an awesome find.
+   */
+  rewards: Reward[];
 
   /** mobile entity ids currently located here */
   occupants: string[];
@@ -353,7 +313,19 @@ export interface StockedDungeon {
   /** per-dungeon share of creature encounters tied to the roster */
   cohesion: number;
   quota: Record<Headline, number>;
-  rewardBudget: { K: number; guaranteed: number; contested: number };
+  /**
+   * Every keyable property in the dungeon, enumerated. Keys answer these,
+   * accomplishments resolve them, and XP prices them -- see dungeon-challenges.
+   */
+  challenges: Challenge[];
+  /**
+   * The challenges no placed key answers, held for a draw in play. Pure data:
+   * a reserve entry is written only when it is drawn.
+   */
+  reserve: ReserveEntry[];
+  /** the dungeon's money, conserved */
+  pot: Pot;
+  rewardBudget: { general: number; keys: number; reserved: number };
 }
 
 // ---------------------------------------------------------------------------
@@ -728,186 +700,6 @@ function scoreDanger(room: RoomStock, mobiles: MobileEntity[], maxDepth: number)
 }
 
 // ---------------------------------------------------------------------------
-// STEP 6 -- REWARD DISTRIBUTION
-// ---------------------------------------------------------------------------
-// K parcels, conserved. Guarantees (dead ends, non-hazard obstacles) come off
-// the top as a UNION -- a room that is both gets one parcel, not two. The rest
-// go by weighted draw without replacement, so a monster room coming up empty
-// literally hands its share to another high-weight room.
-
-function rewardBudget(V: number): number {
-  return Math.max(3, Math.round(0.55 * V));
-}
-
-/**
- * Target share of parcels that should be actual loot. MR's Rewards table leans
- * hard away from the mundane, and the guarantee set (dead ends + puzzle rooms)
- * biases to leverage/knowledge, so without a floor material gets crowded out
- * entirely. Tracked across the whole distribution, not per room.
- */
-const MATERIAL_TARGET_SHARE = 0.45;
-
-function parcelTypeFor(
-  room: RoomStock,
-  rng: Rng,
-  grade: ParcelGrade,
-  ledger: { placed: number; material: number; K: number }
-): ParcelType {
-  if (grade === "significant") return "relic";
-
-  // How far behind target is material? Scale its weight up to close the gap.
-  const want = MATERIAL_TARGET_SHARE * ledger.K;
-  const remaining = Math.max(1, ledger.K - ledger.placed);
-  const deficit = Math.max(0, want - ledger.material);
-  const boost = 1 + 3 * Math.min(1, deficit / remaining);
-
-  const w: Array<[ParcelType, number]> = [];
-  if (room.headline === "creature") {
-    w.push(["material", 5 * boost], ["knowledge", 3], ["boon", 2], ["leverage", 1]);
-  } else if (room.headline === "special") {
-    if (room.special?.kind === "obstacle") {
-      // Puzzles always pay, but bias to leverage/knowledge so scarce material
-      // parcels stay contested rather than being locked up by guarantees.
-      w.push(["leverage", 4], ["knowledge", 4], ["material", 2 * boost], ["boon", 1]);
-    } else {
-      w.push(["material", 4 * boost], ["knowledge", 2], ["boon", 2], ["leverage", 2]);
-    }
-  } else {
-    w.push(["knowledge", 4], ["boon", 3], ["leverage", 3], ["material", 2 * boost]);
-  }
-
-  const total = w.reduce((s, [, n]) => s + n, 0);
-  let r = rng.next() * total;
-  for (const [type, n] of w) {
-    r -= n;
-    if (r <= 0) return type;
-  }
-  return w[w.length - 1][0];
-}
-
-function gradeFor(room: RoomStock, level: number, maxDepth: number, rng: Rng): ParcelGrade {
-  const depthNorm = maxDepth ? room.depth / maxDepth : 0;
-  // Level moves grade only -- never parcel count, never headline mix.
-  const g =
-    room.danger * 0.45 +
-    depthNorm * 0.3 +
-    (level / 10) * 0.15 +
-    (room.isDeadEnd ? 0.1 : 0) +
-    rng.next() * 0.15;
-  if (g > 0.78) return "significant";
-  if (g > 0.48) return "notable";
-  return "mundane";
-}
-
-function parcelContent(
-  type: ParcelType,
-  grade: ParcelGrade,
-  rng: Rng
-): Rolled {
-  switch (type) {
-    case "relic":
-      return roll(REWARD_SIGNIFICANT, rng);
-    case "knowledge":
-      return roll(REWARD_KNOWLEDGE, rng);
-    case "leverage":
-      return roll(REWARD_LEVERAGE, rng);
-    case "boon":
-      return roll(REWARD_BOON, rng);
-    case "material":
-    default: {
-      // Mundane leans coin/equipment; better grades reach the object tables.
-      const pools =
-        grade === "mundane"
-          ? [REWARD_COIN, REWARD_EQUIPMENT, REWARD_COIN, WEAPON_ITEMS]
-          : grade === "notable"
-          ? [TREASURE_ITEMS, VALUABLE_MATERIALS, WEAPON_ITEMS, REWARD_COIN]
-          : [TREASURE_ITEMS, VALUABLE_MATERIALS];
-      return roll(rng.pick(pools), rng);
-    }
-  }
-}
-
-function distributeRewards(
-  rooms: RoomStock[],
-  level: number,
-  maxDepth: number,
-  mobiles: MobileEntity[],
-  rng: Rng
-): { K: number; guaranteed: number; contested: number } {
-  const K = rewardBudget(rooms.length);
-  const ledger = { placed: 0, material: 0, K };
-
-  const eligible = rooms.filter((r) => r.role !== "entrance");
-
-  // Guarantee set, as a union.
-  const guaranteedRooms = eligible.filter(
-    (r) =>
-      r.isDeadEnd ||
-      (r.headline === "special" && r.special?.kind === "obstacle") ||
-      (r.stacked === "special" && r.special?.kind === "obstacle")
-  );
-
-  const give = (room: RoomStock, guaranteed: boolean) => {
-    const grade = gradeFor(room, level, maxDepth, rng);
-    const type = parcelTypeFor(room, rng, grade, ledger);
-    ledger.placed++;
-    if (type === "material") ledger.material++;
-    const content = parcelContent(type, grade, rng);
-    const parcel: RewardParcel = { type, grade, content, guaranteed };
-
-    // Knowledge parcels prefer to name a real roster creature's actual
-    // weakness -- the blueprint already rolled those, so the reward has teeth
-    // and points back at the dungeon's own cast.
-    if (type === "knowledge" && content === "Enemy weakness") {
-      const withWeakness = mobiles.filter(
-        (m) => m.monster && m.monster.weaknesses.length > 0
-      );
-      // A minion's flaw is not worth a reward slot. Prefer the thing
-      // the party actually has to get past: a group's base, then any
-      // non-minion creature, and only then whatever is left.
-      const bases = withWeakness.filter((m) => m.isBase && !m.minion);
-      const standalone = withWeakness.filter((m) => !m.minion);
-      const pool = bases.length ? bases : standalone.length ? standalone : withWeakness;
-      if (pool.length) parcel.aboutMobileId = rng.pick(pool).id;
-    }
-    room.reward = parcel;
-  };
-
-  let spent = 0;
-  for (const r of guaranteedRooms) {
-    if (spent >= K) break;
-    give(r, true);
-    spent++;
-  }
-  const guaranteed = spent;
-
-  // Contested pool: weighted draw without replacement.
-  const pool = eligible.filter((r) => !r.reward);
-  const weights = pool.map((r) => {
-    const depthNorm = maxDepth ? r.depth / maxDepth : 0;
-    return Math.max(0.02, r.danger * (0.5 + 0.5 * depthNorm));
-  });
-
-  while (spent < K && pool.length) {
-    const total = weights.reduce((s, w) => s + w, 0);
-    if (total <= 0) break;
-    let x = rng.next() * total;
-    let idx = 0;
-    for (; idx < pool.length; idx++) {
-      x -= weights[idx];
-      if (x <= 0) break;
-    }
-    if (idx >= pool.length) idx = pool.length - 1;
-    give(pool[idx], false);
-    pool.splice(idx, 1);
-    weights.splice(idx, 1);
-    spent++;
-  }
-
-  return { K, guaranteed, contested: spent - guaranteed };
-}
-
-// ---------------------------------------------------------------------------
 // STEP 7 -- CLUE POINTERS
 // ---------------------------------------------------------------------------
 // Cairn's Clue column is not lore -- Draft, Echoes, Scurrying, Leavings are all
@@ -944,8 +736,8 @@ function resolveClueTargets(
       if (n.headline === "creature") score += 0.8;
       if (n.role === "goal") score += 1.2;
       if (hiddenRoomIds.has(n.roomId)) score += 1.0;
-      if (n.reward) score += 0.5;
-      if (n.headline === "quiet" && !n.reward) score -= 0.05;
+      if (n.rewards.length) score += 0.5;
+      if (n.headline === "quiet" && !n.rewards.length) score -= 0.05;
       return { n, score };
     });
 
@@ -1089,6 +881,7 @@ export function stockDungeon(
     isDeadEnd: s.deadEnds.has(i),
     danger: 0,
     occupants: [],
+    rewards: [],
   }));
   const byIndex = new Map(rooms.map((r) => [r.index, r]));
   const mobiles: MobileEntity[] = [];
@@ -1261,8 +1054,27 @@ export function stockDungeon(
   // ---- 5e. danger ----
   for (const r of rooms) r.danger = scoreDanger(r, mobiles, s.maxDepth);
 
-  // ---- 6. rewards ----
-  const rewardStats = distributeRewards(rooms, level, s.maxDepth, mobiles, rng);
+  // ---- 6. challenges, then rewards ----
+  // The enumeration comes FIRST and everything after reads from it: a key is a
+  // reward that answers one challenge, so there is nothing to place until the
+  // dungeon's questions are written down.
+  const challenges = enumerateChallenges({
+    rooms,
+    mobiles,
+    connectors,
+    goalRoomId: goalRoom.roomId,
+  });
+  const placement = placeRewards({
+    rooms,
+    connectors,
+    mobiles,
+    entranceRoomId: entranceRoom.roomId,
+    goalRoomId: goalRoom.roomId,
+    size: blueprint.size,
+    challenges,
+    maxDepth: s.maxDepth,
+    rng,
+  });
 
   // ---- 7. clue pointers (after everything is placed) ----
   resolveClueTargets(rooms, byIndex, s, connectors, mobiles, rng);
@@ -1280,7 +1092,10 @@ export function stockDungeon(
     connectors,
     cohesion,
     quota: { ...quota, none: 1 },
-    rewardBudget: rewardStats,
+    challenges,
+    reserve: placement.reserve,
+    pot: placement.pot,
+    rewardBudget: placement.stats,
   };
 }
 
@@ -1569,7 +1384,10 @@ export function stockSheet(sd: StockedDungeon, bp: DungeonBlueprintSeed): string
     `quota placed -> creature ${sd.quota.creature}  special ${sd.quota.special}  quiet ${sd.quota.quiet}  (entrance excluded)`
   );
   L.push(
-    `reward budget K=${sd.rewardBudget.K}  guaranteed ${sd.rewardBudget.guaranteed}  contested ${sd.rewardBudget.contested}`
+    `rewards -> general ${sd.rewardBudget.general}  keys ${sd.rewardBudget.keys}  reserved ${sd.rewardBudget.reserved}`
+  );
+  L.push(
+    `pot ${sd.pot.total}cp -> placed ${sd.pot.placed}  allowance ${sd.pot.allowance}   challenges ${sd.challenges.length}`
   );
 
   const counts: Record<string, number> = {};
@@ -1579,10 +1397,10 @@ export function stockSheet(sd: StockedDungeon, bp: DungeonBlueprintSeed): string
       .map(([k, v]) => `${k} ${v}`)
       .join("  ")}`
   );
-  const withReward = sd.rooms.filter((r) => r.reward).length;
-  const material = sd.rooms.filter((r) => r.reward?.type === "material").length;
+  const withReward = sd.rooms.filter((r) => r.rewards.length).length;
+  const keys = sd.rooms.reduce((n, r) => n + r.rewards.filter((w) => w.kind === "key").length, 0);
   L.push(
-    `rooms with a reward: ${withReward}/${sd.rooms.length}  (material parcels: ${material})`
+    `rooms with a reward: ${withReward}/${sd.rooms.length}  (placed keys: ${keys})`
   );
   L.push("");
 
@@ -1652,15 +1470,17 @@ export function stockSheet(sd: StockedDungeon, bp: DungeonBlueprintSeed): string
       );
     }
 
-    if (r.reward) {
-      const about = r.reward.aboutMobileId
-        ? ` [names ${mobById.get(r.reward.aboutMobileId)?.name}]`
-        : "";
-      L.push(
-        `      REWARD (${r.reward.grade} ${r.reward.type}${
-          r.reward.guaranteed ? ", guaranteed" : ""
-        }): ${rr(r.reward.content)}${about}`
-      );
+    for (const w of r.rewards) {
+      const held =
+        w.holder.kind === "mobile" ? ` [carried by ${mobById.get(w.holder.id)?.name}]` : "";
+      const flag = w.guaranteed ? ", guaranteed" : "";
+      const what =
+        w.kind === "equipment"
+          ? `${w.row}: ${w.draws.map((d) => (d.kind === "catalog" ? d.key : d.kind === "spellbook" ? d.spell : rr(d.content))).join(", ")}`
+          : w.kind === "treasure"
+          ? `${w.row}: ${rr(w.content)} (${w.value}cp)`
+          : `answers ${rr(w.answers)} (${w.value}cp)`;
+      L.push(`      ${w.kind.toUpperCase()} (${w.id}${flag}): ${what}${held}`);
     }
   }
 

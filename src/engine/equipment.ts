@@ -52,7 +52,6 @@ import type {
   IWeapon,
   WeaponFacts,
 } from "./dungeon-entities.ts";
-import type { ParcelGrade } from "./dungeon-rooms-loop.ts";
 import type { Spell } from "./knave-tables.ts";
 
 // ===========================================================================
@@ -1066,29 +1065,13 @@ export function mintSpellbook(spell: Spell, parentId: string): ISpellbook {
 // ===========================================================================
 // WHAT SOMETHING FOUND IS WORTH
 // ===========================================================================
-
-/**
- * Copper for a thing that was never on a price list.
- *
- * Anchored to Knave's own numbers rather than invented from nothing: a starting
- * purse is 3d6×20 (60–360cp), a gambeson is 60 and a spyglass 1000, so a
- * mundane find is gear money, a notable one is armour money, and a significant
- * one beats full plate. Each band is ten times the one under it.
- *
- * THE MODEL NEVER PICKS THIS. A referee that priced its own treasure would be
- * generating a number; what it may do is say which of the three grades a thing
- * is, which is a judgement about fiction, and the dice do the rest.
- */
-const VALUE_BANDS: Record<ParcelGrade, readonly [number, number]> = {
-  mundane: [10, 120],
-  notable: [120, 1200],
-  significant: [1200, 12000],
-};
-
-export function rollItemValue(rng: Rng, grade: ParcelGrade): number {
-  const [lo, hi] = VALUE_BANDS[grade];
-  const raw = rng.range(lo, hi);
-  // Round to something a price could plausibly be written as.
-  const step = raw >= 1000 ? 100 : raw >= 100 ? 10 : 5;
-  return Math.max(lo, Math.round(raw / step) * step);
-}
+//
+// NOTHING, HERE. `VALUE_BANDS` and `rollItemValue` were the whole of it, and
+// they are gone: grade alone set an item's worth, so a dungeon's total take was
+// whatever its grades happened to roll -- three significant parcels was
+// 3,600-36,000cp against a Knave starting purse of 60-360.
+//
+// Money is a conserved pot now, partitioned across the placed treasure before
+// anything reaches the LLM. See `dungeon-rewards.ts`. What a found thing is
+// worth arrives WITH it, from the share it drew or from the catalog above, and
+// the referee still never names a number.

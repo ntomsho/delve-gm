@@ -292,6 +292,25 @@ export interface IRoomFeature extends IEntity {
    * a brazier that gets knocked over changes its `state`, not its footprint.
    */
   place?: Placement;
+  /**
+   * This feature is the room's rolled OBSTACLE — the puzzle standing in the way.
+   *
+   * Signposted on the entity because it has to survive into play. Until now the
+   * only thing that knew a feature was a puzzle was the generation-time
+   * `ElementBinding`, and bindings do not reach the runtime, so nothing at the
+   * table could tell an obstacle from a bas-relief. An obstacle is a challenge
+   * — see `dungeon-challenges.ts` — and a challenge that cannot be recognised
+   * cannot be resolved.
+   *
+   * Written once, at generation, like `place`. What changes in play is
+   * `resolved`.
+   */
+  isObstacle?: boolean;
+  /**
+   * The obstacle has been solved or defeated. Either counts, and nothing else
+   * does — the two are the same accomplishment seen from opposite ends.
+   */
+  resolved?: boolean;
 }
 
 /**

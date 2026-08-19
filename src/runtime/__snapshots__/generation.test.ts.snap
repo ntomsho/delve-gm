@@ -191,7 +191,7 @@ depth: furthest   tension: lethal
 headline: special
 room keywords: Room=Storeroom
 as drawn: a small chamber, about 20 by 35 feet -- oblong, running north-south, irregular, its walls stepping in and out. Ways out: one off the north wall, one off the south wall
-entity [<id>] reward (Item): Relic=Machine
+entity [<id>] reward (Item): Equipment=Small silver mirror
 connector [<id>] in the north wall, toward the west end to room_1 (Gate house) CONCEALED -- write it as the thing a person would walk past -- a seam, a draught, a panel that rings hollow -- not as a door; no barrier
 connector [<id>] in the south wall, at the middle to room_4 (Stockyard) -- say what it physically is; no barrier
 GOAL HERE: reward "Jewels" + mission "Deface".
@@ -205,6 +205,7 @@ depth: furthest   tension: lethal
 headline: creature
 room keywords: Room=Gate house  |  Room Detail=Recent repairs
 as drawn: a small chamber, about 20 by 35 feet -- oblong, running north-south, irregular, its walls stepping in and out. Ways out: one off the south wall, one off the west wall
+entity [<id>] reward (Item): Treasure Item=Blueprints (Owned)
 promotable detail [Room Detail=Recent repairs] -- make it an entity only if a player would act on it
 connector [<id>] in the west wall, at the middle to room_2 (Oubliette) -- say what it physically is; no barrier
 encounter [mob_6vw_2] Band, unaffiliated, currently Loot, disposition hostile
@@ -226,6 +227,7 @@ depth: deep   tension: uneasy
 headline: quiet
 room keywords: Room=Oubliette
 as drawn: a small chamber, about 10 by 35 feet -- long and narrow, running north-south, close to a rectangle, give or take a corner. Ways out: one off the south wall, one off the east wall
+entity [<id>] reward (Item): Key=where Jewels lies -- a key to where the objective is
 connector [<id>] in the south wall, at the middle to room_3 (Chasm) -- say what it physically is; no barrier
 open exits: room_1, room_3
 fixtures: up to 2, or none
@@ -236,7 +238,7 @@ depth: middle   tension: dangerous
 headline: creature
 room keywords: Room=Chasm  |  Room Detail=Mosaics
 as drawn: a tiny chamber, about 25 by 15 feet -- oblong, running east-west, irregular, its walls stepping in and out. Ways out: one off the north wall, one off the south wall, one off the east wall
-entity [<id>] reward (Item): Valuable Material=Garnet
+entity [<id>] reward (Item): Key=the way is concealed -- a key to a concealed way
 promotable detail [Room Detail=Mosaics] -- make it an entity only if a player would act on it
 connector [<id>] in the east wall, at the middle to room_4 (Stockyard) -- say what it physically is; no barrier
 connector [<id>] in the south wall, toward the west end to room_5 (Cavern) -- say what it physically is; no barrier
@@ -254,7 +256,7 @@ headline: special
 room keywords: Room=Stockyard  |  Room Detail=Chains
 as drawn: a tiny chamber, about 30 by 10 feet -- long and narrow, running east-west, irregular, its walls stepping in and out. Ways out: one off the north wall, one off the west wall
 entity [<id>] obstacle (RoomFeature): Obstacle=Flames  |  Trick=Exchange
-entity [<id>] reward (Item): Valuable Material=Flanged mace
+entity [<id>] reward (Item): Equipment=Potion of Water-breathing
 promotable detail [Room Detail=Chains] -- make it an entity only if a player would act on it
 open exits: room_3, room_0
 fixtures: up to 1, or none

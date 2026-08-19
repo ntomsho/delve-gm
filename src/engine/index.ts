@@ -56,6 +56,12 @@ export * from "./dungeon-entities.ts";
 // --- stocking --------------------------------------------------------------
 export * from "./dungeon-rooms-loop.ts";
 
+// --- challenges and rewards ------------------------------------------------
+// What the dungeon asks, and what it pays. Stocking calls both; the entities
+// pass and the content pass read what they produced.
+export * from "./dungeon-challenges.ts";
+export * from "./dungeon-rewards.ts";
+
 // --- deterministic entity emission -----------------------------------------
 export * from "./dungeon-entities-pass.ts";
 

@@ -37,10 +37,10 @@
 
 import type {
   MobileEntity,
-  RewardParcel,
   RoomStock,
   StockedDungeon,
 } from "./dungeon-rooms-loop.ts";
+import type { EquipmentDraw, Reward } from "./dungeon-rewards.ts";
 import type {
   Complexity,
   DungeonBlueprintSeed,
@@ -50,7 +50,7 @@ import type {
   Tier,
 } from "./dungeon-blueprint.ts";
 import { Rng, TIER_COMPLEXITY, makeId } from "./dungeon-blueprint.ts";
-import { rollItemValue } from "./equipment.ts";
+import { mintItem, mintSpellbook } from "./equipment.ts";
 import type {
   CreatureStats,
   CreatureTemplate,
@@ -86,6 +86,23 @@ export interface ElementBinding {
     | "detail";
   /** the rolled keyword(s) behind it, for the writing pass */
   keywords: string[];
+  /**
+   * Reward bindings only: which `Reward` this entity came out of.
+   *
+   * One reward can emit several entities -- a general-gear row hands over two
+   * to four things -- and several rewards can sit in one room, so the room is
+   * no longer enough to find the reward an item belongs to. The keys pass reads
+   * this to find the challenge a placed key answers.
+   */
+  rewardId?: string;
+  /**
+   * Creature bindings only: the `MobileEntity.id` this entity was emitted from.
+   *
+   * Stocking names creatures by mobile id -- a challenge does, and so does a
+   * reward carried by one -- while entities get their own minted ids, and
+   * nothing else carries the mapping between them.
+   */
+  mobileId?: string;
 }
 
 export interface DetailCandidate {
@@ -177,12 +194,63 @@ const kw = (...r: Array<string | undefined>): string[] =>
   r.filter((x): x is string => !!x);
 
 /**
- * A parcel is a thing you carry off or a thing you learn. Loot is an item;
- * knowledge, leverage, and boons are things the room holds -- an inscription, a
- * bound favour, a working mechanism -- so they land as features. See OPEN #4.
+ * WHAT A REWARD BECOMES.
+ *
+ * Every reward is an ITEM now, and the old split -- loot as an item, knowledge
+ * and leverage and boons as features of the room -- went with the parcel types
+ * that produced them. A key is an object placed to answer a challenge; treasure
+ * is a thing you carry off; equipment is one or more catalog entries. None of
+ * the three is furniture.
+ *
+ * An equipment reward can be several items: two to four pieces of general gear
+ * is ONE reward and four entities, because a player picks them up one at a time.
  */
-function parcelIsItem(p: RewardParcel): boolean {
-  return p.type === "material" || p.type === "relic";
+function rewardItems(
+  rw: Reward,
+  parentId: string,
+  rng: Rng
+): Array<{ item: IItem; keywords: string[] }> {
+  switch (rw.kind) {
+    case "equipment":
+      return rw.draws.map((d) => ({ item: equipmentItem(d, parentId, rng), keywords: [] }));
+
+    case "treasure":
+      return [
+        {
+          // The value arrived with the reward: it is the share this parcel drew
+          // from the conserved pot, settled before the content pass ever ran.
+          item: { id: makeId(), name: "", type: "Item", parentId, slots: 1, value: rw.value },
+          keywords: kw(rw.content),
+        },
+      ];
+
+    case "key":
+      return [
+        {
+          item: { id: makeId(), name: "", type: "Item", parentId, slots: 1, value: rw.value },
+          keywords: kw(rw.answers),
+        },
+      ];
+  }
+}
+
+/** One catalog draw, as a carried thing. Name, slots, facts and price all come from the table. */
+function equipmentItem(d: EquipmentDraw, parentId: string, rng: Rng): IItem {
+  if (d.kind === "catalog") {
+    return mintItem(d.key, parentId, rng, {
+      ...(d.amount !== undefined ? { amount: d.amount } : {}),
+      value: d.value,
+    });
+  }
+  if (d.kind === "spellbook") {
+    return mintSpellbook({ name: d.spell, effect: d.effect }, parentId);
+  }
+  // A ROLLED DRAW CARRIES ITS OWN NAME, and it is the only thing it carries.
+  // `rewardKeywords` hands the writing pass `Equipment: <item name>`, so
+  // dropping `content` here left the pass a reward with nothing to write from
+  // -- which is what it did until POTIONS was filled and the row became
+  // reachable. There is no catalog entry to fall back on by definition.
+  return { id: makeId(), name: d.content, type: "Item", parentId, slots: 1, value: d.value };
 }
 
 // ---------------------------------------------------------------------------
@@ -396,6 +464,7 @@ export function runEntitiesPass(
           type: "RoomFeature",
           roomId: r.roomId,
         };
+        f.isObstacle = true;
         features.push(f);
         bind(f.id, r.roomId, "obstacle", kw(r.special.subject, r.special.behaviour));
       }
@@ -413,34 +482,6 @@ export function runEntitiesPass(
       bind(f.id, r.roomId, "clue", kw(r.clue.keyword));
     }
 
-    // reward parcel
-    if (r.reward) {
-      if (parcelIsItem(r.reward)) {
-        const it: IItem = {
-          id: makeId(),
-          name: "",
-          type: "Item",
-          parentId: r.roomId,
-          slots: 1,
-          // What it is worth comes off the grade the stocking pass already
-          // decided, through the seeded stream — the content pass writes what
-          // this thing IS, and a price is not that kind of fact.
-          value: rollItemValue(rng, r.reward.grade),
-        };
-        items.push(it);
-        bind(it.id, r.roomId, "reward", kw(r.reward.content));
-      } else {
-        const f: IRoomFeature = {
-          id: makeId(),
-          name: "",
-          type: "RoomFeature",
-          roomId: r.roomId,
-        };
-        features.push(f);
-        bind(f.id, r.roomId, "reward", kw(r.reward.content));
-      }
-    }
-
     rooms.push(room);
   }
 
@@ -450,10 +491,34 @@ export function runEntitiesPass(
   const groups = new Map<string, InhabitantGroup>();
   for (const g of [...bp.inhabitants, ...sd.wandererGroups]) groups.set(g.id, g);
 
+  // Which entity each mobile became. Stocking works in mobile ids -- challenges
+  // name one, and so does a reward carried by a creature -- and this is the one
+  // place the two numbering systems meet.
+  const creatureOf = new Map<string, string>();
   for (const m of sd.mobiles) {
     const c = emitCreature(m, groups, sd.level, registry, rng);
     creatures.push(c);
-    bind(c.id, m.locationRoomId, "creature", kw(m.activity));
+    creatureOf.set(m.id, c.id);
+    bindings.push({ entityId: c.id, roomId: m.locationRoomId, element: "creature", keywords: kw(m.activity), mobileId: m.id });
+  }
+
+  // --- rewards ---
+  // AFTER the creatures, because a reward can be carried by one and an item
+  // needs its holder's entity id to be parented to it. Everything else about a
+  // reward was settled during stocking.
+  //
+  // The binding still names the ROOM, whoever is holding it: that is what the
+  // content pass groups by, and a thing in a monster's grip is still a thing
+  // found in that room.
+  for (const r of sd.rooms) {
+    for (const rw of r.rewards) {
+      const parentId =
+        rw.holder.kind === "mobile" ? creatureOf.get(rw.holder.id) ?? r.roomId : r.roomId;
+      for (const { item, keywords } of rewardItems(rw, parentId, rng)) {
+        items.push(item);
+        bindings.push({ entityId: item.id, roomId: r.roomId, element: "reward", keywords, rewardId: rw.id });
+      }
+    }
   }
 
   // --- connectors ---
