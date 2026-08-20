@@ -14,6 +14,7 @@ import { generateOffline, testCharacter } from "./__fixtures__/offline.ts";
 import { applyCommit } from "./diffs/apply.ts";
 import { PLAYER_ID, type Commit, type Diff, type World } from "./diffs/types.ts";
 import { roomIndex } from "./occupancy.ts";
+import { newChallengeState } from "./challenges.ts";
 import { CountingRng } from "./rng.ts";
 import { createGameStore, loadGame, saveDungeon, saveRun } from "../store/game.ts";
 /** This file's own store — see the note atop `store/game.ts`. */
@@ -283,6 +284,11 @@ describe("a run through a generated dungeon", () => {
       currentRoomId: dungeon.stocked.entranceRoomId,
       goalMet: false,
       fiction: [],
+      challenges: dungeon.stocked.challenges,
+      reserve: dungeon.stocked.reserve,
+      challengeState: newChallengeState(dungeon.stocked.pot.allowance),
+      turn: 1,
+      runSeed: dungeon.seeds.runSeed,
     };
     const room = dungeon.stocked.entranceRoomId;
 

@@ -85,6 +85,16 @@ export interface Challenge {
   /** set on region challenges only */
   chunk?: number;
   /**
+   * Region challenges only: every room the chart covers.
+   *
+   * Carried on the challenge rather than looked up later because by the time a
+   * region key is drawn there is nothing left holding the chunk map — `RoomStock`
+   * belongs to generation and the runtime world has entities, which do not know
+   * which chunk they were written in. It is one array on one challenge per
+   * region, and it is what `mapped` is filled from.
+   */
+  roomIds?: string[];
+  /**
    * The rolled fact being keyed, verbatim: the weakness, the ability, the
    * liability, the hazard, the puzzle's subject. Exact wording matters -- it is
    * what a drawn key restates and what stops the fact drifting between calls.
@@ -236,6 +246,8 @@ export function enumerateChallenges(sd: ChallengeSource): Challenge[] {
       targetId: `c${chunk}`,
       roomId: head.roomId,
       chunk,
+      // In room order, which is stocking order, which is stable for a seed.
+      roomIds: sd.rooms.filter((r) => r.chunk === chunk).map((r) => r.roomId),
       property: `the layout beyond ${head.identity}`,
     });
   }
@@ -309,5 +321,85 @@ function pushNpc(out: Challenge[], m: MobileEntity): void {
       roomId: m.locationRoomId,
       property: npc.asset,
     });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// FROM A CHALLENGE TO THE THING IN THE ROOM
+// ---------------------------------------------------------------------------
+
+/**
+ * What a challenge is ABOUT, as an entity a player can meet.
+ *
+ * A challenge names stocking-level things -- a mobile id, a connector id, a room
+ * id -- because that is all that exists when it is enumerated. Everything after
+ * generation deals in entities, and this is the one crossing between them. Both
+ * the keys pass (writing what a key answers) and the runtime (writing the fact
+ * onto the thing it is true of) go through here, so there is exactly one answer
+ * to "which entity is this challenge about" rather than two that can drift.
+ *
+ * A creature challenge can anchor to SEVERAL entities: one mobile becomes a
+ * consolidated group and the distinct specimens standing beside it, and the
+ * weakness is true of all of them. The array is in binding order, which is the
+ * order the entities pass emitted them in.
+ */
+export interface ChallengeAnchor {
+  entityIds: string[];
+  type: "Creature" | "RoomConnector" | "Hazard" | "RoomFeature" | "Room";
+}
+
+/**
+ * The bindings this needs, narrowed so `dungeon-challenges` does not depend on
+ * the entities pass. `EntityPassResult["bindings"]` satisfies it.
+ */
+export interface AnchorSource {
+  bindings: readonly {
+    entityId: string;
+    roomId: string;
+    element: string;
+    mobileId?: string | undefined;
+  }[];
+}
+
+export function anchorOf(c: Challenge, src: AnchorSource): ChallengeAnchor | undefined {
+  const byElement = (roomId: string, element: string): string[] =>
+    src.bindings.filter((b) => b.roomId === roomId && b.element === element).map((b) => b.entityId);
+
+  switch (c.kind) {
+    case "creature-weakness":
+    case "creature-ability":
+    case "npc-liability":
+    case "npc-asset": {
+      // Through the bindings, NOT through a creature's own fields: the content
+      // pass throws away the placeholder roster and mints its own, and the
+      // binding is what gets rewritten to follow it.
+      const ids = src.bindings
+        .filter((b) => b.element === "creature" && b.mobileId === c.targetId)
+        .map((b) => b.entityId);
+      return ids.length ? { entityIds: ids, type: "Creature" } : undefined;
+    }
+
+    case "blocked-way":
+    case "concealed-way":
+      // Connector ids survive the entities pass unchanged.
+      return { entityIds: [c.targetId], type: "RoomConnector" };
+
+    case "hazard": {
+      const ids = byElement(c.targetId, "hazard");
+      return ids.length ? { entityIds: ids, type: "Hazard" } : undefined;
+    }
+
+    case "obstacle": {
+      const ids = byElement(c.targetId, "obstacle");
+      return ids.length ? { entityIds: ids, type: "RoomFeature" } : undefined;
+    }
+
+    // A region and the objective's location are both answered by a PLACE. The
+    // objective's own properties are true of the objective, but it stands in
+    // that room and the room is the thing already guaranteed to exist.
+    case "region":
+    case "goal-location":
+    case "goal-property":
+      return { entityIds: [c.roomId], type: "Room" };
   }
 }

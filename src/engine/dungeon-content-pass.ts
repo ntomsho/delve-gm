@@ -61,7 +61,7 @@ import type {
   StockedDungeon,
 } from "./dungeon-rooms-loop.ts";
 import { goalItemValue, type Reward } from "./dungeon-rewards.ts";
-import { CHALLENGE_LABEL } from "./dungeon-challenges.ts";
+import { withheldKeyItems } from "./dungeon-keys-pass.ts";
 import { properName } from "./dungeon-entities.ts";
 import type {
   CreatureStats,
@@ -512,7 +512,7 @@ export function buildContentPassPayload(
   const itemIds = new Set(ep.items.map((i) => i.id));
   const rewardById = new Map<string, Reward>();
   for (const r of sd.rooms) for (const w of r.rewards) rewardById.set(w.id, w);
-  const challengeById = new Map(sd.challenges.map((c) => [c.id, c]));
+  const withheld = withheldKeyItems(sd, ep);
   const hazardIds = new Set(ep.hazards.map((h) => h.id));
   const featureById = new Map(ep.features.map((f) => [f.id, f]));
 
@@ -567,6 +567,12 @@ export function buildContentPassPayload(
     for (const b of ep.bindings) {
       if (b.roomId !== r.roomId) continue;
       if (b.element === "creature" || b.element === "connector" || b.element === "detail") continue;
+      // A PLACED KEY IS LEFT NAMELESS HERE, the way a seam is left formless.
+      // Its lock is usually in another chunk and has not been written at the
+      // moment this payload is built, so anything written now could only invent
+      // one. `dungeon-keys-pass.ts` writes it afterwards with both in front of
+      // it. The key still gets a position -- see `placeWithheld` in the applier.
+      if (withheld.has(b.entityId)) continue;
       const entity = itemIds.has(b.entityId) ? "Item" : hazardIds.has(b.entityId) ? "Hazard" : "RoomFeature";
 
       let keywords: KW = {};
@@ -589,18 +595,12 @@ export function buildContentPassPayload(
           if (r.special) keywords = hazardKeywords(r.special);
           break;
         case "reward": {
+          // Keys never reach here — `withheld` dropped them above, and the keys
+          // pass writes them once their lock exists. What is left is equipment,
+          // which arrived from the catalog already knowing what it is, and
+          // treasure, which hands over its rolled content.
           const rw = b.rewardId ? rewardById.get(b.rewardId) : undefined;
-          if (rw) {
-            keywords = rewardKeywords(rw, itemById.get(b.entityId)?.name ?? "");
-            // A key is the one reward the pass has to invent rather than
-            // describe, so it is told what KIND of thing it answers. It has
-            // only the fact and the kind here, not the finished lock — that is
-            // the keys pass's job, and this is what it is going to replace.
-            if (rw.kind === "key") {
-              const c = challengeById.get(rw.challengeId);
-              note = `a key to ${c ? CHALLENGE_LABEL[c.kind] : "a challenge"}`;
-            }
-          }
+          if (rw) keywords = rewardKeywords(rw, itemById.get(b.entityId)?.name ?? "");
           break;
         }
       }
@@ -1320,7 +1320,19 @@ export function applyContentPass(
     for (const en of r.encounters) encounterBrief.set(en.ref, en);
   }
 
+  const withheld = withheldKeyItems(sd, ep);
   const created: ICreature[] = [];
+  /**
+   * Which mobile each created creature came from.
+   *
+   * The roster this pass writes REPLACES the placeholder creatures the entities
+   * pass emitted, with new ids — so the `mobileId` bindings written back there
+   * point at entities that no longer exist the moment a chunk lands. Anything
+   * downstream that has to get from a stocking-level mobile to the creature
+   * standing in the room needs the mapping rebuilt, and this is the only place
+   * that knows it. See the binding rewrite at the foot of this function.
+   */
+  const createdFor: Array<{ mobileId: string; creature: ICreature }> = [];
   let goalEntity: ContentApplyResult["goalEntity"];
 
   for (const rr of res.rooms) {
@@ -1362,6 +1374,11 @@ export function applyContentPass(
       }
       const it = itemById.get(w.ref);
       if (it) {
+        // A placed key was withheld from the payload and must stay nameless
+        // until the keys pass. Guarded here as well as there, on the rule the
+        // seams pass follows: an applier that trusts the payload to have left
+        // something out is one prompt edit away from silently overwriting it.
+        if (withheld.has(w.ref)) continue;
         it.name = w.name;
         (it as { base?: string }).base = w.base;
         it.keywords = kw;
@@ -1378,6 +1395,22 @@ export function applyContentPass(
         const seed = ep.registry.hazards[hz.blueprintId];
         if (seed) seed.base = w.base;
       }
+    }
+
+    // WITHHELD KEYS, POSITIONED BY CODE.
+    //
+    // A placed key is kept out of this pass so the keys pass can name it with
+    // its lock in front of it — but WHERE it lies is not something the keys pass
+    // can settle, because `taken` and the room's ground live here and are spent
+    // by the time it runs. So the position is rolled from the same seeded stream
+    // that placed everything else in this room, which keeps the key on the map
+    // beside the treasure instead of quietly missing from the drawing.
+    //
+    // A carried key gets none, on the standing rule that an item inside
+    // something is wherever that something is.
+    for (const it of ep.items) {
+      if (!withheld.has(it.id) || it.parentId !== roomId) continue;
+      it.place = place(rng.pick(POSITION_WORDS));
     }
 
     // fixtures -- the model furnishing a room whose footprint code drew
@@ -1425,6 +1458,10 @@ export function applyContentPass(
     // goal
     if (rr.goal && roomId === ep.pendingGoal.roomId) {
       goalEntity = createGoalEntity(rr.goal, roomId, sd, rng, ep);
+      // The keys pass mints the objective's keyable properties and needs to know
+      // which of the entities in this room IS the objective. Nothing else can
+      // tell afterwards — see `EntityPassResult.goalEntityId`.
+      ep.goalEntityId = goalEntity.id;
       if (goalEntity.type === "Creature") created.push(goalEntity as ICreature);
       // The one thing the whole run is for belongs on the map like anything
       // else. A goal creature does not get a footprint — creatures move, and
@@ -1461,6 +1498,7 @@ export function applyContentPass(
           tpl.name ??= er.group.name;
         } else (c as { base?: string }).base = er.group.base;
         created.push(c);
+        createdFor.push({ mobileId: er.ref, creature: c });
       }
 
       // distinct specimens -> their own entity each
@@ -1472,6 +1510,7 @@ export function applyContentPass(
         c.keywords = dkw;
         if (d.stats) mergeStats(c.stats, d.stats);
         created.push(c);
+        createdFor.push({ mobileId: er.ref, creature: c });
       }
     }
   }
@@ -1480,6 +1519,30 @@ export function applyContentPass(
   const writtenRoomIds = new Set(res.rooms.map((rr) => roomByRef.get(rr.ref)).filter((x): x is string => !!x));
   ep.creatures = ep.creatures.filter((c) => !writtenRoomIds.has(c.roomId));
   ep.creatures.push(...created);
+
+  // AND THE BINDINGS WITH THEM. A creature binding carries the `mobileId` that
+  // is the only way back from a stocking-level mobile — which a challenge names,
+  // and a carried reward names — to the entity a player actually meets. Dropping
+  // the placeholders without rewriting these left every such binding pointing at
+  // a creature that had just been thrown away, and the keys pass could not find
+  // a single creature it was meant to write a key for.
+  //
+  // One mobile can become several entities here: a consolidated group AND the
+  // distinct specimens standing beside it. All of them are bound, because all of
+  // them are the thing the challenge is about.
+  const rebound = new Set(createdFor.map((c) => c.mobileId));
+  ep.bindings = ep.bindings.filter(
+    (b) => !(b.element === "creature" && b.mobileId !== undefined && rebound.has(b.mobileId))
+  );
+  for (const { mobileId, creature } of createdFor) {
+    ep.bindings.push({
+      entityId: creature.id,
+      roomId: creature.roomId,
+      element: "creature",
+      keywords: creature.activity ? [creature.activity] : [],
+      mobileId,
+    });
+  }
 
   return { goalEntity, createdCreatures: created };
 }

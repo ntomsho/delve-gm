@@ -563,6 +563,9 @@ function readCommit(
     ...(parsed.rollRequest ? { rollRequest: toRollSpec(parsed.rollRequest) } : {}),
     ...(parsed.goalMet ? { goalMet: true } : {}),
     ...(parsed.fictionNote ? { fictionNote: parsed.fictionNote } : {}),
+    ...(parsed.draw ? { draw: parsed.draw } : {}),
+    ...(parsed.learned && parsed.learned.length > 0 ? { learned: parsed.learned } : {}),
+    ...(parsed.coinGrant ? { coinGrant: parsed.coinGrant } : {}),
   };
 
   const problems = [...problemsWith(parsed), ...also(parsed, commit)];

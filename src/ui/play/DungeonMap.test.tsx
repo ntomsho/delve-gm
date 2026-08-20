@@ -98,6 +98,7 @@ function aRoom(id: string, over: Partial<MapRoomView> = {}): MapRoomView {
     centre: { x: 20, y: 20 },
     chunk: 0,
     known: true,
+    mapped: false,
     current: false,
     name: `The ${id}`,
     composed: `A description of the ${id}.`,

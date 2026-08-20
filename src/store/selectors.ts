@@ -681,6 +681,18 @@ export interface MapRoomView extends LayoutRoom {
    * one thing fog exists to withhold.
    */
   composed?: string;
+  /**
+   * A REGION KEY PUT THIS ROOM ON THE MAP WITHOUT THE PLAYER EVER STANDING IN
+   * IT. Drawn, named, and describable — from `base`, which is what the mapmaker
+   * recorded, rather than from `composed`, which is what somebody saw.
+   *
+   * DISPLAY ONLY, and `known` stays FALSE. `travel.ts` is untouched and
+   * `shortestPath` keeps refusing these: a player does not get to walk through
+   * a room they have never entered because they read about it. And fog stays
+   * exactly one thing — `composed === undefined`, never encountered — which is
+   * what `mapView` and `needUpdate` both rest on.
+   */
+  mapped: boolean;
 }
 
 export interface MapConnectorView extends LayoutConnector {
@@ -773,6 +785,11 @@ export function mapView(
   // Rooms are never hidden, so a written description means the player has
   // stood here — stale or not.
   const known = (id: string) => rooms.get(id)?.composed !== undefined;
+  // What a region key revealed. Kept apart from `known` throughout — see
+  // `MapRoomView.mapped` — so that nothing which asks "has the player been
+  // here" gets a different answer because they found a map.
+  const mapped = new Set(run.challengeState?.mapped ?? []);
+  const shown = (id: string) => known(id) || mapped.has(id);
 
   const view = (c: LayoutConnector): MapConnectorView => {
     const entity = connectors.get(c.id);
@@ -782,9 +799,14 @@ export function mapView(
     // far-side question with `true` instead would draw the exit stub hanging in
     // blank paper before the entrance room itself has been described.
     const toKnown = c.to === null ? fromKnown : known(c.to);
+    // A mapped room's ways out were on the chart with it. Still not `known` in
+    // the sense that matters to travel — that is the room's own flag — but the
+    // line is drawn, because a map that showed rooms and no corridors between
+    // them would be a worse lie than showing nothing.
+    const onChart = mapped.has(c.from) || (c.to !== null && mapped.has(c.to));
     return {
       ...c,
-      known: fromKnown || toKnown,
+      known: fromKnown || toKnown || onChart,
       toUnknown: fromKnown !== toKnown,
       blocked: entity?.conditional !== undefined,
       requirement: entity?.conditional,
@@ -838,11 +860,19 @@ export function mapView(
     rooms: base.rooms.map((r) => ({
       ...r,
       known: known(r.id),
+      mapped: !known(r.id) && mapped.has(r.id),
       // The marker moves with the narration, not with the commit — otherwise it
       // points into an unlit room for as long as the arrival takes to write.
       current: r.id === (shownRoom(run) ?? run.currentRoomId),
-      name: known(r.id) ? rooms.get(r.id)?.name : undefined,
-      composed: known(r.id) ? rooms.get(r.id)?.composed : undefined,
+      name: shown(r.id) ? rooms.get(r.id)?.name : undefined,
+      // WHAT THE MAP RECORDED, NOT WHAT IS THERE NOW. A visited room shows what
+      // the player read; a mapped one shows the room's standing description,
+      // because a chart cannot know that something has moved in since.
+      composed: known(r.id)
+        ? rooms.get(r.id)?.composed
+        : mapped.has(r.id)
+          ? resolveBase(rooms.get(r.id)!, dungeon.entities.registry)
+          : undefined,
     })),
     connectors: [
       ...base.connectors,

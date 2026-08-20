@@ -305,7 +305,11 @@ export function DungeonMap({ map, className }: DungeonMapProps) {
       >
         {/* Rooms first, so doors and markers sit on top of the walls. */}
         {map.rooms.map((r) => {
-          if (!r.known) return null; // fog: an unvisited room is blank paper
+          // Fog: an unvisited room is blank paper. A MAPPED one is not blank —
+          // a region key put it on the chart — but it is not a place the player
+          // has been either, so it is drawn hollow: outlined and unfilled, the
+          // way a surveyor's plan is against a room somebody has stood in.
+          if (!r.known && !r.mapped) return null;
           return (
             <path
               key={r.id}
@@ -320,10 +324,15 @@ export function DungeonMap({ map, className }: DungeonMapProps) {
               // A wash rather than a fill while it is being pointed at: the
               // room is the biggest thing on the map and turning it torch would
               // drown out every marker standing in it.
-              fill={hovered === r.id ? color.torchWash : color.paper}
+              fill={hovered === r.id ? color.torchWash : r.mapped ? "none" : color.paper}
               stroke={color.ink}
               strokeWidth={1.4}
               strokeLinejoin="round"
+              // Dashed, and dimmer: this is a room they have read about, not one
+              // they have seen. `travel.ts` will still refuse to walk them into
+              // it, and the drawing should not suggest otherwise.
+              strokeDasharray={r.mapped ? "5 4" : undefined}
+              opacity={r.mapped ? 0.65 : 1}
               {...anchor(
                 r.id,
                 {

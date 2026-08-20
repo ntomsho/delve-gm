@@ -11,6 +11,8 @@ import { z } from "zod";
 import type { DungeonPassResponse } from "../../engine/dungeon-pass.ts";
 import type { ContentPassResponse, Omission } from "../../engine/dungeon-content-pass.ts";
 import type { SeamsPassResponse } from "../../engine/dungeon-seams-pass.ts";
+import type { KeysPassResponse } from "../../engine/dungeon-keys-pass.ts";
+import type { TallyResponse } from "../../engine/dungeon-tally-pass.ts";
 import type { Diff, EntitySpec, TimeSpent } from "../diffs/types.ts";
 import type { Stage, Step } from "../types.ts";
 
@@ -150,6 +152,44 @@ export const contentPassSchema = z.object({ rooms: z.array(roomResponse).min(1) 
 export const seamsPassSchema = z.object({
   connectors: z.array(connectorResponse).min(1),
 });
+
+// ---------------------------------------------------------------------------
+// KEYS PASS
+// ---------------------------------------------------------------------------
+// The objects that answer the dungeon's questions, written once both the key
+// and its lock exist. `goalProperties` is the objective's own keyable
+// properties, which do not exist until the content pass has decided what the
+// objective physically is — so this is the first call that can ask for them.
+//
+// `keys` is NOT `.min(1)`: a dungeon can place no keys at all and still want
+// the goal's properties out of this call.
+
+const keyResponse = z.object({
+  ref: nonEmpty,
+  name: nonEmpty,
+  base: nonEmpty,
+  lockRequirement: z.string().optional(),
+});
+
+export const keysPassSchema = z.object({
+  keys: z.array(keyResponse),
+  goalProperties: z.array(nonEmpty).optional(),
+});
+
+// ---------------------------------------------------------------------------
+// TALLY PASS
+// ---------------------------------------------------------------------------
+// What a finished run was worth. THREE WORDS AND NO NUMBERS — Knave's 50/100/200
+// live in `XP_FOR_RISK` and are applied by `applyTally`, so a model that drifts
+// cannot drift a run's reward with it.
+
+const tallyRating = z.object({
+  challengeId: nonEmpty,
+  risk: z.enum(["low", "moderate", "high"]),
+  why: nonEmpty,
+});
+
+export const tallyPassSchema = z.object({ ratings: z.array(tallyRating) });
 
 // ===========================================================================
 // THE RUNTIME TOOLS
@@ -324,6 +364,31 @@ export const commitSchema = z.object({
    * in that entity's `state` instead, which is why the length is the check.
    */
   fictionNote: z.string().trim().min(1).max(300).optional(),
+  /**
+   * ONE challenge answered out of the reserve, and one at most per turn.
+   *
+   * The id must be one the offer list carried — the applier refuses anything
+   * else, including an entry already spent and a challenge already resolved.
+   * `entityRef` names an entity created by a `children[]` diff in this same
+   * commit, for a draw the player can pick up; an information draw omits it.
+   */
+  draw: z
+    .object({ challengeId: nonEmpty, entityRef: z.string().optional() })
+    .optional(),
+  /**
+   * Challenges whose fact the player has now been told, in as many words.
+   *
+   * The applier writes the DUNGEON'S wording onto the thing the fact is about,
+   * not whatever was written in the post — so this is a list of ids and carries
+   * no prose of its own.
+   */
+  learned: z.array(nonEmpty).optional(),
+  /**
+   * The player found money. HOW MUCH IS NOT YOURS TO SAY — the dungeon holds an
+   * allowance settled before play and the amount is rolled from it. `why` is one
+   * line for the record.
+   */
+  coinGrant: z.object({ why: nonEmpty }).optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -390,12 +455,16 @@ export type RollRequestParsed = z.infer<typeof rollSpecRequest>;
 export type DungeonPassParsed = z.infer<typeof dungeonPassSchema>;
 export type ContentPassParsed = z.infer<typeof contentPassSchema>;
 export type SeamsPassParsed = z.infer<typeof seamsPassSchema>;
+export type KeysPassParsed = z.infer<typeof keysPassSchema>;
+export type TallyPassParsed = z.infer<typeof tallyPassSchema>;
 
 type Assignable<A extends B, B> = [A, B];
 
 export type DungeonPassMatchesEngine = Assignable<DungeonPassParsed, DungeonPassResponse>;
 export type ContentPassMatchesEngine = Assignable<ContentPassParsed, ContentPassResponse>;
 export type SeamsPassMatchesEngine = Assignable<SeamsPassParsed, SeamsPassResponse>;
+export type KeysPassMatchesEngine = Assignable<KeysPassParsed, KeysPassResponse>;
+export type TallyPassMatchesEngine = Assignable<TallyPassParsed, TallyResponse>;
 
 // The engine reports what a response left out (`contentPassOmissions`) without
 // importing this file — it does not depend on the runtime. This is the proof

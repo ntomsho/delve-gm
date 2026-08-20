@@ -22,6 +22,7 @@ const room = (over: Partial<MapRoomView> = {}): MapRoomView => ({
   centre: { x: 0, y: 0 },
   chunk: 0,
   known: true,
+  mapped: false,
   current: false,
   name: "Kennel",
   composed: "Straw, and the smell of dog.",

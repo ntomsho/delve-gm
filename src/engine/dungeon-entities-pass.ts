@@ -132,6 +132,18 @@ export interface EntityPassResult {
   detailCandidates: DetailCandidate[];
   /** the goal room; the writing pass must create one entity of its choosing here */
   pendingGoal: { roomId: string; reward: string; mission: string; instruction: string };
+  /**
+   * The entity the writing pass made of the objective, once it has run.
+   *
+   * ABSENT UNTIL THEN, and that is the whole reason it is here rather than
+   * derived: `GoalDirective` deliberately does not pick an entity type, so
+   * nothing before `applyContentPass` knows whether the objective is an item, a
+   * creature, or a feature of the room -- and afterwards there is no way to tell
+   * it from the other entities in that room. The keys pass needs it to mint the
+   * objective's keyable properties, and the tally needs it to know what
+   * "completed" was about.
+   */
+  goalEntityId?: string;
 }
 
 // ---------------------------------------------------------------------------

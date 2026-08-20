@@ -40,11 +40,16 @@ import { characterView, censusView, needsComposition, roomView } from "../../sto
 import { SKILL, stepPrompt } from "./loader.ts";
 import {
   renderCharacter,
+  renderDraws,
+  renderKnown,
   renderOtherRoomCreatures,
   renderRecords,
   renderRoll,
   renderRoom,
+  type KnownFact,
 } from "./render.ts";
+import { offerDraws } from "../challenges.ts";
+import { CHALLENGE_LABEL } from "../../engine/index.ts";
 
 /**
  * A player renegotiating forever cannot blow the budget: the exchange is cut to
@@ -137,6 +142,18 @@ function brief(req: PromptInput): Message {
 
   const records = run.turnRecords.slice(-CARRIED_TURNS);
 
+  // A run saved before any of this existed has no challenge state, and gets
+  // neither section rather than a crash.
+  const cs = run.challengeState;
+  const challenges = dungeon.stocked.challenges ?? [];
+  const draws = cs
+    ? offerDraws(cs, challenges, dungeon.stocked.reserve ?? [], run.currentRoomId, CHALLENGE_LABEL)
+    : [];
+  const known: KnownFact[] = (cs?.known ?? []).flatMap((id) => {
+    const c = challenges.find((x) => x.id === id);
+    return c ? [{ about: CHALLENGE_LABEL[c.kind], fact: c.property }] : [];
+  });
+
   return {
     role: "user",
     content: [
@@ -157,6 +174,15 @@ function brief(req: PromptInput): Message {
       // that is the same subject as the room the player is standing in.
       ``,
       renderOtherRoomCreatures(censusView(run)),
+      // WHAT THE DUNGEON STILL OWES, and what it has already paid out. Both are
+      // short — the offer list is trimmed to the eight nearest, and the known
+      // list is only what this run has actually learned — and both are here
+      // rather than in the step files because they change every turn.
+      //
+      // The LEDGER is deliberately not here. It is written for the end-of-run
+      // tally and never read by a turn, which is what makes it free.
+      draws.length ? `\n${renderDraws(draws)}` : ``,
+      known.length ? `\n${renderKnown(known)}` : ``,
       records.length ? `\n${renderRecords(records)}` : ``,
     ].join("\n"),
   };

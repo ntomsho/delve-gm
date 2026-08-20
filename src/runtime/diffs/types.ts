@@ -13,7 +13,13 @@
  * rather than merely instructed.
  */
 
-import type { EntityPassResult, PlayerCharacter } from "../../engine/index.ts";
+import type {
+  Challenge,
+  EntityPassResult,
+  PlayerCharacter,
+  ReserveEntry,
+} from "../../engine/index.ts";
+import type { ChallengeState } from "../challenges.ts";
 import type { RollSpec, Stage, Step } from "../types.ts";
 
 export interface Diff {
@@ -89,6 +95,48 @@ export interface Commit {
    * written before play and stays as written, the way a `base` does.
    */
   fictionNote?: string;
+  /**
+   * A CHALLENGE ANSWERED OUT OF THE RESERVE.
+   *
+   * The dungeon places about four keys and holds thirty in reserve, because a
+   * key written into a room before play cannot be about what the player turned
+   * out to be doing. This is the other thirty: the referee names one challenge
+   * the reserve still holds, and the applier spends it.
+   *
+   * A GRANT MUST BE JUSTIFIED BY THE ACTION THAT EARNED IT — found in the rubble
+   * they were digging through, given by the thing they talked down, carried by
+   * the thing they killed. An object that simply appears in a room they have
+   * already searched is the same broken promise as an invented ledge. The
+   * applier cannot check that; the playbook asks for it and the offer list is
+   * weighted to make it easy.
+   *
+   * `entityRef` names an entity created by a `children[]` diff in this same
+   * commit, for a draw that put a physical thing in the world. Information
+   * draws leave it unset: what the player got was told to them.
+   */
+  draw?: { challengeId: string; entityRef?: string };
+  /**
+   * Challenges whose fact the player now KNOWS.
+   *
+   * Separate from the draw because the two are separate events: a key drawn
+   * this turn is usually read this turn, but a key placed during generation was
+   * picked up three rooms ago and is being read now. Both end in the same place
+   * — the fact written onto the thing it is true of, in the exact words the
+   * dungeon rolled. See `recordFact`.
+   */
+  learned?: string[];
+  /**
+   * The player found money.
+   *
+   * THE REFEREE SAYS THAT THEY DID; CODE SAYS HOW MUCH. A dungeon's wealth is a
+   * conserved pot settled at generation, and 10% of it is held back for exactly
+   * this — coin handed over in play, when the fiction puts some in front of
+   * them. `why` is one line for the record and is not spent on anything else.
+   *
+   * Refused when the allowance is spent: the dungeon does not have infinite
+   * money and a referee cannot mint any.
+   */
+  coinGrant?: { why: string };
 }
 
 /** The id the referee uses for the player character. */
@@ -144,7 +192,15 @@ export interface WorldEvent {
     /** a walk ended short of where it was aimed — `detail` says what stopped it */
     | "movement-stopped"
     /** the objective was accomplished this turn; the run is not over yet */
-    | "goal-met";
+    | "goal-met"
+    /** a reserve entry was spent — `detail` is the fact that was handed over */
+    | "key-drawn"
+    /** a fact was written onto the thing it is true of — `entityId` is that thing */
+    | "fact-recorded"
+    /** a challenge was resolved outright — `detail` says how */
+    | "challenge-resolved"
+    /** coin came out of the dungeon's allowance — `detail` is the amount */
+    | "coin-granted";
   entityId: string;
   detail: string;
 }
@@ -179,4 +235,22 @@ export interface World {
    * already told the player, and editing it is going back on it.
    */
   fiction: string[];
+  /**
+   * What this dungeon asks, and what is left to be given out. Both are
+   * GENERATION DATA and neither is written here — the challenges are fixed when
+   * the dungeon is stocked, and a reserve entry is spent by recording the draw
+   * rather than by removing the entry.
+   */
+  challenges: readonly Challenge[];
+  reserve: readonly ReserveEntry[];
+  /** what the run has accumulated about them; the one part of this that changes */
+  challengeState: ChallengeState;
+  /** which turn this is, for the ledger */
+  turn: number;
+  /**
+   * The run's seed, for the one thing in here that needs randomness: how much
+   * coin a grant is worth. The model never writes a number, so somebody has to
+   * roll it, and it has to be the same number on a replay.
+   */
+  runSeed: number;
 }

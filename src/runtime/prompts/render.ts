@@ -34,6 +34,7 @@ import {
 import { positionPhrase } from "../../engine/index.ts";
 import type { TurnRecord } from "../../store/game.ts";
 import type { RolledOutcome } from "../turn.ts";
+import type { DrawOffer } from "../challenges.ts";
 
 const ABILITY_ORDER = ["str", "dex", "con", "int", "wis", "cha"] as const;
 
@@ -375,4 +376,69 @@ export function renderRecords(records: TurnRecord[]): string {
       return `- ${bits.join(" · ")}\n  outcome: ${r.outcome.replace(/\s*\n\s*/g, " ")}`;
     }),
   ]);
+}
+
+// ---------------------------------------------------------------------------
+// WHAT THIS DUNGEON STILL HAS TO GIVE
+// ---------------------------------------------------------------------------
+
+/**
+ * The reserve, as a menu.
+ *
+ * The dungeon places about four keys before play and holds the rest back,
+ * because a key written into a room before anyone walked in cannot be about
+ * what the player turned out to be doing. This is that reserve: the referee
+ * picks one when the fiction offers a place to put it, and the applier refuses
+ * anything not on this list.
+ *
+ * THE FACTS ARE QUOTED EXACTLY and must be handed over exactly, because the
+ * same wording is what gets written onto the thing the fact is about — see
+ * `recordFact`. What the referee invents is the OBJECT and the moment, never
+ * the fact.
+ *
+ * Trimmed in code before it gets here, nearest first. See `offerDraws`.
+ */
+export function renderDraws(offers: DrawOffer[]): string {
+  if (offers.length === 0) return "";
+  return lines([
+    `## What this dungeon still has to give`,
+    ``,
+    `Any ONE of these may be handed over this turn, through \`draw\`, IF the`,
+    `player has earned it: found in the rubble they were digging through, given`,
+    `by the thing they talked down, carried by the thing they killed. Something`,
+    `that simply appears in a room they already searched is a broken promise.`,
+    `Most turns should take none of them.`,
+    ``,
+    `Quote the fact EXACTLY as written. Invent the object and the moment; never`,
+    `the fact.`,
+    ``,
+    ...offers.map((o) => {
+      const where = o.here ? "HERE, in this room" : "elsewhere in the dungeon";
+      const how = o.kind === "object" ? "an object they can carry" : "something they are told";
+      return `- [${o.challengeId}] ${o.about}, ${where} — as ${how}
+  the fact: "${o.fact}"`;
+    }),
+  ]);
+}
+
+/**
+ * Facts the player has already been told, so the referee stops offering them.
+ *
+ * Short by construction: it is what a run has actually learned, and a long run
+ * learns a dozen things.
+ */
+export function renderKnown(known: KnownFact[]): string {
+  if (known.length === 0) return "";
+  return lines([
+    `## What the player has worked out`,
+    ``,
+    `Already written onto the things themselves, and true from here on.`,
+    ``,
+    ...known.map((k) => `- ${k.about}: "${k.fact}"`),
+  ]);
+}
+
+export interface KnownFact {
+  about: string;
+  fact: string;
 }

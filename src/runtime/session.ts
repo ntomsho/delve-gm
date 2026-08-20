@@ -32,6 +32,8 @@ import { ResponseFormatError } from "./llm/json.ts";
 import { createModelReferee } from "./referee.ts";
 import { createTurnMachine, type Referee, type TurnMachine } from "./turn.ts";
 import { isTerminal } from "./types.ts";
+import { tallyRun } from "./tally.ts";
+import { challengeStateOf } from "./challenges.ts";
 import { generateDungeon, type GeneratedDungeon, type GenerateOptions } from "./generate.ts";
 import { MODELS } from "./llm/models.ts";
 import type { PlayerCharacter, Size } from "../engine/index.ts";
@@ -206,6 +208,46 @@ export function createGameSession(opts: SessionOptions = {}): GameSession {
    */
   const turn = (): TurnMachine | undefined => machine;
 
+  /**
+   * WHAT THE RUN WAS WORTH, asked once, after it has ended.
+   *
+   * Every method that can end a run funnels through here, because a run can end
+   * on a submit, on a roll, on a retry, or on the arrival pass that follows a
+   * move — and a tally hung off only one of them would silently not happen for
+   * the others.
+   *
+   * IT NEVER THROWS INTO THE ENDING. The run is over whether or not the scoring
+   * call comes back, and a player looking at "you got out" must not instead be
+   * looking at an error because a tally timed out. A failure is journalled and
+   * the ledger is kept, so it can be asked for again.
+   */
+  async function settle(): Promise<void> {
+    const state = store.getState();
+    const run = state.run;
+    const dungeon = state.dungeon;
+    if (!run || !dungeon) return;
+    if (!isTerminal(run.stage) || run.tally !== undefined) return;
+
+    try {
+      const result = await tallyRun({
+        challengeState: challengeStateOf(run.challengeState, dungeon.stocked.pot?.allowance ?? 0),
+        challenges: dungeon.stocked.challenges ?? [],
+        dungeonContext: dungeon.dungeonContext,
+        ending: run.stage,
+        level: run.pc.level,
+        hp: run.pc.hp,
+        turns: run.turnCount,
+        ...(journal ? { journal } : {}),
+        ...(opts.signal ? { signal: opts.signal } : {}),
+      });
+      // `undefined` is a normal answer: a death does not tally, and neither
+      // does a run that accomplished nothing.
+      if (result) store.getState().setTally(result.tally);
+    } catch (e) {
+      journal?.log({ kind: "error", where: "session:tally", message: describeFailure(e) });
+    }
+  }
+
   return {
     store,
     get runId() {
@@ -281,15 +323,19 @@ export function createGameSession(opts: SessionOptions = {}): GameSession {
 
     async enterRoom() {
       await turn()?.enterRoom();
+      await settle();
     },
     async submit(text) {
       await turn()?.submit(text);
+      await settle();
     },
     async roll() {
       await turn()?.roll();
+      await settle();
     },
     async retry() {
       await turn()?.retry();
+      await settle();
     },
 
     /**
@@ -305,6 +351,9 @@ export function createGameSession(opts: SessionOptions = {}): GameSession {
       if (!run || isTerminal(run.stage)) return;
       journal?.log({ kind: "stage", from: run.stage, to: "abandoned", step: run.step });
       store.getState().setStage("abandoned", run.step);
+      // Walking away from the run is still ending it alive, and what they
+      // accomplished down there happened. Only death forfeits the tally.
+      await settle();
     },
   };
 }

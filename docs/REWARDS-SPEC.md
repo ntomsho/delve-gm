@@ -3,11 +3,24 @@
 The design behind two features in `BUILD-PLAN.md`: **Rewards: the keys pass**
 (R2) and **Rewards at runtime** (R3).
 
-> **R1 is built**, and the build deviates from what is written below in three
-> places — no goal slice, rewards can be carried by a creature, reachability is
-> blocked ways only. Those, and the measured numbers behind §10's dial, are in
-> the two `BUILD-PLAN.md` features. §9 below is still the build order; R2 is
-> next.
+> **ALL THREE PHASES ARE BUILT.** This document is now the design record rather
+> than a plan. What shipped differs from what is written below in four places,
+> all of them recorded against the two `BUILD-PLAN.md` features:
+>
+> - **No goal slice** (§6). The pot is `placed + allowance` exactly, with no
+>   third term. `goalItemValue` prices the objective above the largest single
+>   reward in the dungeon instead, so it cannot be out-earned by a strongbox in
+>   a side room whatever the pot rolled.
+> - **A reward can be carried by a creature** (§4). `Reward.holder` is a room or
+>   a mobile.
+> - **Reachability is blocked ways only** (§4.1), exactly as written there.
+> - **The goal-location key was `roomIds` all along** (§7.3). A region challenge
+>   carries the rooms its chart covers, because by the time one is drawn nothing
+>   is left holding the chunk map.
+>
+> The one thing §10 left as a dial and the build did not settle is the
+> **placed-key spread**: 1 to 9 at size 5, not the "roughly four" §5 predicts.
+> The cause is the §4 order working as specified. See the keys-pass feature.
 
 Three things are being built at once because they are one idea seen from three
 sides: **what a dungeon gives you**, **what a dungeon asks of you**, and **what

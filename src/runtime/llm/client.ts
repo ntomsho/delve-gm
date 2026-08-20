@@ -454,11 +454,49 @@ export async function callForJson<T>(opts: JsonCallOptions<T>): Promise<JsonResu
 
       if (!willRetry) throw e;
 
-      // One retry, with the specific failures in front of it.
-      messages.push(
-        { role: "assistant", content: JSON.stringify(call?.input ?? {}).slice(0, 4000) },
-        { role: "user", content: e.feedback }
-      );
+      // ONE RETRY, INSIDE THE TOOL EXCHANGE THAT FAILED.
+      //
+      // The assistant turn goes back VERBATIM — the `tool_use` block as it
+      // arrived — and the objection comes back as its `tool_result`. That is
+      // the same repair `referee.ts` has always made (see the refused-commit
+      // branch), and it is the only one that leaves the conversation in a
+      // shape the model recognises as its own.
+      //
+      // It used to re-type the call as prose: `JSON.stringify(call.input)`,
+      // truncated to 4000 characters, pushed as an assistant TEXT turn. Both
+      // halves of that were wrong and the pair was worse than either.
+      //
+      //   - A content-pass response is ~14 kB, so the cut landed mid-string and
+      //     what the model was shown as its previous answer was invalid JSON.
+      //   - Shown JSON as text and asked for "the corrected JSON", the model
+      //     answered in the register it was addressed in: it called the tool
+      //     with `rooms` set to a STRING containing the array. Observed
+      //     2026-08-20, seed 454434 size 2 — attempt 1 missed one `ref` on one
+      //     encounter, attempt 2 came back `{"rooms":"[{\"ref\":\"room_0\"…"}`,
+      //     and a one-field slip took the whole generation with it. Nothing on
+      //     the wire could have caught it: the content pass carries ~35
+      //     optionals against a strict budget of 24, so it goes out
+      //     unguaranteed and the API is not checking that `rooms` is an array.
+      //
+      // So the retry that exists to recover from a single missing field was
+      // reliably converting it into an unrecoverable failure.
+      const objection =
+        `${e.feedback}\n\nCall \`${opts.toolName}\` again with the whole input, ` +
+        `corrected. Every field must be a real JSON value — an array field is an ` +
+        `array, not a string containing one.`;
+
+      if (call?.id) {
+        messages.push(
+          { role: "assistant", content: json.content },
+          toolResults([{ id: call.id, content: objection, isError: true }])
+        );
+      } else {
+        // No tool call to answer. An assistant turn with no content is not a
+        // turn the API will accept, so it is echoed only if there was something
+        // in it (prose, a refusal) and the objection goes as an ordinary reply.
+        if (json.content.length > 0) messages.push({ role: "assistant", content: json.content });
+        messages.push({ role: "user", content: objection });
+      }
     }
   }
 }

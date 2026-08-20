@@ -78,6 +78,17 @@ export * from "./dungeon-pass.ts";
 // there for why they cannot be written by the chunks themselves.
 export * from "./dungeon-seams-pass.ts";
 
+// --- the tally pass --------------------------------------------------------
+// What a finished run was worth, rated once at the end with the whole ledger in
+// front of it. The model rates risk in words; the numbers are here.
+export * from "./dungeon-tally-pass.ts";
+
+// --- the keys pass ---------------------------------------------------------
+// The objects that answer the dungeon's questions, written last of all: a key
+// and its lock are usually in different chunks, so neither chunk could write
+// one honestly. Also where the objective's own keyable properties are minted.
+export * from "./dungeon-keys-pass.ts";
+
 // --- dice ------------------------------------------------------------------
 // `Edge` here is advantage/disadvantage. Phase A's `Edge` (a graph connection)
 // is re-exported above as `GraphEdge`.

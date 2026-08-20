@@ -25,18 +25,23 @@
 import {
   applyContentPass,
   applyDungeonPass,
+  applyKeysPass,
   applySeamsPass,
   buildContentPassPayload,
   buildDungeonPassPayload,
+  buildKeysPassPayload,
   buildSeamsPassPayload,
   contentPassOmissions,
+  keysPassOmissions,
   seamsPassOmissions,
+  unwritableKeys,
   generateBlueprint,
   generateBlueprintSeed,
   blockPlanValid,
   roomSizes,
   renderContentPassPrompt,
   renderDungeonPassPrompt,
+  renderKeysPassPrompt,
   renderSeamsPassPrompt,
   resolveBase,
   Rng,
@@ -53,7 +58,12 @@ import {
   type StockedDungeon,
 } from "../engine/index.ts";
 import { callForJson, type FailedAttempt, type Usage } from "./llm/client.ts";
-import { contentPassSchema, dungeonPassSchema, seamsPassSchema } from "./llm/schemas.ts";
+import {
+  contentPassSchema,
+  dungeonPassSchema,
+  keysPassSchema,
+  seamsPassSchema,
+} from "./llm/schemas.ts";
 import { chunksFor, deriveSeeds, type RunSeeds } from "./seeds.ts";
 import { NO_JOURNAL, type Journal } from "./journal.ts";
 
@@ -65,7 +75,8 @@ import { NO_JOURNAL, type Journal } from "./journal.ts";
  * The stages the loading screen reports, named here rather than in the UI so
  * there is nothing for the UI to invent. "writing" is the long one and is the
  * only one that carries a count; "joining" is the short call after it that
- * writes the ways between regions.
+ * writes the ways between regions, and "keys" the shorter one after THAT which
+ * writes the objects answering the dungeon's questions.
  */
 export type GenerationStage =
   | "layout"
@@ -73,7 +84,8 @@ export type GenerationStage =
   | "history"
   | "stocking"
   | "writing"
-  | "joining";
+  | "joining"
+  | "keys";
 
 export interface GenerationProgress {
   stage: GenerationStage;
@@ -158,7 +170,7 @@ const GRAPH_ATTEMPTS = 8;
  */
 function reportFailure(
   journal: Journal,
-  pass: "dungeon-pass" | "content-pass" | "seams-pass",
+  pass: "dungeon-pass" | "content-pass" | "seams-pass" | "keys-pass",
   chunk?: number
 ) {
   return (r: FailedAttempt): void => {
@@ -471,6 +483,49 @@ export async function finishGeneration(
     usage = {
       inputTokens: usage.inputTokens + seamsUsage.inputTokens,
       outputTokens: usage.outputTokens + seamsUsage.outputTokens,
+    };
+  }
+
+  // --- the keys: the objects that answer the dungeon's questions ------------
+  //
+  // AFTER the seams, and last of all, because it needs more finished than any
+  // other pass does. A key and the thing it answers are usually in different
+  // chunks — that is what makes it a pass rather than part of one — and where
+  // the answer is a blocked way, the lock it rewrites may be a seam that only
+  // the call above just wrote. It also mints the objective's own keyable
+  // properties, which do not exist until a chunk has decided what the objective
+  // physically is. See the header in dungeon-keys-pass.ts.
+  const keysPayload = buildKeysPassPayload(stocked, entities, partial.dungeonContext);
+  const orphaned = unwritableKeys(stocked, entities, keysPayload);
+  if (orphaned.length > 0) {
+    // Not fatal and not retryable: the gap is in the dungeon, not the response.
+    // Journalled so it is visible without a playthrough — a placed key whose
+    // target nobody wrote is a bug upstream of here.
+    journal.log({
+      kind: "error",
+      where: "keys-pass",
+      message: `keys with no written target: ${orphaned.join("; ")}`,
+    });
+  }
+  if (keysPayload.keys.length > 0 || keysPayload.goal) {
+    report({ stage: "keys" });
+    const prompt = renderKeysPassPrompt(keysPayload);
+    const { value, usage: keysUsage } = await callForJson({
+      task: "keys-pass",
+      schema: keysPassSchema,
+      toolName: "write_keys",
+      toolDescription:
+        "Write the objects that answer this dungeon's questions, and name what must be learned about its objective.",
+      messages: [{ role: "user", content: prompt }],
+      ...(opts.signal ? { signal: opts.signal } : {}),
+      check: (v) => keysPassOmissions(keysPayload, v),
+      onAttemptFailed: reportFailure(journal, "keys-pass"),
+    });
+    journal.log({ kind: "generation", pass: "keys-pass", prompt, response: value, usage: keysUsage });
+    applyKeysPass(value, keysPayload, stocked, entities);
+    usage = {
+      inputTokens: usage.inputTokens + keysUsage.inputTokens,
+      outputTokens: usage.outputTokens + keysUsage.outputTokens,
     };
   }
 

@@ -74,7 +74,7 @@ export type JournalEvent =
    */
   | {
       kind: "generation";
-      pass: "dungeon-pass" | "content-pass" | "seams-pass";
+      pass: "dungeon-pass" | "content-pass" | "seams-pass" | "keys-pass" | "tally-pass";
       chunk?: number;
       prompt: string;
       response: unknown;
@@ -96,7 +96,7 @@ export type JournalEvent =
    */
   | {
       kind: "generation-error";
-      pass: "dungeon-pass" | "content-pass" | "seams-pass";
+      pass: "dungeon-pass" | "content-pass" | "seams-pass" | "keys-pass" | "tally-pass";
       chunk?: number;
       attempt: number;
       willRetry: boolean;

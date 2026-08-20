@@ -14,9 +14,11 @@
 import {
   applyContentPass,
   applyDungeonPass,
+  applyKeysPass,
   applySeamsPass,
   buildContentPassPayload,
   buildDungeonPassPayload,
+  buildKeysPassPayload,
   buildSeamsPassPayload,
   generateBlueprint,
   generateBlueprintSeed,
@@ -30,6 +32,8 @@ import {
   type AnyItem,
   type ContentPassResponse,
   type DungeonPassResponse,
+  type KeysPassPayload,
+  type KeysPassResponse,
   type PlayerCharacter,
   type SeamsPassPayload,
   type SeamsPassResponse,
@@ -40,7 +44,12 @@ import {
 } from "../../engine/index.ts";
 import type { GeneratedDungeon } from "../generate.ts";
 import { chunksFor, deriveSeeds } from "../seeds.ts";
-import { contentPassSchema, dungeonPassSchema, seamsPassSchema } from "../llm/schemas.ts";
+import {
+  contentPassSchema,
+  dungeonPassSchema,
+  keysPassSchema,
+  seamsPassSchema,
+} from "../llm/schemas.ts";
 import { validate } from "../llm/json.ts";
 
 export function fakeDungeonPass(groupIds: string[]): DungeonPassResponse {
@@ -257,6 +266,27 @@ export function fakeSeamsPass(p: SeamsPassPayload): SeamsPassResponse {
   };
 }
 
+/**
+ * Answer a keys payload point for point.
+ *
+ * The fact is quoted VERBATIM in the base, which is exactly what the real
+ * instruction demands and what the resolution write depends on. A fake that
+ * paraphrased would let the one property worth checking offline go untested.
+ */
+export function fakeKeysPass(p: KeysPassPayload): KeysPassResponse {
+  return {
+    keys: p.keys.map((k) => ({
+      ref: k.ref,
+      name: "the almoner's daybook",
+      base:
+        `A water-stained ledger in a clerk's hand. One entry is underscored ` +
+        `twice: "${k.target.fact}".`,
+      ...(k.lockRef ? { lockRequirement: `shut fast, and the daybook names what opens it` } : {}),
+    })),
+    ...(p.goal ? { goalProperties: ["whose name is cut on the underside"] } : {}),
+  };
+}
+
 export function generateOffline(seed: number, size: Size): GeneratedDungeon {
   const seeds = deriveSeeds(seed);
   const blueprint = generateBlueprintSeed(size, seeds.blueprintSeed, 1);
@@ -306,10 +336,19 @@ export function generateOffline(seed: number, size: Size): GeneratedDungeon {
     );
   }
 
-  // Last, with every room written — the ways between the chunks.
+  // Last but one, with every room written — the ways between the chunks.
   const seams = buildSeamsPassPayload(stocked, entities, dp.dungeonContext);
   if (seams.seams.length > 0) {
     applySeamsPass(validate(seamsPassSchema, fakeSeamsPass(seams)), seams, entities);
+  }
+
+  // Last of all — the keys. Offline as online: the content pass left every
+  // placed key nameless, and nothing else will ever name it. Skipping it here
+  // would leave the dev path with unwritten items in it, which is the exact
+  // thing `validateWritten` exists to catch.
+  const keys = buildKeysPassPayload(stocked, entities, dp.dungeonContext);
+  if (keys.keys.length > 0 || keys.goal) {
+    applyKeysPass(validate(keysPassSchema, fakeKeysPass(keys)), keys, stocked, entities);
   }
 
   return {

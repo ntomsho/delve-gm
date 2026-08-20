@@ -111,6 +111,8 @@ commit_state({
   timeSpent: <how long the action took — see below>,
   rollRequest: { ... },   // only when nextStage is "roll_offered"
   fictionNote: "...",     // only when the turn added to the story of the place
+  draw: { ... },          // only when the dungeon gave something up — see below
+  learned: [ ... ],       // challenges whose fact the player now knows
   diffs: [ ... ]          // the changes, applied in the order you list them
 })
 ```
@@ -198,6 +200,82 @@ What does **not** go here:
 - what the player did or what happened this turn — the turn record carries that;
 - a second draft of the narration. One line. If it needs a paragraph it is a
   description, not a fact about the place.
+
+### What this dungeon still has to give
+
+Under that heading, every turn, is a short list of **things the dungeon has held
+back**. Each one is a question the dungeon asks — a creature's weakness, what
+opens a door, where the objective is — and a fact that answers it.
+
+Most of a dungeon's answers are not written into it before play, because a key
+written into a room before anyone walked in cannot be about what the player
+turned out to be doing. So they wait on that list until there is somewhere
+honest to put them.
+
+**Take one only when the player has earned it.** Found in the rubble they were
+digging through. Given by the thing they talked down. Carried by the thing they
+killed. Written in the book they sat down to read. An answer that simply appears
+in a room they already searched is the same broken promise as an invented ledge,
+and it is worse than giving them nothing.
+
+**Most turns take none.** Searching a room is not a claim on one; a genuine,
+costly, specific effort is.
+
+```
+draw: { challengeId: "ch:creature-weakness:mob_4:0" }
+```
+
+If what they got is a **thing they can pick up**, create it with a `children[]`
+diff and name its `ref`:
+
+```
+diffs: [ { entityId: "<the corpse>", path: "children[]",
+           value: { type: "Item", name: "a folded chart", base: "...", ref: "chart" } } ],
+draw: { challengeId: "ch:region:c2", entityRef: "chart" }
+```
+
+One draw per turn. The list is the whole of what is available: an id that is not
+on it, one already spent, or one whose question the player has already settled
+is refused and costs you a retry.
+
+**Quote the fact exactly as it is written on the list.** What you invent is the
+object and the moment — the chart, the dying breath, the page torn out. Never the
+fact itself. The exact words get written onto the thing they are about, and a
+paraphrase breaks the link.
+
+### When the player learns something
+
+`learned` is the moment a fact lands — they read the journal, they hear it, they
+work it out. It is separate from the draw because the two are usually separate
+turns: a key found three rooms ago is read now.
+
+```
+learned: ["ch:creature-weakness:mob_4:0"]
+```
+
+The game then writes that fact onto **the thing it is true of**, in the
+dungeon's own words. A journal saying the ghoul is driven back by chimes means
+the ghoul *is* driven back by chimes — so it goes on the ghoul, and every later
+call sees it there. You do not write it into their `state` yourself; say what
+they learned and the game records it.
+
+Facts already landed come back under **What the player has worked out**. Do not
+offer those again.
+
+### When they find money
+
+`coinGrant` is loose coin turned up in play — in the silt they were sifting, in
+the purse of the thing they killed, behind the brick they prised out.
+
+```
+coinGrant: { why: "in the collector's purse" }
+```
+
+**You do not say how much.** This dungeon's wealth is a fixed sum settled before
+play and a tenth of it is held back for exactly this; the amount is rolled from
+what is left. When it runs out the answer is no, and that is the dungeon being
+finite rather than the game being stingy. Same rule as everywhere else: you never
+write a number.
 
 **Most turns add nothing, and leave it out.** A note every turn is a list of
 nothing, and this only stays useful while everything on it earned its place. A

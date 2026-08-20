@@ -868,25 +868,45 @@ Pass from `bp.inhabitants`, and which room a group's members end up in is stocki
 
 ---
 
-### Rewards: the keys pass
+### Rewards: the keys pass — **BUILT**
 
-The full design is `docs/REWARDS-SPEC.md`; this does not repeat it. **R2 of three**, and
-R1 (`dungeon-challenges.ts`, `dungeon-rewards.ts`, the taxonomy, the pot, placement, the
-reserve) is built. Spec §6 is the pass.
+The full design is `docs/REWARDS-SPEC.md`; this does not repeat it. **R2 of three**, spec
+§6. `src/engine/dungeon-keys-pass.ts`, wired into `finishGeneration` after the seams pass,
+so the single-process pipeline and the server's `/finish` both get it.
 
-Carried in from R1:
+What it does:
 
-- **The content pass still writes placed keys**, from the challenge's fact and its kind
-  label. Spec §6 has it skipping them the way it skips seams; that is this session's
-  change, and the note at the `case "reward"` block says so.
-- **`goal-property` is declared and not enumerated**, per spec §2/§6. This pass mints those.
-- **The placed-key count varies more than the spec's "roughly four" suggests — 1 to 9 at
-  size 5.** Structural rather than a bug: step 1 walks the reward-guaranteed locations
-  rolling loot-or-key at `KEY_SHARE`, and a dungeon with few such locations spends its
-  general budget in the contested draw instead, which places no keys. The order spec §4
-  fixes is implemented as written; narrowing the spread means changing that order, so it
-  is this pass's decision or the next one's. The dials are all named constants at the top
-  of `dungeon-rewards.ts`.
+- **Writes the placed keys**, with the key and its challenge's finished `base` both in
+  front of it, and may rewrite a blocked way's `conditional` so lock and key name each
+  other. `withheldKeyItems` keeps them out of the content pass at both ends — the payload
+  omits them and the applier refuses a write to one that comes back anyway, the same way
+  the seams pass guards both ends.
+- **Mints the objective's keyable properties.** `goal-property` was declared and not
+  enumerated at R1 because the goal's form is a chunk's decision; this is the first point
+  at which it is known. They go straight to the reserve, as challenges and reserve entries
+  with no prose. `EntityPassResult.goalEntityId` is new and is how the pass finds the
+  objective — nothing else could tell it from the other entities in that room.
+
+Two things came out of building it that were not in the spec:
+
+- **A withheld key is still POSITIONED, by code.** Withholding it from the writing must
+  not withhold it from the drawing, and by the time the keys pass runs the room's ground
+  and its `taken` set are spent. So `applyContentPass` rolls a position word from the same
+  seeded stream that placed everything else in that room.
+- **`applyContentPass` now rebuilds the creature bindings it invalidates.** It throws away
+  the placeholder roster the entities pass emitted and mints its own with fresh ids, so
+  every `mobileId` binding pointed at a creature that no longer existed. Nothing had
+  noticed, because nothing had needed to get from a stocking-level mobile back to an
+  entity until a key had to name the creature it was about. `anchorOf` in
+  `dungeon-challenges.ts` is the one crossing now, and both this pass and the runtime go
+  through it.
+
+**Still open, carried from R1: the placed-key count varies 1 to 9 at size 5**, against the
+spec's "roughly four". Structural rather than a bug — step 1 walks the reward-guaranteed
+locations rolling loot-or-key at `KEY_SHARE`, and a dungeon with few such locations spends
+its general budget in the contested draw, which places no keys. The order spec §4 fixes is
+implemented as written; narrowing the spread means changing that order. The dials are all
+named constants at the top of `dungeon-rewards.ts`.
 
 Measured across nine dungeons (seeds 1005 / 4242 / 90210 at sizes 2, 3, 5): challenge
 counts land where the spec predicted (~30 at size 5) and money is bounded — a whole size 5
@@ -894,11 +914,48 @@ dungeon is ~1500cp against a Knave starting purse of 60–360.
 
 ---
 
-### Rewards at runtime
+### Rewards at runtime — **BUILT**
 
-**R3 of three**, spec §7–8: the draws, the resolution writes, `mapped`, the ledger, and the
-tally. `IRoomFeature.isObstacle` and `resolved` are in and `resolved` is whitelisted on
-`RoomFeature` in `paths.ts`; **nothing writes `resolved` yet** — that is this.
+**R3 of three**, spec §7–8. `src/runtime/challenges.ts` holds the state and the rules;
+`src/engine/dungeon-tally-pass.ts` holds the end-of-run call.
+
+- **The draw.** `offerDraws` puts a trimmed list — nearest first, capped at eight — under
+  *What this dungeon still has to give*, every turn. `commit.draw` spends one; the applier
+  refuses an id that is not in the reserve, one already spent, and one whose challenge is
+  already resolved. `entityRef` ties a drawn object to an entity a `children[]` diff in the
+  same commit created.
+- **The resolution write.** `commit.learned` names challenges whose fact the player now
+  knows, and `recordFact` writes it into `state` **on the thing it is true of, in the
+  dungeon's own words** rather than the referee's. It FANS OUT to every entity the
+  challenge anchors to — the spec named that as the fix if the single-entity version bit,
+  and it costs one loop.
+- **`mapped`.** A region challenge carries `roomIds`, and drawing it puts them on the
+  chart. `MapRoomView.mapped` is display only: `known` stays false, `travel.ts` is
+  untouched, `shortestPath` still refuses them, and fog stays exactly one thing. Drawn
+  hollow and dashed, from `base` — what the chart recorded, not what is there now — and
+  `roomVerb` offers *Recall?* rather than a *Go To?* the game would turn away.
+- **The ledger.** First-class run state, never in a prompt. Written by code:
+  `resolutionsFrom` reads what a commit DID — `creature-slain`, a `conditional` gone, an
+  `isHidden` gone, `resolved` set, `goalMet` latched — rather than asking anyone's opinion.
+  `noteDamage` charges hit points lost to what was in the room, which is the tally's
+  sharpest evidence and the one thing a turn produces without being asked.
+- **The tally.** One call at the end, rating each accomplishment `low` / `moderate` /
+  `high` **in words, with no numbers in the response**; `XP_FOR_RISK` prices them 50 /
+  100 / 200 in code. A run that ends in death does not tally. Abandoning does — walking
+  away from the run is still ending it alive.
+- **The allowance.** `commit.coinGrant` says the player found money; `grantCoin` rolls how
+  much from the 10% held out of the pot, seeded on the run seed and the turn. When it runs
+  out the answer is no.
+
+**Bypass is the one inference, and it is two timestamps compared once at the end.** A
+creature met before some later accomplishment was got past somehow; the game does not care
+which way, and all of them are worth the same. One met after the last accomplishment was
+fled, and is correctly not credited. Nothing detects it per turn.
+
+**Levelling is still not done**, per spec §8.3, and the arithmetic is worth having written
+down: ~30 challenges at size 5, mostly moderate, is roughly 3000 XP against a
+1000-per-level track. Either the track moves or the rating does, and that is a design
+question. `XP_PER_LEVEL` is in `dungeon-tally-pass.ts` with the same note on it.
 
 ---
 

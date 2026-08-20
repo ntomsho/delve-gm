@@ -260,6 +260,7 @@ const STAGE_LABEL: Record<GenerationProgress["stage"], string> = {
   stocking: "Stocking the rooms",
   writing: "Writing the rooms",
   joining: "Writing the ways between regions",
+  keys: "Writing the keys",
 };
 
 async function liveRun(args: Args): Promise<void> {

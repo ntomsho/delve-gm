@@ -17,6 +17,10 @@ export type Task =
   | "content-pass"
   /** one call at the end: the ways between chunks, once both their rooms exist */
   | "seams-pass"
+  /** one call after that: the keys, once both they and their locks are written */
+  | "keys-pass"
+  /** one call at the end of a run: what each accomplishment was worth */
+  | "tally-pass"
   /** describing a room the player has just walked into */
   | "room-entry"
   /** the runtime referee: triage, roll confirmation, resolution */
@@ -46,6 +50,8 @@ export const MODELS: Record<Task, string> = {
   "dungeon-pass": "claude-haiku-4-5",
   "content-pass": "claude-haiku-4-5",
   "seams-pass": "claude-haiku-4-5",
+  "keys-pass": "claude-haiku-4-5",
+  "tally-pass": "claude-haiku-4-5",
   "room-entry": "claude-haiku-4-5",
   "turn-loop": "claude-haiku-4-5",
 };
@@ -61,6 +67,11 @@ export const MAX_TOKENS: Record<Task, number> = {
   // A handful of connectors, two sentences each — a chunk boundary contributes
   // about two, so even a large dungeon is under a dozen.
   "seams-pass": 4096,
+  // Four or five objects at size 5, two sentences each, plus a short list of
+  // the objective's properties. Sized like the seams pass for the same reason.
+  "keys-pass": 4096,
+  // One line per accomplishment, and a long run has thirty of them.
+  "tally-pass": 4096,
   "room-entry": 4096,
   "turn-loop": 4096,
 };

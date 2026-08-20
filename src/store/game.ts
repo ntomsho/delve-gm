@@ -31,7 +31,15 @@ import type { PendingRequest, RollSpec, Stage, Step } from "../runtime/types.ts"
 import type { Commit, World, WorldEvent } from "../runtime/diffs/types.ts";
 import { applyCommit } from "../runtime/diffs/apply.ts";
 import { CountingRng } from "../runtime/rng.ts";
-import type { EntityPassResult, PlayerCharacter } from "../engine/index.ts";
+import {
+  challengeStateOf,
+  newChallengeState,
+  noteAction,
+  noteArrival,
+  noteDamage,
+  type ChallengeState,
+} from "../runtime/challenges.ts";
+import type { EntityPassResult, PlayerCharacter, RunTally } from "../engine/index.ts";
 import { dungeonKey, runKey, type KeyValueStore } from "./persist.ts";
 
 // ---------------------------------------------------------------------------
@@ -174,6 +182,25 @@ export interface RunState {
   log: LogEntry[];
   turnRecords: TurnRecord[];
   callLog: CallLogEntry[];
+  /**
+   * What this run has made of the dungeon's challenges: what it has been given
+   * out of the reserve, what it has been told, what it has put on the map, and
+   * the ledger the end-of-run tally reads.
+   *
+   * FIRST-CLASS RUN STATE rather than journal entries, because the journal
+   * defaults to no sink — a run played without one would tally to nothing. It
+   * is optional only so a run saved before it existed reloads; see
+   * `challengeStateOf`.
+   */
+  challengeState?: ChallengeState;
+  /**
+   * What the run was worth, once it has ended alive.
+   *
+   * Absent while the run is in progress, absent forever on a death — a run that
+   * ends in death does not tally, though its ledger is still written — and
+   * absent for the few seconds between the ending and the call coming back.
+   */
+  tally?: RunTally;
 }
 
 export function newRun(dungeon: GeneratedDungeon, pc: PlayerCharacter): RunState {
@@ -207,6 +234,9 @@ export function newRun(dungeon: GeneratedDungeon, pc: PlayerCharacter): RunState
     log: [{ kind: "opening", text: dungeon.pass.openingProse, turn: 0 }],
     turnRecords: [],
     callLog: [],
+    // The 10% held out of the pot at generation, which play spends as coin
+    // grants. Nothing else in the run is allowed to invent money.
+    challengeState: newChallengeState(dungeon.stocked.pot?.allowance ?? 0),
   };
 }
 
@@ -241,11 +271,21 @@ export interface GameStore {
   pushTranscript(entry: TranscriptEntry): void;
   pushLog(entry: Omit<LogEntry, "turn">): void;
   recordTurn(record: Omit<TurnRecord, "turn">): void;
+  /** What the run was worth. Written once, when it has ended alive. */
+  setTally(tally: RunTally): void;
   logCall(entry: CallLogEntry): void;
   reset(): void;
 }
 
-function worldOf(run: RunState): World {
+/**
+ * The world a commit acts on.
+ *
+ * Takes the DUNGEON as well as the run, because what the dungeon asks is
+ * generation data and belongs to the dungeon — the run holds only what it has
+ * made of it. Two runs down the same dungeon face the same challenges and share
+ * no ledger.
+ */
+function worldOf(run: RunState, dungeon: GeneratedDungeon | undefined): World {
   return {
     entities: run.entities,
     pc: run.pc,
@@ -254,6 +294,11 @@ function worldOf(run: RunState): World {
     goalMet: run.goalMet,
     // A run saved before this field existed reloads without it.
     fiction: run.fiction ?? [],
+    challenges: dungeon?.stocked.challenges ?? [],
+    reserve: dungeon?.stocked.reserve ?? [],
+    challengeState: challengeStateOf(run.challengeState, dungeon?.stocked.pot?.allowance ?? 0),
+    turn: run.turnCount,
+    runSeed: run.runSeed,
   };
 }
 
@@ -295,19 +340,49 @@ const init: StateCreator<GameStore> = (set, get) => ({
   lastEvents: [],
 
   start(dungeon, pc) {
-    set({ dungeon, run: newRun(dungeon, pc), lastEvents: [] });
+    const run = newRun(dungeon, pc);
+    // The entrance is walked into like anywhere else, and nothing else will
+    // ever mark it: `noteArrival` fires on a change of room, and the first room
+    // is not a change.
+    if (run.challengeState) {
+      noteArrival(run.challengeState, dungeon.stocked.challenges ?? [], run.currentRoomId, 0);
+    }
+    set({ dungeon, run, lastEvents: [] });
   },
 
   commit(commit) {
     const run = get().run;
     if (!run) return { ok: false, reasons: ["no run in progress"] };
 
-    const result = applyCommit(worldOf(run), commit);
+    const result = applyCommit(worldOf(run, get().dungeon), commit);
     if (!result.ok || !result.world) {
       return { ok: false, reasons: result.rejected.map((r) => `${r.diff.path}: ${r.reason}`) };
     }
 
     const died = result.events.some((e) => e.kind === "player-died");
+
+    // WHAT IT COST THEM, against whatever was in the room. The end-of-run tally
+    // rates risk, and hit points lost is the only hard evidence of it that a
+    // turn produces without being asked.
+    noteDamage(
+      result.world.challengeState,
+      result.world.challenges,
+      run.currentRoomId,
+      run.turnCount,
+      run.pc.hp.current - result.world.pc.hp.current
+    );
+
+    // MEETING A THING IS WALKING IN ON IT, whatever happens next. That is what
+    // `metTurn` means, and it is the earlier of the two timestamps the tally
+    // compares to work out whether a creature was got past rather than fled.
+    if (result.world.currentRoomId !== run.currentRoomId) {
+      noteArrival(
+        result.world.challengeState,
+        result.world.challenges,
+        result.world.currentRoomId,
+        run.turnCount
+      );
+    }
     set({
       lastEvents: result.events,
       run: {
@@ -318,6 +393,7 @@ const init: StateCreator<GameStore> = (set, get) => ({
         arrivedVia: result.world.arrivedVia,
         goalMet: result.world.goalMet,
         fiction: result.world.fiction,
+        challengeState: result.world.challengeState,
         stage: endingOf(commit, result.world, died),
         step: commit.nextStep,
         pendingRoll: commit.nextStage === "roll_offered" ? commit.rollRequest : undefined,
@@ -377,15 +453,36 @@ const init: StateCreator<GameStore> = (set, get) => ({
     const run = get().run;
     if (!run) return;
     const turn = run.turnCount + 1;
+
+    // THE LEDGER, WRITTEN BY CODE. The turn already worked out what the action
+    // was aimed at — `record.target` is step 1's answer — so when that target is
+    // something a challenge is about, the attempt is appended without anyone
+    // being asked whether it counted. It never enters a prompt, so it costs
+    // nothing per turn and can afford to hold everything.
+    const cs = challengeStateOf(run.challengeState, get().dungeon?.stocked.pot?.allowance ?? 0);
+    if (record.target) {
+      noteAction(cs, get().dungeon?.stocked.challenges ?? [], run.entities, [record.target], {
+        turn,
+        action: record.action,
+        ...(record.roll ? { roll: record.roll } : {}),
+      });
+    }
+
     set({
       run: {
         ...run,
         turnCount: turn,
         turnRecords: [...run.turnRecords, { ...record, turn }],
+        challengeState: cs,
         // A completed turn closes the exchange that produced it.
         transcript: [],
       },
     });
+  },
+
+  setTally(tally) {
+    const run = get().run;
+    if (run) set({ run: { ...run, tally } });
   },
 
   logCall(entry) {

@@ -158,6 +158,7 @@ export function PlayScreen({
             onRoll={onRoll}
             onRetry={onRetry}
             onAbandon={onAbandon}
+            {...(run.tally ? { tally: run.tally } : {})}
             {...(onLeave ? { onLeave } : {})}
           />
         </div>

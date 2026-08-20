@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { applyCommit } from "./apply.ts";
 import { PLAYER_ID, type Commit, type Diff, type World } from "./types.ts";
 import { normalizePath } from "./paths.ts";
+import { newChallengeState } from "../challenges.ts";
 import { roomIndex } from "../occupancy.ts";
 import { isBook } from "../../engine/index.ts";
 import type {
@@ -104,7 +105,20 @@ function makeWorld(): World {
     conditions: [],
   };
 
-  return { entities, pc, currentRoomId: ROOM_A, goalMet: false, fiction: [] };
+  return {
+    entities,
+    pc,
+    currentRoomId: ROOM_A,
+    goalMet: false,
+    fiction: [],
+    // No challenges: this file tests the diff applier, and a world with none
+    // exercises exactly the paths a world with some also takes.
+    challenges: [],
+    reserve: [],
+    challengeState: newChallengeState(0),
+    turn: 1,
+    runSeed: 4242,
+  };
 }
 
 let world: World;

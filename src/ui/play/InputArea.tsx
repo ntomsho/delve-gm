@@ -18,6 +18,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { STAGE_HINT, STAGE_NAME, STAGE_TONE } from "../theme.ts";
 import { acceptsInput, isTerminal, type Stage, type RollSpec } from "../../runtime/types.ts";
+import type { RunTally } from "../../engine/index.ts";
 
 export interface InputAreaProps {
   stage: Stage;
@@ -38,6 +39,15 @@ export interface InputAreaProps {
    * worse than the plain statement that the run has ended.
    */
   onLeave?: () => void;
+  /**
+   * What the run was worth, once it has ended alive.
+   *
+   * Absent while the run is in progress, absent forever on a death — a run that
+   * ends in death does not tally — and absent for the few seconds between the
+   * ending and the scoring call coming back. The card renders without it and
+   * gains the lines when it arrives, rather than holding the ending back.
+   */
+  tally?: RunTally;
 }
 
 /**
@@ -159,10 +169,12 @@ const ENDINGS: Record<Ending, { heading: string; body: string; warm: boolean }> 
 function EndOfRun({
   stage,
   turns,
+  tally,
   onLeave,
 }: {
   stage: Ending;
   turns: number;
+  tally?: RunTally;
   onLeave?: () => void;
 }) {
   const { heading, body, warm } = ENDINGS[stage];
@@ -181,10 +193,47 @@ function EndOfRun({
       <p className="mt-1.5 max-w-[52ch] font-prose text-[15px] leading-[1.55] text-ink">
         {body}
       </p>
+      {/* WHAT THEY DID DOWN THERE, priced after the fact.
+        *
+        * Every line is an accomplishment: something killed, opened, found,
+        * solved, or got past. Getting past a thing without fighting it is on
+        * this list and worth the same as anything else — that is the point of
+        * rating risk rather than counting bodies.
+        *
+        * Absent on a death, which does not tally at all. */}
+      {tally && tally.awards.length > 0 && (
+        <div className="mt-3 border-t pt-2" style={{ borderColor: "var(--color-rule-faint)" }}>
+          <div className="font-mono text-[9px] uppercase tracking-[0.16em] text-graphite">
+            What it was worth
+          </div>
+          <ul className="mt-1.5 space-y-0.5">
+            {tally.awards.map((a) => (
+              <li
+                key={a.challengeId}
+                className="flex items-baseline justify-between gap-3 font-prose text-[13px] leading-[1.5] text-ink"
+              >
+                <span className="min-w-0 flex-1 truncate">{a.why}</span>
+                <span className="shrink-0 font-mono text-[10px] tracking-[0.08em] text-graphite">
+                  {a.xp} xp
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <div className="mt-2 flex flex-wrap items-center gap-4">
         <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-graphite">
           {turns} turn{turns === 1 ? "" : "s"}
         </span>
+        {tally && (
+          <span
+            className="font-mono text-[10px] uppercase tracking-[0.12em]"
+            style={{ color: "var(--color-torch-deep)" }}
+          >
+            {tally.total} xp
+          </span>
+        )}
         {/* Absent on a local run, which has no roster to go back to. */}
         {onLeave && (
           <button
@@ -313,7 +362,12 @@ export function InputArea(props: InputAreaProps) {
         stage === "escaped" ||
         stage === "goal_met" ||
         stage === "abandoned") && (
-        <EndOfRun stage={stage} turns={turns} {...(onLeave ? { onLeave } : {})} />
+        <EndOfRun
+          stage={stage}
+          turns={turns}
+          {...(props.tally ? { tally: props.tally } : {})}
+          {...(onLeave ? { onLeave } : {})}
+        />
       )}
 
       {/* The tabletop convention, and it is doing real work. */}

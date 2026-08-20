@@ -272,7 +272,14 @@ function roomName(world: World, id: string): string {
  * turn resolves it. A creature crossing its own home is not that, and what it
  * does about a fire in the next room is the referee's to say.
  */
-export function roomDistances(world: World, from: string): Map<string, number> {
+export function roomDistances(
+  // NARROWER THAN `World` on purpose. This walks the connector graph and reads
+  // nothing else, and `censusView` hands it a `RunState` — which satisfies a
+  // whole `World` only by accident, and stopped doing so the moment `World`
+  // grew a field about challenges that a BFS has no opinion about.
+  world: { entities: Pick<World["entities"], "connectors"> },
+  from: string
+): Map<string, number> {
   const out = new Map<string, number>([[from, 0]]);
   let frontier = [from];
   let depth = 0;

@@ -227,7 +227,6 @@ depth: deep   tension: uneasy
 headline: quiet
 room keywords: Room=Oubliette
 as drawn: a small chamber, about 10 by 35 feet -- long and narrow, running north-south, close to a rectangle, give or take a corner. Ways out: one off the south wall, one off the east wall
-entity [<id>] reward (Item): Key=where Jewels lies -- a key to where the objective is
 connector [<id>] in the south wall, at the middle to room_3 (Chasm) -- say what it physically is; no barrier
 open exits: room_1, room_3
 fixtures: up to 2, or none
@@ -238,7 +237,6 @@ depth: middle   tension: dangerous
 headline: creature
 room keywords: Room=Chasm  |  Room Detail=Mosaics
 as drawn: a tiny chamber, about 25 by 15 feet -- oblong, running east-west, irregular, its walls stepping in and out. Ways out: one off the north wall, one off the south wall, one off the east wall
-entity [<id>] reward (Item): Key=the way is concealed -- a key to a concealed way
 promotable detail [Room Detail=Mosaics] -- make it an entity only if a player would act on it
 connector [<id>] in the east wall, at the middle to room_4 (Stockyard) -- say what it physically is; no barrier
 connector [<id>] in the south wall, toward the west end to room_5 (Cavern) -- say what it physically is; no barrier
@@ -458,6 +456,97 @@ Return JSON only, no prose outside it:
   "groups": [
     { "id": "<exactly as listed>", "name": "<plural name>", "base": "<standing identity>" }
   ]
+}"
+`;
+
+exports[`prompt snapshots > keys pass 1`] = `
+"You are writing the keys of a dungeon that is otherwise finished. Every room,
+every way through and every creature below has already been written and
+committed to; nothing about them is yours to change.
+
+A KEY IS AN OBJECT THAT ANSWERS A QUESTION THE DUNGEON ASKS. A journal naming
+what drives the ghoul back. A steward's ring the door was cut for. A rubbing of
+the seal. Half a map. A vial of the acid that eats the fungus. It is a thing a
+player picks up and carries, not a feeling and not a hint.
+
+FOR EACH KEY
+- name: what the object is called, two to five words. A thing, not a promise:
+  "the almoner's daybook", not "the key to the ghoul".
+- base: what it IS and what it tells you, in a sentence or two. THE FACT QUOTED
+  UNDER IT MUST SURVIVE VERBATIM OR NEARLY SO -- that exact wording is what the
+  game later writes onto the thing it is about, and a paraphrase breaks the
+  link. Put it in the object's own voice: what the page says, what the ring is
+  cut to fit, what the vial is labelled.
+- lockRequirement: OFFERED ONLY where the brief says so, and only for a blocked
+  way. Rewrite what stands in that way so that it and this key name each other.
+  It must still read correctly from both sides, since a player can meet it from
+  either.
+
+HARD RULES
+1. Return exactly the keys listed, each once, with its ref exactly as given. Do
+   not add one and do not leave one out: a key with no name is an object the
+   player picks up and is told nothing about.
+2. The key must be findable and useful WITHOUT the thing it answers being
+   present. A player reads the journal in one room and meets the ghoul in
+   another, in either order.
+3. Do not say what the key is worth. Do not give it a price, a weight, or a
+   number of any kind.
+4. Do not describe the room it is in, or the thing it answers. Both are written.
+5. Write prose, not notes.
+
+=== DUNGEON FICTION (shared context) ===
+[dungeon context]
+
+=== KEYS TO WRITE (4) ===
+
+--- <id> ---
+found in "Room room_1" -- A Pool, dangerous, at deep depth.
+IT ANSWERS WHERE THE OBJECTIVE IS: "Room room_8"
+  which is: A Stockyard, lethal, at furthest depth.
+  THE FACT IT MUST CARRY, exactly: "where Enemy weakness lies"
+
+--- <id> ---
+found in "Room room_1" -- A Pool, dangerous, at deep depth.
+IT ANSWERS A CREATURE'S WEAKNESS: "Rank and file"
+  which is: A standing description of group 1, true of every one of them.
+  THE FACT IT MUST CARRY, exactly: "Flattery"
+
+--- <id> ---
+found in "Room room_4" -- A Stables, calm, at middle depth.
+IT ANSWERS A CREATURE'S ABILITY: "Rank and file"
+  which is: A standing description of group 1, true of every one of them.
+  THE FACT IT MUST CARRY, exactly: "Gaze weapon"
+
+--- <id> ---
+found in "Room room_8" -- A Stockyard, lethal, at furthest depth.
+IT ANSWERS A PERSON'S ASSET: "A named person"
+  which is: A distinct named.
+  THE FACT IT MUST CARRY, exactly: "Faction-member"
+
+=== THE OBJECTIVE ===
+"The master die" (Item) -- A steel coin die.
+the mission: Escort
+
+Name one to three things a player would have to LEARN about it, beyond
+finding it -- what it wants, what it costs, which of the four seals is
+the real one, whose name has to be spoken. Each one short, mechanical,
+and true of the objective as described above. These are the QUESTIONS,
+not the answers: something else in the dungeon will turn out to answer
+them, and it is not your job here to say what.
+
+=== RESPONSE FORMAT ===
+Return JSON only, no prose outside it:
+
+{
+  "keys": [
+    {
+      "ref": "<exactly as given>",
+      "name": "<what the object is called>",
+      "base": "<what it is and what it tells you, carrying the fact verbatim>",
+      "lockRequirement": "<only where offered: the lock, rewritten to name this key>"
+    }
+  ],
+  "goalProperties": ["<a thing that must be learned about the objective>"]
 }"
 `;
 

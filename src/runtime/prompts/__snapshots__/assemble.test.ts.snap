@@ -62,6 +62,35 @@ player is not there to see any of it.
   doing: Loot
 - [«id-11»] The drowned hands — in [«id-6»] "The Chasm" · 1 room away · THE PLAYER HAS NOT BEEN HERE
   doing: Collect
+
+## What this dungeon still has to give
+
+Any ONE of these may be handed over this turn, through \`draw\`, IF the
+player has earned it: found in the rubble they were digging through, given
+by the thing they talked down, carried by the thing they killed. Something
+that simply appears in a room they already searched is a broken promise.
+Most turns should take none of them.
+
+Quote the fact EXACTLY as written. Invent the object and the moment; never
+the fact.
+
+- [ch:region:c0] a region of the map, HERE, in this room — as something they are told
+  the fact: "the layout beyond Cavern"
+- [ch:creature-weakness:mob_6vw_1:0] a creature's weakness, elsewhere in the dungeon — as something they are told
+  the fact: "Phylactery"
+- [ch:creature-weakness:mob_6vw_1:1] a creature's weakness, elsewhere in the dungeon — as something they are told
+  the fact: "Flowers"
+- [ch:creature-ability:mob_6vw_1:0] a creature's ability, elsewhere in the dungeon — as something they are told
+  the fact: "Camouflaging"
+- [ch:creature-ability:mob_6vw_1:1] a creature's ability, elsewhere in the dungeon — as something they are told
+  the fact: "Gaze weapon"
+- [ch:creature-ability:mob_6vw_1:2] a creature's ability, elsewhere in the dungeon — as something they are told
+  the fact: "Teleporting"
+- [ch:npc-liability:mob_6vw_2] a person's liability, elsewhere in the dungeon — as something they are told
+  the fact: "Jealous"
+- [ch:npc-asset:mob_6vw_2] a person's asset, elsewhere in the dungeon — as something they are told
+  the fact: "Powerful spouse"
+
 ",
     "role": "user",
   },
@@ -142,6 +171,35 @@ player is not there to see any of it.
   doing: Loot
 - [«id-11»] The drowned hands — in [«id-6»] "The Chasm" · 1 room away · THE PLAYER HAS NOT BEEN HERE
   doing: Collect
+
+## What this dungeon still has to give
+
+Any ONE of these may be handed over this turn, through \`draw\`, IF the
+player has earned it: found in the rubble they were digging through, given
+by the thing they talked down, carried by the thing they killed. Something
+that simply appears in a room they already searched is a broken promise.
+Most turns should take none of them.
+
+Quote the fact EXACTLY as written. Invent the object and the moment; never
+the fact.
+
+- [ch:region:c0] a region of the map, HERE, in this room — as something they are told
+  the fact: "the layout beyond Cavern"
+- [ch:creature-weakness:mob_6vw_1:0] a creature's weakness, elsewhere in the dungeon — as something they are told
+  the fact: "Phylactery"
+- [ch:creature-weakness:mob_6vw_1:1] a creature's weakness, elsewhere in the dungeon — as something they are told
+  the fact: "Flowers"
+- [ch:creature-ability:mob_6vw_1:0] a creature's ability, elsewhere in the dungeon — as something they are told
+  the fact: "Camouflaging"
+- [ch:creature-ability:mob_6vw_1:1] a creature's ability, elsewhere in the dungeon — as something they are told
+  the fact: "Gaze weapon"
+- [ch:creature-ability:mob_6vw_1:2] a creature's ability, elsewhere in the dungeon — as something they are told
+  the fact: "Teleporting"
+- [ch:npc-liability:mob_6vw_2] a person's liability, elsewhere in the dungeon — as something they are told
+  the fact: "Jealous"
+- [ch:npc-asset:mob_6vw_2] a person's asset, elsewhere in the dungeon — as something they are told
+  the fact: "Powerful spouse"
+
 ",
     "role": "user",
   },
@@ -225,6 +283,35 @@ player is not there to see any of it.
   doing: Loot
 - [«id-11»] The drowned hands — in [«id-6»] "The Chasm" · 1 room away · THE PLAYER HAS NOT BEEN HERE
   doing: Collect
+
+## What this dungeon still has to give
+
+Any ONE of these may be handed over this turn, through \`draw\`, IF the
+player has earned it: found in the rubble they were digging through, given
+by the thing they talked down, carried by the thing they killed. Something
+that simply appears in a room they already searched is a broken promise.
+Most turns should take none of them.
+
+Quote the fact EXACTLY as written. Invent the object and the moment; never
+the fact.
+
+- [ch:region:c0] a region of the map, HERE, in this room — as something they are told
+  the fact: "the layout beyond Cavern"
+- [ch:creature-weakness:mob_6vw_1:0] a creature's weakness, elsewhere in the dungeon — as something they are told
+  the fact: "Phylactery"
+- [ch:creature-weakness:mob_6vw_1:1] a creature's weakness, elsewhere in the dungeon — as something they are told
+  the fact: "Flowers"
+- [ch:creature-ability:mob_6vw_1:0] a creature's ability, elsewhere in the dungeon — as something they are told
+  the fact: "Camouflaging"
+- [ch:creature-ability:mob_6vw_1:1] a creature's ability, elsewhere in the dungeon — as something they are told
+  the fact: "Gaze weapon"
+- [ch:creature-ability:mob_6vw_1:2] a creature's ability, elsewhere in the dungeon — as something they are told
+  the fact: "Teleporting"
+- [ch:npc-liability:mob_6vw_2] a person's liability, elsewhere in the dungeon — as something they are told
+  the fact: "Jealous"
+- [ch:npc-asset:mob_6vw_2] a person's asset, elsewhere in the dungeon — as something they are told
+  the fact: "Powerful spouse"
+
 ",
     "role": "user",
   },
@@ -318,6 +405,35 @@ player is not there to see any of it.
   doing: Loot
 - [«id-11»] The drowned hands — in [«id-6»] "The Chasm" · 1 room away · THE PLAYER HAS NOT BEEN HERE
   doing: Collect
+
+## What this dungeon still has to give
+
+Any ONE of these may be handed over this turn, through \`draw\`, IF the
+player has earned it: found in the rubble they were digging through, given
+by the thing they talked down, carried by the thing they killed. Something
+that simply appears in a room they already searched is a broken promise.
+Most turns should take none of them.
+
+Quote the fact EXACTLY as written. Invent the object and the moment; never
+the fact.
+
+- [ch:region:c0] a region of the map, HERE, in this room — as something they are told
+  the fact: "the layout beyond Cavern"
+- [ch:creature-weakness:mob_6vw_1:0] a creature's weakness, elsewhere in the dungeon — as something they are told
+  the fact: "Phylactery"
+- [ch:creature-weakness:mob_6vw_1:1] a creature's weakness, elsewhere in the dungeon — as something they are told
+  the fact: "Flowers"
+- [ch:creature-ability:mob_6vw_1:0] a creature's ability, elsewhere in the dungeon — as something they are told
+  the fact: "Camouflaging"
+- [ch:creature-ability:mob_6vw_1:1] a creature's ability, elsewhere in the dungeon — as something they are told
+  the fact: "Gaze weapon"
+- [ch:creature-ability:mob_6vw_1:2] a creature's ability, elsewhere in the dungeon — as something they are told
+  the fact: "Teleporting"
+- [ch:npc-liability:mob_6vw_2] a person's liability, elsewhere in the dungeon — as something they are told
+  the fact: "Jealous"
+- [ch:npc-asset:mob_6vw_2] a person's asset, elsewhere in the dungeon — as something they are told
+  the fact: "Powerful spouse"
+
 ",
     "role": "user",
   },
@@ -405,6 +521,35 @@ player is not there to see any of it.
   doing: Loot
 - [«id-11»] The drowned hands — in [«id-6»] "The Chasm" · 1 room away · THE PLAYER HAS NOT BEEN HERE
   doing: Collect
+
+## What this dungeon still has to give
+
+Any ONE of these may be handed over this turn, through \`draw\`, IF the
+player has earned it: found in the rubble they were digging through, given
+by the thing they talked down, carried by the thing they killed. Something
+that simply appears in a room they already searched is a broken promise.
+Most turns should take none of them.
+
+Quote the fact EXACTLY as written. Invent the object and the moment; never
+the fact.
+
+- [ch:region:c0] a region of the map, HERE, in this room — as something they are told
+  the fact: "the layout beyond Cavern"
+- [ch:creature-weakness:mob_6vw_1:0] a creature's weakness, elsewhere in the dungeon — as something they are told
+  the fact: "Phylactery"
+- [ch:creature-weakness:mob_6vw_1:1] a creature's weakness, elsewhere in the dungeon — as something they are told
+  the fact: "Flowers"
+- [ch:creature-ability:mob_6vw_1:0] a creature's ability, elsewhere in the dungeon — as something they are told
+  the fact: "Camouflaging"
+- [ch:creature-ability:mob_6vw_1:1] a creature's ability, elsewhere in the dungeon — as something they are told
+  the fact: "Gaze weapon"
+- [ch:creature-ability:mob_6vw_1:2] a creature's ability, elsewhere in the dungeon — as something they are told
+  the fact: "Teleporting"
+- [ch:npc-liability:mob_6vw_2] a person's liability, elsewhere in the dungeon — as something they are told
+  the fact: "Jealous"
+- [ch:npc-asset:mob_6vw_2] a person's asset, elsewhere in the dungeon — as something they are told
+  the fact: "Powerful spouse"
+
 ",
     "role": "user",
   },

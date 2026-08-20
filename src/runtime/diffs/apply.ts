@@ -46,6 +46,7 @@ import {
 } from "../../engine/index.ts";
 import { equipResolving, unequip as unequipSlot } from "../../engine/index.ts";
 import { NO_CHANGE_STAGES } from "../types.ts";
+import { applyDraw, grantCoin, noteResolutions, recordFact, resolutionsFrom } from "../challenges.ts";
 import { heldItems } from "../occupancy.ts";
 import { routeTo, stepToward } from "../travel.ts";
 import { isWritable, normalizePath, writablePaths, type EntityKind } from "./paths.ts";
@@ -789,7 +790,13 @@ export function applyCommit(world: World, commit: Commit): ApplyOutcome {
 
   // A rejection or a clarification changes nothing. Stated in the playbook and
   // enforced here, because "the referee was told not to" is not enforcement.
-  if (NO_CHANGE_STAGES.includes(commit.nextStage) && (commit.diffs.length > 0 || commit.fictionNote)) {
+  const wouldChange =
+    commit.diffs.length > 0 ||
+    commit.fictionNote !== undefined ||
+    commit.draw !== undefined ||
+    commit.coinGrant !== undefined ||
+    (commit.learned?.length ?? 0) > 0;
+  if (NO_CHANGE_STAGES.includes(commit.nextStage) && wouldChange) {
     const reason = `a "${commit.nextStage}" turn must not change the world`;
     const refusals = commit.diffs.map((diff) => ({ diff, reason }));
     // The fiction is part of the world for this purpose. A turn that turned the
@@ -800,6 +807,26 @@ export function applyCommit(world: World, commit: Commit): ApplyOutcome {
       refusals.push({
         diff: { entityId: "(the dungeon)", path: "fictionNote", value: commit.fictionNote },
         reason: `${reason}, and that includes adding to its fiction`,
+      });
+    }
+    // Nor giving anything away. A turn that turned the player away has not
+    // earned a key, and a turn that asked them a question has not answered one.
+    if (commit.draw !== undefined) {
+      refusals.push({
+        diff: { entityId: commit.draw.challengeId, path: "draw", value: commit.draw.challengeId },
+        reason: `${reason}, and that includes handing over a key`,
+      });
+    }
+    for (const id of commit.learned ?? []) {
+      refusals.push({
+        diff: { entityId: id, path: "learned", value: id },
+        reason: `${reason}, and that includes telling the player something new`,
+      });
+    }
+    if (commit.coinGrant !== undefined) {
+      refusals.push({
+        diff: { entityId: PLAYER_ID, path: "coinGrant", value: commit.coinGrant.why },
+        reason: `${reason}, and that includes finding money`,
       });
     }
     return { ok: false, applied: [], events: [], rejected: refusals };
@@ -850,7 +877,103 @@ export function applyCommit(world: World, commit: Commit): ApplyOutcome {
     }
   }
 
+  // --- the reserve: a challenge answered in play ----------------------------
+  //
+  // AFTER the diffs, so a draw can name an object one of them just created —
+  // `entityRef` is resolved through the same ref table `children[]` writes to.
+  // Refused rather than warned about: an entry that is not in the reserve, or
+  // has been spent, or belongs to a challenge already resolved, is the referee
+  // handing out something the dungeon did not have to give.
+  if (commit.draw !== undefined && rejected.length === 0) {
+    const entityId = commit.draw.entityRef ? ctx.refs.get(commit.draw.entityRef) : undefined;
+    if (commit.draw.entityRef !== undefined && entityId === undefined) {
+      rejected.push({
+        diff: { entityId: commit.draw.entityRef, path: "draw.entityRef", value: commit.draw.challengeId },
+        reason: `no entity was created with ref "${commit.draw.entityRef}" in this commit`,
+      });
+    } else {
+      const out = applyDraw(
+        draft.challengeState,
+        draft.challenges,
+        draft.reserve,
+        { challengeId: commit.draw.challengeId, ...(entityId !== undefined ? { entityId } : {}) },
+        draft.turn
+      );
+      if (!out.ok) {
+        rejected.push({
+          diff: { entityId: commit.draw.challengeId, path: "draw", value: commit.draw.challengeId },
+          reason: out.reason,
+        });
+      } else {
+        const c = draft.challenges.find((x) => x.id === commit.draw!.challengeId);
+        ctx.events.push({
+          kind: "key-drawn",
+          entityId: entityId ?? commit.draw.challengeId,
+          detail: c ? c.property : commit.draw.challengeId,
+        });
+      }
+    }
+  }
+
+  // --- what the player now knows -------------------------------------------
+  //
+  // Written onto the thing it is true of, in the dungeon's own words rather
+  // than the referee's. A drawn key is usually learned in the same breath, so
+  // this runs after the draw and can name what the draw just spent.
+  for (const challengeId of commit.learned ?? []) {
+    if (rejected.length > 0) break;
+    const out = recordFact(draft, draft.challenges, challengeId, draft.challengeState);
+    if (!out.ok) {
+      rejected.push({
+        diff: { entityId: challengeId, path: "learned", value: challengeId },
+        reason: out.reason,
+      });
+      continue;
+    }
+    for (const w of out.wrote) {
+      ctx.events.push({ kind: "fact-recorded", entityId: w.entityId, detail: w.state });
+    }
+  }
+
+  // --- coin out of the allowance -------------------------------------------
+  //
+  // The referee says they found money; the amount is rolled here, from the run's
+  // own seed. 10% of the dungeon's pot was held back at generation for exactly
+  // this, and when it is spent there is no more.
+  if (commit.coinGrant !== undefined && rejected.length === 0) {
+    const out = grantCoin(draft, draft.challengeState, draft.turn);
+    if (!out.ok) {
+      rejected.push({
+        diff: { entityId: PLAYER_ID, path: "coinGrant", value: commit.coinGrant.why },
+        reason: out.reason,
+      });
+    } else {
+      ctx.events.push({
+        kind: "coin-granted",
+        entityId: draft.pc.id,
+        detail: `${out.amount} cp — ${commit.coinGrant.why}`,
+      });
+    }
+  }
+
   if (rejected.length > 0) return { ok: false, applied: [], rejected, events: [] };
+
+  // --- what the turn actually resolved --------------------------------------
+  //
+  // READ OFF THE WORLD, not asked for. A creature is bested because the applier
+  // raised `creature-slain`; a way is open because its `conditional` is gone; an
+  // obstacle is solved because `resolved` is set on it. See `resolutionsFrom`,
+  // and note that the one case with no trace to read — the creature talked past
+  // — is deliberately not detected here at all.
+  const resolutions = resolutionsFrom(world, draft, ctx.events, draft.challenges);
+  noteResolutions(draft.challengeState, draft.challenges, resolutions, draft.turn);
+  for (const r of resolutions) {
+    ctx.events.push({
+      kind: "challenge-resolved",
+      entityId: r.challengeId,
+      detail: r.resolution,
+    });
+  }
 
   walkApproaching(ctx, commit.timeSpent);
 

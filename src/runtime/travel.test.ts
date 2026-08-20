@@ -9,6 +9,7 @@
 import { describe, expect, it } from "vitest";
 import { roomDistances, routeTo, stepToward } from "./travel.ts";
 import type { World } from "./diffs/types.ts";
+import { newChallengeState } from "./challenges.ts";
 import type {
   EntityPassResult,
   ICreature,
@@ -70,7 +71,18 @@ function makeWorld(over: Partial<EntityPassResult> = {}): World {
     inventory: [], equipped: {}, conditions: [], copper: 0,
   } as unknown as PlayerCharacter;
 
-  return { entities, pc, currentRoomId: "a", goalMet: false, fiction: [] };
+  return {
+    entities,
+    pc,
+    currentRoomId: "a",
+    goalMet: false,
+    fiction: [],
+    challenges: [],
+    reserve: [],
+    challengeState: newChallengeState(0),
+    turn: 1,
+    runSeed: 4242,
+  };
 }
 
 /**

@@ -2,12 +2,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   applyContentPass,
   applyDungeonPass,
+  applyKeysPass,
   applySeamsPass,
   blockPlanValid,
   buildContentPassPayload,
   buildDungeonPassPayload,
+  buildKeysPassPayload,
   buildSeamsPassPayload,
   contentPassOmissions,
+  keysPassOmissions,
   seamsPassOmissions,
   DungeonPassError,
   generateBlueprint,
@@ -15,6 +18,7 @@ import {
   isSurfaceExit,
   renderContentPassPrompt,
   renderDungeonPassPrompt,
+  renderKeysPassPrompt,
   renderSeamsPassPrompt,
   resolveBase,
   Rng,
@@ -26,6 +30,8 @@ import {
   type ContentPassPayload,
   type ContentPassResponse,
   type DungeonPassResponse,
+  type KeysPassPayload,
+  type KeysPassResponse,
   type SeamsPassPayload,
   type SeamsPassResponse,
   type Size,
@@ -39,7 +45,12 @@ import {
   type GeneratedDungeon,
 } from "./generate.ts";
 import { chunksFor, deriveSeeds } from "./seeds.ts";
-import { contentPassSchema, dungeonPassSchema, seamsPassSchema } from "./llm/schemas.ts";
+import {
+  contentPassSchema,
+  dungeonPassSchema,
+  keysPassSchema,
+  seamsPassSchema,
+} from "./llm/schemas.ts";
 import { extractJson, ResponseFormatError, validate } from "./llm/json.ts";
 import { callForJson, type FailedAttempt } from "./llm/client.ts";
 
@@ -75,6 +86,19 @@ function fakeSeamsPass(p: SeamsPassPayload): SeamsPassResponse {
       form: `a stair, ${s.a.name} at its head and ${s.b.name} at its foot`,
       ...(s.gated ? { requirement: "silted up; it must be dug clear" } : {}),
     })),
+  };
+}
+
+/** Answer a keys payload point for point, quoting the fact the way the real one must. */
+function fakeKeysPass(p: KeysPassPayload): KeysPassResponse {
+  return {
+    keys: p.keys.map((k) => ({
+      ref: k.ref,
+      name: "Almoner's daybook",
+      base: `A ledger. One line is underscored: "${k.target.fact}".`,
+      ...(k.lockRef ? { lockRequirement: "silted up; the daybook says where the sluice is" } : {}),
+    })),
+    ...(p.goal ? { goalProperties: ["whose name is cut on the underside"] } : {}),
   };
 }
 
@@ -136,10 +160,17 @@ function generateOffline(seed: number, size: Size): GeneratedDungeon {
     applyContentPass(res, payload, entities, blueprint, stocked, new Rng(stocked.seed + chunk));
   }
 
-  // Last, once every room has a name and a base: the ways between the chunks.
+  // Last but one, once every room has a name and a base: the ways between the
+  // chunks.
   const seams = buildSeamsPassPayload(stocked, entities, dp.dungeonContext);
   if (seams.seams.length > 0) {
     applySeamsPass(validate(seamsPassSchema, fakeSeamsPass(seams)), seams, entities);
+  }
+
+  // Last of all: the keys, which the content pass deliberately left nameless.
+  const keys = buildKeysPassPayload(stocked, entities, dp.dungeonContext);
+  if (keys.keys.length > 0 || keys.goal) {
+    applyKeysPass(validate(keysPassSchema, fakeKeysPass(keys)), keys, stocked, entities);
   }
 
   return {
@@ -634,6 +665,75 @@ describe("chunk completeness", () => {
       expect(sent).toHaveLength(2);
     });
 
+    /**
+     * THE RETRY IS A TOOL EXCHANGE, NOT A PARAPHRASE OF ONE.
+     *
+     * Regression for the failure that killed seed 454434 at size 2 on
+     * 2026-08-20. `callForJson` used to build the retry by re-typing the call
+     * as prose — `JSON.stringify(call.input).slice(0, 4000)` pushed as an
+     * assistant TEXT turn. A content-pass response is ~14 kB, so the model was
+     * shown invalid JSON and addressed as though it had written prose; it
+     * answered in kind and came back with `rooms` set to a STRING containing
+     * the array. The content pass goes out unguaranteed (~35 optionals against
+     * a strict budget of 24), so nothing on the wire caught it, and a single
+     * missing `ref` on attempt 1 became a dead generation on attempt 2.
+     *
+     * What this pins is the shape of the second request, because that is the
+     * thing that was wrong. The assistant turn is the `tool_use` block as it
+     * arrived, whole, and the objection is its `tool_result`.
+     */
+    it("retries inside the tool exchange, echoing the call whole", async () => {
+      const { res, dropped } = short();
+
+      // The fixture writes placeholder prose a few words long; a real room's
+      // `base` is a paragraph, and a real chunk carries a dozen of them. The
+      // old truncation only bit past 4000 characters, so the response has to
+      // be the size a real one is for this to be testing anything.
+      for (const room of res.rooms) room.base = `${room.base} ${"stone and still water. ".repeat(24)}`;
+      expect(JSON.stringify(res).length).toBeGreaterThan(4000);
+
+      queue.push(answered(res), answered(fakeContentPass(p)));
+
+      await call();
+
+      const messages = sent[1].messages as { role: string; content: unknown }[];
+      expect(messages).toHaveLength(3);
+
+      // The assistant turn is blocks, not prose — and the tool call inside it
+      // is the one that came back, not a summary of it.
+      const [assistant, objection] = messages.slice(1);
+      expect(assistant.role).toBe("assistant");
+      const blocks = assistant.content as { type: string; id: string; input: unknown }[];
+      const toolUse = blocks.find((b) => b.type === "tool_use")!;
+      expect(toolUse.id).toBe("t1");
+      expect(toolUse.input).toEqual(res);
+
+      // Whole — see the padding above. The old truncation cut at 4000
+      // characters, so the cut landed mid-string and what went back was not
+      // parseable as JSON at all.
+      expect(JSON.stringify(toolUse.input).length).toBeGreaterThan(4000);
+
+      // And the complaint is the answer to that call, addressed to it by id.
+      const results = objection.content as {
+        type: string;
+        tool_use_id: string;
+        content: string;
+        is_error?: boolean;
+      }[];
+      expect(objection.role).toBe("user");
+      expect(results).toHaveLength(1);
+      expect(results[0].type).toBe("tool_result");
+      expect(results[0].tool_use_id).toBe("t1");
+      expect(results[0].is_error).toBe(true);
+      expect(results[0].content).toContain(dropped.ref);
+      expect(results[0].content).toContain("write_region");
+
+      // Nothing in the retry is the response restated as a string. That is the
+      // register that taught the model to answer with one.
+      expect(messages.some((m) => typeof m.content === "string" && m.content.includes('"ref"')))
+        .toBe(false);
+    });
+
     it("throws rather than applying a chunk that left it out twice", async () => {
       queue.push(answered(short().res), answered(short().res));
       await expect(call()).rejects.toThrow(ResponseFormatError);
@@ -704,6 +804,19 @@ describe("chunk completeness", () => {
     const res = fakeSeamsPass(payload);
     const dropped = res.connectors.pop()!;
     const out = seamsPassOmissions(payload, res);
+    expect(out).toHaveLength(1);
+    expect(out[0].message).toContain(dropped.ref);
+  });
+
+  it("names a key the keys pass left out", () => {
+    const gd = generateOffline(1005, 3);
+    const payload = buildKeysPassPayload(gd.stocked, gd.entities, "[fiction]");
+    expect(payload.keys.length).toBeGreaterThan(0);
+    expect(keysPassOmissions(payload, fakeKeysPass(payload))).toEqual([]);
+
+    const res = fakeKeysPass(payload);
+    const dropped = res.keys.pop()!;
+    const out = keysPassOmissions(payload, res);
     expect(out).toHaveLength(1);
     expect(out[0].message).toContain(dropped.ref);
   });
@@ -905,6 +1018,17 @@ describe("prompt snapshots", () => {
     expect(redactIds(renderSeamsPassPrompt(payload))).toMatchSnapshot();
   });
 
+  // Built off a FINISHED dungeon, which is the only state this prompt is ever
+  // assembled in — every target it quotes has to have been written by an
+  // earlier pass, and a snapshot taken before that would show empty quotes and
+  // pass forever.
+  it("keys pass", () => {
+    const gd = generateOffline(1005, 2);
+    const payload = buildKeysPassPayload(gd.stocked, gd.entities, "[dungeon context]");
+    expect(payload.keys.length).toBeGreaterThan(0);
+    expect(redactIds(renderKeysPassPrompt(payload))).toMatchSnapshot();
+  });
+
   // WITH THE DRAWING, because that is what a live run sends. Built the way
   // `generate.ts` builds it — the layout hook inside stocking — so the "as
   // drawn" line, the per-connector wall and the fixture menu are all in the
@@ -1005,6 +1129,19 @@ describe("generation split across requests", () => {
           finishing.dungeonContext
         );
         return { ok: true, json: async () => toolReply(tool, fakeSeamsPass(payload)) };
+      }
+
+      // Same reasoning as the seams pass above: the keys payload addresses
+      // entities that only exist once the regions have been applied, so it is
+      // answered against the partial in hand rather than from the table.
+      if (tool === "write_keys") {
+        if (!finishing) throw new Error("the keys pass ran with no partial in hand");
+        const payload = buildKeysPassPayload(
+          finishing.stocked,
+          finishing.entities,
+          finishing.dungeonContext
+        );
+        return { ok: true, json: async () => toolReply(tool, fakeKeysPass(payload)) };
       }
 
       const answer = answers.get(prompt) as { name: string; input: unknown } | undefined;

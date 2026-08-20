@@ -97,9 +97,15 @@ function named(name: string | undefined, fallback: string): string {
 export function roomVerb(room: MapRoomView): Verb {
   const what = named(room.name, "this place");
   // Standing in it, there is nowhere to go and "examine" means look around.
-  return room.current
-    ? { label: EXAMINE, sentence: `I look around ${what}.` }
-    : { label: "Go To?", sentence: `I make my way to ${what}.` };
+  if (room.current) return { label: EXAMINE, sentence: `I look around ${what}.` };
+  // A MAPPED ROOM IS SOMEWHERE THEY HAVE READ ABOUT, NOT SOMEWHERE THEY CAN
+  // WALK TO. `shortestPath` refuses a room the player has never entered, so
+  // "Go To?" here would offer an action the game is about to turn away. Offering
+  // the chart instead is both honest and the thing they would actually do.
+  if (room.mapped) {
+    return { label: "Recall?", sentence: `I think back to what the chart showed of ${what}.` };
+  }
+  return { label: "Go To?", sentence: `I make my way to ${what}.` };
 }
 
 /**
