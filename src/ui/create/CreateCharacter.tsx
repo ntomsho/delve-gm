@@ -225,7 +225,7 @@ export function CreateCharacter({
           <button
             type="button"
             onClick={onCancel}
-            className="font-mono text-[10px] uppercase tracking-[0.14em] text-graphite transition-colors hover:text-ink"
+            className="font-mono text-[10px] uppercase tracking-[0.14em] text-graphite transition-colors hover:text-ink active:text-torch"
           >
             ← Characters
           </button>
@@ -254,7 +254,7 @@ export function CreateCharacter({
                 onClick={() => setStep(i)}
                 aria-current={here ? "step" : undefined}
                 className={`flex-1 border-r border-rule-faint px-3.5 py-3 text-left transition-colors last:border-r-0 ${
-                  here ? "bg-paper" : "bg-transparent hover:bg-paper/60"
+                  here ? "bg-paper" : "bg-transparent hover:bg-paper/60 active:bg-paper"
                 }`}
               >
                 <div

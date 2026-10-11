@@ -44,6 +44,42 @@ body {
 }
 
 /*
+ * EVERY BUTTON IS A BUTTON.
+ *
+ * Tailwind's preflight sets `button { cursor: default }`, so the hand has to be
+ * asked for — and asking per button is how thirty of them ended up with an
+ * arrow and one component had the hand. Same reasoning as the `[data-hover-id]`
+ * rule below: a thing is pointable by being the kind of thing that is
+ * pointable, not by whoever wrote it remembering.
+ *
+ * These are element selectors rather than `:where()` so they beat preflight,
+ * which is one too; ours come later, so ours win. A utility class on a specific
+ * button still outranks both.
+ */
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+/*
+ * AND EVERY BUTTON PRESSES. A control with a hover state and no click state is
+ * one that looks alive until you use it — the press is the half that tells you
+ * the machine heard you, and on a slow save it is the only feedback there is.
+ *
+ * A pixel down, which is what the paper-and-shadow drawing in `shared.tsx`
+ * already implies at a larger size. Written inside `:where()` so its whole
+ * specificity is the `:active` pseudo-class: any component that wants a
+ * different press — the shadowed buttons drop into the page by their own offset
+ * — overrides this with a plain `active:` utility and does not have to fight it.
+ */
+:where(button:not(:disabled)):active {
+  translate: 0 1px;
+}
+
+/*
  * ANYTHING THAT RAISES A HOVER CARD IS POINTABLE — map markers, doors, room
  * outlines, and every row of the room card. Keyed on the attribute `useAnchor`
  * already puts on all of them, so a new hoverable thing gets the cursor by

@@ -59,7 +59,7 @@ export function StepMode({
               aria-pressed={chosen}
               onClick={() => onChange(m)}
               className={`border p-6 text-left transition-colors ${
-                chosen ? "border-torch bg-torch-wash" : "border-rule bg-paper hover:border-ink"
+                chosen ? "border-torch bg-torch-wash" : "border-rule bg-paper hover:border-ink active:bg-desk"
               }`}
             >
               <div className="flex items-baseline justify-between gap-3">

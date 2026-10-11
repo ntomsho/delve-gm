@@ -80,14 +80,16 @@ export function SignIn({ onSignIn, notice }: Props) {
           type="button"
           onClick={() => void go()}
           disabled={busy}
-          className="w-full px-4 py-3 border transition-colors disabled:opacity-50"
+          // THE COLOURS ARE CLASSES AND THE TYPE IS NOT. An inline `background`
+          // outranks every class including `:hover`, so a button styled that way
+          // cannot have a hover state at all — which is exactly what this one
+          // did not have. The tokens are the same either way; `index.css`
+          // declares them for Tailwind and `theme.ts` for the SVG.
+          className="w-full border border-ink bg-ink px-4 py-3 text-paper transition-colors hover:bg-graphite active:bg-graphite disabled:bg-panel disabled:text-graphite disabled:opacity-50"
           style={{
             fontFamily: font.mono,
             fontSize: "13px",
             letterSpacing: "0.06em",
-            color: busy ? color.graphite : color.paper,
-            background: busy ? color.panel : color.ink,
-            borderColor: color.ink,
           }}
         >
           {busy ? "TAKING YOU TO GOOGLE…" : "SIGN IN WITH GOOGLE"}

@@ -239,7 +239,7 @@ export function Library({
           <button
             type="button"
             onClick={onBack}
-            className="mb-6 font-mono text-[10px] uppercase tracking-[0.14em] text-graphite transition-colors hover:text-ink"
+            className="mb-6 font-mono text-[10px] uppercase tracking-[0.14em] text-graphite transition-colors hover:text-ink active:text-torch"
           >
             ← Characters
           </button>

@@ -75,7 +75,7 @@ function Card({
   return (
     <div className={onClick ? "" : shell}>
       {onClick ? (
-        <button type="button" onClick={onClick} aria-pressed={chosen} className={`w-full ${shell} transition-colors hover:border-ink`}>
+        <button type="button" onClick={onClick} aria-pressed={chosen} className={`w-full ${shell} transition-colors hover:border-ink active:bg-desk`}>
           {body}
         </button>
       ) : (

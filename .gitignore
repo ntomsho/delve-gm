@@ -37,3 +37,6 @@ api/*
 
 .vercel
 .env*
+
+# TypeScript incremental build cache
+*.tsbuildinfo

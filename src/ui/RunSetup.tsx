@@ -116,10 +116,10 @@ function Segmented<T extends string | number>({
           aria-pressed={o.value === value}
           className={`${width} border py-2 font-mono text-[13px] transition-colors ${
             o.disabled
-              ? "cursor-not-allowed border-rule-faint bg-paper text-pencil"
+              ? "border-rule-faint bg-paper text-pencil"
               : o.value === value
                 ? "border-ink bg-ink text-paper"
-                : "border-rule bg-paper text-graphite hover:border-graphite hover:text-ink"
+                : "border-rule bg-paper text-graphite hover:border-graphite hover:text-ink active:bg-desk"
           }`}
         >
           {o.label}
@@ -170,7 +170,7 @@ function WorldRow({
       onClick={onClick}
       aria-pressed={chosen}
       className={`w-full border px-5 py-3.5 text-left transition-colors ${
-        chosen ? "border-torch bg-torch-wash" : "border-rule bg-paper hover:border-graphite"
+        chosen ? "border-torch bg-torch-wash" : "border-rule bg-paper hover:border-graphite active:bg-desk"
       }`}
     >
       <span className="flex items-baseline justify-between gap-4">
@@ -236,7 +236,7 @@ export function RunSetup({
           <button
             type="button"
             onClick={onBack}
-            className="mb-6 font-mono text-[10px] uppercase tracking-[0.14em] text-graphite transition-colors hover:text-ink"
+            className="mb-6 font-mono text-[10px] uppercase tracking-[0.14em] text-graphite transition-colors hover:text-ink active:text-torch"
           >
             ← Characters
           </button>
@@ -338,7 +338,7 @@ export function RunSetup({
                     className={`flex w-full items-baseline justify-between gap-4 border px-5 py-3.5 text-left transition-colors ${
                       chosen
                         ? "border-torch bg-torch-wash"
-                        : "border-rule bg-paper hover:border-graphite"
+                        : "border-rule bg-paper hover:border-graphite active:bg-desk"
                     }`}
                   >
                     <span className="font-display text-[16px] font-bold text-ink">{pc.name}</span>
@@ -364,7 +364,7 @@ export function RunSetup({
                   : { world: "new", size, level, character }
               )
             }
-            className="bg-torch px-6 py-3 font-mono text-[12px] uppercase tracking-[0.14em] text-paper transition-colors hover:bg-torch-deep disabled:bg-rule disabled:text-pencil"
+            className="bg-torch px-6 py-3 font-mono text-[12px] uppercase tracking-[0.14em] text-paper transition-colors hover:bg-torch-deep active:bg-ink disabled:bg-rule disabled:text-pencil"
           >
             Go down
           </button>

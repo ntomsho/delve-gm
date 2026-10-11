@@ -129,7 +129,9 @@ export function StepEquipment({
                   aria-label={`${c.label} weapon`}
                   onClick={() => onWeapon(c.members[0])}
                   className={`p-3 text-left transition-colors ${
-                    chosen ? "border-2 border-torch bg-torch-wash" : "border border-rule bg-paper hover:border-ink"
+                    chosen
+                      ? "border-2 border-torch bg-torch-wash"
+                      : "border border-rule bg-paper hover:border-ink active:bg-desk"
                   }`}
                 >
                   <div className="font-prose text-[17px] text-ink">{c.label}</div>
@@ -158,7 +160,7 @@ export function StepEquipment({
                       className={`px-4 py-2 font-prose text-[17px] transition-colors ${
                         chosen
                           ? "border-2 border-torch bg-torch-wash text-ink"
-                          : "border border-rule bg-paper text-graphite hover:border-ink hover:text-ink"
+                          : "border border-rule bg-paper text-graphite hover:border-ink hover:text-ink active:bg-desk"
                       }`}
                     >
                       {equipment(k).name}

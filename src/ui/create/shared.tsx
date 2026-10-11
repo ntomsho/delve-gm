@@ -12,18 +12,17 @@ export const LABEL = "font-display text-[10px] tracking-[0.2em] text-graphite up
 export const MONO_LABEL = "font-mono text-[10px] tracking-[0.16em] text-graphite uppercase";
 
 /**
- * `cursor-pointer` is here rather than on the buttons that wanted it.
+ * THE CURSOR IS NOT HERE ANY MORE, and neither is the default press.
  *
- * A `<button>` does not take the hand on its own — the browser draws an arrow
- * over one and Tailwind's preflight says so explicitly — so it has to be asked
- * for, and asking per button is how three of them end up with it and the fourth
- * does not. Same reasoning as the `[data-hover-id]` rule in `index.css`: a
- * thing is pointable by being the kind of thing that is pointable.
+ * Both moved to `index.css`, where they are `button { cursor: pointer }` and a
+ * `:where(button):active` nudge that every button in the app gets — this
+ * component used to be the only place in the interface that took the hand, and
+ * a rule that has to be remembered per button is a rule two thirds of them
+ * break. The press below is the exception that rule was written to allow.
  *
- * The disabled cursor still wins, being a variant.
+ * `transition-colors` and not `transition-all`: the press has to be immediate.
  */
-const BASE =
-  "font-display tracking-[0.1em] transition-colors cursor-pointer disabled:cursor-not-allowed";
+const BASE = "font-display tracking-[0.1em] transition-colors";
 
 /**
  * Four weights, and they mean four different things:
@@ -37,15 +36,28 @@ const BASE =
  */
 export type ButtonTone = "primary" | "secondary" | "dark" | "ghost";
 
+/**
+ * THE PRESS IS THE SHADOW BEING SPENT.
+ *
+ * The design draws these as buttons standing off a sheet of paper, so pressing
+ * one puts it back down: it travels exactly its own offset and the shadow goes
+ * with it, which is the whole trick and the reason the two tones that have a
+ * shadow move by different amounts. `dark` and `ghost` are flat on the paper
+ * already — there is nothing to press them into — so they take the global one
+ * pixel from `index.css` and darken instead.
+ *
+ * A disabled button does none of it. `active:` does not fire on one anyway, but
+ * the shadow is gone by then too, so there would be nothing to spend.
+ */
 const TONE: Record<ButtonTone, string> = {
   primary:
-    "border border-ink bg-torch text-paper font-bold shadow-[3px_3px_0_var(--color-ink)] hover:bg-torch-deep disabled:border-rule disabled:bg-rule disabled:text-pencil disabled:shadow-none",
+    "border border-ink bg-torch text-paper font-bold shadow-[3px_3px_0_var(--color-ink)] hover:bg-torch-deep active:translate-x-[3px] active:translate-y-[3px] active:shadow-none disabled:border-rule disabled:bg-rule disabled:text-pencil disabled:shadow-none",
   secondary:
-    "border border-ink bg-paper text-ink shadow-[2px_2px_0_var(--color-ink)] hover:bg-desk disabled:border-rule disabled:text-pencil disabled:shadow-none",
+    "border border-ink bg-paper text-ink shadow-[2px_2px_0_var(--color-ink)] hover:bg-desk active:translate-x-[2px] active:translate-y-[2px] active:bg-desk active:shadow-none disabled:border-rule disabled:text-pencil disabled:shadow-none",
   dark:
-    "border border-ink bg-ink text-paper hover:bg-graphite disabled:border-rule disabled:bg-rule disabled:text-pencil",
+    "border border-ink bg-ink text-paper hover:bg-graphite active:bg-graphite disabled:border-rule disabled:bg-rule disabled:text-pencil",
   ghost:
-    "border border-rule bg-transparent text-graphite hover:border-ink hover:text-ink disabled:text-pencil disabled:hover:border-rule disabled:hover:text-pencil",
+    "border border-rule bg-transparent text-graphite hover:border-ink hover:text-ink active:bg-desk active:border-ink active:text-ink disabled:text-pencil disabled:hover:border-rule disabled:hover:text-pencil",
 };
 
 export function Button({
@@ -76,7 +88,11 @@ export function Toggle<T extends string>({
           onClick={() => onChange(o.value)}
           className={`font-display text-[12.5px] tracking-[0.1em] px-5 py-2.5 transition-colors ${
             i > 0 ? "border-l border-ink" : ""
-          } ${o.value === value ? "bg-ink text-paper" : "bg-paper text-ink hover:bg-desk"}`}
+          } ${
+            o.value === value
+              ? "bg-ink text-paper"
+              : "bg-paper text-ink hover:bg-desk active:bg-rule-faint"
+          }`}
         >
           {o.label}
         </button>
@@ -107,7 +123,7 @@ export function RerollGlyph({
       disabled={disabled}
       title={title}
       aria-label={label}
-      className="font-mono text-[13px] leading-none -m-1 p-1 text-graphite transition-colors hover:text-torch disabled:cursor-not-allowed disabled:text-rule disabled:hover:text-rule"
+      className="font-mono text-[13px] leading-none -m-1 p-1 text-graphite transition-colors hover:text-torch active:text-torch-deep disabled:text-rule disabled:hover:text-rule"
     >
       ↻
     </button>

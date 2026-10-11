@@ -338,7 +338,8 @@ function Pill({
       // can assert the button and the sentence are the same thing.
       data-sends={sentence}
       onClick={() => onPick(sentence)}
-      className="px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] hover:bg-graphite"
+      // Torch on the press, because this press is the one that becomes a turn.
+      className="px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] transition-colors hover:bg-graphite active:bg-torch"
       style={{ color: color.paper }}
     >
       {label}
