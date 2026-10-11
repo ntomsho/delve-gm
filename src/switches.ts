@@ -28,6 +28,12 @@ export interface Switches {
   pinnedSeed: boolean;
   size: Size;
   level: number;
+  /**
+   * The end-of-run preview — `EndOfRun` over fixture data, every ending a click
+   * apart. Not a run at all, so it is not one of `NAMES`: it does not bypass the
+   * front of the app, it replaces the app. `main.tsx` reads it.
+   */
+  endings: boolean;
 }
 
 const NAMES = ["seed", "size", "level", "offline", "stub"] as const;
@@ -50,5 +56,6 @@ export function readSwitches(search: string): Switches {
     pinnedSeed: params.has("seed"),
     size: Number(params.get("size") ?? 2) as Size,
     level: Number(params.get("level") ?? 1),
+    endings: params.has("endings"),
   };
 }

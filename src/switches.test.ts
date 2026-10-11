@@ -58,4 +58,12 @@ describe("what the URL asks for", () => {
     // Something else entirely is not one of ours.
     expect(readSwitches("?debug=1").bypass).toBe(false);
   });
+
+  // The preview is not a run, so it must not start one behind itself.
+  it("reads the end-of-run preview without counting it as a run switch", () => {
+    const s = readSwitches("?endings");
+    expect(s.endings).toBe(true);
+    expect(s.bypass).toBe(false);
+    expect(readSwitches("").endings).toBe(false);
+  });
 });

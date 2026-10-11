@@ -19,16 +19,31 @@ can be picked up on its own. Where one genuinely blocks another, the feature say
 
 ---
 
+## 0. The aim
+
+**This app is a portfolio piece.** That is the test every design decision answers to:
+it should look as good as it can, be as technically impressive, as well written and as
+performant as it can — **and cost as little as possible to run.** None of those is
+traded away silently for another. Where two pull against each other (an illustration
+looks better and costs money; a bigger model writes better and costs more), the feature
+says which way it went and why, and the cheap path is the default until something
+measured says it is not good enough.
+
+Concretely: prefer work done once over work done per run, work done per dungeon over work
+done per player, and code over a model call wherever code can do the job.
+
+---
+
 ## 1. Where things stand
 
 Built, live and deployed at **https://aidungeon.vercel.app**: generation end to end
 (dungeon pass, content pass, seams pass, block plan), the turn loop against the real
-model, character creation and the shop, the map, accounts and ownership, run continuity
-(resume, abandon, the one-run-at-a-time lock), shared worlds and the library, the single
-equipment table, time categories and creature agency, and the first of three rewards
-sessions.
+model, character creation and the shop (which sells as well as buys), the map, accounts
+and ownership, run continuity (resume, abandon, the one-run-at-a-time lock), shared
+worlds and the library, the single equipment table, time categories and creature agency,
+the first of three rewards sessions, and levelling.
 
-**913 tests and build clean**, plus a third, explicitly-invoked vitest config
+**1,336 tests and build clean**, plus a third, explicitly-invoked vitest config
 (`npm run test:db`) holding **58** more that need a real database.
 
 Two playtests are the evidence base for most of what is left. Where a feature cites a
@@ -579,6 +594,140 @@ a grid the model narrates cell by cell would be a worse failure than a vague sen
 
 ---
 
+### Illustrations
+
+**Black-and-white line art in the manner of the old modules**: pen and ink, hatching,
+no grey wash. The precedent is exact: the 1e modules shipped illustration booklets for
+the DM to hold up as the players entered particular rooms (S1's is the famous one). This
+is for the **player**, never the model, so it does not reopen [Room plans](#room-plans)'
+"not an image" — that was about what the referee reads.
+
+Four kinds, in the order they should be built. Assessed, not built; **nothing here is
+committed to until the spike below has been looked at.**
+
+**What binds all four**
+
+- **An image shows only what the player could know.** The prompt is built from the
+  room with every concealed feature and connector filtered out — the same filter
+  `roomView` applies. A `base` that mentions a secret door, fed to an image model, is a
+  picture of the secret door: §2.10's *never differently* in a new medium.
+- **Images from `base` belong to the dungeon; images from `state` belong to the run.**
+  A `base` image is true forever (§2.4), so the first player in a shared world pays for it
+  and every later one gets it free, and a duplicated dungeon shares it by URL. A `state`
+  image is one player's run and dies with it.
+- **The prompt builder is pure and lives in `src/engine/`**; the provider call is
+  server-side behind its own key in `.env.local`, exactly like `ANTHROPIC_API_KEY`
+  (`src/server/app.ts`). The image model's string lives in `src/runtime/llm/models.ts`
+  — `models.test.ts` greps only for `claude-` today and must be widened to catch it.
+- **Post-processing is code, and it is what makes the style hold.** Every image is
+  thresholded to **1-bit** on the server: it guarantees black and white (the commonest
+  way these models drift), pulls different models and calls toward one look, shrinks a
+  PNG to ~50–150 KB, and lets the white become the app's paper colour so the plate sits
+  on the page rather than in a box.
+- **No image ever blocks a turn.** Prose first, picture when it lands. Nothing in game
+  state depends on one existing, and a failed call is a missing picture, never an error.
+- **Storage is not the jsonb `doc`.** Supabase Storage (`@supabase/supabase-js` is
+  already a dependency) or Vercel Blob, with a URL on the record.
+- **Ask for no lettering.** These models write nonsense text into anything that looks
+  like it should carry some.
+
+**1. Room plates — lazily, on first entry.** Generating every room at generation time
+pays for rooms nobody reaches (R2 saw 3 of 12). The image call fires alongside the
+room-entry call and arrives a few seconds after the prose. Architecture, fixtures and
+atmosphere only: **no creatures and no loose items** — they move, die and get picked up,
+and a picture of them is stale the moment they do. Prompt: a fixed style preamble, the
+theme from `dungeonContext`, the room's name, visible `base` and fixture kinds; optionally
+a Haiku call to condense it into a visual brief. The dungeon seed goes in as the image
+seed wherever the provider takes one.
+
+**2. Creature sprites — one per kind, not per entity.** Keyed on the group or creature
+base in `registry.groups` / `registry.creatures`, so twelve cultists are one drawing and
+a dungeon has perhaps 5–15 to make. A unique leader gets its own. Generated lazily the
+first time the kind is met.
+
+- **Transparency is free and needs no model.** After the 1-bit threshold, flood-fill the
+  white *from the border* to transparent: only the background goes, and white enclosed
+  by the figure's outline stays opaque paper. A morphological close first seals small
+  gaps in the outline so the fill does not leak into the figure. Prompt for a single
+  figure on a plain white ground. The paid alternatives are the fallback, not the plan:
+  gpt-image-2 has a native `background: "transparent"` in preview (reported unstable,
+  with grey fringing), and fal's background removers are ~$0.01–0.025 per image.
+- **Removing a sprite is free**, so a death, a creature leaving and a creature arriving
+  cost nothing to show.
+- **Compositing into the plate is the risk, not the generation.** A figure dropped into
+  a scene drawn without it reads as collage — wrong scale, wrong perspective, no ground
+  contact — and code does not know where the plate's floor is. **Two layouts to compare
+  in the spike:** in-scene (plates prompted with an open foreground floor, sprites placed
+  along a bottom band and scaled by size), and **spot art** beside or overlapping the
+  plate's edge the way the Monster Manual set its figures. Spot art cannot look wrong and
+  is the default unless in-scene is convincingly better.
+- **Interacts with [First impressions](#first-impressions)**: a sprite shows a stranger
+  without naming her, which is the point of that feature.
+
+**3. Item illustrations — two very different costs.**
+
+- **The equipment catalogue** (122 entries in `equipment.ts`) is drawn **once, at build
+  time, by a script**, committed as static assets and served from the CDN. A few dollars
+  total, forever, and zero cost per run — the clearest case for §0's "once over per run".
+  Shop, sheet and inventory all get it.
+- **Unique items** — loot, keys, the objective — lazily, the first time one is taken or
+  closely inspected. Dungeon-scoped when the item is in the generated dungeon; run-scoped
+  when the referee created it mid-run.
+
+**4. State plates — redrawing a room that has changed.** Feasible with the image *edit*
+models (FLUX.2 edit, FLUX Kontext, Nano Banana, GPT Image), which take the existing image
+plus an instruction — *"the brazier lies overturned, the floor is ankle-deep in water"* —
+and keep everything else. ~$0.015–0.045 per edit.
+
+- **Always edit from the `base` plate**, with the current visible description. Never
+  chain edits on edits: each pass degrades, and the drawing drifts away from the style.
+- **The trigger is the gate that already exists.** Room entry recomposes the room only
+  when the staleness sweep finds `needUpdate` on the room itself (§2.9); a redraw rides
+  that and nothing else, so it costs at most one edit per re-entry of a changed room, and
+  never one per turn.
+- **A cap per run, as a named constant.** Past it the room keeps its last plate. A
+  changed room drawn as it was is a stale picture — tolerable, because the prose and the
+  room card are what bind, and the cap is what keeps a long run's cost bounded.
+- **Open: is every room recomposition worth a redraw**, or does the referee mark the
+  changes that are *visible*? A flag on the commit is a judgement rather than a number, so
+  §2.1 allows it — but it is another thing the referee can get wrong. Decide from the spike.
+
+**Cost.** Aggregator prices, Aug–Oct 2026; verify before committing.
+
+| | per image | lazy run, ~10 rooms | size 5, every room |
+|---|---|---|---|
+| FLUX.2 klein | ~$0.014 | ~$0.15 | ~$0.45 |
+| Recraft V4.1 / Nano Banana | ~$0.035 | ~$0.35 | ~$1.05 |
+| FLUX.2 pro + 3 style refs | ~$0.075 | ~$0.75 | ~$2.25 |
+
+Plus ~10 creature kinds, a handful of unique items, and capped state edits — a lazily
+illustrated run lands somewhere around **$0.30–1.50** in total, and less on a shared
+world. Style references are billed as input on top; downscaling them to ~0.25 MP cuts most
+of that. **The real price is per usable image**: a model that needs three attempts costs
+three times its listed price.
+
+**Candidates.** FLUX.2 [pro] (up to 10 reference images, built for keeping a style
+across them); FLUX.2 [klein] (cheapest, open weights, so a LoRA trained on our own style
+is the long-run route to a locked look); Recraft V4.1 (strong on line art, custom styles
+from references); Nano Banana (prompt-following, references, edits); GPT Image 2 at low
+quality. **Not**: Imagen 4 (gone from the Gemini API since Aug 17) or gpt-image-1 / 1.5
+(shutting down Oct 23 and Dec 1).
+
+**Style references must be ours.** Not TSR art and not a community LoRA trained on named
+artists — both are someone else's copyrighted work in a piece meant to be shown. Generate
+from a prompt that describes the look in words, keep the 4–6 that are right, and those are
+the references (and, later, the LoRA's training set).
+
+**The spike comes before any of it.** A dev script, `src/dev/cli-illustrate.ts`: ~8 rooms
+from R1's dungeon plus a few of its creature kinds, the filtered prompts, 3–4 models
+through one aggregator key, the threshold and the border flood-fill, written to a side by
+side HTML contact sheet with cost and time per image. About $1–2 and a couple of minutes.
+It answers: which model holds the style, does the plate match the room, does the
+threshold rescue the cheap models, does the flood-fill leave clean sprites, and in-scene
+or spot art.
+
+---
+
 ### Spellcasting
 
 **There is no guidance at all.** The rule, to be written into `3-standard.md`: a spell is
@@ -941,8 +1090,10 @@ dungeon is ~1500cp against a Knave starting purse of 60–360.
   sharpest evidence and the one thing a turn produces without being asked.
 - **The tally.** One call at the end, rating each accomplishment `low` / `moderate` /
   `high` **in words, with no numbers in the response**; `XP_FOR_RISK` prices them 50 /
-  100 / 200 in code. A run that ends in death does not tally. Abandoning does — walking
-  away from the run is still ending it alive.
+  100 / 200 in code. **Neither a death nor an abandonment tallies** — `shouldTally`
+  refuses both and `session.abandon` makes no call at all. Abandoning briefly did, on the
+  reasoning that walking away is still ending it alive; the end-of-run screen settled it
+  the other way, because nothing came back up and there is nothing to pay for.
 - **The allowance.** `commit.coinGrant` says the player found money; `grantCoin` rolls how
   much from the 10% held out of the pot, seeded on the run seed and the turn. When it runs
   out the answer is no.
@@ -952,10 +1103,75 @@ creature met before some later accomplishment was got past somehow; the game doe
 which way, and all of them are worth the same. One met after the last accomplishment was
 fled, and is correctly not credited. Nothing detects it per turn.
 
-**Levelling is still not done**, per spec §8.3, and the arithmetic is worth having written
-down: ~30 challenges at size 5, mostly moderate, is roughly 3000 XP against a
-1000-per-level track. Either the track moves or the rating does, and that is a design
-question. `XP_PER_LEVEL` is in `dungeon-tally-pass.ts` with the same note on it.
+**Levelling is built** — see below. The arithmetic that was the open question is
+unchanged and now deliberate: ~30 challenges at size 5, mostly moderate, is roughly 3000
+XP against a 1000-per-level track, so a full size 5 delve pays for about three levels and
+they are taken one at a time. Neither the track nor the rating moved; if either should,
+`XP_PER_LEVEL` in `dungeon-tally-pass.ts` is still the one number.
+
+---
+
+### The end of the run — **BUILT**
+
+`src/ui/play/EndOfRun.tsx`, over the whole page, up on its own when the run ends and
+dismissable back to the map and the scrollback; `RunOver` in the input area brings it back.
+Four endings, and it has to be right about something different in each.
+
+- **What they carried out**, from `lootOf` in `src/runtime/loot.ts`. `newRun` snapshots the
+  inventory ids and the purse at turn zero and the take is the diff — a thing they went
+  down with is never reported as treasure. Money is not a line: the purse is one item whose
+  amount moves, so coin is a delta and everything else is a list. A run saved before the
+  snapshot falls back to matching ids against the generated dungeon's items.
+- **Whether they keep it.** `keepsWhatTheyFound` — walking out alive, `goal_met` and
+  `escaped` both. The list is shown either way, because being shown the thing you lost is a
+  better ending than being told you lost something; only the verdict on it changes.
+- **What killed them**, from `causeOfDeath`, derived rather than written when it happened:
+  the room, the turn, and the target of the last roll thrown. **`killer` and `present` are
+  two different claims** — nothing marks a creature hostile, so what was standing in the
+  room is not an accusation and is a separate sentence.
+- **What it was worth**, from `run.tally`. The two unscored endings say why rather than
+  showing a blank, and a survivor whose call has not come back yet says it is still being
+  reckoned up rather than looking finished.
+
+**XP now lands on the sheet.** `PlayerCharacter.xp` accumulates; `carriedOut` adds the
+run's award in the same transaction as the ending, so it is paid on exactly the two
+endings that write a sheet at all. The roster row shows the total, and `pendingLevels`
+turns it into a badge and a button. **The reckoning says when a level is waiting** rather
+than only how far off the next one is — `levelsOwed` against the level they ended the run
+at, so an unclaimed level from three runs ago is still reported.
+
+**The `escaped` copy was wrong and is fixed.** It read *"with your life and nothing else"*,
+which was untrue twice over — they keep the whole pack, and cutting your losses is a
+decision rather than a defeat.
+
+---
+
+### Levelling — **BUILT**
+
+`src/engine/level-up.ts` and `src/ui/LevelUp.tsx`, reached from a button on the roster
+row. Knave's own rule, with one departure and one derivation worth writing down.
+
+- **The track is cumulative and nothing is spent.** `pendingLevels` is
+  `floor(xp / XP_PER_LEVEL) + 1 - level`: `xp` is a career total that only ever grows and
+  `level` is what has been claimed of it. That is the reading `EndOfRun` has implied since
+  the tally landed — it counts down to the next level as `total % XP_PER_LEVEL` — and it
+  means a size 5 delve can owe three levels at once, each taken separately.
+- **One level per confirm.** `applyLevelUp` returns a sheet one level on; the row offers
+  the button again while anything is still owed. Batching would mean rolling 2d8, 3d8 and
+  4d8 in one press and calling it a choice.
+- **The dice are decided before the button.** `levelUpSeed` derives the seed from the
+  character id and the level being taken, so closing the modal and reopening it finds the
+  same dice. There is no reroll to argue about and no state to persist — the same problem
+  `StepHp` solves by charging a reroll, solved here by the seed not moving.
+- **The one departure from the book.** Knave raises the maximum by 1 when the roll comes
+  in *less than* the old maximum, which leaves rolling exactly the old maximum as the only
+  result that pays nothing. `hpFromRoll` floors at `previousMax + 1`, so the curve is
+  monotonic. `CREATION_RULES`' hit point floors are the precedent.
+- **The ceiling is `ABILITY_MAX = 10`**, which is Knave's 20/+10 in the units the sheet
+  stores. A character with fewer than three abilities under it takes the level and simply
+  cannot spend all of it — `requiredRaises` says how many, and the screen says why.
+- **Not while they are in a run**, like the shop and for the same reason: the sheet on the
+  server is what the run is playing from. The badge beside the name still says it is owed.
 
 ---
 
@@ -1168,7 +1384,7 @@ mattering.
 
 ## 5. Non-goals
 
-No multiplayer, no party (one PC). No leveling. No between-dungeon persistence beyond saved
+No multiplayer, no party (one PC). No between-dungeon persistence beyond saved
 characters. No light or ration clocks yet, though `turnCount` exists for them. No mobile
 layout — desktop-first, must not break at tablet width.
 
