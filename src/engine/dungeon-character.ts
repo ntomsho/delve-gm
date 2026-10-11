@@ -79,6 +79,23 @@ export interface PlayerCharacter {
   name: string;
   /** Knave: level sets the ceiling on ability bonuses. */
   level: number;
+  /**
+   * Experience earned across every run this character has survived, in Knave's
+   * own units -- `XP_PER_LEVEL` is a level's worth.
+   *
+   * IT DOES NOT LEVEL THEM UP. Levelling is its own session and its own set of
+   * decisions (what a level costs, what it gives, whether the track at 1000 is
+   * the right track for a dungeon that pays out ~3000), and none of them are
+   * settled by adding a counter. This accumulates and is shown; `level` is still
+   * only moved by whatever lands next.
+   *
+   * ONLY A SURVIVOR EARNS IT. `carriedOut` is the one thing that writes this,
+   * and it is called on exactly the two endings that walk out of the dungeon.
+   *
+   * Optional: every character made before the tally existed has none, and zero
+   * and "never scored a run" are the same thing for every purpose there is.
+   */
+  xp?: number;
   /** How they were rolled up. Identity, and never writable at runtime. */
   mode?: CreationMode;
   hp: { current: number; max: number };

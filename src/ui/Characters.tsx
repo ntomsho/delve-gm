@@ -25,11 +25,18 @@
  * the run they are already in — resume it, or walk away from it — because they
  * may hold exactly one at a time and the interface should not offer a move the
  * game will refuse.
+ *
+ * LEVELLING IS DERIVED HERE TOO, and by the same trick as the badges: nothing
+ * writes a "can level up" field. `pendingLevels` compares the career XP total
+ * against the level already claimed, so a character who has just come up owing
+ * one says so the moment the roster is re-read, and taking it clears the badge
+ * because the sheet changed rather than because a flag was cleared.
  */
 
 import { useState } from "react";
 import {
   pcArmorDefense,
+  pendingLevels,
   slotCapacity,
   slotsUsed,
   type PlayerCharacter,
@@ -70,6 +77,7 @@ function Row({
   onResume,
   onAbandon,
   onShop,
+  onLevelUp,
   onDelete,
 }: {
   entry: CharacterEntry;
@@ -79,6 +87,7 @@ function Row({
   onResume: () => void;
   onAbandon: () => void;
   onShop: () => void;
+  onLevelUp: () => void;
   onDelete: () => void;
 }) {
   const [confirming, setConfirming] = useState(false);
@@ -86,6 +95,7 @@ function Row({
   const { sheet: pc, activeRun } = entry;
   const used = slotsUsed(pc);
   const capacity = slotCapacity(pc);
+  const owed = pendingLevels(pc);
 
   return (
     <li className="grid items-start gap-6 border-b border-rule py-6 sm:grid-cols-[minmax(0,1fr)_auto]">
@@ -104,6 +114,15 @@ function Row({
               In a run · {activeRun.dungeonName} · turn {activeRun.turnCount + 1}
             </span>
           )}
+          {/* WHAT THEY HAVE COMING, and it is a badge rather than only a button
+              because the button is opposite and a player scanning six rows
+              reads the names. Shown while they are in a run too — the level is
+              genuinely owed, it simply cannot be taken from down there. */}
+          {owed > 0 && (
+            <span className="border border-torch bg-torch-wash px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.14em] text-torch-deep">
+              {owed === 1 ? "A level owed" : `${owed} levels owed`}
+            </span>
+          )}
         </div>
 
         <p className="mt-1.5 max-w-[56ch] font-prose text-[16px] leading-relaxed text-graphite">
@@ -112,6 +131,15 @@ function Row({
 
         <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1.5 font-mono text-[11px] text-graphite">
           <span>LVL {pc.level}</span>
+          {/* Everything they have earned across every run they survived.
+            *
+            * STILL NOT A PROGRESS BAR. The track is cumulative and nothing is
+            * spent taking a level, so this is a career total and the badge
+            * above is what says a level is waiting; the end-of-run screen is
+            * where the distance to the next one is spelled out. A character who
+            * has never come back from a run has no line rather than a zero, on
+            * the same reasoning as `Record` below. */}
+          {pc.xp !== undefined && pc.xp > 0 && <span>{pc.xp.toLocaleString()} XP</span>}
           <span>
             HP {pc.hp.current}/{pc.hp.max}
           </span>
@@ -143,6 +171,27 @@ function Row({
         ) : (
           <Button tone="secondary" onClick={onSend} className="px-5 py-2.5 text-[12px]">
             Send down
+          </Button>
+        )}
+
+        {/*
+         * THE LEVEL THEY HAVE COMING, and it is second rather than first: the
+         * door is the door, and a control that pushed `Send down` a row further
+         * along on some rows and not others would cost every player more than
+         * it saved this one.
+         *
+         * ABSENT WHILE THEY ARE IN A RUN, like the shop and for exactly the same
+         * reason — the sheet on the server is the one the run is playing from,
+         * and a maximum that moved under a live run is a save fighting itself.
+         * The badge beside the name still says it is owed.
+         */}
+        {!activeRun && owed > 0 && (
+          <Button
+            tone="secondary"
+            onClick={onLevelUp}
+            className="border-torch px-5 py-2.5 text-[12px] text-torch-deep hover:bg-torch-wash"
+          >
+            Level up
           </Button>
         )}
 
@@ -239,6 +288,7 @@ export function Characters({
   onResumeRun,
   onAbandonRun,
   onShop,
+  onLevelUp,
   onCreate,
   onDelete,
   notice,
@@ -260,6 +310,12 @@ export function Characters({
   onAbandonRun: (run: ActiveRun) => void;
   /** Take them to the market. Only ever called for somebody not in a run. */
   onShop: (pc: PlayerCharacter) => void;
+  /**
+   * Open the level-up modal on them. Only ever called for somebody who is owed
+   * one and is not in a run — see `pendingLevels`, which is what decides both
+   * the badge and the button.
+   */
+  onLevelUp: (pc: PlayerCharacter) => void;
   onCreate: () => void;
   onDelete: (pc: PlayerCharacter) => void;
   /**
@@ -290,7 +346,7 @@ export function Characters({
                 <button
                   type="button"
                   onClick={onSignOut}
-                  className="uppercase tracking-[0.14em] text-graphite underline decoration-rule underline-offset-4 hover:text-torch"
+                  className="uppercase tracking-[0.14em] text-graphite underline decoration-rule underline-offset-4 transition-colors hover:text-torch active:text-torch-deep"
                 >
                   Sign out
                 </button>
@@ -337,6 +393,7 @@ export function Characters({
                   onResume={() => entry.activeRun && onResumeRun(entry.activeRun)}
                   onAbandon={() => entry.activeRun && onAbandonRun(entry.activeRun)}
                   onShop={() => onShop(entry.sheet)}
+                  onLevelUp={() => onLevelUp(entry.sheet)}
                   onDelete={() => onDelete(entry.sheet)}
                 />
               ))}

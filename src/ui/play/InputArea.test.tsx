@@ -9,13 +9,13 @@
 
 import { describe, expect, it } from "vitest";
 import { createElement as h } from "react";
-import { InputArea } from "./InputArea.tsx";
-import { renderDom } from "../__fixtures__/dom.ts";
+import { InputArea, type InputAreaProps } from "./InputArea.tsx";
+import { press, renderDom } from "../__fixtures__/dom.ts";
 import type { Stage } from "../../runtime/types.ts";
 
 const noop = () => {};
 
-function render(stage: Stage, turns: number, over: { onLeave?: () => void } = {}) {
+function render(stage: Stage, turns: number, over: Partial<InputAreaProps> = {}) {
   return renderDom(
     h(InputArea, {
       stage,
@@ -26,12 +26,13 @@ function render(stage: Stage, turns: number, over: { onLeave?: () => void } = {}
       onRoll: noop,
       onRetry: noop,
       onAbandon: noop,
+      onShowSummary: noop,
       ...over,
     })
   ).container;
 }
 
-function area(stage: Stage, turns: number, over: { onLeave?: () => void } = {}) {
+function area(stage: Stage, turns: number, over: Partial<InputAreaProps> = {}) {
   return render(stage, turns, over).textContent!;
 }
 
@@ -48,10 +49,10 @@ describe("the turn tracker", () => {
     expect(area("roll_offered", 3)).toContain("Turn 4");
   });
 
-  // A finished run has no turn in progress, and the end-of-run card a few lines
-  // below states the closed count. Both numbers at once, labelled the same way
-  // and one apart, would be worse than no tracker.
-  it("stands aside at the end, where the card counts closed turns", () => {
+  // A finished run has no turn in progress, and the strip a few lines below
+  // states the closed count. Both numbers at once, labelled the same way and one
+  // apart, would be worse than no tracker.
+  it("stands aside at the end, where the strip counts closed turns", () => {
     const text = area("goal_met", 8);
     expect(text).not.toContain("Turn 9");
     expect(text).toContain("8 turns");
@@ -94,16 +95,51 @@ describe("walking away", () => {
   });
 });
 
-describe("the way back to the roster", () => {
-  it("is offered at every ending when there is one to go back to", () => {
+/*
+ * THE SUMMARY MOVED OUT, to `EndOfRun.tsx` and the whole page. What is left here
+ * is the statement that the run ended and the way back to it — the overlay is
+ * dismissable, and a player who dismissed it to look at the map has to be able
+ * to get the loot and the score back.
+ */
+
+describe("the way back to the reckoning", () => {
+  it("is offered at every ending", () => {
     for (const stage of ["dead", "escaped", "goal_met", "abandoned"] as Stage[]) {
-      expect(area(stage, 4, { onLeave: noop })).toContain("Back to characters");
+      expect(area(stage, 4)).toContain("See the reckoning");
     }
   });
 
-  // A local run — `?offline`, `?stub` — has no roster, and a button leading
-  // nowhere is worse than the plain statement that the run has ended.
-  it("is absent when there is not", () => {
-    expect(area("goal_met", 4)).not.toContain("Back to characters");
+  it("is absent while the run is still being played", () => {
+    for (const stage of ["awaiting_action", "roll_offered", "thinking", "error"] as Stage[]) {
+      expect(area(stage, 4)).not.toContain("See the reckoning");
+    }
+  });
+
+  it("asks for it rather than deciding for itself", async () => {
+    let asked = 0;
+    const container = render("goal_met", 4, { onShowSummary: () => void asked++ });
+    const button = [...container.querySelectorAll("button")].find(
+      (b) => b.textContent === "See the reckoning"
+    )!;
+    await press(button);
+    expect(asked).toBe(1);
+  });
+});
+
+/*
+ * WHAT IS NO LONGER HERE. The roster button, the loot, the score and the cause
+ * of death are all on the overlay now, and `EndOfRun.test.tsx` is where they are
+ * asserted. This is the check that they did not get left behind in both places —
+ * two screens stating one ending is two screens that can disagree about it.
+ */
+
+describe("the end-of-run detail", () => {
+  it("is not duplicated in the strip", () => {
+    for (const stage of ["dead", "escaped", "goal_met", "abandoned"] as Stage[]) {
+      const text = area(stage, 4);
+      expect(text).not.toContain("Back to characters");
+      expect(text).not.toContain("What you carried out");
+      expect(text).not.toContain("What it was worth");
+    }
   });
 });

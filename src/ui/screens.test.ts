@@ -51,6 +51,7 @@ const doors = {
   onResumeRun: noop,
   onAbandonRun: noop,
   onShop: noop,
+  onLevelUp: noop,
   onCreate: noop,
   onDelete: noop,
 };
@@ -142,6 +143,47 @@ describe("characters", () => {
       h(Characters, { ...doors, characters: [entry(testCharacter(), { activeRun: IN_A_RUN })] })
     );
     expect(html).not.toContain(">Shop<");
+  });
+
+  /*
+   * LEVELLING. Both the badge and the button are derived from the sheet by
+   * `pendingLevels` — nothing writes a flag — so what these assert is that the
+   * roster reads the same arithmetic the engine does.
+   */
+
+  it("says nothing about levelling below the track", () => {
+    const html = renderToStaticMarkup(
+      h(Characters, { ...doors, characters: [entry(testCharacter({ xp: 999 }))] })
+    );
+    expect(html).not.toContain("Level up");
+    // "owed" alone would match `disabled:cursor-not-allowed` in a class list.
+    expect(html).not.toContain("level owed");
+  });
+
+  it("badges the level and offers to take it at a thousand", () => {
+    const html = renderToStaticMarkup(
+      h(Characters, { ...doors, characters: [entry(testCharacter({ xp: 1000 }))] })
+    );
+    expect(html).toContain("A level owed");
+    expect(html).toContain("Level up");
+  });
+
+  it("counts the levels a long career is owed", () => {
+    const html = renderToStaticMarkup(
+      h(Characters, { ...doors, characters: [entry(testCharacter({ xp: 3200 }))] })
+    );
+    expect(html).toContain("3 levels owed");
+  });
+
+  it("says it is owed but does not offer it to somebody underground", () => {
+    const html = renderToStaticMarkup(
+      h(Characters, {
+        ...doors,
+        characters: [entry(testCharacter({ xp: 1000 }), { activeRun: IN_A_RUN })],
+      })
+    );
+    expect(html).toContain("A level owed");
+    expect(html).not.toContain("Level up");
   });
 
   /*

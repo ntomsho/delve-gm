@@ -164,6 +164,12 @@ export type {
 // both indexes into it.
 export * from "./equipment.ts";
 
+// --- levelling -------------------------------------------------------------
+// What a thousand XP buys: a new hit point maximum rolled on the new level's
+// worth of d8s, and three abilities one point better. Pure and seeded, and the
+// only thing that moves `PlayerCharacter.level`.
+export * from "./level-up.ts";
+
 // --- the shop --------------------------------------------------------------
 // The other half of the equipment step: what a purse buys, and what buying it
 // does to a sheet. Pure, and the only thing that spends copper.

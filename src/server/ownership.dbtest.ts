@@ -645,14 +645,16 @@ async function endRun(
   owner: string,
   run: { id: string; version: number },
   stage: string,
-  pc: PlayerCharacter
+  pc: PlayerCharacter,
+  /** what the run was worth, when it was worth anything — see `carriedOut` */
+  tally?: { total: number }
 ) {
   return repo.commitTurn(
     {
       runId: run.id,
       owner,
       expectedVersion: run.version,
-      state: { ...runState(), stage, pc } as never,
+      state: { ...runState(), stage, pc, ...(tally ? { tally } : {}) } as never,
       events: [],
     },
     tx
@@ -796,13 +798,13 @@ describe("what a character brings back up", () => {
   const wounded = () =>
     ({ ...rolled(), hp: { current: 1, max: 6 }, inventory: ["a jewelled skull"] }) as never;
 
-  async function endWith(tx: postgres.Sql, owner: string, stage: string) {
+  async function endWith(tx: postgres.Sql, owner: string, stage: string, earned?: number) {
     const dungeonId = await repo.insertPartialDungeon(dungeon(4201), owner, tx);
     const run = await repo.createRun(
       { dungeonId, characterId: "pc-a", state: runState(), owner },
       tx
     );
-    return endRun(tx, owner, run, stage, wounded());
+    return endRun(tx, owner, run, stage, wounded(), earned === undefined ? undefined : { total: earned });
   }
 
   it("keeps what they carried, and heals them, when they got out alive", async () => {
@@ -821,6 +823,43 @@ describe("what a character brings back up", () => {
         // There is no downtime and no healing outside a run, so a survivor left
         // at 1/6 could only die next time — see `carriedOut`.
         expect(sheet.hp.current).toBe(6);
+      });
+    }
+  });
+
+  /**
+   * THE EXPERIENCE RIDES ON THE SAME WRITE as the gear and the healing, in the
+   * same transaction as the run ending. A second statement could fail on its own
+   * and leave a run recorded as won by a character who was never paid for it.
+   */
+  it("adds what the run was worth, when they got out alive", async () => {
+    for (const stage of ["escaped", "goal_met"]) {
+      await inRollback(async (tx) => {
+        const owner = await makeUser(tx, "a");
+        await repo.saveCharacter(rolled(), owner, tx);
+
+        expect((await endWith(tx, owner, stage, 350)).ok).toBe(true);
+
+        const sheet = (await repo.getCharacter("pc-a", owner, tx)) as unknown as { xp: number };
+        expect(sheet.xp).toBe(350);
+      });
+    }
+  });
+
+  /**
+   * The two endings that forfeit it, and they forfeit it by construction rather
+   * than by remembering to: `commitTurn` only calls `carriedOut` on a survival,
+   * so a tally that somehow reached the state of a dead run would still not be
+   * paid. `shouldTally` refuses to produce one in the first place.
+   */
+  it("pays nothing for a run that ended in death or was walked away from", async () => {
+    for (const stage of ["dead", "abandoned"]) {
+      await inRollback(async (tx) => {
+        const owner = await makeUser(tx, "a");
+        await repo.saveCharacter(rolled(), owner, tx);
+
+        expect((await endWith(tx, owner, stage, 350)).ok).toBe(true);
+        expect(await repo.getCharacter("pc-a", owner, tx)).toEqual(rolled());
       });
     }
   });

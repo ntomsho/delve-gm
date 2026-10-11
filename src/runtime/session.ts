@@ -345,15 +345,18 @@ export function createGameSession(opts: SessionOptions = {}): GameSession {
      * is the stage and nothing else — but the control exists on the play screen
      * and interface work is done under `?stub`, so a button that did nothing
      * there would be a button nobody could look at.
+     *
+     * NO TALLY, and no call. Abandoning is not walking out — the character is
+     * still standing wherever they were left, and nothing came back up with
+     * them. `shouldTally` is where that rule lives; not calling `settle` at all
+     * is this path agreeing with it rather than paying for a model call whose
+     * answer is already known.
      */
     async abandon() {
       const run = store.getState().run;
       if (!run || isTerminal(run.stage)) return;
       journal?.log({ kind: "stage", from: run.stage, to: "abandoned", step: run.step });
       store.getState().setStage("abandoned", run.step);
-      // Walking away from the run is still ending it alive, and what they
-      // accomplished down there happened. Only death forfeits the tally.
-      await settle();
     },
   };
 }

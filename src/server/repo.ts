@@ -248,6 +248,13 @@ export async function saveCharacter(
  * and no restore to perform. The only trace either leaves is a row in `runs`,
  * which is what the counters read.
  *
+ * THE RUN'S XP LANDS HERE TOO, and for the same reason the gear does: this is
+ * the one function that turns a run's character into the roster's character, so
+ * it is the one place a survivor's earnings can be added without a second write
+ * that could fail on its own. A death or an abandonment never calls it, which is
+ * exactly the rule — `shouldTally` refuses to score either, so there would be
+ * nothing to add even if it did.
+ *
  * HIT POINTS RETURN TO MAX, and that is a decision rather than a consequence.
  * There is no downtime, no rest and no healing outside a run, so a character who
  * surfaces at 1/15 can only die next time — which quietly turns "escaped alive"
@@ -278,8 +285,8 @@ export async function saveCharacter(
  * test that has to change with it.
  * ───────────────────────────────────────────────────────────────────────────
  */
-export function carriedOut(pc: PlayerCharacter): PlayerCharacter {
-  return { ...pc, hp: { ...pc.hp, current: pc.hp.max } };
+export function carriedOut(pc: PlayerCharacter, earned = 0): PlayerCharacter {
+  return { ...pc, hp: { ...pc.hp, current: pc.hp.max }, xp: (pc.xp ?? 0) + earned };
 }
 
 export async function deleteCharacter(
@@ -1095,7 +1102,9 @@ export async function commitTurn(
       // character the player deleted while their run was still going, which is
       // a person walking back out of a grave. If the row is gone this writes
       // nothing, which is the honest answer.
-      const pc = carriedOut(input.state.pc);
+      // The tally is on the state being written in this same transaction, so
+      // the XP and the ending can never disagree about whether the run happened.
+      const pc = carriedOut(input.state.pc, input.state.tally?.total ?? 0);
       await tx`
         update characters set sheet = ${doc(tx, pc)}, updated_at = now()
          where id = ${pc.id} and owner_id = ${input.owner}

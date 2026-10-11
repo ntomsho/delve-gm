@@ -19,6 +19,9 @@
  *   ?seed=       which dungeon. Same seed, same dungeon.
  *   ?size=1..5   how big. Each region is one content-pass call.
  *   ?level=      how dangerous.
+ *   ?endings     not a run: the end-of-run screen over fixture data, every
+ *                ending a click apart. Read in `main.tsx`, so none of this
+ *                file runs.
  *
  * OFFLINE MEANS OFFLINE, and did not always: it used to swap only the
  * generator, so the dungeon was free and then room entry called the model
@@ -41,6 +44,7 @@ import { LoadingScreen } from "./ui/LoadingScreen.tsx";
 import { Characters } from "./ui/Characters.tsx";
 import { CreateCharacter } from "./ui/create/CreateCharacter.tsx";
 import { Shop } from "./ui/shop/Shop.tsx";
+import { LevelUp } from "./ui/LevelUp.tsx";
 import { RunSetup } from "./ui/RunSetup.tsx";
 import { purse, type PlayerCharacter } from "./engine/index.ts";
 import { toItems } from "./ui/play/Narration.tsx";
@@ -202,6 +206,16 @@ export default function App() {
    * straight out of creation is not on the roster this render.
    */
   const [shopping, setShopping] = useState<PlayerCharacter>();
+  /**
+   * Whoever is taking a level, and the SHEET again for the same reason the shop
+   * holds one: the modal builds the next sheet out of the one it was given.
+   *
+   * NOT A SCREEN. It renders over the roster rather than instead of it — the row
+   * it is about is behind it, which is the whole argument for a modal here — so
+   * unlike `shopping` this is read inside the characters branch rather than
+   * ahead of it.
+   */
+  const [levelling, setLevelling] = useState<PlayerCharacter>();
   const [error, setError] = useState<string>();
   /** Held so a failed generation can be tried again on the same seed. */
   const [lastRequest, setLastRequest] = useState<RunRequest>();
@@ -458,7 +472,7 @@ export default function App() {
         {lastRequest && (
           <button
             type="button"
-            className="border border-torch px-3 py-1 hover:bg-torch hover:text-ink"
+            className="border border-torch px-3 py-1 transition-colors hover:bg-torch hover:text-ink active:bg-torch-deep active:text-paper"
             onClick={retryGeneration}
           >
             Try seed {lastRequest.seed} again
@@ -502,6 +516,7 @@ export default function App() {
 
   if (screen === "characters") {
     return (
+      <>
       <Characters
         characters={characters}
         onStartRun={(pc) => {
@@ -526,6 +541,10 @@ export default function App() {
           setNotice(undefined);
           setShopping(pc);
         }}
+        onLevelUp={(pc) => {
+          setNotice(undefined);
+          setLevelling(pc);
+        }}
         onCreate={() => setScreen("create")}
         onDelete={(pc) =>
           void (async () => {
@@ -545,6 +564,33 @@ export default function App() {
         account={account}
         onSignOut={() => void signOut()}
       />
+
+      {/*
+       * THE LEVEL, over the top of the row it belongs to.
+       *
+       * Saved exactly like a purchase, and for the same reason: the sheet IS
+       * the level, so a save that failed is a level that did not happen, and
+       * the roster says so in the server's own words rather than leaving them
+       * believing they are two hit points better off than they are.
+       */}
+      {levelling && (
+        <LevelUp
+          pc={levelling}
+          onCancel={() => setLevelling(undefined)}
+          onConfirm={(next) =>
+            void (async () => {
+              setLevelling(undefined);
+              try {
+                await saveCharacter(next);
+              } catch (e) {
+                setNotice(e instanceof Error ? e.message : String(e));
+              }
+              await refreshRoster();
+            })()
+          }
+        />
+      )}
+      </>
     );
   }
 

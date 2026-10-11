@@ -15,11 +15,13 @@ import { useCallback, useMemo, useState } from "react";
 import { CharacterPanel } from "./CharacterPanel.tsx";
 import { DungeonMap, MapHeader } from "./DungeonMap.tsx";
 import { ActionPill, HoverProvider } from "./hover.tsx";
+import { EndOfRun, type Ending } from "./EndOfRun.tsx";
 import { InputArea } from "./InputArea.tsx";
 import { Narration, type NarrationItem } from "./Narration.tsx";
 import { RoomCard } from "./RoomCard.tsx";
 import { floorplanLayout, pointLayout } from "../../runtime/layout.ts";
 import { placedThings } from "../../runtime/occupancy.ts";
+import { causeOfDeath, keepsWhatTheyFound, lootOf } from "../../runtime/loot.ts";
 import { acceptsInput, isTerminal } from "../../runtime/types.ts";
 import { characterView, mapView, roomView, shownRoom } from "../../store/selectors.ts";
 import type { GeneratedDungeon } from "../../runtime/generate.ts";
@@ -49,6 +51,7 @@ export function PlayScreen({
   onLeave,
 }: PlayScreenProps) {
   const [draft, setDraft] = useState("");
+  const [summary, setSummary] = useState(true);
 
   // Geometry is fixed for the whole run; only the fog over it changes.
   //
@@ -125,6 +128,25 @@ export function PlayScreen({
     [onSubmit]
   );
 
+  /**
+   * THE END OF THE RUN, and everything it needs.
+   *
+   * All derived from the saved run rather than written when it happened, so a
+   * resumed run that ended while the tab was closed comes back to exactly the
+   * same screen — see `loot.ts`.
+   *
+   * The overlay starts open and closes only when the player closes it. On a live
+   * run `ending` is undefined and none of this renders; the moment a terminal
+   * stage lands it does, without anything having to fire an effect.
+   */
+  const ending = asEnding(run.stage);
+  const loot = useMemo(() => lootOf(run, dungeon), [run, dungeon]);
+  const death = useMemo(() => causeOfDeath(run, dungeon), [run, dungeon]);
+  // What the sheet will say once this lands. `run.pc` is the character as they
+  // went down, so the run's own award is not on it yet and is added here —
+  // `carriedOut` does the same sum against the database.
+  const xpTotal = (run.pc.xp ?? 0) + (run.tally?.total ?? 0);
+
   return (
     // The map and the room card are two drawings of one room, and the provider
     // is what lets them agree about which thing in it the player is pointing at:
@@ -158,8 +180,7 @@ export function PlayScreen({
             onRoll={onRoll}
             onRetry={onRetry}
             onAbandon={onAbandon}
-            {...(run.tally ? { tally: run.tally } : {})}
-            {...(onLeave ? { onLeave } : {})}
+            onShowSummary={() => setSummary(true)}
           />
         </div>
 
@@ -171,7 +192,44 @@ export function PlayScreen({
             cards. It finds its anchors by attribute, so it does not care which
             panel raised it nor where in the grid that panel sits. */}
         <ActionPill />
+
+        {/* THE ENDING, OVER THE TOP OF EVERYTHING.
+          *
+          * Up on its own the moment the run ends, and dismissable back to this
+          * screen — the map and the scrollback are the record of what just
+          * happened and the player should be able to read back through them
+          * without leaving. `RunOver` in the input area brings it back.
+          *
+          * `abandoned` is included: it is the one ending with nothing to score
+          * and nothing kept, and saying so is exactly what the screen is for. */}
+        {ending && summary && (
+          <EndOfRun
+            stage={ending}
+            turns={run.turnCount}
+            loot={loot}
+            keeps={keepsWhatTheyFound(run.stage)}
+            {...(run.tally ? { tally: run.tally } : {})}
+            xpTotal={xpTotal}
+            level={run.pc.level}
+            {...(death ? { death } : {})}
+            onDismiss={() => setSummary(false)}
+            {...(onLeave ? { onLeave } : {})}
+          />
+        )}
       </main>
     </HoverProvider>
   );
+}
+
+/**
+ * Which of the four endings this is, or nothing for a run still being played.
+ *
+ * `departed` is deliberately absent: the referee writes it and the store
+ * resolves it into `goal_met` or `escaped` before anything is saved, so no
+ * stored run is ever standing in it. See the note on `Stage`.
+ */
+function asEnding(stage: RunState["stage"]): Ending | undefined {
+  return stage === "dead" || stage === "escaped" || stage === "goal_met" || stage === "abandoned"
+    ? stage
+    : undefined;
 }

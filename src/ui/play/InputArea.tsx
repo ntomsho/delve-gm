@@ -18,7 +18,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { STAGE_HINT, STAGE_NAME, STAGE_TONE } from "../theme.ts";
 import { acceptsInput, isTerminal, type Stage, type RollSpec } from "../../runtime/types.ts";
-import type { RunTally } from "../../engine/index.ts";
+import { ENDINGS, type Ending } from "./EndOfRun.tsx";
 
 export interface InputAreaProps {
   stage: Stage;
@@ -34,20 +34,14 @@ export interface InputAreaProps {
   /** End the run without playing it out. */
   onAbandon(): void;
   /**
-   * Back to the roster, once the run is over. ABSENT ON A LOCAL RUN — `?offline`
-   * and `?stub` have no roster to return to, and a button that leads nowhere is
-   * worse than the plain statement that the run has ended.
-   */
-  onLeave?: () => void;
-  /**
-   * What the run was worth, once it has ended alive.
+   * Bring the end-of-run screen back up.
    *
-   * Absent while the run is in progress, absent forever on a death — a run that
-   * ends in death does not tally — and absent for the few seconds between the
-   * ending and the scoring call coming back. The card renders without it and
-   * gains the lines when it arrives, rather than holding the ending back.
+   * The overlay comes up on its own when the run ends and can be dismissed, so
+   * this is the way back to it — the summary is the only place the loot and the
+   * score are stated, and a player who dismissed it to look at the map must not
+   * have lost them.
    */
-  tally?: RunTally;
+  onShowSummary(): void;
 }
 
 /**
@@ -88,8 +82,9 @@ function RollOffer({ roll, onRoll }: { roll: RollSpec; onRoll(): void }) {
           {EDGE_LABEL[roll.edge]}
         </span>
         <button
+          type="button"
           onClick={onRoll}
-          className="bg-torch px-4 py-1.5 font-mono text-[11px] uppercase tracking-[0.1em] text-paper hover:bg-torch-deep"
+          className="bg-torch px-4 py-1.5 font-mono text-[11px] uppercase tracking-[0.1em] text-paper transition-colors hover:bg-torch-deep active:bg-ink"
         >
           Roll
         </button>
@@ -109,8 +104,9 @@ function Error({ onRetry }: { onRetry(): void }) {
         Your action wasn&rsquo;t lost — it&rsquo;s still in the box below.
       </p>
       <button
+        type="button"
         onClick={onRetry}
-        className="mt-2 border border-torch px-3 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-torch hover:bg-torch-wash"
+        className="mt-2 border border-torch px-3 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-torch transition-colors hover:bg-torch-wash active:bg-torch active:text-paper"
       >
         Try again
       </button>
@@ -119,134 +115,47 @@ function Error({ onRetry }: { onRetry(): void }) {
 }
 
 /**
- * The run is over, one way or the other.
+ * THE RUN IS OVER, and the summary is somewhere else.
  *
- * A terminal stage already closes the input area — `acceptsInput` sees to that
- * — but a game that has ended should look ended rather than merely muted.
+ * A terminal stage already closes the input area — `acceptsInput` sees to that —
+ * but a game that has ended should look ended rather than merely muted, and this
+ * is what is left in the strip where the box used to be.
  *
- * ALL FOUR NOW OFFER A WAY ON, which they did not until Phase 12: the copy used
- * to read "reload to begin again", written when there was one character and one
- * dungeon and reloading really was the only door. There is a roster now, and the
- * character who walked out of this is on it.
+ * THE CARD THAT USED TO BE HERE IS NOW `EndOfRun.tsx`, over the whole page. It
+ * grew a loot list, a score and a cause of death, and none of that fits under a
+ * textarea — but the overlay is dismissable, so this has to be able to bring it
+ * back. That is the whole of this component: a statement and a way back to it.
  */
-type Ending = "dead" | "escaped" | "goal_met" | "abandoned";
-
-/**
- * Four endings, and only one of them is a win.
- *
- * `escaped` is the interesting one: the player got out alive without what they
- * came for, which is a real outcome and not a failure — it is the choice to cut
- * losses, and it should read as having been a choice.
- *
- * `abandoned` is the only one that is not about the fiction at all, and its copy
- * says so plainly rather than inventing a retreat the referee never narrated.
- * The dungeon is not resolved and the character did not come home; the player
- * simply stopped, and the sheet is exactly as it was before they went down.
- */
-const ENDINGS: Record<Ending, { heading: string; body: string; warm: boolean }> = {
-  dead: {
-    heading: "The run ends here",
-    body: "Your hit points reached zero. Whatever you were carrying is down there with you.",
-    warm: false,
-  },
-  escaped: {
-    heading: "The run ends unfinished",
-    body: "You climbed out into the open air with your life and nothing else. The dungeon is still down there, and so is what you went in for.",
-    warm: false,
-  },
-  goal_met: {
-    heading: "The run ends well",
-    body: "You have what you came for, and the way out is behind you.",
-    warm: true,
-  },
-  abandoned: {
-    heading: "The run is abandoned",
-    body: "You left this one where it stood. Nothing that happened down here follows your character back up — they are free to go somewhere else.",
-    warm: false,
-  },
-};
-
-function EndOfRun({
-  stage,
-  turns,
-  tally,
-  onLeave,
-}: {
-  stage: Ending;
-  turns: number;
-  tally?: RunTally;
-  onLeave?: () => void;
-}) {
-  const { heading, body, warm } = ENDINGS[stage];
+function RunOver({ stage, turns, onShow }: { stage: Ending; turns: number; onShow(): void }) {
   return (
     <div
-      className="mb-3 border-l-2 py-2 pl-3"
-      style={{ borderColor: warm ? "var(--color-torch)" : "var(--color-ink)" }}
+      className="mb-3 flex flex-wrap items-baseline gap-x-4 gap-y-1 border-l-2 py-1.5 pl-3"
+      style={{ borderColor: stage === "goal_met" ? "var(--color-torch)" : "var(--color-ink)" }}
       role="status"
     >
-      <div
+      <span
         className="font-mono text-[9px] uppercase tracking-[0.16em]"
-        style={{ color: warm ? "var(--color-torch-deep)" : "var(--color-graphite)" }}
+        style={{
+          color:
+            stage === "goal_met" ? "var(--color-torch-deep)" : "var(--color-graphite)",
+        }}
       >
-        {heading}
-      </div>
-      <p className="mt-1.5 max-w-[52ch] font-prose text-[15px] leading-[1.55] text-ink">
-        {body}
-      </p>
-      {/* WHAT THEY DID DOWN THERE, priced after the fact.
-        *
-        * Every line is an accomplishment: something killed, opened, found,
-        * solved, or got past. Getting past a thing without fighting it is on
-        * this list and worth the same as anything else — that is the point of
-        * rating risk rather than counting bodies.
-        *
-        * Absent on a death, which does not tally at all. */}
-      {tally && tally.awards.length > 0 && (
-        <div className="mt-3 border-t pt-2" style={{ borderColor: "var(--color-rule-faint)" }}>
-          <div className="font-mono text-[9px] uppercase tracking-[0.16em] text-graphite">
-            What it was worth
-          </div>
-          <ul className="mt-1.5 space-y-0.5">
-            {tally.awards.map((a) => (
-              <li
-                key={a.challengeId}
-                className="flex items-baseline justify-between gap-3 font-prose text-[13px] leading-[1.5] text-ink"
-              >
-                <span className="min-w-0 flex-1 truncate">{a.why}</span>
-                <span className="shrink-0 font-mono text-[10px] tracking-[0.08em] text-graphite">
-                  {a.xp} xp
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      <div className="mt-2 flex flex-wrap items-center gap-4">
-        <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-graphite">
-          {turns} turn{turns === 1 ? "" : "s"}
-        </span>
-        {tally && (
-          <span
-            className="font-mono text-[10px] uppercase tracking-[0.12em]"
-            style={{ color: "var(--color-torch-deep)" }}
-          >
-            {tally.total} xp
-          </span>
-        )}
-        {/* Absent on a local run, which has no roster to go back to. */}
-        {onLeave && (
-          <button
-            onClick={onLeave}
-            className="border border-ink px-3 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-ink hover:bg-ink hover:text-paper"
-          >
-            Back to characters
-          </button>
-        )}
-      </div>
+        {ENDINGS[stage].heading}
+      </span>
+      <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-graphite">
+        {turns} turn{turns === 1 ? "" : "s"}
+      </span>
+      <button
+        type="button"
+        onClick={onShow}
+        className="font-mono text-[9px] uppercase tracking-[0.14em] text-torch underline-offset-4 transition-colors hover:underline active:text-torch-deep"
+      >
+        See the reckoning
+      </button>
     </div>
   );
 }
+
 
 /**
  * WALK AWAY, from inside the run.
@@ -266,8 +175,9 @@ function Abandon({ onAbandon }: { onAbandon(): void }) {
   if (!asking) {
     return (
       <button
+        type="button"
         onClick={() => setAsking(true)}
-        className="font-mono text-[9px] uppercase tracking-[0.14em] text-pencil underline decoration-rule underline-offset-4 hover:text-torch"
+        className="font-mono text-[9px] uppercase tracking-[0.14em] text-pencil underline decoration-rule underline-offset-4 transition-colors hover:text-torch active:text-torch-deep"
       >
         Abandon run
       </button>
@@ -277,10 +187,21 @@ function Abandon({ onAbandon }: { onAbandon(): void }) {
   return (
     <span className="flex items-baseline gap-3 font-mono text-[9px] uppercase tracking-[0.14em]">
       <span className="text-graphite">Leave this run for good?</span>
-      <button onClick={onAbandon} className="text-torch underline decoration-torch underline-offset-4">
+      {/* Both take a hover and a press like anything else pressable. They are
+          two words in a sentence, so the state is the colour rather than a box —
+          but a control that never changes under the cursor reads as prose. */}
+      <button
+        type="button"
+        onClick={onAbandon}
+        className="text-torch underline decoration-torch underline-offset-4 transition-colors hover:text-torch-deep active:text-ink"
+      >
         Abandon
       </button>
-      <button onClick={() => setAsking(false)} className="text-graphite underline decoration-rule underline-offset-4">
+      <button
+        type="button"
+        onClick={() => setAsking(false)}
+        className="text-graphite underline decoration-rule underline-offset-4 transition-colors hover:text-ink active:text-ink"
+      >
         Keep playing
       </button>
     </span>
@@ -288,8 +209,7 @@ function Abandon({ onAbandon }: { onAbandon(): void }) {
 }
 
 export function InputArea(props: InputAreaProps) {
-  const { stage, roll, turns, draft, onDraft, onSubmit, onRoll, onRetry, onAbandon, onLeave } =
-    props;
+  const { stage, roll, turns, draft, onDraft, onSubmit, onRoll, onRetry, onAbandon } = props;
   const open = acceptsInput(stage);
   const tone = STAGE_TONE[stage];
   const box = useRef<HTMLTextAreaElement>(null);
@@ -362,12 +282,7 @@ export function InputArea(props: InputAreaProps) {
         stage === "escaped" ||
         stage === "goal_met" ||
         stage === "abandoned") && (
-        <EndOfRun
-          stage={stage}
-          turns={turns}
-          {...(props.tally ? { tally: props.tally } : {})}
-          {...(onLeave ? { onLeave } : {})}
-        />
+        <RunOver stage={stage} turns={turns} onShow={props.onShowSummary} />
       )}
 
       {/* The tabletop convention, and it is doing real work. */}

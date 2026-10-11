@@ -465,10 +465,19 @@ describe("the tally", () => {
     expect(p.items.find((i) => i.challengeId === "ch:creature-weakness:m1:0")!.how).toBe("bypassed");
   });
 
-  it("does not tally a run that ended in death", () => {
+  /*
+   * TWO ENDINGS DO NOT TALLY, and for the same reason: nothing came back up. A
+   * death forfeits it, and so does a run the player walked away from — the
+   * character never came out of anywhere, and a score for a delve nobody
+   * finished is a number attached to nothing. The ledger is still written for
+   * both; what happened is not conditional on it having been paid for.
+   */
+  it("does not tally a run that ended in death, or one that was abandoned", () => {
     const p = buildTallyPayload(aLedger(), [], ctx);
     expect(shouldTally("dead", p.items)).toBe(false);
+    expect(shouldTally("abandoned", p.items)).toBe(false);
     expect(shouldTally("goal_met", p.items)).toBe(true);
+    expect(shouldTally("escaped", p.items)).toBe(true);
     expect(shouldTally("goal_met", [])).toBe(false);
   });
 

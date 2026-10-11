@@ -1644,7 +1644,7 @@ var TREASURE_ITEMS = t$1("Alchemy recipe|Amulet|Astrolabe|Blueprints|Calligraphy
 * THE SIX THAT WERE EMPTY — Maze Rats, transcribed.
 *
 * They are the tables the reward rows draw on, and every one of them is now
-* filled. `rollTable` and `pickEquipmentRow` in dungeon-rewards.ts still guard
+* filled. `rollTable` and `rollTreasure` in dungeon-rewards.ts still guard
 * against an empty list, because that guard is what let these ship unfilled;
 * it is now unreachable for these six and stays for the next stub.
 *
@@ -3778,10 +3778,19 @@ function mintSpellbook(spell, parentId) {
 *   KEY       answers one challenge
 *   GENERAL   50/50 equipment / treasure
 *
-* `leverage` and `boon` did not survive the cut. Boons are consumables and
-* belong in equipment; leverage -- "defensible chokepoint", "safe place to
-* rest" -- describes a room, and the content pass can write that without
-* spending a reward slot on it.
+* `leverage` and `boon` did not survive the cut. Leverage -- "defensible
+* chokepoint", "safe place to rest" -- describes a room, and the content pass
+* can write that without spending a reward slot on it. Boons are consumables,
+* and a consumable is a thing you carry off and could as easily sell: potions
+* are drawn as TREASURE, out of the pot, and are the whole of what is left of
+* that family.
+*
+* A POTION IS TREASURE, and the reason is money rather than fiction. Equipment
+* is priced from the catalog and there is no catalog entry for "Potion of
+* Ghost-speech" -- the row was pricing itself out of the key band, 5-60cp, and
+* a five-copper flight potion is a dungeon disagreeing with itself. Drawn as
+* treasure it takes a share of the conserved pot like everything else worth
+* money, which is both the right number and one fewer place numbers come from.
 *
 * WHAT REPLACED GRADE. The old system set an item's worth from a `ParcelGrade`
 * and nothing else, so a dungeon's total take was whatever its grades happened
@@ -3819,6 +3828,13 @@ var KEY_VALUE_BAND = [5, 60];
 * dungeon disagreeing with itself.
 */
 var GOAL_VALUE_MULTIPLIER = [2, 4];
+/**
+* Chance a treasure share big enough to be an object is a potion, and then --
+* failing that -- an ingredient. Rolled in that order, so the two do not have to
+* agree on a single number between them.
+*/
+var POTION_SHARE = .2;
+var INGREDIENT_SHARE = .2;
 /** Copper below which a treasure share is loose coin rather than an object. */
 var COIN_CEILING = 60;
 /** Copper above which a treasure object is fine enough to carry a trait. */
@@ -3831,6 +3847,13 @@ var COIN_VESSELS = [
 	"Buried cache",
 	"Pouch of trade bars",
 	"Tithe box"
+];
+var EQUIPMENT_ROWS = [
+	"weapon",
+	"protection",
+	"spellbook",
+	"dungeoneering",
+	"general"
 ];
 /**
 * Size, and nothing else. A bigger dungeon holds more; a deeper one does not
@@ -3899,21 +3922,15 @@ function rollEquipment(rng) {
 	};
 }
 /**
-* A row whose table is still empty draws nothing, so it is not offered. The six
-* stubs in `dungeon-blueprint.ts` are the reason this check exists; `POTIONS`
-* is filled now and the row is offered, so the guard is dead for this row and
-* stays for the next one.
+* A flat pick over the rows, with no guard on it.
+*
+* There was one: a row whose table was still a stub drew nothing, and `potion`
+* was offered only on `POTIONS.length`. Every row left here reads a catalog or a
+* gear table and none of them can be empty, so the guard went with the potion.
+* `rollTable` still keeps its own, which is where a future stub would land.
 */
 function pickEquipmentRow(rng) {
-	const rows = [
-		"weapon",
-		"protection",
-		"spellbook",
-		"dungeoneering",
-		"general"
-	];
-	if (POTIONS.length) rows.push("potion");
-	return rng.pick(rows);
+	return rng.pick(EQUIPMENT_ROWS);
 }
 function drawsFor(row, rng) {
 	switch (row) {
@@ -3938,14 +3955,6 @@ function drawsFor(row, rng) {
 			const pool = [...GENERAL_GEAR_1, ...GENERAL_GEAR_2];
 			return rng.pickN(pool, rng.range(2, 4)).map(catalogDraw);
 		}
-		case "potion": {
-			const content = rollTable(POTIONS, rng);
-			return content ? [{
-				kind: "rolled",
-				content: `Potion of ${content}`,
-				value: rng.range(...KEY_VALUE_BAND)
-			}] : [spellbookDraw(rng)];
-		}
 	}
 }
 function spellbookDraw(rng) {
@@ -3966,12 +3975,21 @@ function spellbookDraw(rng) {
 * to match -- is what made money unbounded.
 */
 function rollTreasure(share, rng) {
-	if (MAGICAL_INGREDIENTS.length && share >= COIN_CEILING && rng.chance(.2)) {
-		const content = rollTable(MAGICAL_INGREDIENTS, rng);
-		if (content) return {
-			row: "ingredients",
-			content
-		};
+	if (share >= COIN_CEILING) {
+		if (POTIONS.length && rng.chance(POTION_SHARE)) {
+			const content = rollTable(POTIONS, rng);
+			if (content) return {
+				row: "potion",
+				content
+			};
+		}
+		if (MAGICAL_INGREDIENTS.length && rng.chance(INGREDIENT_SHARE)) {
+			const content = rollTable(MAGICAL_INGREDIENTS, rng);
+			if (content) return {
+				row: "ingredients",
+				content
+			};
+		}
 	}
 	if (share < COIN_CEILING) return {
 		row: "coins",
@@ -5338,24 +5356,26 @@ function rewardItems(rw, parentId, rng) {
 		}];
 	}
 }
-/** One catalog draw, as a carried thing. Name, slots, facts and price all come from the table. */
+/**
+* One catalog draw, as a carried thing. Name, slots, facts and price all come
+* from the table, and there is no longer any other kind.
+*
+* THERE WAS A THIRD BRANCH: a rolled draw carrying its own name and nothing
+* else, which was only ever a potion. `rewardKeywords` hands the writing pass
+* `Equipment: <item name>`, so that branch was the one place an equipment reward
+* had a name the catalog had never heard of and a price it invented. Potions are
+* treasure now and take a share of the pot, so every equipment item on this path
+* is a mint of a real entry.
+*/
 function equipmentItem(d, parentId, rng) {
-	if (d.kind === "catalog") return mintItem(d.key, parentId, rng, {
-		...d.amount !== void 0 ? { amount: d.amount } : {},
-		value: d.value
-	});
 	if (d.kind === "spellbook") return mintSpellbook({
 		name: d.spell,
 		effect: d.effect
 	}, parentId);
-	return {
-		id: makeId(),
-		name: d.content,
-		type: "Item",
-		parentId,
-		slots: 1,
+	return mintItem(d.key, parentId, rng, {
+		...d.amount !== void 0 ? { amount: d.amount } : {},
 		value: d.value
-	};
+	});
 }
 /**
 * Every creature's prose identity has to resolve to a dungeon-level template.
@@ -6718,7 +6738,8 @@ var TREASURE_TABLE = {
 	coins: "Coin",
 	item: "Treasure Item",
 	"item-with-trait": "Treasure Item",
-	ingredients: "Magical Ingredient"
+	ingredients: "Magical Ingredient",
+	potion: "Potion"
 };
 /**
 * What the writing pass is told about one reward entity.
@@ -8134,12 +8155,20 @@ function buildTallyPayload(src, challenges, ctx) {
 /**
 * Whether this run gets a tally at all.
 *
-* A run that ends in death does not. It is the one rule in the spec stated
-* without a caveat, and it is here rather than at the call site so that every
-* caller gets it: the local session, the server, and the dev CLI.
+* TWO ENDINGS DO NOT, and for the same reason: nothing came back up. A run that
+* ends in death forfeits it — the one rule in the spec stated without a caveat —
+* and so does a run the player abandoned, which is not an ending in the fiction
+* at all. The character never walked out of anywhere; the player closed the
+* book, and a score for a delve nobody finished is a number attached to nothing.
+*
+* The ledger is still written for both. It is the record of what happened, and
+* what happened is not conditional on it having been paid for.
+*
+* Here rather than at the call site so that every caller gets it: the local
+* session, the server, and the dev CLI.
 */
 function shouldTally(ending, items) {
-	if (ending === "dead") return false;
+	if (ending === "dead" || ending === "abandoned") return false;
 	return items.length > 0;
 }
 function renderTallyPrompt(p) {
@@ -8703,6 +8732,19 @@ var ALL_GOODS = [
 	...GEAR_GOODS
 ];
 new Map(ALL_GOODS.map((g) => [g.key, g]));
+/**
+* The same rows under the name printed on them, which is the only handle a
+* carried item offers — an `IItem` keeps no pointer back to the catalog entry it
+* was minted from, deliberately, because a found gambeson and a bought one are
+* the same object and neither is a reference to a table.
+*
+* First writer wins, so a name appearing twice prices from wherever it is
+* displayed first. It does not: `equipment.ts` opens by collapsing the two
+* printed tables' duplicate names into one key each, and the catalogue test
+* asserts the keys are unique.
+*/
+var BY_NAME = /* @__PURE__ */ new Map();
+for (const g of ALL_GOODS) if (!BY_NAME.has(g.name)) BY_NAME.set(g.name, g);
 [...SHOP_SECTIONS.map((s) => ({
 	key: s.key,
 	label: s.label,
@@ -12405,7 +12447,9 @@ function newRun(dungeon, pc) {
 		}],
 		turnRecords: [],
 		callLog: [],
-		challengeState: newChallengeState(dungeon.stocked.pot?.allowance ?? 0)
+		challengeState: newChallengeState(dungeon.stocked.pot?.allowance ?? 0),
+		startedWith: pc.inventory.map((i) => i.id),
+		startingPurse: purse(pc)
 	};
 }
 /**
@@ -14657,6 +14701,12 @@ function createGameSession(opts = {}) {
 		* is the stage and nothing else — but the control exists on the play screen
 		* and interface work is done under `?stub`, so a button that did nothing
 		* there would be a button nobody could look at.
+		*
+		* NO TALLY, and no call. Abandoning is not walking out — the character is
+		* still standing wherever they were left, and nothing came back up with
+		* them. `shouldTally` is where that rule lives; not calling `settle` at all
+		* is this path agreeing with it rather than paying for a model call whose
+		* answer is already known.
 		*/
 		async abandon() {
 			const run = store.getState().run;
@@ -14668,7 +14718,6 @@ function createGameSession(opts = {}) {
 				step: run.step
 			});
 			store.getState().setStage("abandoned", run.step);
-			await settle();
 		}
 	};
 }
@@ -15026,6 +15075,13 @@ async function saveCharacter(pc, owner, sql = db()) {
 * and no restore to perform. The only trace either leaves is a row in `runs`,
 * which is what the counters read.
 *
+* THE RUN'S XP LANDS HERE TOO, and for the same reason the gear does: this is
+* the one function that turns a run's character into the roster's character, so
+* it is the one place a survivor's earnings can be added without a second write
+* that could fail on its own. A death or an abandonment never calls it, which is
+* exactly the rule — `shouldTally` refuses to score either, so there would be
+* nothing to add even if it did.
+*
 * HIT POINTS RETURN TO MAX, and that is a decision rather than a consequence.
 * There is no downtime, no rest and no healing outside a run, so a character who
 * surfaces at 1/15 can only die next time — which quietly turns "escaped alive"
@@ -15056,13 +15112,14 @@ async function saveCharacter(pc, owner, sql = db()) {
 * test that has to change with it.
 * ───────────────────────────────────────────────────────────────────────────
 */
-function carriedOut(pc) {
+function carriedOut(pc, earned = 0) {
 	return {
 		...pc,
 		hp: {
 			...pc.hp,
 			current: pc.hp.max
-		}
+		},
+		xp: (pc.xp ?? 0) + earned
 	};
 }
 async function deleteCharacter(id, owner, sql = db()) {
@@ -15567,7 +15624,7 @@ async function commitTurn(input, sql = db()) {
 		await insertEvents(tx, input.runId, input.events);
 		const ending = statusOf(input.state.stage);
 		if (ending === "escaped" || ending === "goal_met") {
-			const pc = carriedOut(input.state.pc);
+			const pc = carriedOut(input.state.pc, input.state.tally?.total ?? 0);
 			await tx`
         update characters set sheet = ${doc(tx, pc)}, updated_at = now()
          where id = ${pc.id} and owner_id = ${input.owner}

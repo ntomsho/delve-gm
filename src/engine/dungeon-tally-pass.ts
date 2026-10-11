@@ -178,12 +178,20 @@ export function buildTallyPayload(
 /**
  * Whether this run gets a tally at all.
  *
- * A run that ends in death does not. It is the one rule in the spec stated
- * without a caveat, and it is here rather than at the call site so that every
- * caller gets it: the local session, the server, and the dev CLI.
+ * TWO ENDINGS DO NOT, and for the same reason: nothing came back up. A run that
+ * ends in death forfeits it — the one rule in the spec stated without a caveat —
+ * and so does a run the player abandoned, which is not an ending in the fiction
+ * at all. The character never walked out of anywhere; the player closed the
+ * book, and a score for a delve nobody finished is a number attached to nothing.
+ *
+ * The ledger is still written for both. It is the record of what happened, and
+ * what happened is not conditional on it having been paid for.
+ *
+ * Here rather than at the call site so that every caller gets it: the local
+ * session, the server, and the dev CLI.
  */
 export function shouldTally(ending: string, items: readonly TallyItem[]): boolean {
-  if (ending === "dead") return false;
+  if (ending === "dead" || ending === "abandoned") return false;
   return items.length > 0;
 }
 

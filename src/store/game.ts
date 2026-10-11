@@ -39,6 +39,7 @@ import {
   noteDamage,
   type ChallengeState,
 } from "../runtime/challenges.ts";
+import { purse } from "../engine/index.ts";
 import type { EntityPassResult, PlayerCharacter, RunTally } from "../engine/index.ts";
 import { dungeonKey, runKey, type KeyValueStore } from "./persist.ts";
 
@@ -201,6 +202,22 @@ export interface RunState {
    * absent for the few seconds between the ending and the call coming back.
    */
   tally?: RunTally;
+  /**
+   * The ids the character walked in carrying, and the copper they walked in
+   * with. Written once, at the start, and never touched again.
+   *
+   * THIS IS THE ONLY THING THAT MAKES LOOT KNOWABLE. What they came back with is
+   * the inventory at the end minus the inventory at the start, and the end is
+   * the only half of that the run would otherwise still have — everything is
+   * mutated in place, so by the time anyone wants to ask, the question is
+   * unanswerable. Two small arrays written at turn zero, against a whole second
+   * copy of the sheet if it were remembered any later.
+   *
+   * Optional so a run saved before they existed still reloads; `lootOf` says
+   * what it falls back to.
+   */
+  startedWith?: string[];
+  startingPurse?: number;
 }
 
 export function newRun(dungeon: GeneratedDungeon, pc: PlayerCharacter): RunState {
@@ -237,6 +254,10 @@ export function newRun(dungeon: GeneratedDungeon, pc: PlayerCharacter): RunState
     // The 10% held out of the pot at generation, which play spends as coin
     // grants. Nothing else in the run is allowed to invent money.
     challengeState: newChallengeState(dungeon.stocked.pot?.allowance ?? 0),
+    // What they went down with, so that what they came back with can be told
+    // from it. See `startedWith`.
+    startedWith: pc.inventory.map((i) => i.id),
+    startingPurse: purse(pc),
   };
 }
 
