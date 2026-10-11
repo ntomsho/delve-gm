@@ -1476,7 +1476,7 @@ export function stockSheet(sd: StockedDungeon, bp: DungeonBlueprintSeed): string
       const flag = w.guaranteed ? ", guaranteed" : "";
       const what =
         w.kind === "equipment"
-          ? `${w.row}: ${w.draws.map((d) => (d.kind === "catalog" ? d.key : d.kind === "spellbook" ? d.spell : rr(d.content))).join(", ")}`
+          ? `${w.row}: ${w.draws.map((d) => (d.kind === "catalog" ? d.key : d.spell)).join(", ")}`
           : w.kind === "treasure"
           ? `${w.row}: ${rr(w.content)} (${w.value}cp)`
           : `answers ${rr(w.answers)} (${w.value}cp)`;

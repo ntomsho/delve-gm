@@ -29,18 +29,27 @@ import {
   changeFrom,
   checkout,
   goodByKey,
+  goodByName,
+  proceeds,
   purse,
   removeFromCart,
+  sellOffer,
+  sellOffers,
   setPurse,
   setQty,
   slotsUsed,
+  soldLines,
+  soldSlots,
+  toggleSold,
+  treasureOffers,
   type Cart,
   type PlayerCharacter,
 } from "./index.ts";
 import { Rng, buyKit, finishCharacter, rollAbilities, rollTraits, bonusesOf } from "./index.ts";
 import { WEAPONS } from "./knave-tables.ts";
-import { armorFacts, equipment, weaponFacts } from "./equipment.ts";
-import { isArmor, isWeapon } from "./dungeon-entities.ts";
+import { armorFacts, equipment, mintItem, mintSpellbook, weaponFacts } from "./equipment.ts";
+import { isArmor, isWeapon, type IItem } from "./dungeon-entities.ts";
+import { addItem, equip, purseItem } from "./index.ts";
 
 /** Purchases roll — a book rolls for what is in it — so the till needs a stream. */
 const till = () => new Rng(SEED);
@@ -78,6 +87,27 @@ const good = (key: string) => {
 const LANTERN = "lantern";
 const TORCH = "torch";
 const GAMBESON = "gambeson";
+
+/**
+ * A thing out of a dungeon: no catalog row behind it, and a value that arrived
+ * with it from the pot. This is what `sellOffer` has to call treasure.
+ */
+function treasure(name: string, value: number): IItem {
+  return { id: `t-${name}`, name, type: "Item", parentId: "", slots: 1, value };
+}
+
+/** Put something in the pack and hand back its id. */
+function carry(pc: PlayerCharacter, item: IItem): string {
+  addItem(pc, item, { force: true });
+  return item.id;
+}
+
+/** The id of the first thing in the pack with this name. */
+const idOf = (pc: PlayerCharacter, name: string): string => {
+  const it = pc.inventory.find((i) => i.name === name);
+  if (!it) throw new Error(`nothing called ${name} in the pack`);
+  return it.id;
+};
 
 describe("the catalogue", () => {
   it("prices everything, in whole copper", () => {
@@ -294,5 +324,194 @@ describe("checkout", () => {
     expect(bought).toHaveLength(0);
     expect(spent).toBe(0);
     expect(purse(after)).toBe(400);
+  });
+});
+
+describe("what the counter pays", () => {
+  it("halves store value for anything the shop stocks, however it was come by", () => {
+    // A gambeson dragged out of a dungeon prices from the catalog, not from
+    // whatever the dungeon wrote on it — "half its STORE value" is the rule.
+    const found = mintItem(GAMBESON, "", till(), { value: 4321 });
+    const o = sellOffer(found);
+    expect(o.kind).toBe("equipment");
+    expect(o.worth).toBe(good(GAMBESON).cost);
+    expect(o.offer).toBe(Math.floor(good(GAMBESON).cost / 2));
+  });
+
+  it("pays a treasure everything it is worth", () => {
+    const o = sellOffer(treasure("Jade reliquary", 740));
+    expect(o.kind).toBe("treasure");
+    expect(o.offer).toBe(740);
+    expect(o.worth).toBe(740);
+  });
+
+  it("calls a spellbook equipment even though no row is named after it", () => {
+    // Its name carries the spell, so it can never match the catalog; the
+    // itemKind is what saves it from being priced as loot.
+    const book = mintSpellbook({ name: "Bolt", effect: "zap" }, "");
+    expect(goodByName(book.name)).toBeUndefined();
+    const o = sellOffer(book);
+    expect(o.kind).toBe("equipment");
+    expect(o.offer).toBe(Math.floor(equipment("spellbook").value / 2));
+  });
+
+  it("rounds a half copper down, in the shop's favour", () => {
+    const odd = treasure("Odd trinket", 0);
+    expect(sellOffer({ ...odd, itemKind: "book", value: 25 } as IItem).offer).toBe(12);
+  });
+
+  it("offers nothing for a thing worth nothing, and still lists it", () => {
+    const pc = buyer(0);
+    carry(pc, treasure("Bundle of damp rags", 0));
+    const listed = sellOffers(pc).find((o) => o.item.name === "Bundle of damp rags");
+    expect(listed).toBeDefined();
+    expect(listed!.offer).toBe(0);
+    expect(treasureOffers(pc).map((o) => o.item.name)).not.toContain("Bundle of damp rags");
+  });
+});
+
+describe("the sold pile", () => {
+  it("never puts the purse on the block", () => {
+    const pc = buyer(400);
+    expect(purseItem(pc)).toBeDefined();
+    expect(sellOffers(pc).map((o) => o.item.id)).not.toContain(purseItem(pc)!.id);
+
+    // And not even when a caller names it outright.
+    const { pc: after } = checkout(pc, EMPTY_CART, till(), [purseItem(pc)!.id]);
+    expect(purse(after)).toBe(400);
+  });
+
+  it("toggles, and ignores an id it has never heard of", () => {
+    const pc = buyer(0);
+    const id = carry(pc, treasure("Silver ewer", 300));
+    expect(proceeds(pc, [id])).toBe(300);
+    expect(proceeds(pc, toggleSold([id], id))).toBe(0);
+    expect(proceeds(pc, ["nothing-of-the-sort"])).toBe(0);
+    expect(soldLines(pc, ["nothing-of-the-sort"])).toEqual([]);
+  });
+
+  it("adds up what the pile pays and the slots it gives back", () => {
+    const pc = buyer(0);
+    const a = carry(pc, treasure("Silver ewer", 300));
+    const b = carry(pc, mintItem("chain_armor", "", till()));
+    expect(proceeds(pc, [a, b])).toBe(300 + Math.floor(good("chain_armor").cost / 2));
+    expect(soldSlots(pc, [a, b])).toBe(1 + good("chain_armor").slots);
+  });
+
+  it("counts the pile as money the cart can be measured against", () => {
+    const pc = buyer(10);
+    const cart = addToCart(EMPTY_CART, LANTERN); // 30 cp, and they hold 10
+    expect(canAfford(pc, cart)).toBe(false);
+
+    const id = carry(pc, treasure("Silver ewer", 300));
+    expect(canAfford(pc, cart, [id])).toBe(true);
+    expect(changeFrom(pc, cart, [id])).toBe(10 + 300 - 30);
+    expect(canAffordOneMore(pc, cart, good(GAMBESON), [id])).toBe(true);
+  });
+});
+
+describe("selling at checkout", () => {
+  it("takes the thing out of the pack and puts its price in the purse", () => {
+    const pc = buyer(50);
+    const id = carry(pc, treasure("Silver ewer", 300));
+
+    const { pc: after, sold, earned, spent } = checkout(pc, EMPTY_CART, till(), [id]);
+    expect(earned).toBe(300);
+    expect(spent).toBe(0);
+    expect(sold.map((i) => i.name)).toEqual(["Silver ewer"]);
+    expect(after.inventory.find((i) => i.id === id)).toBeUndefined();
+    expect(purse(after)).toBe(350);
+
+    // The sheet passed in is untouched, exactly as it is for a purchase.
+    expect(pc.inventory.find((i) => i.id === id)).toBeDefined();
+    expect(purse(pc)).toBe(50);
+  });
+
+  it("sells and buys in one transaction, and the sale pays for the purchase", () => {
+    const pc = buyer(0);
+    const id = carry(pc, treasure("Silver ewer", 300));
+
+    const { pc: after, spent, earned } = checkout(
+      pc,
+      addToCart(EMPTY_CART, LANTERN),
+      till(),
+      [id]
+    );
+    expect(earned).toBe(300);
+    expect(spent).toBe(good(LANTERN).cost);
+    expect(purse(after)).toBe(300 - good(LANTERN).cost);
+    expect(after.inventory.some((i) => i.name === "Lantern")).toBe(true);
+    expect(after.inventory.some((i) => i.id === id)).toBe(false);
+  });
+
+  it("refuses a cart the purse cannot cover even with the sale counted", () => {
+    const pc = buyer(0);
+    const id = carry(pc, treasure("Bent nail", 5));
+    expect(() => checkout(pc, addToCart(EMPTY_CART, LANTERN), till(), [id])).toThrow(
+      /30 cp and the purse holds 5/
+    );
+  });
+
+  it("empties the slot of anything sold off their back", () => {
+    const pc = buyer(0);
+    const worn = mintItem(GAMBESON, "", till());
+    carry(pc, worn);
+    expect(equip(pc, "armor", worn.id).ok).toBe(true);
+
+    const { pc: after } = checkout(pc, EMPTY_CART, till(), [worn.id]);
+    expect(after.equipped.armor).toBeUndefined();
+    expect(purse(after)).toBe(Math.floor(good(GAMBESON).cost / 2));
+  });
+
+  it("puts the new armor on in the slot the old armor just left", () => {
+    // The whole of what a player selling a gambeson to buy brigandine expects.
+    const pc = buyer(500);
+    const worn = mintItem(GAMBESON, "", till());
+    carry(pc, worn);
+    expect(equip(pc, "armor", worn.id).ok).toBe(true);
+
+    const { pc: after, equipped } = checkout(
+      pc,
+      addToCart(EMPTY_CART, "brigandine"),
+      till(),
+      [worn.id]
+    );
+    expect(equipped).toContain("armor");
+    const on = after.inventory.find((i) => i.id === after.equipped.armor);
+    expect(on?.name).toBe("Brigandine");
+  });
+
+  it("gives the slots back, so the pack that was full has room for what replaced it", () => {
+    const pc = buyer(2000);
+    const chain = mintItem("chain_armor", "", till()); // 3 slots
+    carry(pc, chain);
+    const before = slotsUsed(pc);
+
+    const { pc: after } = checkout(pc, addToCart(EMPTY_CART, GAMBESON), till(), [chain.id]);
+    expect(slotsUsed(after)).toBe(before - 3 + good(GAMBESON).slots);
+  });
+
+  it("sells nothing on an empty pile, and pays nothing for it", () => {
+    const pc = buyer(400);
+    const { pc: after, sold, earned } = checkout(pc, EMPTY_CART, till());
+    expect(sold).toEqual([]);
+    expect(earned).toBe(0);
+    expect(after.inventory).toHaveLength(pc.inventory.length);
+    expect(purse(after)).toBe(400);
+  });
+
+  it("sells the whole treasure pile in one go without touching the gear", () => {
+    const pc = buyer(0);
+    carry(pc, treasure("Silver ewer", 300));
+    carry(pc, treasure("Carved bone die", 40));
+    const keep = idOf(pc, "Sword");
+
+    const ids = treasureOffers(pc).map((o) => o.item.id);
+    expect(proceeds(pc, ids)).toBe(340);
+
+    const { pc: after } = checkout(pc, EMPTY_CART, till(), ids);
+    expect(purse(after)).toBe(340);
+    expect(after.inventory.some((i) => i.id === keep)).toBe(true);
+    expect(treasureOffers(after)).toEqual([]);
   });
 });

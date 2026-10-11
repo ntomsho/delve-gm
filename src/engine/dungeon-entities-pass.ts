@@ -252,23 +252,25 @@ function rewardItems(
   }
 }
 
-/** One catalog draw, as a carried thing. Name, slots, facts and price all come from the table. */
+/**
+ * One catalog draw, as a carried thing. Name, slots, facts and price all come
+ * from the table, and there is no longer any other kind.
+ *
+ * THERE WAS A THIRD BRANCH: a rolled draw carrying its own name and nothing
+ * else, which was only ever a potion. `rewardKeywords` hands the writing pass
+ * `Equipment: <item name>`, so that branch was the one place an equipment reward
+ * had a name the catalog had never heard of and a price it invented. Potions are
+ * treasure now and take a share of the pot, so every equipment item on this path
+ * is a mint of a real entry.
+ */
 function equipmentItem(d: EquipmentDraw, parentId: string, rng: Rng): IItem {
-  if (d.kind === "catalog") {
-    return mintItem(d.key, parentId, rng, {
-      ...(d.amount !== undefined ? { amount: d.amount } : {}),
-      value: d.value,
-    });
-  }
   if (d.kind === "spellbook") {
     return mintSpellbook({ name: d.spell, effect: d.effect }, parentId);
   }
-  // A ROLLED DRAW CARRIES ITS OWN NAME, and it is the only thing it carries.
-  // `rewardKeywords` hands the writing pass `Equipment: <item name>`, so
-  // dropping `content` here left the pass a reward with nothing to write from
-  // -- which is what it did until POTIONS was filled and the row became
-  // reachable. There is no catalog entry to fall back on by definition.
-  return { id: makeId(), name: d.content, type: "Item", parentId, slots: 1, value: d.value };
+  return mintItem(d.key, parentId, rng, {
+    ...(d.amount !== undefined ? { amount: d.amount } : {}),
+    value: d.value,
+  });
 }
 
 // ---------------------------------------------------------------------------

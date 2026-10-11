@@ -404,14 +404,45 @@ describe("the reward tables", () => {
     expect(drawn).toContain("Wolfsbane");
   });
 
-  it("offers the potion row now that POTIONS is filled", () => {
-    // The inverse of what this asserted while the table was a stub:
-    // `pickEquipmentRow` adds the row on `POTIONS.length`.
-    const rows = SEEDS.flatMap((s) =>
-      rewardsOf(stockFor(s, 5)).flatMap((r) => (r.kind === "equipment" ? [r.row] : []))
+  it("draws potions as treasure, never as equipment", () => {
+    // It was an equipment row while POTIONS was a stub and then while it was
+    // filled; it is a treasure row now, so it is priced from the pot like
+    // everything else the dungeon puts a number on.
+    const rewards = SEEDS.flatMap((s) => rewardsOf(stockFor(s, 5)));
+    const equipment = rewards.flatMap((r) => (r.kind === "equipment" ? [r.row] : []));
+    const treasure = rewards.flatMap((r) => (r.kind === "treasure" ? [r.row] : []));
+
+    expect(equipment.length).toBeGreaterThan(0);
+    expect(equipment).not.toContain("potion");
+    expect(treasure).toContain("potion");
+  });
+
+  it("names the potion by what it does, and leaves the flask to the writing pass", () => {
+    // `POTIONS` holds effects — the row is the noun. A content string that had
+    // already said "Potion" would reach the pass as `Potion: Potion of Flight`.
+    const potions = SEEDS.flatMap((s) =>
+      rewardsOf(stockFor(s, 5)).filter((r) => r.kind === "treasure" && r.row === "potion")
     );
-    expect(rows.length).toBeGreaterThan(0);
-    expect(rows).toContain("potion");
+    expect(potions.length).toBeGreaterThan(0);
+    for (const p of potions) {
+      if (p.kind !== "treasure") continue;
+      expect(p.content).not.toMatch(/potion/i);
+      expect(p.content.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("pays a potion out of the pot rather than out of the key band", () => {
+    // The old row priced itself at KEY_VALUE_BAND, 5-60cp, which is what a key
+    // is worth and not what a flask of flight is worth. A share is a share.
+    const potions = SEEDS.flatMap((s) =>
+      rewardsOf(stockFor(s, 5)).filter((r) => r.kind === "treasure" && r.row === "potion")
+    );
+    for (const p of potions) {
+      if (p.kind !== "treasure") continue;
+      // Every object-bearing treasure row clears the coin ceiling by
+      // construction; below it a share is loose coin instead.
+      expect(p.value).toBeGreaterThanOrEqual(60);
+    }
   });
 });
 
@@ -504,5 +535,32 @@ describe("the entities pass", () => {
       checked++;
     }
     expect(checked).toBeGreaterThan(0);
+  });
+
+  it("carries a treasure reward's share onto the item, potions included", () => {
+    // The other half of the rule above. A treasure item is worth the share its
+    // parcel drew from the pot and nothing decides that twice — which is what
+    // "a potion is priced from the treasure budget" actually means once the
+    // reward has become a thing in a room.
+    const seed = 1005;
+    const bp = generateBlueprintSeed(5, seed);
+    const { dungeon } = generateBlueprint(String(seed), { chunks: 5 }, true);
+    const sd = stockDungeon(dungeon, bp, { level: 1, seed: seed + 7919 });
+    const ep = runEntitiesPass(sd, bp, new Rng(sd.seed));
+
+    const itemById = new Map(ep.items.map((i) => [i.id, i]));
+    const rewardById = new Map(rewardsOf(sd).map((r) => [r.id, r]));
+    let potions = 0;
+    let checked = 0;
+    for (const b of ep.bindings) {
+      if (b.element !== "reward" || !b.rewardId) continue;
+      const rw = rewardById.get(b.rewardId)!;
+      if (rw.kind !== "treasure") continue;
+      expect(itemById.get(b.entityId)!.value).toBe(rw.value);
+      if (rw.row === "potion") potions++;
+      checked++;
+    }
+    expect(checked).toBeGreaterThan(0);
+    expect(potions).toBeGreaterThan(0);
   });
 });

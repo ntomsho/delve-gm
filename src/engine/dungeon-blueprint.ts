@@ -396,7 +396,7 @@ const TREASURE_ITEMS = t(
  * THE SIX THAT WERE EMPTY — Maze Rats, transcribed.
  *
  * They are the tables the reward rows draw on, and every one of them is now
- * filled. `rollTable` and `pickEquipmentRow` in dungeon-rewards.ts still guard
+ * filled. `rollTable` and `rollTreasure` in dungeon-rewards.ts still guard
  * against an empty list, because that guard is what let these ship unfilled;
  * it is now unreachable for these six and stays for the next stub.
  *

@@ -9,10 +9,19 @@
  *   KEY       answers one challenge
  *   GENERAL   50/50 equipment / treasure
  *
- * `leverage` and `boon` did not survive the cut. Boons are consumables and
- * belong in equipment; leverage -- "defensible chokepoint", "safe place to
- * rest" -- describes a room, and the content pass can write that without
- * spending a reward slot on it.
+ * `leverage` and `boon` did not survive the cut. Leverage -- "defensible
+ * chokepoint", "safe place to rest" -- describes a room, and the content pass
+ * can write that without spending a reward slot on it. Boons are consumables,
+ * and a consumable is a thing you carry off and could as easily sell: potions
+ * are drawn as TREASURE, out of the pot, and are the whole of what is left of
+ * that family.
+ *
+ * A POTION IS TREASURE, and the reason is money rather than fiction. Equipment
+ * is priced from the catalog and there is no catalog entry for "Potion of
+ * Ghost-speech" -- the row was pricing itself out of the key band, 5-60cp, and
+ * a five-copper flight potion is a dungeon disagreeing with itself. Drawn as
+ * treasure it takes a share of the conserved pot like everything else worth
+ * money, which is both the right number and one fewer place numbers come from.
  *
  * WHAT REPLACED GRADE. The old system set an item's worth from a `ParcelGrade`
  * and nothing else, so a dungeon's total take was whatever its grades happened
@@ -95,6 +104,14 @@ const KEY_VALUE_BAND: readonly [number, number] = [5, 60];
  */
 const GOAL_VALUE_MULTIPLIER: readonly [number, number] = [2, 4];
 
+/**
+ * Chance a treasure share big enough to be an object is a potion, and then --
+ * failing that -- an ingredient. Rolled in that order, so the two do not have to
+ * agree on a single number between them.
+ */
+const POTION_SHARE = 0.2;
+const INGREDIENT_SHARE = 0.2;
+
 /** Copper below which a treasure share is loose coin rather than an object. */
 const COIN_CEILING = 60;
 /** Copper above which a treasure object is fine enough to carry a trait. */
@@ -118,29 +135,48 @@ const COIN_VESSELS: readonly string[] = [
 // TYPES
 // ---------------------------------------------------------------------------
 
-/** The six equipment rows of §3.1, all drawn from tables already in the repo. */
+/**
+ * The equipment rows of §3.1, all drawn from tables already in the repo.
+ *
+ * §3.1 printed six. `potion` is the one that left: it is treasure now, for the
+ * reason in the header, and every row still here prices itself from the catalog.
+ */
 export type EquipmentRow =
   | "weapon"
   | "protection"
   | "spellbook"
   | "dungeoneering"
-  | "general"
-  | "potion";
+  | "general";
 
-/** The four treasure rows of §3.2. Which one fires is decided by the share drawn. */
-export type TreasureRow = "coins" | "item" | "item-with-trait" | "ingredients";
+const EQUIPMENT_ROWS: readonly EquipmentRow[] = [
+  "weapon",
+  "protection",
+  "spellbook",
+  "dungeoneering",
+  "general",
+];
+
+/**
+ * The treasure rows of §3.2. Which one fires is decided by the share drawn --
+ * every one of them is worth exactly that share, whatever it turns out to be.
+ */
+export type TreasureRow = "coins" | "item" | "item-with-trait" | "ingredients" | "potion";
 
 /**
  * One object an equipment reward hands over. A row can hand over several -- two
  * to four pieces of general gear is one reward, not four.
  */
+/**
+ * EVERY DRAW HAS A CATALOG PRICE BEHIND IT. There was a third variant -- a
+ * rolled thing with no entry, which was only ever a potion -- and it went with
+ * the row: an equipment reward that had to invent its own number was the one
+ * place this family drew a price out of nowhere.
+ */
 export type EquipmentDraw =
   /** a catalog entry: name, slots, facts and price all come from STANDARD_EQUIPMENT */
   | { kind: "catalog"; key: EquipmentKey; amount?: string; value: number }
   /** a spellbook, which is the entry plus the one spell it holds */
-  | { kind: "spellbook"; spell: string; effect: string; value: number }
-  /** a rolled thing with no catalog entry -- today, a potion */
-  | { kind: "rolled"; content: Rolled; value: number };
+  | { kind: "spellbook"; spell: string; effect: string; value: number };
 
 /** Where a placed reward actually sits. */
 export interface RewardHolder {
@@ -306,15 +342,15 @@ export function rollEquipment(rng: Rng): { row: EquipmentRow; draws: EquipmentDr
 }
 
 /**
- * A row whose table is still empty draws nothing, so it is not offered. The six
- * stubs in `dungeon-blueprint.ts` are the reason this check exists; `POTIONS`
- * is filled now and the row is offered, so the guard is dead for this row and
- * stays for the next one.
+ * A flat pick over the rows, with no guard on it.
+ *
+ * There was one: a row whose table was still a stub drew nothing, and `potion`
+ * was offered only on `POTIONS.length`. Every row left here reads a catalog or a
+ * gear table and none of them can be empty, so the guard went with the potion.
+ * `rollTable` still keeps its own, which is where a future stub would land.
  */
 function pickEquipmentRow(rng: Rng): EquipmentRow {
-  const rows: EquipmentRow[] = ["weapon", "protection", "spellbook", "dungeoneering", "general"];
-  if (POTIONS.length) rows.push("potion");
-  return rng.pick(rows);
+  return rng.pick(EQUIPMENT_ROWS);
 }
 
 function drawsFor(row: EquipmentRow, rng: Rng): EquipmentDraw[] {
@@ -351,17 +387,6 @@ function drawsFor(row: EquipmentRow, rng: Rng): EquipmentDraw[] {
       const pool = [...GENERAL_GEAR_1, ...GENERAL_GEAR_2];
       return rng.pickN(pool, rng.range(2, 4)).map(catalogDraw);
     }
-
-    case "potion": {
-      const content = rollTable(POTIONS, rng);
-      // THE ROW NAMES THE THING, because a rolled draw has no catalog entry to
-      // take a name from and `POTIONS` holds what the potion DOES, not what it
-      // is -- "Ghost-speech", "Antlers", "Control Rat". The fallback is
-      // unreachable while POTIONS is filled; kept honest rather than asserted.
-      return content
-        ? [{ kind: "rolled", content: `Potion of ${content}`, value: rng.range(...KEY_VALUE_BAND) }]
-        : [spellbookDraw(rng)];
-    }
   }
 }
 
@@ -384,9 +409,24 @@ function spellbookDraw(rng: Rng): EquipmentDraw {
  * to match -- is what made money unbounded.
  */
 export function rollTreasure(share: number, rng: Rng): { row: TreasureRow; content: Rolled } {
-  if (MAGICAL_INGREDIENTS.length && share >= COIN_CEILING && rng.chance(0.2)) {
-    const content = rollTable(MAGICAL_INGREDIENTS, rng);
-    if (content) return { row: "ingredients", content };
+  // THE TWO ROWS THAT ARE WORTH USING as well as worth money, tried first and in
+  // a fixed order. A potion and an ingredient are still priced by the share --
+  // that is what makes them treasure rather than a second equipment table -- but
+  // what the player does with them is not sell them, which is the whole reason
+  // the dungeon bothers rolling on these tables at all.
+  //
+  // `POTIONS` holds what a potion DOES, not what it is -- "Ghost-speech",
+  // "Flight", "Water-breathing" -- so the ROW names the thing and the content is
+  // the effect, exactly as `ingredients` reads.
+  if (share >= COIN_CEILING) {
+    if (POTIONS.length && rng.chance(POTION_SHARE)) {
+      const content = rollTable(POTIONS, rng);
+      if (content) return { row: "potion", content };
+    }
+    if (MAGICAL_INGREDIENTS.length && rng.chance(INGREDIENT_SHARE)) {
+      const content = rollTable(MAGICAL_INGREDIENTS, rng);
+      if (content) return { row: "ingredients", content };
+    }
   }
 
   if (share < COIN_CEILING) {

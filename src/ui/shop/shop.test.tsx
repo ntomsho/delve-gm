@@ -17,6 +17,7 @@ import { Shop } from "./Shop.tsx";
 import { renderDom, type Rendered } from "../__fixtures__/dom.ts";
 import {
   Rng,
+  addItem,
   bonusesOf,
   buyKit,
   finishCharacter,
@@ -24,6 +25,7 @@ import {
   rollAbilities,
   rollTraits,
   setPurse,
+  type IItem,
   type PlayerCharacter,
 } from "../../engine/index.ts";
 
@@ -41,6 +43,18 @@ function buyer(copper: number): PlayerCharacter {
     kit: buyKit(rng, "sword"),
   });
   setPurse(pc, copper);
+  return pc;
+}
+
+/**
+ * Something out of a dungeon: no catalog row behind it, so the counter reads it
+ * as treasure and pays all of what it is worth.
+ */
+function withTreasure(pc: PlayerCharacter, ...worth: Array<[string, number]>): PlayerCharacter {
+  for (const [name, value] of worth) {
+    const item: IItem = { id: `t-${name}`, name, type: "Item", parentId: "", slots: 1, value };
+    addItem(pc, item, { force: true });
+  }
   return pc;
 }
 
@@ -151,5 +165,125 @@ describe("the shop", () => {
     expect(r.container.textContent).toContain("Gambeson");
     expect(byLabel(r, "One more Gambeson").disabled).toBe(true);
     expect(byText(r, "Buy").disabled).toBe(true);
+  });
+});
+
+describe("the counter, selling", () => {
+  const seller = (copper = 0) =>
+    withTreasure(buyer(copper), ["Silver ewer", 300], ["Carved bone die", 40]);
+
+  it("splits the pack into treasure at full value and gear at half of store", () => {
+    const r = open(seller());
+    click(byText(r, "Sell"));
+    const text = r.container.textContent ?? "";
+
+    expect(text).toContain("Silver ewer");
+    expect(text).toContain("treasure · full value");
+    expect(text).toContain("300 cp");
+
+    // The sword came from the catalog, so it prices from the catalog and halves.
+    expect(text).toContain("Sword");
+    expect(text).toContain("equipment · half of store");
+  });
+
+  it("raises the purse on the screen the moment something goes on the block", () => {
+    const r = open(seller(100));
+    click(byText(r, "Sell"));
+    click(byLabel(r, "Sell Silver ewer"));
+
+    expect(r.container.textContent).toContain("400");
+    expect(r.container.textContent).toContain("Copper, up from 100");
+    expect(r.container.textContent).toContain("On the block");
+  });
+
+  it("takes it back off the block when it is clicked again", () => {
+    const r = open(seller(100));
+    click(byText(r, "Sell"));
+    click(byLabel(r, "Sell Silver ewer"));
+    click(byLabel(r, "Keep Silver ewer"));
+    expect(r.container.textContent).not.toContain("On the block");
+    expect(byText(r, "Buy").disabled).toBe(true);
+  });
+
+  it("says on the button what selling all the treasure would make", () => {
+    const r = open(seller());
+    click(byText(r, "Sell"));
+    expect(byText(r, "Sell all treasure").textContent).toContain("+340 cp");
+  });
+
+  it("counts the button down as treasure goes on the block one piece at a time", () => {
+    const r = open(seller());
+    click(byText(r, "Sell"));
+    click(byLabel(r, "Sell Silver ewer"));
+    // 340 less the ewer's 300 — the number on the button is always what
+    // pressing it would still pay.
+    expect(byText(r, "Sell all treasure").textContent).toContain("+40 cp");
+  });
+
+  it("sells every piece of treasure at once and leaves the gear alone", () => {
+    let sold: PlayerCharacter | undefined;
+    const r = open(seller(), (pc) => void (sold = pc));
+    click(byText(r, "Sell"));
+    click(byText(r, "Sell all treasure"));
+
+    expect(byText(r, "Sell ·").textContent).toContain("+340 cp");
+    click(byText(r, "Sell ·"));
+
+    expect(sold).toBeDefined();
+    expect(purse(sold!)).toBe(340);
+    expect(sold!.inventory.some((i) => i.name === "Silver ewer")).toBe(false);
+    expect(sold!.inventory.some((i) => i.name === "Carved bone die")).toBe(false);
+    expect(sold!.inventory.some((i) => i.name === "Sword")).toBe(true);
+  });
+
+  it("has nothing left to offer once it has all been put on the block", () => {
+    const r = open(seller());
+    click(byText(r, "Sell"));
+    click(byText(r, "Sell all treasure"));
+    expect(byText(r, "All treasure on the block").disabled).toBe(true);
+  });
+
+  it("lets the sale pay for the purchase, in one press", () => {
+    let done: PlayerCharacter | undefined;
+    const r = open(seller(0), (pc) => void (done = pc));
+
+    // Broke, so the gambeson is out of reach.
+    expect(byLabel(r, "One more Gambeson").disabled).toBe(true);
+
+    click(byText(r, "Sell"));
+    click(byLabel(r, "Sell Silver ewer"));
+    click(byText(r, "Armor"));
+
+    const more = byLabel(r, "One more Gambeson");
+    expect(more.disabled).toBe(false);
+    click(more);
+    click(byText(r, "Buy ·"));
+
+    expect(done).toBeDefined();
+    expect(purse(done!)).toBe(300 - 60);
+    expect(done!.inventory.some((i) => i.name === "Gambeson")).toBe(true);
+    expect(done!.inventory.some((i) => i.name === "Silver ewer")).toBe(false);
+  });
+
+  it("will not buy the purse off them", () => {
+    const r = open(seller(100));
+    click(byText(r, "Sell"));
+    expect(r.all("button").some((b) => b.getAttribute("aria-label") === "Sell Copper")).toBe(
+      false
+    );
+  });
+
+  it("lists what nobody wants rather than leaving a hole in the pack", () => {
+    const r = open(withTreasure(buyer(0), ["Bundle of damp rags", 0]));
+    click(byText(r, "Sell"));
+    expect(r.container.textContent).toContain("Bundle of damp rags");
+    expect(r.container.textContent).toContain("no offer");
+    expect(byLabel(r, "Sell Bundle of damp rags").disabled).toBe(true);
+  });
+
+  it("says there is no treasure rather than offering a button that does nothing", () => {
+    const r = open(buyer(400));
+    click(byText(r, "Sell"));
+    expect(byText(r, "No treasure to sell").disabled).toBe(true);
   });
 });

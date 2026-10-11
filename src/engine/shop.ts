@@ -24,29 +24,53 @@
  * fiction that costs nothing. The screen asks in that order because the numbers
  * do.
  *
- * NO SELLING. A shop that buys is a second set of rules — what a used gambeson
- * is worth, whether a spellbook can be pawned — and nothing has asked for one.
- * A cart can be emptied before it is bought, which covers changing your mind;
- * what it does not cover is regret, and regret is a Knave character's own
- * business.
+ * SELLING IS THE SAME TRANSACTION. The counter buys as well as sells, and both
+ * halves settle at one button: a player selling the gambeson to afford the
+ * brigandine is doing one thing, not two, and a screen that committed the sale
+ * on the click would leave them holding neither if they then walked out. So the
+ * sold pile is a list of ids beside the cart, `proceeds` is added to the purse
+ * everything else is measured against, and `checkout` takes both.
+ *
+ * TWO PRICES, AND THE SPLIT IS WHAT THE THING IS. **Equipment fetches half its
+ * store value; treasure fetches all of it.** Treasure is only ever worth what
+ * somebody will pay — that is the entire point of a jewelled reliquary — so
+ * there is no margin to take on it. Equipment has a use beside its price, and a
+ * shop that bought a lantern back for thirty copper would make the lantern a
+ * currency rather than a tool. Half is the oldest answer to that and it is
+ * enough.
+ *
+ * WHAT COUNTS AS EQUIPMENT is `sellOffer`, and it asks two questions in order:
+ * is there a row on this very screen with that name, and failing that, does the
+ * item carry weapon, armor, book or spellbook facts. Anything else came out of a
+ * dungeon and is treasure.
+ *
+ * THAT LINE IS THE SAME LINE THE GENERATOR DRAWS, which is why two files can
+ * agree without either knowing about the other. `dungeon-rewards.ts` gives an
+ * equipment reward a catalog price and a treasure reward a share of the
+ * conserved pot; a thing with a catalog price has a store value to halve, and a
+ * thing with a share is worth that share to whoever will pay it. Potions are the
+ * case that settled it — they were an equipment row inventing a price out of the
+ * key band, they are a treasure row now, and this function was already calling
+ * them treasure while they were on the wrong side of it.
  *
  * QUANTITIES MINT SEPARATE ITEMS. Three torches are three items of one slot
  * each, not one item saying "3", because that is what they weigh in Knave and
  * because dropping one of them has to be possible.
  */
 
-import type { AnyItem } from "./dungeon-entities.ts";
+import type { AnyItem, IItem } from "./dungeon-entities.ts";
 import {
   EQUIP_SLOTS,
   addItem,
   canEquip,
   equip,
+  removeItem,
   slotCapacity,
   slotsUsed,
   type EquipSlot,
   type PlayerCharacter,
 } from "./dungeon-character.ts";
-import { purse, setPurse } from "./character-creation.ts";
+import { purse, purseItem, setPurse } from "./character-creation.ts";
 import type { Rng } from "./dungeon-blueprint.ts";
 import {
   STANDARD_EQUIPMENT,
@@ -122,8 +146,27 @@ export const ALL_GOODS: readonly ShopGood[] = [...ARMOR_GOODS, ...WEAPON_GOODS, 
 
 const BY_KEY = new Map<string, ShopGood>(ALL_GOODS.map((g) => [g.key, g]));
 
+/**
+ * The same rows under the name printed on them, which is the only handle a
+ * carried item offers — an `IItem` keeps no pointer back to the catalog entry it
+ * was minted from, deliberately, because a found gambeson and a bought one are
+ * the same object and neither is a reference to a table.
+ *
+ * First writer wins, so a name appearing twice prices from wherever it is
+ * displayed first. It does not: `equipment.ts` opens by collapsing the two
+ * printed tables' duplicate names into one key each, and the catalogue test
+ * asserts the keys are unique.
+ */
+const BY_NAME = new Map<string, ShopGood>();
+for (const g of ALL_GOODS) if (!BY_NAME.has(g.name)) BY_NAME.set(g.name, g);
+
 export function goodByKey(key: string): ShopGood | undefined {
   return BY_KEY.get(key);
+}
+
+/** The row this thing would be bought from, if the shop stocks one. */
+export function goodByName(name: string): ShopGood | undefined {
+  return BY_NAME.get(name);
 }
 
 /**
@@ -209,12 +252,128 @@ export const cartSlots = (cart: Cart): number =>
 export const cartCount = (cart: Cart): number =>
   cartLines(cart).reduce((n, l) => n + l.qty, 0);
 
-/** What is left in the purse if they buy what is on the counter. */
-export const changeFrom = (pc: PlayerCharacter, cart: Cart): number =>
-  purse(pc) - cartTotal(cart);
+// ===========================================================================
+// THE SOLD PILE
+// ===========================================================================
 
-export const canAfford = (pc: PlayerCharacter, cart: Cart): boolean =>
-  changeFrom(pc, cart) >= 0;
+/**
+ * What is being sold: ids of rows already on the sheet.
+ *
+ * Ids rather than keys, and a list rather than a count, because selling is the
+ * mirror of buying in every way but this one — every carried thing is a distinct
+ * object with its own quality, its own name and its own history, and "sell a
+ * torch" is not a sentence the sheet can answer. `Sold` is what the screen holds
+ * beside its `Cart`, and `EMPTY_SOLD` is the pair to `EMPTY_CART`.
+ */
+export type Sold = readonly string[];
+
+export const EMPTY_SOLD: Sold = [];
+
+export type SellKind = "equipment" | "treasure";
+
+/** One carried thing with a price on it, going the other way. */
+export interface SellOffer {
+  item: IItem;
+  kind: SellKind;
+  /** Copper the counter will pay for it. Zero means nobody here wants it. */
+  offer: number;
+  /**
+   * What it is being halved from, for a row that wants to show the working.
+   * The catalog price where there is one, and the item's own `value` otherwise.
+   * Equal to `offer` for treasure, which is not halved.
+   */
+  worth: number;
+}
+
+/**
+ * What the counter will pay for one thing, and why.
+ *
+ * TWO QUESTIONS, IN ORDER. A row on this screen with that name settles it and
+ * prices from the catalog rather than from the item — "half its **store**
+ * value" is the rule, and a gambeson dragged out of a flooded aviary is worth
+ * half of what a gambeson costs, not half of whatever the dungeon happened to
+ * write on it. Failing a name, an item carrying weapon, armor, book or spellbook
+ * facts is equipment by construction: a spellbook is named for the spell inside
+ * it and will never match a row, and it is plainly not treasure.
+ *
+ * Everything left came out of a dungeon with a share of the pot on it, and that
+ * share IS what it fetches. See the header.
+ */
+export function sellOffer(item: IItem): SellOffer {
+  const stocked = goodByName(item.name);
+  if (stocked || item.itemKind !== undefined) {
+    const worth = stocked ? stocked.cost : item.value;
+    return { item, kind: "equipment", offer: Math.floor(worth / 2), worth };
+  }
+  return { item, kind: "treasure", offer: item.value, worth: item.value };
+}
+
+/**
+ * Everything on the sheet that the counter will look at, in pack order.
+ *
+ * **THE PURSE IS NOT ON IT.** Money is not a good, and a shop that bought sixty
+ * copper for thirty would be a machine for emptying a character. It is the one
+ * row excluded here rather than filtered by the screen, so that no caller can
+ * forget — `checkout` sells from this list too, which is what makes selling the
+ * purse impossible rather than merely undrawn.
+ *
+ * A ZERO OFFER IS STILL A ROW. What the shop will not pay for is a thing the
+ * player is entitled to be told about; the screen shows it and refuses the
+ * click, which is a better answer than a pack that silently has holes in it.
+ */
+export function sellOffers(pc: PlayerCharacter): SellOffer[] {
+  const money = purseItem(pc);
+  return pc.inventory.filter((i) => i.id !== money?.id).map(sellOffer);
+}
+
+/** Just the treasure, and only what there is an offer on. What "Sell all" sells. */
+export function treasureOffers(pc: PlayerCharacter): SellOffer[] {
+  return sellOffers(pc).filter((o) => o.kind === "treasure" && o.offer > 0);
+}
+
+/** The offers actually selected, in pack order. An id with no row behind it is dropped. */
+export function soldLines(pc: PlayerCharacter, sold: Sold): SellOffer[] {
+  const ids = new Set(sold);
+  return sellOffers(pc).filter((o) => ids.has(o.item.id));
+}
+
+/** What the sold pile pays. */
+export const proceeds = (pc: PlayerCharacter, sold: Sold): number =>
+  soldLines(pc, sold).reduce((n, o) => n + o.offer, 0);
+
+/** Slots the sold pile gives back, for a meter that has to count both directions. */
+export const soldSlots = (pc: PlayerCharacter, sold: Sold): number =>
+  soldLines(pc, sold).reduce((n, o) => n + o.item.slots, 0);
+
+export function addToSold(sold: Sold, id: string): Sold {
+  return sold.includes(id) ? sold : [...sold, id];
+}
+
+export function removeFromSold(sold: Sold, id: string): Sold {
+  return sold.filter((x) => x !== id);
+}
+
+export function toggleSold(sold: Sold, id: string): Sold {
+  return sold.includes(id) ? removeFromSold(sold, id) : addToSold(sold, id);
+}
+
+// ===========================================================================
+// WHAT IT ALL COMES TO
+// ===========================================================================
+
+/**
+ * What is left in the purse if they buy what is on the counter and sell what is
+ * beside it.
+ *
+ * `sold` is optional and empty by default, which is what keeps every caller that
+ * only ever buys — creation's last step, the tests below the cart — reading the
+ * same as it did before there was a sold pile.
+ */
+export const changeFrom = (pc: PlayerCharacter, cart: Cart, sold: Sold = EMPTY_SOLD): number =>
+  purse(pc) + proceeds(pc, sold) - cartTotal(cart);
+
+export const canAfford = (pc: PlayerCharacter, cart: Cart, sold: Sold = EMPTY_SOLD): boolean =>
+  changeFrom(pc, cart, sold) >= 0;
 
 /**
  * Whether one more of this would still be payable for.
@@ -222,19 +381,27 @@ export const canAfford = (pc: PlayerCharacter, cart: Cart): boolean =>
  * The screen disables the `+` with this rather than letting a player build a
  * cart they cannot buy and discover it at the counter.
  */
-export const canAffordOneMore = (pc: PlayerCharacter, cart: Cart, good: ShopGood): boolean =>
-  changeFrom(pc, cart) >= good.cost;
+export const canAffordOneMore = (
+  pc: PlayerCharacter,
+  cart: Cart,
+  good: ShopGood,
+  sold: Sold = EMPTY_SOLD
+): boolean => changeFrom(pc, cart, sold) >= good.cost;
 
 // ===========================================================================
 // CHECKOUT
 // ===========================================================================
 
 export interface Purchase {
-  /** The sheet after buying. A new object; the one passed in is untouched. */
+  /** The sheet after the transaction. A new object; the one passed in is untouched. */
   pc: PlayerCharacter;
   /** What was minted, in cart order. */
   bought: AnyItem[];
   spent: number;
+  /** What left the pack, in pack order. Already gone from `pc`. */
+  sold: IItem[];
+  /** What the sold pile fetched. */
+  earned: number;
   /** What went straight onto them, and into which slot. */
   equipped: EquipSlot[];
   /** Slots used against capacity afterwards. Reported, never enforced. */
@@ -259,16 +426,39 @@ export interface Purchase {
  * already carrying is an arrangement they chose, and a purchase is not an
  * argument for undoing it. `canEquip` is the strict check, so a shield bought
  * beside a two-hander stays in the pack exactly as a rolled one does.
+ *
+ * SELLING HAPPENS FIRST, and it has to. The money pays for the cart, the slots
+ * pay for what the cart weighs, and an equip slot emptied by selling what was in
+ * it is a slot the new armor can go straight into — which is the whole of what a
+ * player selling a gambeson to buy brigandine expects to happen. `removeItem`
+ * clears the slot on its way out, so nothing here has to remember to.
+ *
+ * WHAT IS SOLD IS READ OFF `sellOffers`, NOT OFF THE ARGUMENT. An id that names
+ * nothing is dropped and the purse can never be sold, both by construction
+ * rather than by a check that a later caller could skip.
  */
-export function checkout(pc: PlayerCharacter, cart: Cart, rng: Rng): Purchase {
+export function checkout(
+  pc: PlayerCharacter,
+  cart: Cart,
+  rng: Rng,
+  sold: Sold = EMPTY_SOLD
+): Purchase {
   const lines = cartLines(cart);
   const spent = lines.reduce((n, l) => n + l.cost, 0);
-  const held = purse(pc);
+  const offers = soldLines(pc, sold);
+  const earned = offers.reduce((n, o) => n + o.offer, 0);
+  const held = purse(pc) + earned;
   if (spent > held) {
     throw new Error(`that comes to ${spent} cp and the purse holds ${held}`);
   }
 
   const next = structuredClone(pc);
+  const gone: IItem[] = [];
+  for (const o of offers) {
+    const removed = removeItem(next, o.item.id);
+    if (removed) gone.push(removed);
+  }
+
   const bought: AnyItem[] = [];
   for (const line of lines) {
     for (let i = 0; i < line.qty; i++) {
@@ -290,6 +480,8 @@ export function checkout(pc: PlayerCharacter, cart: Cart, rng: Rng): Purchase {
     pc: next,
     bought,
     spent,
+    sold: gone,
+    earned,
     equipped,
     overburdened: slotsUsed(next) > slotCapacity(next),
   };

@@ -371,6 +371,10 @@ const TREASURE_TABLE: Record<string, string> = {
   item: "Treasure Item",
   "item-with-trait": "Treasure Item",
   ingredients: "Magical Ingredient",
+  // The row names the thing and the content is what it DOES, because that is
+  // all `POTIONS` holds -- so the pass sees `Potion: Ghost-speech` and writes a
+  // flask, not a ghost.
+  potion: "Potion",
 };
 
 /**

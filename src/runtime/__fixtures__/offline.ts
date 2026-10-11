@@ -370,6 +370,19 @@ export function generateOffline(seed: number, size: Size): GeneratedDungeon {
   };
 }
 
+/**
+ * The test character, and A FRESH ONE EVERY CALL.
+ *
+ * `inventory` used to hand back `testInventory` itself rather than a copy, and a
+ * shared mutable array in a fixture is a trap that springs at a distance: a test
+ * that pushes a purse onto the inventory it was given changes the character
+ * every later test in the file receives, so the failure lands somewhere that
+ * never touched an inventory and passes when run alone. Everything else here is
+ * already a fresh literal per call; this is the one thing that was not.
+ *
+ * `...over` still comes last, so a caller handing in its own inventory gets its
+ * own inventory and pays for nothing.
+ */
 export function testCharacter(over: Partial<PlayerCharacter> = {}): PlayerCharacter {
   return {
     id: "pc-1",
@@ -382,7 +395,7 @@ export function testCharacter(over: Partial<PlayerCharacter> = {}): PlayerCharac
       virtue: "Cautious", vice: "Greedy", speech: "Blunt", background: "Burglar",
       misfortunes: "Exiled", alignment: "Neutrality",
     },
-    inventory: testInventory,
+    inventory: structuredClone(testInventory),
     equipped: { helmet: "test-helmet", armor: "test-chain", weapon: "test-sword" },
     conditions: [],
     ...over,

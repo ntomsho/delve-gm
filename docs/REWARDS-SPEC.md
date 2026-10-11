@@ -99,23 +99,31 @@ KEY       answers one challenge
 GENERAL   50/50 equipment / treasure
 ```
 
-`leverage` and `boon` do not survive. Boons are consumables and belong in
-equipment; leverage ("defensible chokepoint", "safe place to rest") describes a
-room, and the content pass can write that without spending a reward slot.
+`leverage` and `boon` do not survive. Leverage ("defensible chokepoint", "safe
+place to rest") describes a room, and the content pass can write that without
+spending a reward slot. Boons are consumables — potions, and nothing else — and
+they are drawn as **treasure**, not as equipment. See 3.1.
 
 ### 3.1 Equipment
 
-Six rows, all from tables already in the repo:
+**As written this was six rows; it is five.** The potion row was cut and moved to
+3.2, because equipment is priced from `STANDARD_EQUIPMENT` and there is no
+catalog entry for "Potion of Ghost-speech" — the row was pricing itself out of
+`KEY_VALUE_BAND` (5–60cp), which is what a key is worth and not what a flask of
+flight is worth. Drawn as treasure it takes a share of the conserved pot like
+everything else the dungeon puts a number on. With it went `EquipmentDraw`'s
+third variant, `rolled`, which nothing else produced.
+
+Five rows, all from tables already in the repo:
 
 1. a weapon — `WEAPONS` / `WEAPON_KEYS` (`knave-tables.ts`)
 2. armor, helmet, or shield — `rollArmorTable` / `rollHelmetShieldTable`
 3. a spellbook — `SPELLS`, the d100 table
 4. 1–3 dungeoneering gear — `DUNGEONEERING_GEAR`
 5. 2–4 general gear — `GENERAL_GEAR_1` / `GENERAL_GEAR_2`
-6. a potion — **`POTIONS`, to be filled**
 
-Equipment takes its price from `STANDARD_EQUIPMENT` where the entry is a catalog
-item, and does not touch the treasure pot.
+Equipment takes its price from `STANDARD_EQUIPMENT`, always, and does not touch
+the treasure pot.
 
 ### 3.2 Treasure
 
@@ -124,7 +132,14 @@ item, and does not touch the treasure pot.
 2. treasure item
 3. treasure item + trait / valuable material
 4. magical ingredients
+5. a potion — POTIONS
 ```
+
+Rows 4 and 5 are the two that are worth *using* as well as worth money. Both are
+tried first, in a fixed order — potion, then ingredient — and only on a share
+that clears `COIN_CEILING`, because below that a share is loose coin rather than
+an object. `POTIONS` holds what a potion **does**, so the row names the thing and
+the content is the effect: the writing pass sees `Potion: Ghost-speech`.
 
 Existing: `TREASURE_ITEMS`, `VALUABLE_MATERIALS`, `WEAPON_ITEMS`
 (`dungeon-blueprint.ts:353–361`).
@@ -377,9 +392,25 @@ turn, and it takes the XP call off the referee entirely.
 **A run that ends in death does not tally.** The ledger is still written, for the
 journal and for the record.
 
-Levelling is a separate session. The arithmetic — ~30 challenges in a size 5
-dungeon against a 1000-per-level track — is noted and deliberately not solved
-here.
+**Neither does one the player abandoned** — settled when the end-of-run screen
+was built, and not what this section originally said. Abandoning is not an ending
+in the fiction: the character is still standing where they were left and nothing
+came back up with them, so there is nothing to pay for. `shouldTally` refuses
+both, `session.abandon` makes no call at all, and the ledger is kept either way.
+
+**What a survivor keeps, and where the XP goes.** Walking out alive is what makes
+the pack yours — `goal_met` and `escaped` both, since whether the objective came
+too decides which ending it was and nothing else. `carriedOut` is the one place
+that turns a run's character back into the roster's, so the run's award is added
+there, in the same transaction as the ending. Death and abandonment write
+nothing, which is how they forfeit the gear and the experience together without
+either path having to remember to.
+
+Levelling was a separate session and is now built — `src/engine/level-up.ts`,
+and `BUILD-PLAN.md` for the decisions. Nothing above it changed: the arithmetic
+(~30 challenges in a size 5 dungeon against a 1000-per-level track) stands, and
+`PlayerCharacter.xp` is still a career total nothing spends. `level` is moved by
+`applyLevelUp` and by nothing else.
 
 ---
 
@@ -407,6 +438,8 @@ One phase per session, R1 first.
 - **Placed/reserved ratio** is a dial. §4 fixes the order; the weights inside it
   get tuned once a dungeon's worth of them can be looked at.
 - **Whether a dead character's ledger is worth anything at all**, or is only ever
-  read by the journal.
+  read by the journal. Partly answered: the end-of-run screen reads the run
+  rather than the ledger for what killed them and what they were carrying, so a
+  death has something to show without the ledger being scored.
 - **The XP arithmetic**, deferred to the levelling session with the numbers from
   §8.3 visible.
