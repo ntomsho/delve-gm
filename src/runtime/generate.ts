@@ -57,7 +57,7 @@ import {
   type Size,
   type StockedDungeon,
 } from "../engine/index.ts";
-import { callForJson, type FailedAttempt, type Usage } from "./llm/client.ts";
+import { addUsage, callForJson, type FailedAttempt, type Usage } from "./llm/client.ts";
 import {
   contentPassSchema,
   dungeonPassSchema,
@@ -452,10 +452,7 @@ export async function finishGeneration(
   let usage = partial.usage;
   for (const g of withPayloads) {
     applyContentPass(g.value, g.payload, entities, blueprint, stocked, new Rng(stocked.seed + g.chunk));
-    usage = {
-      inputTokens: usage.inputTokens + g.usage.inputTokens,
-      outputTokens: usage.outputTokens + g.usage.outputTokens,
-    };
+    usage = addUsage(usage, g.usage);
   }
 
   // --- the seams: the ways between chunks ----------------------------------
@@ -480,10 +477,7 @@ export async function finishGeneration(
     });
     journal.log({ kind: "generation", pass: "seams-pass", prompt, response: value, usage: seamsUsage });
     applySeamsPass(value, seamsPayload, entities);
-    usage = {
-      inputTokens: usage.inputTokens + seamsUsage.inputTokens,
-      outputTokens: usage.outputTokens + seamsUsage.outputTokens,
-    };
+    usage = addUsage(usage, seamsUsage);
   }
 
   // --- the keys: the objects that answer the dungeon's questions ------------
@@ -523,10 +517,7 @@ export async function finishGeneration(
     });
     journal.log({ kind: "generation", pass: "keys-pass", prompt, response: value, usage: keysUsage });
     applyKeysPass(value, keysPayload, stocked, entities);
-    usage = {
-      inputTokens: usage.inputTokens + keysUsage.inputTokens,
-      outputTokens: usage.outputTokens + keysUsage.outputTokens,
-    };
+    usage = addUsage(usage, keysUsage);
   }
 
   return { ...partial, entities, usage };

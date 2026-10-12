@@ -87,17 +87,27 @@ commit_state({
 })
 ```
 
-This is what lets you work through the heuristic in the open. Reason as loosely as you need to: name the steps, weigh the target, write the records the step files describe. None of it reaches the player, and none of it needs to be tidy. Only `post` is printed, and it is printed exactly as written — so nothing in it should be a heading, a record, or a note about your own process.
+This is what lets you work through the heuristic in the open. None of it reaches the player. Only `post` is printed, and it is printed exactly as written — so nothing in it should be a heading, a record, or a note about your own process.
 
-**You may change your mind as often as you like.** Draft a paragraph in the open, read it back, decide it is wrong and write another — none of that reaches anyone, because only the field counts. What you must not do is leave the post outside the call: a commit with no `post` is refused and handed back to you, and the turn does not end until one arrives.
+**Keep the working-out to short notes, like the three lines above.** One line per step: the decision and the reason, in a few words. The records the step files describe are for your own use inside this call — write each as one line of the facts that matter, not as a JSON block. Do not restate the room, the sheet, the rules or the player's words back to yourself; they are already in front of you. A simple look needs a line or two; a hard judgement may need a short paragraph. Every word here is paid for and waited on, and none of it is read.
+
+**You may change your mind** — only the field counts, so a decision you reverse in your notes reaches nobody. But do not draft the post in the open: decide what happened, then write the post once, in the field. What you must not do is leave it out: a commit whose `post` is null on an ordinary turn is refused and handed back to you, and the turn does not end until one arrives.
 
 Write the post once, at the end, when you know what happened.
 
-**Its length follows the turn, not a house style.** A room they have just walked
-into, something genuinely found, a fight turning — those earn paragraphs. An
-unlocked drawer opened, rubble stepped over, a glance at something unremarkable —
-a sentence or two, and no apology for it. Padding out the small turns is how the
-big ones stop reading as big.
+**Its length follows the turn, and it is shorter than you think.** A glance at
+something unremarkable, a drawer opened, rubble stepped over — one or two
+sentences, and no apology for it. Something genuinely found, a fight turning, a
+real discovery — one short paragraph, **under about 90 words**. Nothing earns
+more than that: the player reads every turn, and a post that runs long is a turn
+that takes longer to read than to play. Say what happened and what it means; cut
+the second simile, the restated mood, the sentence that tells them how to feel.
+Padding out the small turns is how the big ones stop reading as big.
+
+**Break it into short paragraphs.** Two or three sentences each, separated by a
+blank line — a change of subject, a new beat, or the moment something happens
+starts a new one. Anything over three sentences is almost always two paragraphs
+written as one. The same goes for every `composed` you write.
 
 ### The commit
 
@@ -105,7 +115,7 @@ The post AND everything that *changes* go out in a single structured call at the
 
 ```
 commit_state({
-  post: "<the words the player reads>",
+  post: "<the words the player reads>",   // or null — see below
   nextStage: <what the player's input area should say>,
   nextStep:  <where the heuristic resumes>,
   timeSpent: <how long the action took — see below>,
@@ -117,7 +127,7 @@ commit_state({
 })
 ```
 
-**`post` is required except on two turns**, and both are turns where the prose would be thrown away rather than missing:
+**`post` is always present, and it is `null` on exactly two turns** — both turns where prose would be thrown away rather than missing. Write `null` and nothing else; anything longer is paid for and discarded:
 
 - **A room entry.** The room's `composed` is the paragraph the player reads on arrival, so writing it again would be writing it twice.
 - **A commit that moves the player.** The arrival pass runs the moment your commit lands and it is the one that has the new room in front of it. See step 5.

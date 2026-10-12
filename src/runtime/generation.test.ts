@@ -185,7 +185,7 @@ function generateOffline(seed: number, size: Size): GeneratedDungeon {
     stocked,
     entities,
     blockplan: null,
-    usage: { inputTokens: 0, outputTokens: 0 },
+    usage: { inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheReadTokens: 0 },
   };
 }
 

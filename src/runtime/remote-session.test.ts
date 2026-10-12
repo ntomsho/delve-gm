@@ -250,7 +250,12 @@ describe("while the request is in flight", () => {
     await first;
   });
 
-  it("shows the dice being written up rather than thrown", async () => {
+  /*
+   * TWO REQUESTS FOR ONE ROLL. The dice came back with the prose, so the
+   * player watched a spinner over a number the server already had. Now
+   * `/roll` answers at once with the die in the log, and `/resolve` is the wait.
+   */
+  it("throws the dice, shows them, and only then asks for the outcome", async () => {
     wireGeneration([0]);
     const session = createRemoteSession();
     await begin(session);
@@ -259,12 +264,46 @@ describe("while the request is in flight", () => {
     routes.set("POST /api/runs/run-1/turn", () => ({ json: { state: offered.state, version: 3 } }));
     await session.submit("I heave at the slab");
 
-    routes.set("POST /api/runs/run-1/roll", () => ({ json: { state: run(4).state, version: 4 } }));
+    const thrown = run(4, "resolving", {
+      step: "5-resolution",
+      log: [{ kind: "roll", text: "STR save: 15 +2 = 17", turn: 0 }],
+      pending: { roll: { total: 17 }, step: "5-resolution", entering: false },
+    });
+    let resolveSeen: unknown;
+    routes.set("POST /api/runs/run-1/roll", () => ({ json: { state: thrown.state, version: 4 } }));
+    routes.set("POST /api/runs/run-1/resolve", (body) => {
+      resolveSeen = session.store.getState().run;
+      return { json: { state: run(5, "awaiting_action").state, version: 5, body } };
+    });
+
     const rolling = session.roll();
-    // The throw and the outcome are one request here, and the outcome is the
-    // part that takes time. `rolling` would be a lie for the length of it.
-    expect(session.store.getState().run).toMatchObject({ stage: "resolving" });
+    // The throw is a fast request; `rolling` is honest for its length.
+    expect(session.store.getState().run).toMatchObject({ stage: "rolling" });
     await rolling;
+
+    const paths = sent.map((x) => x.path).filter((p) => /roll|resolve/.test(p));
+    expect(paths).toEqual(["/api/runs/run-1/roll", "/api/runs/run-1/resolve"]);
+    // While the outcome was being written, the die was already on the screen.
+    expect(resolveSeen).toMatchObject({ stage: "resolving", log: [{ kind: "roll" }] });
+    // And `/resolve` answered the version `/roll` handed back.
+    expect(sent.at(-1)!.body).toMatchObject({ version: 4 });
+    expect(session.store.getState().run).toMatchObject({ stage: "awaiting_action" });
+  });
+
+  it("does not ask for an outcome when the throw did not land", async () => {
+    wireGeneration([0]);
+    const session = createRemoteSession();
+    await begin(session);
+
+    const offered = run(3, "roll_offered", { pendingRoll: { ability: "str", dc: 12 } });
+    routes.set("POST /api/runs/run-1/turn", () => ({ json: { state: offered.state, version: 3 } }));
+    await session.submit("I heave at the slab");
+
+    routes.set("POST /api/runs/run-1/roll", () => ({ status: 500, json: { error: "down" } }));
+    await session.roll();
+
+    expect(sent.some((x) => x.path.endsWith("/resolve"))).toBe(false);
+    expect(session.store.getState().run).toMatchObject({ stage: "error" });
   });
 
   it("does not act at all once the run is over", async () => {

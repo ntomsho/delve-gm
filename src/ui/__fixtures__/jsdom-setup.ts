@@ -64,3 +64,17 @@ for (const name of ["ResizeObserver", "IntersectionObserver"] as const) {
  * that matters.
  */
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+/**
+ * SCROLLING INTO VIEW. `Narration` keeps the newest line on screen with
+ * `scrollIntoView`, which jsdom does not implement. A no-op is honest for the
+ * same reason the observers are: jsdom has no layout, so there is nowhere to
+ * scroll to and nothing a test could check about having scrolled.
+ */
+if ((Element.prototype as { scrollIntoView?: unknown }).scrollIntoView === undefined) {
+  Object.defineProperty(Element.prototype, "scrollIntoView", {
+    value: () => {},
+    writable: true,
+    configurable: true,
+  });
+}

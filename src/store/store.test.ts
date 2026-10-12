@@ -142,7 +142,7 @@ function dungeon(): GeneratedDungeon {
     stocked: { entranceRoomId: ROOM, goalRoomId: ROOM } as never,
     entities: entities(),
     blockplan: null,
-    usage: { inputTokens: 0, outputTokens: 0 },
+    usage: { inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheReadTokens: 0 },
   };
 }
 

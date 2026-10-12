@@ -336,13 +336,22 @@ export const commitSchema = z.object({
    * reads nothing until the commit has validated gets its second guarantee,
    * because the prose now travels inside the thing being validated.
    *
-   * Optional for the two turns that legitimately write none: a room entry, where
-   * the room's own `composed` IS the paragraph, and a commit that moves the
-   * player, whose prose is discarded unread because the arrival pass is about to
-   * describe the real room. Anything else with no post is refused — see
+   * REQUIRED, AND NULL ON THE TWO TURNS THAT WRITE NONE: a room entry, where the
+   * room's own `composed` IS the paragraph, and a commit that moves the player,
+   * whose prose is discarded unread because the arrival pass is about to
+   * describe the real room. Anything else with a null post is refused — see
    * `missingPost` in referee.ts.
+   *
+   * It was `.optional()`, and optional is a key the model can simply not write.
+   * It did, a quarter of the time: R3 (2026-10-11) had 4 of 19 calls spent on
+   * "this commit has no `post`", the referee filling `coinGrant` and `learned`
+   * with blank placeholders and skipping the one field that mattered. `commit_state`
+   * goes out strict, so a required key is one the API will not let it leave out —
+   * and `null` keeps the exempt turns to four tokens rather than a paragraph
+   * written to be thrown away (which they were writing anyway: both R3 room
+   * entries carried a post duplicating `composed`).
    */
-  post: z.string().trim().min(1).optional(),
+  post: z.string().trim().min(1).nullable(),
   nextStage: refereeStage,
   nextStep: refereeStep,
   timeSpent,

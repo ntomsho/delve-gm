@@ -123,34 +123,43 @@ function Error({ onRetry }: { onRetry(): void }) {
  *
  * THE CARD THAT USED TO BE HERE IS NOW `EndOfRun.tsx`, over the whole page. It
  * grew a loot list, a score and a cause of death, and none of that fits under a
- * textarea — but the overlay is dismissable, so this has to be able to bring it
- * back. That is the whole of this component: a statement and a way back to it.
+ * textarea.
+ *
+ * IT NO LONGER OPENS BY ITSELF. It used to go up the moment the run ended, over
+ * the top of the last thing the referee wrote — the death, the escape, the
+ * moment the objective came free — so the one paragraph of the run most worth
+ * reading was the one the player had to dismiss a modal to find. The final post
+ * now stays on the page, and this takes the input's place with one button that
+ * puts the reckoning up when the player is ready for it. (Abandoning is the
+ * exception: there is no final post to read — see `PlayScreen`.)
  */
 function RunOver({ stage, turns, onShow }: { stage: Ending; turns: number; onShow(): void }) {
   return (
     <div
-      className="mb-3 flex flex-wrap items-baseline gap-x-4 gap-y-1 border-l-2 py-1.5 pl-3"
+      className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-l-2 py-2 pl-3"
       style={{ borderColor: stage === "goal_met" ? "var(--color-torch)" : "var(--color-ink)" }}
       role="status"
     >
-      <span
-        className="font-mono text-[9px] uppercase tracking-[0.16em]"
-        style={{
-          color:
-            stage === "goal_met" ? "var(--color-torch-deep)" : "var(--color-graphite)",
-        }}
-      >
-        {ENDINGS[stage].heading}
-      </span>
-      <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-graphite">
-        {turns} turn{turns === 1 ? "" : "s"}
+      <span className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+        <span
+          className="font-mono text-[10px] uppercase tracking-[0.16em]"
+          style={{
+            color:
+              stage === "goal_met" ? "var(--color-torch-deep)" : "var(--color-graphite)",
+          }}
+        >
+          {ENDINGS[stage].heading}
+        </span>
+        <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-graphite">
+          {turns} turn{turns === 1 ? "" : "s"}
+        </span>
       </span>
       <button
         type="button"
         onClick={onShow}
-        className="font-mono text-[9px] uppercase tracking-[0.14em] text-torch underline-offset-4 transition-colors hover:underline active:text-torch-deep"
+        className="bg-torch px-5 py-2 font-mono text-[11px] uppercase tracking-[0.12em] text-paper transition-colors hover:bg-torch-deep active:bg-ink"
       >
-        See the reckoning
+        End run
       </button>
     </div>
   );
@@ -290,61 +299,68 @@ export function InputArea(props: InputAreaProps) {
         <p className="mb-2 font-prose text-[15px] text-ink">What do you do?</p>
       )}
 
-      <div
-        className="flex items-start gap-2 border px-3 py-2"
-        style={{
-          borderColor: open ? "var(--color-ink)" : "var(--color-rule-faint)",
-          background: open ? "var(--color-paper)" : "var(--color-desk)",
-          opacity: open ? 1 : 0.55,
-        }}
-      >
-        <span className="select-none pt-[1px] font-mono text-[14px] text-graphite">&rsaquo;</span>
-        <textarea
-          ref={box}
-          value={draft}
-          disabled={!open}
-          rows={1}
-          onChange={(e) => onDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              send();
-            }
-            if (e.key === "Escape") onDraft("");
-          }}
-          className="flex-1 resize-none overflow-y-auto bg-transparent font-prose text-[15px] leading-relaxed text-ink outline-none disabled:cursor-not-allowed"
-          aria-label={STAGE_NAME[stage]}
-        />
-        {open && (
-          <span
-            className="mt-[3px] inline-block h-[15px] w-[7px] bg-ink"
-            style={{ animation: "caret 1.05s step-end infinite" }}
-            aria-hidden
-          />
-        )}
-      </div>
+      {/* THE BOX GOES WHEN THE RUN DOES. A disabled textarea under "the run is
+          over" reads as a game waiting to be unstuck; the End Run button is
+          the only thing left to do, so it is the only thing there. */}
+      {!isTerminal(stage) && (
+        <>
+          <div
+            className="flex items-start gap-2 border px-3 py-2"
+            style={{
+              borderColor: open ? "var(--color-ink)" : "var(--color-rule-faint)",
+              background: open ? "var(--color-paper)" : "var(--color-desk)",
+              opacity: open ? 1 : 0.55,
+            }}
+          >
+            <span className="select-none pt-[1px] font-mono text-[14px] text-graphite">&rsaquo;</span>
+            <textarea
+              ref={box}
+              value={draft}
+              disabled={!open}
+              rows={1}
+              onChange={(e) => onDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  send();
+                }
+                if (e.key === "Escape") onDraft("");
+              }}
+              className="flex-1 resize-none overflow-y-auto bg-transparent font-prose text-[15px] leading-relaxed text-ink outline-none disabled:cursor-not-allowed"
+              aria-label={STAGE_NAME[stage]}
+            />
+            {open && (
+              <span
+                className="mt-[3px] inline-block h-[15px] w-[7px] bg-ink"
+                style={{ animation: "caret 1.05s step-end infinite" }}
+                aria-hidden
+              />
+            )}
+          </div>
 
-      <div className="mt-1.5 flex items-baseline justify-between gap-4">
-        <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-graphite">
-          {STAGE_HINT[stage]}
-        </span>
-        {/*
-         * The quiet corner: the way out of the run, and the keys.
-         *
-         * Abandon is offered for as long as the run is live, INCLUDING while the
-         * referee is working. That is deliberate — a player sitting in front of a
-         * `thinking` that is never going to finish is exactly who needs it, and
-         * the server takes it whatever stage the row is standing in.
-         */}
-        <span className="flex items-baseline gap-5">
-          {!isTerminal(stage) && <Abandon onAbandon={onAbandon} />}
-          {open && (
-            <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-pencil">
-              ↵ send · ⇧↵ newline · ⎋ clear
+          <div className="mt-1.5 flex items-baseline justify-between gap-4">
+            <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-graphite">
+              {STAGE_HINT[stage]}
             </span>
-          )}
-        </span>
-      </div>
+            {/*
+             * The quiet corner: the way out of the run, and the keys.
+             *
+             * Abandon is offered for as long as the run is live, INCLUDING while the
+             * referee is working. That is deliberate — a player sitting in front of a
+             * `thinking` that is never going to finish is exactly who needs it, and
+             * the server takes it whatever stage the row is standing in.
+             */}
+            <span className="flex items-baseline gap-5">
+              <Abandon onAbandon={onAbandon} />
+              {open && (
+                <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-pencil">
+                  ↵ send · ⇧↵ newline · ⎋ clear
+                </span>
+              )}
+            </span>
+          </div>
+        </>
+      )}
     </div>
   );
 }

@@ -681,9 +681,11 @@ export default function App() {
       onRoll={() => void session.roll()}
       onRetry={() => void session.retry()}
       onAbandon={() => void session.abandon()}
-      // A local run has no roster to go back to, so the end card does not offer
-      // one. Same reasoning as the sign-out control on the characters screen.
-      {...(LOCAL ? {} : { onLeave: toRoster })}
+      // A local run has no roster to go back to, so neither the end card nor
+      // the game menu offers one. Same reasoning as the sign-out control on the
+      // characters screen. Both are `toRoster`: leaving a live run and leaving
+      // a finished one are the same move, because every commit is already saved.
+      {...(LOCAL ? {} : { onLeave: toRoster, onMainMenu: toRoster })}
     />
   );
 }

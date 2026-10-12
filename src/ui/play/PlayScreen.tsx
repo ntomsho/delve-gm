@@ -11,11 +11,12 @@
  * than being squeezed.
  */
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { CharacterPanel } from "./CharacterPanel.tsx";
 import { DungeonMap, MapHeader } from "./DungeonMap.tsx";
 import { ActionPill, HoverProvider } from "./hover.tsx";
 import { EndOfRun, type Ending } from "./EndOfRun.tsx";
+import { GameMenu } from "./GameMenu.tsx";
 import { InputArea } from "./InputArea.tsx";
 import { Narration, type NarrationItem } from "./Narration.tsx";
 import { RoomCard } from "./RoomCard.tsx";
@@ -38,6 +39,11 @@ export interface PlayScreenProps {
   onAbandon(): void;
   /** Back to the roster once it is over. Absent on a local run — see `InputArea`. */
   onLeave?: () => void;
+  /**
+   * Back to the roster WITHOUT ending the run — see `GameMenu`. Absent on a
+   * local run, which has no roster to go back to.
+   */
+  onMainMenu?: () => void;
 }
 
 export function PlayScreen({
@@ -49,9 +55,24 @@ export function PlayScreen({
   onRetry,
   onAbandon,
   onLeave,
+  onMainMenu,
 }: PlayScreenProps) {
   const [draft, setDraft] = useState("");
-  const [summary, setSummary] = useState(true);
+  /*
+   * THE END-OF-RUN SCREEN IS ASKED FOR, NOT THRUST UP. It used to start open,
+   * over the top of the final post — the death, the escape — so the paragraph
+   * most worth reading was the one behind a modal. Now the post stays put and
+   * the input area's End Run button raises this.
+   *
+   * ABANDONING IS THE EXCEPTION. There is no final post: the player pressed a
+   * button twice to stop, and making them press a third to see the result
+   * would be ceremony. So it opens the moment the run lands there — including
+   * on mount, for a run that was already abandoned when the screen came up.
+   */
+  const [summary, setSummary] = useState(false);
+  useEffect(() => {
+    if (run.stage === "abandoned") setSummary(true);
+  }, [run.stage]);
 
   // Geometry is fixed for the whole run; only the fog over it changes.
   //
@@ -135,9 +156,8 @@ export function PlayScreen({
    * resumed run that ended while the tab was closed comes back to exactly the
    * same screen — see `loot.ts`.
    *
-   * The overlay starts open and closes only when the player closes it. On a live
-   * run `ending` is undefined and none of this renders; the moment a terminal
-   * stage lands it does, without anything having to fire an effect.
+   * The overlay opens on End Run (or by itself on an abandon — see `summary`).
+   * On a live run `ending` is undefined and none of this renders.
    */
   const ending = asEnding(run.stage);
   const loot = useMemo(() => lootOf(run, dungeon), [run, dungeon]);
@@ -155,6 +175,7 @@ export function PlayScreen({
     <HoverProvider acting={acceptsInput(run.stage)} reachable={reachable} onAct={act}>
       <main className="grid h-screen bg-paper text-ink [grid-template-areas:'map_narr_char''card_narr_char'] [grid-template-columns:320px_minmax(0,1fr)_300px] [grid-template-rows:minmax(0,1fr)_auto] max-[1200px]:[grid-template-areas:'map_card''narr_char'] max-[1200px]:[grid-template-columns:minmax(0,1fr)_296px] max-[1200px]:[grid-template-rows:220px_minmax(0,1fr)]">
         <div className="flex min-h-0 flex-col border-r border-rule p-4 [grid-area:map] max-[1200px]:border-b">
+          {onMainMenu && <GameMenu onMainMenu={onMainMenu} busy={busy} />}
           <MapHeader name={dungeon.pass.name} map={map} />
           <div className="flex min-h-0 flex-1 items-center justify-center">
             <DungeonMap map={map} className="h-full w-full" />
@@ -166,7 +187,7 @@ export function PlayScreen({
         </div>
 
         <div className="flex min-h-0 flex-col [grid-area:narr]">
-          <Narration items={items} busy={busy} />
+          <Narration items={items} busy={busy} resolving={run.stage === "resolving"} />
           <InputArea
             stage={run.stage}
             roll={run.pendingRoll}

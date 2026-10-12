@@ -284,12 +284,18 @@ async function main(): Promise<void> {
   }
 
   const spent = run?.callLog.reduce(
-    (a, c) => ({ in: a.in + c.inputTokens, out: a.out + c.outputTokens }),
-    { in: 0, out: 0 }
+    (a, c) => ({
+      in: a.in + c.inputTokens,
+      out: a.out + c.outputTokens,
+      write: a.write + c.cacheWriteTokens,
+      read: a.read + c.cacheReadTokens,
+    }),
+    { in: 0, out: 0, write: 0, read: 0 }
   );
   if (spent && spent.in + spent.out > 0) {
     console.error(
-      `\n${run!.callLog.length} calls · ${spent.in.toLocaleString()} in / ${spent.out.toLocaleString()} out`
+      `\n${run!.callLog.length} calls · ${spent.in.toLocaleString()} in / ${spent.out.toLocaleString()} out` +
+        ` · cache ${spent.write.toLocaleString()} written / ${spent.read.toLocaleString()} read`
     );
   }
   if (dir) console.error(`journal: ${dir}`);

@@ -22,9 +22,9 @@
  *   - A commit that fails validation is handed back as a tool ERROR, in the
  *     same conversation, with the reasons. That is a correction, not a retry:
  *     the model still has everything it just wrote.
- *   - On the last permitted round the dice are taken off the table and
- *     `commit_state` is forced, so a referee that keeps rolling gets closed out
- *     rather than looping until the budget is gone.
+ *   - On the last permitted round `commit_state` is forced, so a referee that
+ *     keeps rolling gets closed out rather than looping until the budget is
+ *     gone. The dice stay in the tool list — see the loop for why.
  *
  * WHAT IT DOES NOT DO. It does not apply anything, does not decide what a turn
  * means, and does not know what stage the game is in beyond what it is told.
@@ -37,10 +37,11 @@
  */
 
 import { dcFromDefense, ORDINARY_DC, pcArmorDefense } from "../engine/index.ts";
-import { renderOutcomes, rollBatch } from "./dice.ts";
+import { renderOutcomes, rollBatch, type DiceOutcome } from "./dice.ts";
 import { assemble } from "./prompts/assemble.ts";
 import {
   callWithTools,
+  NO_USAGE,
   toolFor,
   toolResults,
   type Message,
@@ -72,7 +73,9 @@ const COMMIT_TOOL: ToolDefinition = toolFor(
     "the action took (`timeSpent`, which decides who else got to move), and " +
     "what changed. Exactly one call per turn, always — even a turn that changes nothing commits, " +
     "to say what the player's input area should be waiting on. Call this LAST. Anything you " +
-    "write outside this call is your own working-out and is never shown to anyone.",
+    "write outside this call is your own working-out and is never shown to anyone. `post` is " +
+    "null on a room entry and on a commit that moves the player, and never null otherwise. Leave " +
+    "out any optional field with nothing in it — no empty strings, no empty lists.",
   commitSchema
 );
 
@@ -258,12 +261,12 @@ function playersOwnDice(req: RefereeRequest, batch: RollBatchParsed): string[] {
  *     requiring it here would be requiring something to throw away.
  */
 function missingPost(req: RefereeRequest, c: CommitParsed): string[] {
-  if (c.post !== undefined) return [];
+  if (c.post !== null) return [];
   if (req.step === "room-entry") return [];
   if (c.diffs.some((d) => d.entityId === PLAYER_ID && d.path === "roomId")) return [];
 
   return [
-    `this commit has no \`post\`, so the turn reaches the player as a blank screen. ` +
+    `this commit's \`post\` is null, so the turn reaches the player as a blank screen. ` +
       `The post is a field of \`commit_state\` — anything you write outside the tool call is ` +
       `working-out and is never shown. Put the words meant for the player in \`post\` and commit again.`,
   ];
@@ -386,6 +389,8 @@ export function createModelReferee(opts: ModelRefereeOptions): Referee {
     const messages: Message[] = [...prompt.messages];
     /** whether any dice have been thrown for this turn — see unearnedDamage */
     let rolled = false;
+    /** what they came to, for the player to be shown the ones that hurt them */
+    const thrown: DiceOutcome[] = [];
 
     /*
      * THERE IS NO POST TO ACCUMULATE ANY MORE.
@@ -406,15 +411,19 @@ export function createModelReferee(opts: ModelRefereeOptions): Referee {
      */
 
     for (let round = 1; round <= maxRounds; round++) {
-      // The last round closes the turn: the dice come off the table so that
-      // forcing `commit_state` is the only thing left to do.
+      // The last round closes the turn: `commit_state` is forced, so it is the
+      // only thing left to do.
       const last = round === maxRounds;
       const turn = await call({
         task,
         round,
         system: prompt.system,
         messages,
-        tools: last ? [COMMIT_TOOL] : [ROLL_TOOL, COMMIT_TOOL],
+        // THE SAME TOOLS EVERY ROUND. The tool list is the first thing in the
+        // cached prefix, so a round that drops `roll` misses the whole cache and
+        // writes it again — R3's closing round did, at 22K tokens. Forcing the
+        // choice is what takes the dice off the table; the list stays put.
+        tools: [ROLL_TOOL, COMMIT_TOOL],
         toolChoice: last ? { type: "tool", name: "commit_state" } : { type: "auto" },
         signal: opts.signal,
         step: req.step,
@@ -443,11 +452,15 @@ export function createModelReferee(opts: ModelRefereeOptions): Referee {
           continue;
         }
         return {
-          // The post, or the room's own paragraph on the one turn that writes
-          // none. Nothing from the loose text channel: that is working-out now,
-          // whatever it looks like.
-          narration: read.post ?? arrival(req, read.commit),
+          // The post — or, on a room entry, the room's own paragraph, whatever
+          // else was written. Nothing from the loose text channel: that is
+          // working-out now, whatever it looks like.
+          narration:
+            req.step === "room-entry"
+              ? arrival(req, read.commit) || (read.post ?? "")
+              : (read.post ?? ""),
           commit: read.commit,
+          ...(thrown.length > 0 ? { rolls: thrown } : {}),
         };
       }
 
@@ -460,6 +473,7 @@ export function createModelReferee(opts: ModelRefereeOptions): Referee {
         // which is the only thing this flag is for now that there is no prose
         // to carry across rounds.
         if (answers.some((a) => a.threw)) rolled = true;
+        for (const a of answers) thrown.push(...a.outcomes);
 
         messages.push(
           { role: "assistant", content: turn.content },
@@ -517,8 +531,13 @@ export function createModelReferee(opts: ModelRefereeOptions): Referee {
  * tokens for one paragraph and invite the two copies to drift. So the commit is
  * read for it instead, and the playbook says that is the arrangement.
  *
- * Only on entry, and only when there is nothing else: prose the referee wrote
- * for the player always wins.
+ * ON ENTRY, `composed` WINS OVER THE POST. The post on a room entry is `null`
+ * by the playbook, and when the referee writes one anyway it is the same
+ * paragraph a second time — R4 (2026-10-11) did, and its copy was the one with
+ * tool markup run into the end of it. The room's `composed` is the version that
+ * is stored, re-read and shown again on the map card; showing the other one
+ * means the player reads text the game does not hold. The post is used only
+ * when no `composed` was written at all.
  */
 function arrival(req: RefereeRequest, commit: Commit): string {
   if (req.step !== "room-entry") return "";
@@ -527,6 +546,62 @@ function arrival(req: RefereeRequest, commit: Commit): string {
     (d) => d.entityId === here && d.path === "composed" && typeof d.value === "string"
   );
   return (written?.value as string | undefined) ?? "";
+}
+
+/**
+ * THE MODEL'S OWN CALL SYNTAX, RUN INTO THE POST.
+ *
+ * Seen twice in two runs, months apart: a post ending `…something deliberate
+ * and slow.</post>` and then `<parameter name="nextStage">awaiting_action`. The
+ * referee closed the field the way it writes tool calls internally, and the closing
+ * tag and the start of the next parameter landed inside the string. The real
+ * `nextStage` was written correctly beside it, so nothing is lost by cutting —
+ * everything from the first such tag on is the leak, and none of it was meant
+ * for the player.
+ *
+ * Cut rather than refused: refusing costs a whole round to remove a few
+ * characters the code can remove itself.
+ */
+const TOOL_MARKUP = /<\/?(?:post|parameter|invoke|function_calls)\b[^>]*>/i;
+
+export function withoutToolMarkup(text: string): string {
+  const at = text.search(TOOL_MARKUP);
+  return (at === -1 ? text : text.slice(0, at)).trim();
+}
+
+/**
+ * BLANK PLACEHOLDERS ARE ABSENCE, not errors.
+ *
+ * A model filling a schema writes `coinGrant: { why: "" }` and `learned: []` for
+ * fields it has no use for. Refusing those cost R3 two whole rounds on one
+ * look at some claw marks, and the third attempt was worse than the blank: it
+ * wrote `why: "none"`, which is VALID and would have granted coin for nothing
+ * had the post been there too. So a blank optional is read as the field left
+ * out, and the model is never pushed into inventing something to put in it.
+ *
+ * Only these four, and only when blank. Anything with content still goes
+ * through the schema exactly as written.
+ */
+function withoutPlaceholders(input: unknown): unknown {
+  if (input === null || typeof input !== "object" || Array.isArray(input)) return input;
+  const out: Record<string, unknown> = { ...(input as Record<string, unknown>) };
+  const blank = (v: unknown) => typeof v === "string" && v.trim() === "";
+
+  if (blank(out.fictionNote)) delete out.fictionNote;
+  if (Array.isArray(out.learned)) {
+    const kept = out.learned.filter((x) => !blank(x));
+    if (kept.length === 0) delete out.learned;
+    else out.learned = kept;
+  }
+  const grant = out.coinGrant as { why?: unknown } | null | undefined;
+  if (grant === null || (typeof grant === "object" && (grant.why === undefined || blank(grant.why)))) {
+    delete out.coinGrant;
+  }
+  const draw = out.draw as { challengeId?: unknown } | null | undefined;
+  if (draw === null || (typeof draw === "object" && (draw.challengeId === undefined || blank(draw.challengeId)))) {
+    delete out.draw;
+  }
+  return out;
 }
 
 /**
@@ -549,7 +624,7 @@ function readCommit(
 ): { commit: Commit; post?: string } | string {
   let parsed: CommitParsed;
   try {
-    parsed = validate(commitSchema, call.input);
+    parsed = validate(commitSchema, withoutPlaceholders(call.input));
   } catch (e) {
     if (e instanceof ResponseFormatError) return e.feedback;
     throw e;
@@ -568,6 +643,13 @@ function readCommit(
     ...(parsed.coinGrant ? { coinGrant: parsed.coinGrant } : {}),
   };
 
+  // Cleaned before anything is checked, so a post that was ALL markup reads as
+  // the null it effectively is and is refused as one.
+  if (parsed.post !== null) {
+    const clean = withoutToolMarkup(parsed.post);
+    parsed = { ...parsed, post: clean === "" ? null : clean };
+  }
+
   const problems = [...problemsWith(parsed), ...also(parsed, commit)];
   if (problems.length > 0) {
     return `That commit was refused and nothing was applied:\n${problems
@@ -575,7 +657,7 @@ function readCommit(
       .join("\n")}\nCall commit_state again with those fixed.`;
   }
 
-  return { commit, ...(parsed.post !== undefined ? { post: parsed.post } : {}) };
+  return { commit, ...(parsed.post !== null ? { post: parsed.post } : {}) };
 }
 
 type RollResult = { id: string; content: string; isError?: boolean };
@@ -596,13 +678,13 @@ function answerRoll(
   journal: Journal,
   call: ToolUse,
   guard: (batch: RollBatchParsed) => string[]
-): { result: RollResult; threw: boolean } {
+): { result: RollResult; threw: boolean; outcomes: DiceOutcome[] } {
   let batch: RollBatchParsed;
   try {
     batch = validate(rollBatchSchema, call.input);
   } catch (e) {
     if (e instanceof ResponseFormatError) {
-      return { result: { id: call.id, content: e.feedback, isError: true }, threw: false };
+      return { result: { id: call.id, content: e.feedback, isError: true }, threw: false, outcomes: [] };
     }
     throw e;
   }
@@ -618,6 +700,7 @@ function answerRoll(
         isError: true,
       },
       threw: false,
+      outcomes: [],
     };
   }
 
@@ -633,6 +716,7 @@ function answerRoll(
       ...(outcomes.some((o) => o.failed) ? { isError: true } : {}),
     },
     threw: true,
+    outcomes: outcomes.filter((o) => !o.failed),
   };
 }
 
@@ -656,7 +740,10 @@ async function call(
 
   // What was actually sent, minus the system blocks — those are written once
   // per step per run rather than repeated on every call.
-  journal.log({ kind: "prompt", step, messages: rest.messages });
+  // A COPY. The loop pushes onto this array after the call, and the journal
+  // persists later — logging the array itself recorded every round's prompt as
+  // the turn's final conversation, refusals from rounds not yet sent included.
+  journal.log({ kind: "prompt", step, messages: [...rest.messages] });
 
   const logCall = (usage: Usage, error?: string) =>
     store.getState().logCall({
@@ -665,6 +752,8 @@ async function call(
       model: modelFor(rest.task),
       inputTokens: usage.inputTokens,
       outputTokens: usage.outputTokens,
+      cacheWriteTokens: usage.cacheWriteTokens,
+      cacheReadTokens: usage.cacheReadTokens,
       ms: Date.now() - started,
       ...(error ? { error } : {}),
     });
@@ -684,7 +773,7 @@ async function call(
     return turn;
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
-    logCall({ inputTokens: 0, outputTokens: 0 }, message);
+    logCall(NO_USAGE, message);
     journal.log({ kind: "error", where: `referee:${step}`, message });
     throw e;
   }

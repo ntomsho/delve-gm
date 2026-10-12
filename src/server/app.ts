@@ -464,7 +464,12 @@ export function createApp(): Hono<AuthEnv> {
   });
 
   app.post("/api/runs/:id/enter", (c) => playTurn(c, (s) => s.enterRoom()));
-  app.post("/api/runs/:id/roll", (c) => playTurn(c, (s) => s.roll()));
+  // TWO REQUESTS FOR ONE ROLL, so the dice reach the screen before the prose.
+  // `/roll` throws them and saves — no model call, back in milliseconds — and
+  // `/resolve` asks the referee what they meant. A run left between the two is
+  // `resolving` with the roll in `pending`, and `/retry` picks it up from there.
+  app.post("/api/runs/:id/roll", (c) => playTurn(c, async (s) => s.throwDice()));
+  app.post("/api/runs/:id/resolve", (c) => playTurn(c, (s) => s.resolve()));
   app.post("/api/runs/:id/retry", (c) => playTurn(c, (s) => s.retry()));
   app.post("/api/runs/:id/turn", (c) =>
     playTurn(c, async (s, body) => {

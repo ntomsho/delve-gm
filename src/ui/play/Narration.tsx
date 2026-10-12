@@ -11,7 +11,10 @@
  */
 
 import { useEffect, useRef } from "react";
+import { D20, Die, DiceRoll } from "./DiceRoll.tsx";
 import type { LogEntry } from "../../store/game.ts";
+import type { RolledOutcome } from "../../runtime/types.ts";
+import { isLoss, type Effect, type FoeRoll } from "../../runtime/effects.ts";
 
 export interface Arrival {
   kind: "arrival";
@@ -42,7 +45,10 @@ export type NarrationItem =
   | Arrival
   | { kind: "referee"; prose: string }
   | { kind: "player"; text: string }
-  | { kind: "roll"; text: string };
+  /** `outcome` is absent on rolls logged before it was kept; those stay text */
+  | { kind: "roll"; text: string; outcome?: RolledOutcome }
+  | { kind: "effects"; effects: Effect[] }
+  | { kind: "foe"; foe: FoeRoll[] };
 
 /**
  * Turn the stored scrollback into something renderable.
@@ -70,8 +76,12 @@ export function toItems(
         return { kind: "arrival", roomName: roomName(e.roomId ?? ""), prose: e.text } as const;
       case "player":
         return { kind: "player", text: e.text } as const;
+      case "effects":
+        return { kind: "effects", effects: e.effects ?? [] } as const;
+      case "foe":
+        return { kind: "foe", foe: e.foe ?? [] } as const;
       case "roll":
-        return { kind: "roll", text: e.text } as const;
+        return { kind: "roll", text: e.text, ...(e.outcome ? { outcome: e.outcome } : {}) } as const;
       default:
         return { kind: "referee", prose: e.text } as const;
     }
@@ -92,7 +102,115 @@ function Prose({ children }: { children: string }) {
   );
 }
 
-export function Narration({ items, busy }: { items: NarrationItem[]; busy?: boolean }) {
+/**
+ * THE DICE THAT HURT THEM — a creature's attack, a fall — above the prose that
+ * tells it. The d20 that was thrown, hit or miss, and the damage dice; never
+ * the number it had to beat, which would be the player's own armour handed back
+ * as a target. Which rolls reach here is `foeRolls`' decision.
+ */
+function FoeRolls({ rolls }: { rolls: FoeRoll[] }) {
+  if (rolls.length === 0) return null;
+  return (
+    <ul className="mb-3 space-y-1.5" aria-label="Rolls against you">
+      {rolls.map((r, i) => (
+        <li key={i} className="flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[11px] uppercase tracking-[0.1em] text-graphite">
+          {r.d20 && <D20 face={r.d20.kept} size={20} bold={r.d20.success} />}
+          <span>{r.label}</span>
+          {r.d20 && <span className="text-ink">{r.d20.total}</span>}
+          {r.d20 && (
+            <span
+              className="font-bold tracking-[0.16em]"
+              style={{ color: r.d20.success ? "var(--color-torch-deep)" : "var(--color-graphite)" }}
+            >
+              {r.d20.success ? "Hit" : "Miss"}
+              {r.d20.nat20 ? " · critical" : ""}
+            </span>
+          )}
+          {r.damage && (
+            <>
+              {r.damage.rolls.map((face, k) => (
+                <Die key={k} face={face} size={18} bold />
+              ))}
+              <span className="font-bold text-torch-deep">{r.damage.total} damage</span>
+            </>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * WHAT THE TURN COST, set apart from the prose.
+ *
+ * Prose can carry "your left arm burns" in the middle of a sentence about the
+ * room and the player reads straight past it. This cannot be read past: hit
+ * points with the arithmetic, and every item damaged, destroyed, lost or knocked
+ * off, each as its own mark. Losses in torch, gains quiet — a found bottle
+ * should be noticed, not compete with a wound. See `effects.ts` for where it
+ * comes from.
+ */
+function EffectsLine({ effects }: { effects: Effect[] }) {
+  if (effects.length === 0) return null;
+  const hurt = effects.some(isLoss);
+  return (
+    <ul
+      className="mb-4 flex max-w-[62ch] flex-wrap gap-x-2 gap-y-1.5 border-l-2 py-1 pl-3"
+      style={{ borderColor: hurt ? "var(--color-torch)" : "var(--color-rule)" }}
+      aria-label="What this turn did to you"
+    >
+      {effects.map((e, i) => (
+        <li
+          key={i}
+          className="border px-2 py-[2px] font-mono text-[11px] uppercase tracking-[0.08em]"
+          style={
+            isLoss(e)
+              ? { borderColor: "var(--color-torch)", color: "var(--color-torch-deep)", background: "var(--color-torch-wash)" }
+              : { borderColor: "var(--color-rule)", color: "var(--color-graphite)" }
+          }
+        >
+          {effectText(e)}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function effectText(e: Effect): string {
+  switch (e.kind) {
+    case "hp": {
+      const d = e.to - e.from;
+      const sign = d > 0 ? "+" : "−";
+      return e.to <= 0 ? `${sign}${Math.abs(d)} HP · ${e.from} → 0 · dead` : `${sign}${Math.abs(d)} HP · ${e.from} → ${e.to}`;
+    }
+    case "damaged":
+      return e.to <= 0 ? `${e.name} broken` : `${e.name} damaged · ${e.to}/${e.of}`;
+    case "destroyed":
+      return `${e.name} destroyed`;
+    case "lost":
+      return `Lost: ${e.name}`;
+    case "gained":
+      return `Gained: ${e.name}`;
+    case "unequipped":
+      return `${e.name} came off`;
+    case "used":
+      return `${e.name} · ${e.from} → ${e.to}`;
+  }
+}
+
+export function Narration({
+  items,
+  busy,
+  resolving,
+}: {
+  items: NarrationItem[];
+  busy?: boolean;
+  /**
+   * The newest roll is being written up. If it is also the newest item, it is
+   * drawn live — the die tumbling and landing — while the prose is awaited.
+   */
+  resolving?: boolean;
+}) {
   const end = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -143,6 +261,18 @@ export function Narration({ items, busy }: { items: NarrationItem[]; busy?: bool
               <Prose>{item.prose}</Prose>
             </section>
           );
+        }
+
+        if (item.kind === "foe") {
+          return <FoeRolls key={i} rolls={item.foe} />;
+        }
+
+        if (item.kind === "effects") {
+          return <EffectsLine key={i} effects={item.effects} />;
+        }
+
+        if (item.kind === "roll" && item.outcome) {
+          return <DiceRoll key={i} outcome={item.outcome} live={!!resolving && i === items.length - 1} />;
         }
 
         if (item.kind === "roll") {

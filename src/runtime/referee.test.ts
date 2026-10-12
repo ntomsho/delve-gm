@@ -41,8 +41,9 @@ const reply = (...content: unknown[]) => ({
  *
  * The post is a FIELD now (§8a A9), so an ordinary commit carrying none is the
  * unusual case rather than the default — and a referee that writes one is what
- * these tests are mostly standing in for. Pass `post: undefined` to build the
- * blank-screen case on purpose.
+ * these tests are mostly standing in for. Pass `post: null` to build the
+ * blank-screen case on purpose — the key is required, so null is how a
+ * referee says it wrote none.
  */
 const commit = (input: Record<string, unknown>) =>
   use("c1", "commit_state", {
@@ -100,6 +101,79 @@ const referee = (maxRounds = 4) => createModelReferee({ store: useGame, maxRound
  * These are the tests of that, and they are mostly about what is IGNORED.
  */
 describe("what the player reads", () => {
+  /*
+   * THE MODEL'S CALL SYNTAX, RUN INTO THE POST. Seen in R2 and again in R4:
+   * the field closed with `</post>` and the next parameter begun inside the
+   * string. Cut in code — refusing would spend a round on a few characters.
+   */
+  it("cuts the model's own call markup off the end of a post", async () => {
+    queue.push(
+      reply(
+        commit({
+          post:
+            'Something deliberate and slow.</post>\n<parameter name="nextStage">awaiting_action',
+        })
+      )
+    );
+    const out = await referee()(request());
+    expect(out.narration).toBe("Something deliberate and slow.");
+    expect(sent).toHaveLength(1);
+  });
+
+  it("refuses a post that was nothing but markup, as the blank it is", async () => {
+    queue.push(reply(commit({ post: "</post>" })));
+    queue.push(reply(commit({ post: "The door gives." })));
+    const out = await referee()(request());
+    expect(sent[1].messages.at(-1).content[0].content).toContain("blank screen");
+    expect(out.narration).toBe("The door gives.");
+  });
+
+  it("leaves angle brackets that are not call markup alone", async () => {
+    queue.push(reply(commit({ post: "The sign reads <KEEP OUT> in red." })));
+    const out = await referee()(request());
+    expect(out.narration).toBe("The sign reads <KEEP OUT> in red.");
+  });
+
+  /*
+   * BLANK PLACEHOLDERS. R3 lost two rounds on one look at some claw marks to
+   * `coinGrant: { why: "" }`, and the third attempt wrote `why: "none"` — valid,
+   * and a coin grant for nothing. A blank optional is the field left out.
+   */
+  it("reads blank optional fields as left out, rather than refusing them", async () => {
+    queue.push(
+      reply(
+        commit({
+          post: "The gouges are fresh.",
+          coinGrant: { why: "" },
+          learned: [],
+          fictionNote: "  ",
+          draw: { challengeId: "" },
+        })
+      )
+    );
+
+    const out = await referee()(request());
+    expect(sent).toHaveLength(1);
+    expect(out.commit.coinGrant).toBeUndefined();
+    expect(out.commit.learned).toBeUndefined();
+    expect(out.commit.fictionNote).toBeUndefined();
+    expect(out.commit.draw).toBeUndefined();
+  });
+
+  it("still refuses a coin grant with a reason, if that is all that is wrong", async () => {
+    // Only BLANK is forgiven. A grant with words in it is a grant.
+    queue.push(reply(commit({ coinGrant: { why: "in the drain" } })));
+    const out = await referee()(request());
+    expect(out.commit.coinGrant).toEqual({ why: "in the drain" });
+  });
+
+  it("puts post on the wire as a required field that may be null", async () => {
+    queue.push(reply(commit({})));
+    await referee()(request());
+    const schema = sent[0].tools.find((t: { name: string }) => t.name === "commit_state").input_schema;
+    expect(schema.required).toContain("post");
+  });
+
   it("is the commit's post, and nothing else in the response", async () => {
     queue.push(
       reply(
@@ -148,7 +222,7 @@ describe("what the player reads", () => {
   });
 
   it("refuses a commit that would reach the player as a blank screen", async () => {
-    queue.push(reply(text("The door gives."), commit({ post: undefined })));
+    queue.push(reply(text("The door gives."), commit({ post: null })));
     queue.push(reply(commit({ post: "The door gives." })));
 
     const out = await referee()(request());
@@ -216,6 +290,29 @@ describe("an ordinary turn", () => {
     expect(entry.inputTokens).toBe(100);
     expect(entry.outputTokens).toBe(40);
     expect(entry.model).toBeTruthy();
+    // Nothing cached on this reply, and the wire left the fields out entirely.
+    expect(entry.cacheWriteTokens).toBe(0);
+    expect(entry.cacheReadTokens).toBe(0);
+  });
+
+  it("logs the cached input apart from the rest, because it is billed apart", async () => {
+    queue.push({
+      ...reply(commit({})),
+      usage: {
+        input_tokens: 900,
+        output_tokens: 40,
+        cache_creation_input_tokens: 2000,
+        cache_read_input_tokens: 7000,
+      },
+    });
+    await referee()(request());
+
+    const [entry] = useGame.getState().run!.callLog;
+    expect(entry).toMatchObject({
+      inputTokens: 900,
+      cacheWriteTokens: 2000,
+      cacheReadTokens: 7000,
+    });
   });
 
   it("carries a fact about the place through to the commit", async () => {
@@ -239,7 +336,7 @@ describe("an ordinary turn", () => {
     // The step files are the last block. SKILL.md names every step in its
     // overview, so the check has to be against that block and not the whole
     // system prompt.
-    const steps = sent[0].system.at(-1).text;
+    const steps = sent[0].system[1].text;
     expect(steps).toContain("# Step 5 — Action resolution");
     expect(steps).not.toContain("# Step 1 — Determine the target of the action");
     expect(steps).not.toContain("# Step 4 — Roll confirmation");
@@ -260,7 +357,7 @@ describe("walking into a room", () => {
           // One of exactly two commits allowed to carry no post — see
           // `missingPost`. The room's own paragraph is the arrival, and writing
           // it twice would invite the two copies to drift.
-          post: undefined,
+          post: null,
           diffs: [
             { entityId: here, path: "state", value: "as found" },
             { entityId: here, path: "composed", value: "A chasm opens at your feet." },
@@ -274,17 +371,28 @@ describe("walking into a room", () => {
     expect(sent).toHaveLength(1);
   });
 
-  it("prefers a post the referee actually wrote", async () => {
+  /*
+   * THE STORED PARAGRAPH WINS. A room-entry post is null by the playbook, and
+   * one written anyway is the same paragraph twice — R4's was, with tool markup
+   * run into its end. `composed` is what the game keeps and shows again.
+   */
+  it("shows the room's composed paragraph even when a post was written too", async () => {
     const here = useGame.getState().run!.currentRoomId;
     queue.push(
       reply(
         commit({
-          post: "You have been here before, and it has not improved.",
-          diffs: [{ entityId: here, path: "composed", value: "A chasm." }],
+          post: 'A chasm opens at your feet.</post>\n<parameter name="nextStage">awaiting_action',
+          diffs: [{ entityId: here, path: "composed", value: "A chasm opens at your feet." }],
         })
       )
     );
 
+    const out = await referee()(request({ step: "room-entry" }));
+    expect(out.narration).toBe("A chasm opens at your feet.");
+  });
+
+  it("falls back to the post when the room wrote no paragraph", async () => {
+    queue.push(reply(commit({ post: "You have been here before, and it has not improved." })));
     const out = await referee()(request({ step: "room-entry" }));
     expect(out.narration).toBe("You have been here before, and it has not improved.");
   });
@@ -312,7 +420,7 @@ describe("walking into a room", () => {
   it("lets a commit that moves the player go without one", async () => {
     const to = dungeon.entities.rooms[1]!.id;
     queue.push(
-      reply(commit({ post: undefined, diffs: [{ entityId: "player", path: "roomId", value: to }] }))
+      reply(commit({ post: null, diffs: [{ entityId: "player", path: "roomId", value: to }] }))
     );
 
     const out = await referee()(request({ step: "5-resolution" }));
@@ -495,15 +603,17 @@ describe("damage nobody rolled for", () => {
 describe("a referee that will not stop", () => {
   const rolling = () => reply(use("r1", "roll", { rolls: [{ id: "a", kind: "morale" }] }));
 
-  it("takes the dice away and forces the commit on the last round", async () => {
+  it("forces the commit on the last round, without changing the tool list", async () => {
     queue.push(rolling(), rolling(), rolling());
     queue.push(reply(commit({})));
 
     await referee(4)(request());
 
     expect(sent).toHaveLength(4);
-    expect(sent[3].tools.map((t: { name: string }) => t.name)).toEqual(["commit_state"]);
     expect(sent[3].tool_choice).toEqual({ type: "tool", name: "commit_state" });
+    // The tool list leads the cached prefix. A closing round that dropped
+    // `roll` missed the whole cache and wrote it again (R3, 22K tokens).
+    expect(sent[3].tools).toEqual(sent[0].tools);
   });
 
   it("gives up rather than looping, and says so", async () => {
@@ -727,7 +837,7 @@ describe("what the model is shown", () => {
     const system = sent[0].system;
     expect(system).toHaveLength(3);
     expect(system[1].cache_control).toEqual({ type: "ephemeral" });
-    expect(system[2].cache_control).toBeUndefined();
+    expect(system[2].cache_control).toEqual({ type: "ephemeral" });
   });
 
   it("tells the referee what it got wrong when the applier refused the last one", async () => {

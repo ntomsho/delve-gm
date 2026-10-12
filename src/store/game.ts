@@ -27,8 +27,9 @@
 
 import { createStore, type StateCreator, type StoreApi } from "zustand/vanilla";
 import type { GeneratedDungeon } from "../runtime/generate.ts";
-import type { PendingRequest, RollSpec, Stage, Step } from "../runtime/types.ts";
+import type { PendingRequest, RolledOutcome, RollSpec, Stage, Step } from "../runtime/types.ts";
 import type { Commit, World, WorldEvent } from "../runtime/diffs/types.ts";
+import type { Effect, FoeRoll } from "../runtime/effects.ts";
 import { applyCommit } from "../runtime/diffs/apply.ts";
 import { CountingRng } from "../runtime/rng.ts";
 import {
@@ -92,10 +93,23 @@ export interface LogEntry {
    * Dungeon Pass. Exactly one, always first, and the only entry in the whole
    * scrollback that no turn produced.
    */
-  kind: "opening" | "arrival" | "referee" | "player" | "roll";
+  kind: "opening" | "arrival" | "referee" | "player" | "roll" | "effects" | "foe";
   text: string;
   /** arrivals only: which room, so the heading can name it */
   roomId?: string;
+  /**
+   * The player's rolls only: the dice themselves, so the screen can draw them
+   * rather than parse `text`. Absent on rolls logged before it existed, which
+   * fall back to the line of text.
+   */
+  outcome?: RolledOutcome;
+  /**
+   * `effects` only: what the turn did to the character — hit points, items
+   * damaged, destroyed, lost or gained. `text` carries the same as one line.
+   */
+  effects?: Effect[];
+  /** `foe` only: the creature rolls that hurt them this turn — see `foeRolls` */
+  foe?: FoeRoll[];
   /** the turn it belongs to, for the Phase 7 log viewer */
   turn: number;
 }
@@ -107,6 +121,9 @@ export interface CallLogEntry {
   model: string;
   inputTokens: number;
   outputTokens: number;
+  /** input billed as a cache write (1.25×) and a cache read (0.1×) — see `Usage` */
+  cacheWriteTokens: number;
+  cacheReadTokens: number;
   ms: number;
   error?: string;
 }

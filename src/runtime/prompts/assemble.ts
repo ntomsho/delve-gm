@@ -6,19 +6,32 @@
  *
  * The layout, and the reason for each part:
  *
- *   system, block 1   SKILL.md — the conventions, the commit, the dice
- *   system, block 2   dungeonContext — theme, history, the goal      ← cached
- *   system, block 3   the current step's files, and only those
+ *   system, block 1   SKILL.md — the conventions, the commit, the dice  ← cached, everyone
+ *   system, block 2   the current step's files, and only those          ← cached, everyone
+ *   system, block 3   dungeonContext — theme, history, the goal         ← cached, this run
+ *   system, block 4   what play has established, once there is any
  *   user              the character sheet, the room, and every creature elsewhere
  *   user/assistant    the exchange for the action in progress, capped
- *   user              what has just happened, and what to do about it
+ *   user              what has just happened, and what to do about it   ← cached at step 5
  *
- * THE CACHE BREAKPOINT IS ON BLOCK 2, AND THE ORDER IS WHY. Caching is a prefix
- * match: everything stable has to come before anything that moves. The playbook
- * never changes and the dungeon's fiction never changes, so they go first and
- * the breakpoint goes after them; the step files change from call to call, so
- * they go last. Reverse those two and the cache would be dead on every turn
- * where the heuristic moved — which is most of them.
+ * ORDERED BY HOW MANY CALLS SHARE IT. Caching is a prefix match, and the cache
+ * belongs to the API key, not the run: any request that opens with the same
+ * bytes reads them back at a tenth of the price. So what is identical for EVERY
+ * player goes first — the playbook, then the step files, which are fixed per
+ * step and the same in every dungeon — and the first per-run thing, the
+ * dungeon's fiction, goes after both. Two strangers playing different dungeons
+ * within the cache's five minutes share the ~20K tokens of rules between them.
+ * The run's own fiction grows, so it goes last of all.
+ *
+ * (The tool definitions come before all of this — the API's order, not ours —
+ * which is why `referee.ts` sends one tool list on every call.)
+ *
+ * THE STEP FILES USED TO SIT BEHIND THE ONE BREAKPOINT, AND THEY ARE THE BULK
+ * OF IT. `1-target` alone is ~34K characters. In R1 it was sent at full price on
+ * all 53 of its calls — about half the input the whole run paid for — because
+ * the only breakpoint was ahead of it, and the growing fiction block sat
+ * between the two so no second breakpoint could have held. A cache read is a
+ * tenth of the price.
  *
  * (Whether it caches at all is the model's business: the minimum cacheable
  * prefix is model-dependent and a prefix under it silently does not cache,
@@ -81,24 +94,39 @@ export function assemble(req: PromptInput): TurnPrompt {
   const { dungeon, run } = req;
 
   const system: SystemBlock[] = [
-    { type: "text", text: SKILL },
-    // Stable for the whole run, and the last thing that is — so the breakpoint
-    // goes here.
+    // The same for every call anyone makes. A breakpoint of its own, so a step
+    // nobody has reached in five minutes still reads the playbook from cache.
+    { type: "text", text: SKILL, cache_control: { type: "ephemeral" } },
+    // The same for every call AT THIS STEP, in any dungeon.
+    { type: "text", text: stepPrompt(req.step), cache_control: { type: "ephemeral" } },
+    // The first thing that belongs to this run alone.
     {
       type: "text",
       text: `# This dungeon\n\n${dungeon.dungeonContext}`,
       cache_control: { type: "ephemeral" },
     },
-    // AFTER the breakpoint, and that is the whole reason it is its own block.
-    // What play has established about the place belongs with the dungeon's
-    // fiction and reads as a continuation of it — but it grows during the run,
-    // and anything that moves has to sit behind everything that does not or the
-    // cached prefix dies with it. So: same subject, later block.
+    // LAST, because it is the one system block that grows during the run. What
+    // play has established belongs with the dungeon's fiction, but anything
+    // that moves has to sit behind everything that does not or the cached
+    // prefix dies with it.
     ...fiction(run),
-    { type: "text", text: stepPrompt(req.step) },
   ];
 
-  return { system, messages: [brief(req), ...exchange(run), instruction(req)] };
+  const close = instruction(req);
+  return {
+    system,
+    messages: [
+      brief(req),
+      ...exchange(run),
+      // THE FOURTH AND LAST BREAKPOINT, AND ONLY AT STEP 5. Everything above is
+      // resent unchanged on every round of one turn, and a resolution nearly
+      // always takes two — the dice, then the commit (all three in R3 did).
+      // Caching it costs a quarter extra on the first round and saves nine
+      // tenths on the next. Step 1 usually commits in one round, where the same
+      // breakpoint would be a quarter extra for nothing.
+      req.step === "5-resolution" ? cached(close) : close,
+    ],
+  };
 }
 
 /**
@@ -224,12 +252,29 @@ function spoken(e: TranscriptEntry): string {
 // WHAT TO DO NOW
 // ---------------------------------------------------------------------------
 
+/*
+ * THIS SAID `<post>` TAGS FOR TWO MONTHS AFTER THE TAGS WERE GONE.
+ *
+ * The post moved into `commit_state` (§8a A9) and SKILL.md and the tool's own
+ * description were rewritten for it; this line, the last thing the referee
+ * reads on every call, was not. So the final instruction was to finish with
+ * the prose in the open and THEN commit — which is a turn that can end on the
+ * prose. That is the shape of the "you ended your turn without calling
+ * `commit_state`" round, which was 17 of R1's 92 calls.
+ */
 const CLOSE = [
-  `Work through the heuristic in the open — none of it is shown to the player.`,
-  `Put the words they read inside \`<post>\` tags, once, at the end.`,
-  `Then end your turn with a single \`commit_state\` call.`,
+  `Work through the heuristic in short notes, a line per step — none of it is shown to the player.`,
+  `The words they read go in the \`post\` field of \`commit_state\`, and that call is how your turn ends: make it every time.`,
   `Every number you use must have come from the \`roll\` tool or from the player's own roll above.`,
 ].join(" ");
+
+/** A message carrying a cache breakpoint, which only a content block can hold. */
+function cached(m: Message): Message {
+  return {
+    role: m.role,
+    content: [{ type: "text", text: m.content as string, cache_control: { type: "ephemeral" } }],
+  };
+}
 
 function instruction(req: PromptInput): Message {
   return { role: "user", content: [task(req), ``, CLOSE].join("\n") };

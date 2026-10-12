@@ -366,7 +366,7 @@ export function generateOffline(seed: number, size: Size): GeneratedDungeon {
     // block plan. Still typed nullable, because a saved run from before this
     // existed comes back without one.
     blockplan,
-    usage: { inputTokens: 0, outputTokens: 0 },
+    usage: { inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheReadTokens: 0 },
   };
 }
 

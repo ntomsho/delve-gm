@@ -80,6 +80,29 @@ describe("kinds", () => {
   });
 });
 
+/*
+ * THE STRUCTURED RESULT, for the screen. A creature's attack on the player is
+ * drawn as dice, so the result is kept as data — and the number the d20 had to
+ * meet is the one thing in `line` that must not be in it.
+ */
+describe("what the screen may be shown", () => {
+  it("carries an attack's d20 and damage as data, and not its DC", () => {
+    const expected = attackRoll(rng(), { bonus: 4, targetDefense: 10, damage: "1d6" });
+    const [got] = rollBatch(rng(), [{ id: "ghoul", kind: "attack", bonus: 4, targetDefense: 10, damage: "1d6" }]);
+
+    expect(got!.d20).toMatchObject({ kept: expected.kept, total: expected.total, success: expected.success });
+    expect(got!.targetDefense).toBe(10);
+    expect(got!.damage?.total).toBe(expected.damage?.total);
+    expect(got!.d20).not.toHaveProperty("dc");
+  });
+
+  it("carries a loose damage roll's dice", () => {
+    const [got] = rollBatch(rng(), [{ id: "fall", kind: "damage", expr: "2d6" }]);
+    expect(got!.damage?.rolls).toHaveLength(2);
+    expect(got!.damage?.total).toBe(got!.damage!.rolls[0]! + got!.damage!.rolls[1]!);
+  });
+});
+
 describe("crits report themselves", () => {
   it("names the quality loss rather than leaving it to be remembered", () => {
     // Walk seeds until one lands a natural 20 on an attack.

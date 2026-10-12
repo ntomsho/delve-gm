@@ -127,6 +127,10 @@ export type JournalEvent =
     }
   | { kind: "player"; text: string }
   | { kind: "narration"; text: string; arrival: boolean; roomId?: string }
+  /** what the turn did to the character, as one line — see `effects.ts` */
+  | { kind: "effects"; text: string }
+  /** the creature rolls that hurt them, shown to the player — see `foeRolls` */
+  | { kind: "foe"; text: string }
   /** the player's own roll, thrown by the interface */
   | { kind: "roll"; source: "player"; outcome: RolledOutcome; draws: number }
   /** the referee's batch, thrown by the dice tool */

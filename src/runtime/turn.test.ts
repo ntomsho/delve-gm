@@ -15,7 +15,7 @@ import { createTurnMachine as machineFor, type Referee, type RefereeReply, type 
 import { generateOffline, testCharacter } from "./__fixtures__/offline.ts";
 import { respond, stubReferee } from "./__fixtures__/stub-referee.ts";
 import { PLAYER_ID, type Commit, type Diff } from "./diffs/types.ts";
-import { farSide, isSurfaceExit, touches } from "../engine/index.ts";
+import { farSide, isSurfaceExit, pcArmorDefense, touches } from "../engine/index.ts";
 import { createGameStore } from "../store/game.ts";
 import { needsComposition, shownRoom, theRoom } from "../store/selectors.ts";
 import { acceptsInput } from "./types.ts";
@@ -271,6 +271,147 @@ describe("stage transitions", () => {
     expect(s.calls[2].roll?.spec.dc).toBe(16);
     expect(state().turnRecords[0].roll).toMatchObject({ kind: "save" });
     expect(state().log.some((l) => l.kind === "roll")).toBe(true);
+  });
+
+  /*
+   * WHAT IT COST THEM, under the prose. A wound in the middle of a sentence is
+   * read past; a line in the margin is not.
+   */
+  it("writes what the turn did to the character after the narration", async () => {
+    const s = script(
+      say("Here.", describeRoom()),
+      say("The ledge gives and you land hard.", open([{ entityId: PLAYER_ID, path: "hp.current", value: 11 }]))
+    );
+    const m = createTurnMachine(s.referee);
+    await m.enterRoom();
+    await m.submit("climb the ledge");
+
+    const log = state().log;
+    expect(log.at(-2)).toMatchObject({ kind: "referee" });
+    expect(log.at(-1)).toMatchObject({
+      kind: "effects",
+      effects: [{ kind: "hp", from: 15, to: 11 }],
+    });
+  });
+
+  it("shows the creature's roll that hurt them, above the prose that tells it", async () => {
+    const armor = pcArmorDefense(testCharacter());
+    const s = script(say("Here.", describeRoom()), {
+      ...say("The ghoul's claws find you.", open([{ entityId: PLAYER_ID, path: "hp.current", value: 10 }])),
+      rolls: [
+        {
+          id: "ghoul-attack", kind: "attack", line: "", failed: false, targetDefense: armor,
+          d20: { rolled: [17], kept: 17, bonus: 2, total: 19, success: true, nat20: false, nat1: false },
+          damage: { expr: "1d6", rolls: [5], total: 5 },
+        },
+      ],
+    });
+    const m = createTurnMachine(s.referee);
+    await m.enterRoom();
+    await m.submit("stand my ground");
+
+    const kinds = state().log.slice(-3).map((l) => l.kind);
+    expect(kinds).toEqual(["foe", "referee", "effects"]);
+    expect(state().log.at(-3)!.foe).toEqual([
+      expect.objectContaining({ label: "Ghoul attack", damage: { expr: "1d6", rolls: [5], total: 5 } }),
+    ]);
+  });
+
+  // The death screen said 'The last thing you tried was "(continued)"': a turn
+  // closed by a roll has no input of its own, so it recorded none.
+  it("records what they typed as the action of a turn a roll closed", async () => {
+    const s = script(
+      say("Here.", describeRoom()),
+      say("Then heave.", {
+        nextStage: "roll_offered",
+        timeSpent: "instant",
+        nextStep: "4-confirm-roll",
+        rollRequest: { kind: "save", ability: "str", bonus: 2, edge: "none", description: "Force the grate.", dc: 16 },
+        diffs: [],
+      }),
+      (req) => say(`Rolled ${req.roll!.total}.`, open([{ entityId: state().currentRoomId, path: "state", value: "forced" }]))
+    );
+    const m = createTurnMachine(s.referee);
+    await m.enterRoom();
+    await m.submit("force the grate");
+    await m.roll();
+
+    expect(state().turnRecords.at(-1)!.action).toBe("force the grate");
+  });
+
+  it("writes nothing extra for a turn that cost nothing", async () => {
+    const s = script(say("Here.", describeRoom()), say("Nothing stirs.", open()));
+    const m = createTurnMachine(s.referee);
+    await m.enterRoom();
+    await m.submit("listen");
+    expect(state().log.some((l) => l.kind === "effects")).toBe(false);
+  });
+
+  /*
+   * THE DICE BEFORE THE PROSE. Over the wire the throw and the resolution are
+   * two requests, so the player sees the die while the referee writes. The
+   * first half must leave everything the second needs in the run itself —
+   * the server builds a fresh machine per request.
+   */
+  describe("a roll in two halves", () => {
+    const offer = () =>
+      script(
+        say("Here.", describeRoom()),
+        say("Then heave.", {
+          nextStage: "roll_offered",
+          timeSpent: "instant",
+          nextStep: "4-confirm-roll",
+          rollRequest: {
+            kind: "save", ability: "str", bonus: 2, edge: "none",
+            description: "Force the grate.", dc: 16,
+          },
+          diffs: [],
+        }),
+        (req) => say(`Rolled ${req.roll!.total}.`, open())
+      );
+
+    it("throws the dice onto the log without asking the referee anything", async () => {
+      const s = offer();
+      const m = createTurnMachine(s.referee);
+      await m.enterRoom();
+      await m.submit("force the grate");
+
+      m.throwDice();
+      expect(s.calls).toHaveLength(2);
+      expect(state().stage).toBe("resolving");
+      const logged = state().log.at(-1)!;
+      expect(logged.kind).toBe("roll");
+      // The die itself, for the screen to draw — the same one in `pending`.
+      expect(logged.outcome?.total).toBe(state().pending?.roll?.total);
+    });
+
+    it("resolves from what the run kept, in a machine that never saw the throw", async () => {
+      const s = offer();
+      const first = createTurnMachine(s.referee);
+      await first.enterRoom();
+      await first.submit("force the grate");
+      first.throwDice();
+      const thrown = state().pending!.roll!.total;
+
+      // A fresh machine, as the server builds one per request.
+      await createTurnMachine(s.referee).resolve();
+      expect(s.calls[2].step).toBe("5-resolution");
+      expect(s.calls[2].roll!.total).toBe(thrown);
+      expect(state().stage).toBe("awaiting_action");
+    });
+
+    it("picks up a run left between the two as a retry, with the same dice", async () => {
+      const s = offer();
+      const m = createTurnMachine(s.referee);
+      await m.enterRoom();
+      await m.submit("force the grate");
+      m.throwDice();
+      const thrown = state().pending!.roll!.total;
+
+      await createTurnMachine(s.referee).retry();
+      expect(s.calls[2].roll!.total).toBe(thrown);
+      expect(state().stage).toBe("awaiting_action");
+    });
   });
 
   // 8a A1, the second half. The roll used to reach the referee through exactly

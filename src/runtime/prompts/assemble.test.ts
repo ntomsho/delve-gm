@@ -16,6 +16,7 @@
 
 import { describe, expect, it } from "vitest";
 import { assemble, CARRIED_TURNS, MAX_EXCHANGE } from "./assemble.ts";
+import { stepPrompt } from "./loader.ts";
 import { generateOffline, testCharacter } from "../__fixtures__/offline.ts";
 import { exitLabel, needsComposition, roomView } from "../../store/selectors.ts";
 import { createGameStore, type RunState } from "../../store/game.ts";
@@ -23,6 +24,7 @@ import { createGameStore, type RunState } from "../../store/game.ts";
 const useGame = createGameStore();
 
 import type { RolledOutcome } from "../turn.ts";
+import type { Step } from "../types.ts";
 
 const dungeon = generateOffline(1005, 1);
 
@@ -41,11 +43,21 @@ function fresh(): RunState {
  */
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g;
 
+/**
+ * A message's words, whichever shape it went out in. The step-5 closing message
+ * goes as a content block, because only a block can carry a cache breakpoint.
+ */
+function textOf(m: { content: unknown }): string {
+  return Array.isArray(m.content)
+    ? m.content.map((b: { text?: string }) => b.text ?? "").join("")
+    : String(m.content);
+}
+
 function scrub(messages: { role: string; content: unknown }[]) {
   const seen = new Map<string, string>();
   return messages.map((m) => ({
     role: m.role,
-    content: String(m.content).replace(UUID, (id) => {
+    content: textOf(m).replace(UUID, (id) => {
       if (!seen.has(id)) seen.set(id, `«id-${seen.size + 1}»`);
       return seen.get(id)!;
     }),
@@ -76,24 +88,39 @@ const rolled: RolledOutcome = {
 };
 
 describe("the system prompt", () => {
-  it("is stable, then cached, then the part that moves", () => {
+  it("is ordered by how many calls share it, each part cached", () => {
     const { system } = assemble({ step: "1-target", dungeon, run: fresh() });
 
     expect(system).toHaveLength(3);
-    // Caching is a prefix match, so the ordering is the whole trick: the
-    // playbook and the fiction never change, and the breakpoint goes after
-    // them. Put the step files ahead of it and the cache dies every time the
-    // heuristic moves.
+    // The cache belongs to the API key, not the run, so the order is the whole
+    // trick: what is identical for every player first, the first per-run thing
+    // after it. The playbook, then the step files (same in every dungeon), then
+    // this dungeon's fiction.
     expect(system[0].text).toContain("# Dungeon Loop");
-    expect(system[1].text).toContain("# This dungeon");
-    expect(system[1].cache_control).toEqual({ type: "ephemeral" });
-    expect(system[2].cache_control).toBeUndefined();
+    expect(system[1].text).toBe(stepPrompt("1-target"));
+    expect(system[2].text).toContain("# This dungeon");
+    for (const b of system) expect(b.cache_control).toEqual({ type: "ephemeral" });
+  });
+
+  it("opens identically for every dungeon at the same step", () => {
+    const other = generateOffline(2002, 1);
+    const a = assemble({ step: "1-target", dungeon, run: fresh() }).system;
+    const b = assemble({ step: "1-target", dungeon: other, run: fresh() }).system;
+    expect(b.slice(0, 2)).toEqual(a.slice(0, 2));
+  });
+
+  it("shares only the playbook across steps", () => {
+    const run = fresh();
+    const target = assemble({ step: "1-target", dungeon, run }).system;
+    const resolve = assemble({ step: "5-resolution", dungeon, run }).system;
+    expect(resolve[0]).toEqual(target[0]);
+    expect(resolve[1].text).not.toBe(target[1].text);
   });
 
   // What play establishes about the place reads as a continuation of the
-  // dungeon's fiction, but it grows during the run — so it goes BEHIND the
-  // breakpoint, where a change costs one call's cache rather than every call's.
-  it("carries what play has established, after the cached block", () => {
+  // dungeon's fiction, but it grows during the run — so it goes BEHIND every
+  // breakpoint, where a change costs nothing that is cached.
+  it("carries what play has established, after every cached block", () => {
     const run = fresh();
     expect(assemble({ step: "1-target", dungeon, run }).system).toHaveLength(3);
 
@@ -103,14 +130,33 @@ describe("the system prompt", () => {
       run: { ...run, fiction: ["The gaol was built over a mine."] },
     });
     expect(system).toHaveLength(4);
-    expect(system[1].cache_control).toEqual({ type: "ephemeral" });
-    expect(system[2].text).toContain("The gaol was built over a mine.");
-    expect(system[2].cache_control).toBeUndefined();
+    expect(system[3].text).toContain("The gaol was built over a mine.");
+    expect(system[3].cache_control).toBeUndefined();
+  });
+
+  // A resolution takes two rounds — the dice, then the commit — and resends all
+  // of this on the second. Step 1 usually takes one, where it would be a cache
+  // write for nothing.
+  it("caches the whole opening conversation at step 5, and only there", () => {
+    const last = (step: Step) =>
+      assemble({ step, dungeon, run: fresh(), roll: rolled }).messages.at(-1)!.content;
+    const resolution = last("5-resolution") as { cache_control?: unknown }[];
+    expect(resolution.at(-1)!.cache_control).toEqual({ type: "ephemeral" });
+    expect(typeof last("1-target")).toBe("string");
+  });
+
+  it("ends every call on the commit, with the words inside it", () => {
+    // The `<post>` tags outlived the tags by two months here, telling the
+    // referee to finish in the open and THEN commit. See CLOSE.
+    const { messages } = assemble({ step: "1-target", dungeon, run: fresh(), input: "look" });
+    const last = messages.at(-1)!.content as string;
+    expect(last).not.toContain("<post>");
+    expect(last).toContain("`post` field of `commit_state`");
   });
 
   it("loads the chain reachable from the step, and nothing else", () => {
     const at = (step: Parameters<typeof assemble>[0]["step"]) =>
-      assemble({ step, dungeon, run: fresh() }).system.at(-1)!.text;
+      assemble({ step, dungeon, run: fresh() }).system[1].text;
 
     // A fresh action runs 1 → 2 → 3 in a single call, so it carries all three
     // and neither of the two that only a later call reaches.
@@ -190,7 +236,7 @@ describe("the messages", () => {
  * only tells you something moved.
  */
 describe("a retry is the original ask, plus the reasons", () => {
-  const last = (p: ReturnType<typeof assemble>) => p.messages.at(-1)!.content as string;
+  const last = (p: ReturnType<typeof assemble>) => textOf(p.messages.at(-1)!);
 
   const shapes = [
     { name: "a resolution holding a roll", req: { step: "5-resolution" as const, roll: rolled } },

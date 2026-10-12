@@ -89,29 +89,29 @@ describe("walking away", () => {
     expect(text).not.toContain("hit points reached zero");
   });
 
-  it("closes the input like any other ending", () => {
-    const box = render("abandoned", 3).querySelector("textarea");
-    expect(box?.disabled).toBe(true);
+  it("takes the input away like any other ending", () => {
+    // Not disabled: gone. An ended run has one thing left to do, End Run.
+    expect(render("abandoned", 3).querySelector("textarea")).toBeNull();
   });
 });
 
 /*
- * THE SUMMARY MOVED OUT, to `EndOfRun.tsx` and the whole page. What is left here
- * is the statement that the run ended and the way back to it — the overlay is
- * dismissable, and a player who dismissed it to look at the map has to be able
- * to get the loot and the score back.
+ * THE SUMMARY MOVED OUT, to `EndOfRun.tsx` and the whole page, and it no longer
+ * opens by itself — the final post stays on the page to be read. What is left
+ * here is the statement that the run ended and the End Run button that raises
+ * the reckoning, in place of the input.
  */
 
 describe("the way back to the reckoning", () => {
   it("is offered at every ending", () => {
     for (const stage of ["dead", "escaped", "goal_met", "abandoned"] as Stage[]) {
-      expect(area(stage, 4)).toContain("See the reckoning");
+      expect(area(stage, 4)).toContain("End run");
     }
   });
 
   it("is absent while the run is still being played", () => {
     for (const stage of ["awaiting_action", "roll_offered", "thinking", "error"] as Stage[]) {
-      expect(area(stage, 4)).not.toContain("See the reckoning");
+      expect(area(stage, 4)).not.toContain("End run");
     }
   });
 
@@ -119,7 +119,7 @@ describe("the way back to the reckoning", () => {
     let asked = 0;
     const container = render("goal_met", 4, { onShowSummary: () => void asked++ });
     const button = [...container.querySelectorAll("button")].find(
-      (b) => b.textContent === "See the reckoning"
+      (b) => b.textContent === "End run"
     )!;
     await press(button);
     expect(asked).toBe(1);

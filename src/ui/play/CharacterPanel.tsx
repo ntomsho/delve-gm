@@ -8,7 +8,49 @@
  * counts up to capacity rather than filling a bar.
  */
 
+import { useEffect, useRef, useState } from "react";
 import type { CharacterView } from "../../store/selectors.ts";
+
+/** How long a change stays marked on the sheet. */
+const MARK_MS = 2600;
+
+/**
+ * THE SHEET NOTICES WHEN IT CHANGES.
+ *
+ * Hit points used to change in silence: the number was different and nothing
+ * said so. Now a drop flashes and shows the amount beside the number for a
+ * couple of seconds, and an item that lost quality flashes in the list. The
+ * effects line under the narration is the record; this is the jolt.
+ *
+ * Compared against the previous render rather than against an event, so it
+ * fires however the change arrived — an in-process commit or a whole state
+ * landing from the server — and never on first mount, so opening a resumed
+ * run does not flash every wound it already had.
+ */
+function useDrops(pc: CharacterView): { hp?: { delta: number; key: number }; items: Set<string> } {
+  const prev = useRef<{ hp: number; q: Map<string, number> } | undefined>(undefined);
+  const [mark, setMark] = useState<{ hp?: { delta: number; key: number }; items: Set<string> }>({ items: new Set() });
+
+  const q = new Map(pc.inventory.flatMap((i) => (i.quality ? [[i.id, i.quality.current] as const] : [])));
+  const hp = pc.hp.current;
+
+  useEffect(() => {
+    const was = prev.current;
+    prev.current = { hp, q };
+    if (!was) return;
+
+    const delta = hp - was.hp;
+    const items = new Set([...q].filter(([id, v]) => (was.q.get(id) ?? v) > v).map(([id]) => id));
+    if (delta >= 0 && items.size === 0) return;
+
+    setMark({ ...(delta < 0 ? { hp: { delta, key: Date.now() } } : {}), items });
+    const t = setTimeout(() => setMark({ items: new Set() }), MARK_MS);
+    return () => clearTimeout(t);
+    // `q` is rebuilt every render, so its contents are the dependency, not the map.
+  }, [hp, [...q].join(",")]);
+
+  return mark;
+}
 
 const LABEL = "font-mono text-[9px] tracking-[0.16em] text-graphite uppercase";
 
@@ -23,6 +65,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 
 export function CharacterPanel({ pc }: { pc: CharacterView }) {
   const { slots } = pc;
+  const drops = useDrops(pc);
   // Overburdened is allowed — Knave leaves the consequence to the table — so it
   // is flagged rather than prevented.
   const over = slots.overburdened;
@@ -37,11 +80,23 @@ export function CharacterPanel({ pc }: { pc: CharacterView }) {
       </header>
 
       <Row label="Hit points">
-        <div className="flex items-baseline gap-2">
-          <span className="font-display text-[28px] font-bold leading-none text-ink">
+        <div
+          key={drops.hp?.key}
+          className="-mx-1 flex items-baseline gap-2 px-1"
+          style={drops.hp ? { animation: `flash ${MARK_MS}ms ease-out` } : undefined}
+        >
+          <span
+            className="font-display text-[28px] font-bold leading-none"
+            style={{ color: pc.hp.current <= Math.ceil(pc.hp.max / 3) ? "var(--color-torch-deep)" : "var(--color-ink)" }}
+          >
             {pc.hp.current}
           </span>
           <span className="font-mono text-[13px] text-graphite">/ {pc.hp.max}</span>
+          {drops.hp && (
+            <span className="font-mono text-[13px] font-bold text-torch-deep" aria-live="polite">
+              −{Math.abs(drops.hp.delta)}
+            </span>
+          )}
         </div>
       </Row>
 
@@ -127,9 +182,23 @@ export function CharacterPanel({ pc }: { pc: CharacterView }) {
           {pc.inventory.map((i) => (
             /* The description hangs off the row rather than filling the panel:
                a pack of ten things is a list, and a list of paragraphs is not. */
-            <li key={i.id} className="flex justify-between gap-3" title={i.composed ?? i.base}>
+            <li
+              key={i.id}
+              className="-mx-1 flex justify-between gap-3 px-1"
+              title={i.composed ?? i.base}
+              style={drops.items.has(i.id) ? { animation: `flash ${MARK_MS}ms ease-out` } : undefined}
+            >
               <span className="truncate text-ink">
                 {i.name}
+                {/* Wear, once there is any. A whole sword says nothing; a
+                    damaged one says how damaged, because the next hit that
+                    takes it to zero destroys it. */}
+                {i.quality && i.quality.current < i.quality.original && (
+                  <span className="text-torch-deep">
+                    {" "}
+                    · {i.quality.current <= 0 ? "broken" : `worn ${i.quality.current}/${i.quality.original}`}
+                  </span>
+                )}
                 {/* How much is left, which is the only part of a carried thing
                     that changes on its own. Muted and inline: it belongs to the
                     name — "Rations (2 days)" is one thing, not two columns. */}

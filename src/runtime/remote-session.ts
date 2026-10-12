@@ -353,20 +353,27 @@ export function createRemoteSession(opts: RemoteOptions = {}): PlayableSession {
     },
 
     /**
-     * `resolving`, not `rolling`.
+     * TWO REQUESTS: THE DICE, THEN WHAT THEY MEANT.
      *
      * The dice are the server's — the run's RNG is seeded and its draw count is
      * state, so a client that rolled would be inventing a number and desyncing
-     * the stream. Which means the throw and the writing of the outcome are one
-     * request here, and of the two stages it passes through, the one that lasts
-     * is the writing. "DICE IN FLIGHT" for forty seconds would be a lie about
-     * what the game is doing; `rolling` stays the momentary stage it is.
+     * the stream. They used to come back in the same request as the referee's
+     * prose, so the player watched a spinner for ten seconds over a number the
+     * server already had. Now `/roll` throws and saves and returns at once —
+     * `rolling` is as brief as it sounds — the die lands in the log and the
+     * screen draws it, and `/resolve` is the wait for the words.
+     *
+     * Only on to `/resolve` if the first landed where it should. Anything else —
+     * a failure, which is `error` with the request kept for retry, or a resync
+     * to some other state — is the truth now, and resolving over it is not.
      */
-    roll() {
+    async roll() {
       const r = store.getState().run;
-      if (!r || r.stage !== "roll_offered" || !r.pendingRoll) return Promise.resolve();
-      predict("resolving", "5-resolution");
-      return act("roll");
+      if (!r || r.stage !== "roll_offered" || !r.pendingRoll) return;
+      predict("rolling", "4-confirm-roll");
+      await act("roll");
+      if (store.getState().run?.stage !== "resolving") return;
+      await act("resolve");
     },
 
     /**

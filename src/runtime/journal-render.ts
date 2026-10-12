@@ -51,6 +51,12 @@ export function render(r: JournalRecord): string | undefined {
     case "narration":
       return r.arrival ? `\n## Arrival\n\n${r.text}` : `\n${r.text}`;
 
+    case "effects":
+      return `\n\`effects · ${r.text}\``;
+
+    case "foe":
+      return `\n\`against you · ${r.text}\``;
+
     case "roll":
       return r.source === "player"
         ? `\n\`${playerRoll(r)}\``

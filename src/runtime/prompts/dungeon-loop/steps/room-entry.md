@@ -212,12 +212,16 @@ stops when they step in — and not as an inventory of contents with an atmosphe
 sentence stapled to the front.
 
 Long enough to furnish the place, short enough to read in one breath before deciding
-what to do. If a detail is not something the player could see, hear, or smell from
+what to do: **aim for 70–130 words**, and a crowded room may run to 160, never more.
+Every thing in the room gets its mention; it does not get its own sentence of
+atmosphere. One image for the place, not three. **Two or three short paragraphs,
+separated by blank lines** — typically the place, then what is in it and who, then
+the ways out — never one block. If a detail is not something the player could see, hear, or smell from
 where they are standing, it belongs in `state`, not in the description.
 
 ## Ending
 
-**The room's `composed` is what the player reads on arrival. You do not have to write it twice.** It goes into the commit as a diff, and the interface shows that paragraph to the player as the arrival itself — so write it as prose meant to be read aloud, not as a note about the room. If you have something to say beyond it, write that as your message and it will be shown instead.
+**The room's `composed` is what the player reads on arrival. Do not write it twice.** It goes into the commit as a diff, and the interface shows that paragraph to the player as the arrival itself — so write it as prose meant to be read aloud, not as a note about the room. **`post` is `null` on a room entry**: anything in it would be the same paragraph again, paid for twice.
 
 If writing this room settled something about the **dungeon** — what the place was
 built for, who cut it, what happened here — put that one line on the commit as a
@@ -228,6 +232,7 @@ differently, four rooms from now.
 Commit the `state` and `composed` diffs, then hand the turn back:
 
 ```
+post:      null
 nextStage: "awaiting_action"
 nextStep:  "1-target"
 timeSpent: "instant"

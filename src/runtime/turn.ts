@@ -31,7 +31,7 @@
  * real applier.
  */
 
-import { checkRoll, critEffects, rollDamage } from "../engine/index.ts";
+import { checkRoll, critEffects, pcArmorDefense, rollDamage } from "../engine/index.ts";
 import type { GeneratedDungeon } from "./generate.ts";
 import type { Commit, WorldEvent } from "./diffs/types.ts";
 import {
@@ -46,6 +46,8 @@ import {
 import type { GameStore, RunState } from "../store/game.ts";
 import { needsComposition, theRoom } from "../store/selectors.ts";
 import { NO_JOURNAL, type Journal } from "./journal.ts";
+import { characterEffects, describeEffects, describeFoeRolls, foeRolls } from "./effects.ts";
+import type { DiceOutcome } from "./dice.ts";
 
 // ---------------------------------------------------------------------------
 // THE SEAM
@@ -79,6 +81,12 @@ export interface RefereeReply {
   /** prose for the player. May be empty when there is nothing to say. */
   narration: string;
   commit: Commit;
+  /**
+   * Every die the referee threw for itself this turn — creature attacks,
+   * damage, morale. The machine shows the player the ones that hurt them; see
+   * `foeRolls`.
+   */
+  rolls?: DiceOutcome[];
 }
 
 export type Referee = (req: RefereeRequest) => Promise<RefereeReply>;
@@ -88,8 +96,21 @@ export interface TurnMachine {
   enterRoom(): Promise<void>;
   /** the player has typed something */
   submit(text: string): Promise<void>;
-  /** the player has taken the roll on the table */
+  /** the player has taken the roll on the table: `throwDice`, then `resolve` */
   roll(): Promise<void>;
+  /**
+   * The first half of `roll`: the dice, from the run's RNG, onto the log — and
+   * nothing else. Leaves the run `resolving` with the outcome in `pending`.
+   *
+   * SPLIT SO THE PLAYER SEES THE DICE BEFORE THE PROSE. Over the wire `roll`
+   * was one request that held the result until the referee had written about
+   * it — ten seconds of a spinner over a number the server already knew. The
+   * server now answers this half on its own, the screen shows the die, and
+   * `resolve` is a second request.
+   */
+  throwDice(): void;
+  /** The second half of `roll`: the referee writes what the dice said. */
+  resolve(): Promise<void>;
   /** after an error: ask again, with the same input */
   retry(): Promise<void>;
 }
@@ -139,6 +160,11 @@ function describeRoll(o: RolledOutcome): string {
     `${dice} ${sign}${o.spec.bonus} = ${o.total} — ` +
     `${o.success ? "success" : "failure"}${crit}${damage}`
   );
+}
+
+/** The last thing the player typed in the exchange still open, if any. */
+function lastTyped(run: RunState): string | undefined {
+  return run.transcript.findLast((e) => e.role === "player")?.text;
 }
 
 // ---------------------------------------------------------------------------
@@ -268,6 +294,21 @@ export function createTurnMachine(referee: Referee, deps: TurnDeps): TurnMachine
     // room in front of it, and it is about to run.
     const moved = !entering && after.currentRoomId !== before.currentRoomId;
 
+    // THE DICE THAT HURT THEM, ahead of the prose that tells it. Rolled by the
+    // referee while it wrote, so they land with the narration rather than
+    // before it — but above it, so the hit is read before the wound is. Only
+    // on a turn that cost hit points: see `foeRolls` for why.
+    const foe = foeRolls(
+      reply.rolls ?? [],
+      pcArmorDefense(before.pc),
+      after.pc.hp.current < before.pc.hp.current
+    );
+    if (foe.length > 0) {
+      const text = describeFoeRolls(foe);
+      journal.log({ kind: "foe", text });
+      state().pushLog({ kind: "foe", text, foe });
+    }
+
     if (!moved && reply.narration.trim() !== "") {
       journal.log({
         kind: "narration",
@@ -281,6 +322,17 @@ export function createTurnMachine(referee: Referee, deps: TurnDeps): TurnMachine
         ...(entering ? { roomId: before.currentRoomId } : {}),
       });
       state().pushTranscript({ role: "referee", text: reply.narration });
+    }
+
+    // WHAT IT COST THEM, as a record under the prose. Off the sheet before and
+    // after rather than the diffs, so damage the dice did and items the applier
+    // destroyed on its own are in it too — see `effects.ts`. Written on a move
+    // as well: a fall on the way through is still a fall.
+    const effects = characterEffects(before.pc, after.pc, state().lastEvents);
+    if (effects.length > 0) {
+      const text = describeEffects(effects);
+      journal.log({ kind: "effects", text });
+      state().pushLog({ kind: "effects", text, effects });
     }
 
     // THE PANEL CATCHES UP WITH THE PAGE.
@@ -326,15 +378,21 @@ export function createTurnMachine(referee: Referee, deps: TurnDeps): TurnMachine
       (reply.commit.diffs.length > 0 || isTerminal(after.stage));
 
     if (closed) {
+      // WHAT THEY WERE DOING, in their own words. A turn closed by a roll has
+      // no input of its own — the words were typed a call or two earlier and
+      // are still in the open exchange — so it used to be recorded as
+      // "(continued)", which is what a death on a roll then reported as the
+      // last thing they tried. The latest line they typed is the action.
+      const action = req.input ?? lastTyped(req.run) ?? "(continued)";
       journal.log({
         kind: "turn",
         turn: after.turnCount + 1,
-        action: req.input ?? "(continued)",
+        action,
         outcome,
         diffs: reply.commit.diffs.length,
       });
       state().recordTurn({
-        action: req.input ?? "(continued)",
+        action,
         ...(req.roll
           ? { roll: { kind: req.roll.spec.kind, total: req.roll.total, success: req.roll.success } }
           : {}),
@@ -439,7 +497,7 @@ export function createTurnMachine(referee: Referee, deps: TurnDeps): TurnMachine
     await ask({ step, dungeon, run: run()!, input: text });
   }
 
-  async function roll(): Promise<void> {
+  function throwDice(): void {
     const r = run();
     const dungeon = state().dungeon;
     if (!r || !dungeon || r.stage !== "roll_offered" || !r.pendingRoll) return;
@@ -450,7 +508,9 @@ export function createTurnMachine(referee: Referee, deps: TurnDeps): TurnMachine
     const outcome = resolveSpec(rng, r.pendingRoll);
     state().syncRng(rng);
     journal.log({ kind: "roll", source: "player", outcome, draws: rng.draws });
-    state().pushLog({ kind: "roll", text: describeRoll(outcome) });
+    // The outcome rides along so the screen can draw the dice rather than parse
+    // a sentence. It carries the DC inside `spec`; the screen never shows it.
+    state().pushLog({ kind: "roll", text: describeRoll(outcome), outcome });
 
     // AND INTO THE EXCHANGE, which is the belt to `renderRoll`'s braces.
     //
@@ -462,18 +522,35 @@ export function createTurnMachine(referee: Referee, deps: TurnDeps): TurnMachine
 
     setStage("resolving", "5-resolution");
     remember({ roll: outcome, step: "5-resolution", entering: false });
-    await ask({ step: "5-resolution", dungeon, run: run()!, roll: outcome });
+  }
+
+  async function resolve(): Promise<void> {
+    const r = run();
+    const dungeon = state().dungeon;
+    const rolled = r?.pending?.roll;
+    if (!r || !dungeon || r.stage !== "resolving" || !rolled) return;
+    await ask({ step: "5-resolution", dungeon, run: r, roll: rolled });
+  }
+
+  async function roll(): Promise<void> {
+    throwDice();
+    await resolve();
   }
 
   async function retry(): Promise<void> {
     const r = run();
     const dungeon = state().dungeon;
-    if (!r || !dungeon || r.stage !== "error" || !r.pending) return;
+    // `resolving` WITH A ROLL IN PENDING is the one busy stage that is ever
+    // saved: the dice landed and the request that was to resolve them never
+    // did. Retried as the resolution it was waiting on, so the dice the player
+    // already saw are the dice that count.
+    if (!r || !dungeon || !r.pending) return;
+    if (r.stage !== "error" && !(r.stage === "resolving" && r.pending.roll)) return;
 
     const { input, roll: rolled, step, entering } = r.pending;
     setStage(entering ? "room_entry" : rolled ? "resolving" : "thinking", step);
     await ask({ step, dungeon, run: run()!, input, roll: rolled }, entering);
   }
 
-  return { enterRoom, submit, roll, retry };
+  return { enterRoom, submit, roll, throwDice, resolve, retry };
 }

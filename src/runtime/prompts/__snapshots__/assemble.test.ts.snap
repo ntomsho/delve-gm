@@ -103,7 +103,7 @@ the fact.
 
 Their words are the last message above. Resume the heuristic at the step you were given and carry it as far as it goes.
 
-Work through the heuristic in the open — none of it is shown to the player. Put the words they read inside \`<post>\` tags, once, at the end. Then end your turn with a single \`commit_state\` call. Every number you use must have come from the \`roll\` tool or from the player's own roll above.",
+Work through the heuristic in short notes, a line per step — none of it is shown to the player. The words they read go in the \`post\` field of \`commit_state\`, and that call is how your turn ends: make it every time. Every number you use must have come from the \`roll\` tool or from the player's own roll above.",
     "role": "user",
   },
 ]
@@ -215,7 +215,7 @@ These are the only numbers you have for this action. Use them; do not restate th
 
 Resolve the action at step 5.
 
-Work through the heuristic in the open — none of it is shown to the player. Put the words they read inside \`<post>\` tags, once, at the end. Then end your turn with a single \`commit_state\` call. Every number you use must have come from the \`roll\` tool or from the player's own roll above.",
+Work through the heuristic in short notes, a line per step — none of it is shown to the player. The words they read go in the \`post\` field of \`commit_state\`, and that call is how your turn ends: make it every time. Every number you use must have come from the \`roll\` tool or from the player's own roll above.",
     "role": "user",
   },
 ]
@@ -337,7 +337,7 @@ These are the only numbers you have for this action. Use them; do not restate th
 
 Resolve the action at step 5.
 
-Work through the heuristic in the open — none of it is shown to the player. Put the words they read inside \`<post>\` tags, once, at the end. Then end your turn with a single \`commit_state\` call. Every number you use must have come from the \`roll\` tool or from the player's own roll above.",
+Work through the heuristic in short notes, a line per step — none of it is shown to the player. The words they read go in the \`post\` field of \`commit_state\`, and that call is how your turn ends: make it every time. Every number you use must have come from the \`roll\` tool or from the player's own roll above.",
     "role": "user",
   },
 ]
@@ -453,7 +453,7 @@ Ids must appear verbatim in the sheet or the room above, or have been created ea
 
 Their words are the last message above. Resume the heuristic at the step you were given and carry it as far as it goes.
 
-Work through the heuristic in the open — none of it is shown to the player. Put the words they read inside \`<post>\` tags, once, at the end. Then end your turn with a single \`commit_state\` call. Every number you use must have come from the \`roll\` tool or from the player's own roll above.",
+Work through the heuristic in short notes, a line per step — none of it is shown to the player. The words they read go in the \`post\` field of \`commit_state\`, and that call is how your turn ends: make it every time. Every number you use must have come from the \`roll\` tool or from the player's own roll above.",
     "role": "user",
   },
 ]
@@ -564,7 +564,7 @@ These need writing — nothing else does:
 
 Describe the arrival. Change nothing but \`state\` and \`composed\`.
 
-Work through the heuristic in the open — none of it is shown to the player. Put the words they read inside \`<post>\` tags, once, at the end. Then end your turn with a single \`commit_state\` call. Every number you use must have come from the \`roll\` tool or from the player's own roll above.",
+Work through the heuristic in short notes, a line per step — none of it is shown to the player. The words they read go in the \`post\` field of \`commit_state\`, and that call is how your turn ends: make it every time. Every number you use must have come from the \`roll\` tool or from the player's own roll above.",
     "role": "user",
   },
 ]

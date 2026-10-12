@@ -46,6 +46,22 @@ export interface DiceOutcome {
   line: string;
   /** the request could not be rolled as stated */
   failed: boolean;
+  /**
+   * THE SAME RESULT, STRUCTURED, FOR THE SCREEN. The player is shown a
+   * creature's attack on them as dice (see `FoeRolls`), and a screen that
+   * parsed `line` would be one rewording away from showing nothing. The number
+   * the d20 had to meet is deliberately not here: `line` carries it for the
+   * referee, and nothing the player can be shown does.
+   */
+  d20?: { rolled: number[]; kept: number; bonus: number; total: number; success: boolean; nat20: boolean; nat1: boolean };
+  damage?: { expr: string; rolls: number[]; total: number };
+  /** attack and stunt: the defense aimed at — how an attack on the player is told apart */
+  targetDefense?: number;
+}
+
+/** A d20 result as the screen may see it — everything but the DC. */
+function shown(o: { rolled: number[]; kept: number; bonus: number; total: number; success: boolean; nat20: boolean; nat1: boolean }) {
+  return { rolled: [...o.rolled], kept: o.kept, bonus: o.bonus, total: o.total, success: o.success, nat20: o.nat20, nat1: o.nat1 };
 }
 
 const sign = (n: number) => (n >= 0 ? `+${n}` : `${n}`);
@@ -82,6 +98,7 @@ function one(rng: RollRng, r: RollRequestParsed): DiceOutcome {
         kind: r.kind,
         line: `save — ${d20Line(o)} — ${o.success ? "SUCCESS" : "FAILURE"}${critNote(o)}`,
         failed: false,
+        d20: shown(o),
       };
     }
 
@@ -104,6 +121,9 @@ function one(rng: RollRng, r: RollRequestParsed): DiceOutcome {
         kind: r.kind,
         line: `attack — ${d20Line(o)} — ${o.success ? "HIT" : "MISS"}${critNote(o)}${damage}`,
         failed: false,
+        d20: shown(o),
+        targetDefense: r.targetDefense,
+        ...(o.damage ? { damage: { expr: o.damage.expr, rolls: [...o.damage.rolls], total: o.damage.total } } : {}),
       };
     }
 
@@ -117,6 +137,8 @@ function one(rng: RollRng, r: RollRequestParsed): DiceOutcome {
         // prompt does not have to be trusted to remember it.
         line: `stunt — ${d20Line(o)} — ${o.success ? "SUCCESS, and it deals no damage" : "FAILURE"}${critNote(o)}`,
         failed: false,
+        d20: shown(o),
+        targetDefense: r.targetDefense,
       };
     }
 
@@ -156,6 +178,7 @@ function one(rng: RollRng, r: RollRequestParsed): DiceOutcome {
           kind: r.kind,
           line: `damage — ${o.expr} → [${o.rolls.join(", ")}] = ${o.total}`,
           failed: false,
+          damage: { expr: o.expr, rolls: [...o.rolls], total: o.total },
         };
       } catch (e) {
         return failed(e instanceof Error ? e.message : String(e));

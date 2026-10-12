@@ -86,9 +86,40 @@ export interface CallOptions {
   signal?: AbortSignal;
 }
 
+/**
+ * WHAT A CALL WAS BILLED FOR, all four ways.
+ *
+ * `inputTokens` is only the input that was neither written to nor read from the
+ * prompt cache — the API reports those two apart, and before they were copied
+ * here every cached call looked cheaper than it was and the cache's own effect
+ * was invisible. Priced at 1×, 1.25× (write) and 0.1× (read) input.
+ */
 export interface Usage {
   inputTokens: number;
   outputTokens: number;
+  cacheWriteTokens: number;
+  cacheReadTokens: number;
+}
+
+export const NO_USAGE: Usage = { inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheReadTokens: 0 };
+
+export function addUsage(a: Usage, b: Usage): Usage {
+  return {
+    inputTokens: a.inputTokens + b.inputTokens,
+    outputTokens: a.outputTokens + b.outputTokens,
+    cacheWriteTokens: a.cacheWriteTokens + b.cacheWriteTokens,
+    cacheReadTokens: a.cacheReadTokens + b.cacheReadTokens,
+  };
+}
+
+/** The wire's usage, read into ours. The cache fields are absent when nothing was cached. */
+function usageOf(u: ApiResponse["usage"]): Usage {
+  return {
+    inputTokens: u.input_tokens,
+    outputTokens: u.output_tokens,
+    cacheWriteTokens: u.cache_creation_input_tokens ?? 0,
+    cacheReadTokens: u.cache_read_input_tokens ?? 0,
+  };
 }
 
 export interface CallResult {
@@ -129,7 +160,12 @@ interface ContentBlock {
 interface ApiResponse {
   content: ContentBlock[];
   stop_reason: string | null;
-  usage: { input_tokens: number; output_tokens: number };
+  usage: {
+    input_tokens: number;
+    output_tokens: number;
+    cache_creation_input_tokens?: number | null;
+    cache_read_input_tokens?: number | null;
+  };
 }
 
 const RETRIES = 3;
@@ -193,7 +229,7 @@ export async function callModel(opts: CallOptions): Promise<CallResult> {
   return {
     text: json.content.filter((b) => b.type === "text").map((b) => b.text ?? "").join(""),
     stopReason: json.stop_reason,
-    usage: { inputTokens: json.usage.input_tokens, outputTokens: json.usage.output_tokens },
+    usage: usageOf(json.usage),
   };
 }
 
@@ -282,7 +318,7 @@ export async function callWithTools(opts: ToolCallOptions): Promise<ToolTurn> {
       .map((b) => ({ id: b.id ?? "", name: b.name ?? "", input: b.input })),
     content: json.content,
     stopReason: json.stop_reason,
-    usage: { inputTokens: json.usage.input_tokens, outputTokens: json.usage.output_tokens },
+    usage: usageOf(json.usage),
   };
 }
 
@@ -377,7 +413,7 @@ export async function callForJson<T>(opts: JsonCallOptions<T>): Promise<JsonResu
   const messages = [...opts.messages];
   const schema = toolSchema(opts.schema);
   const strict = canBeStrict(schema);
-  let usage: Usage = { inputTokens: 0, outputTokens: 0 };
+  let usage: Usage = NO_USAGE;
 
   for (let attempt = 1; ; attempt++) {
     const json = await post(
@@ -405,10 +441,7 @@ export async function callForJson<T>(opts: JsonCallOptions<T>): Promise<JsonResu
       opts.signal
     );
 
-    usage = {
-      inputTokens: usage.inputTokens + json.usage.input_tokens,
-      outputTokens: usage.outputTokens + json.usage.output_tokens,
-    };
+    usage = addUsage(usage, usageOf(json.usage));
 
     const call = json.content.find((b) => b.type === "tool_use" && b.name === opts.toolName);
 

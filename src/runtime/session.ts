@@ -151,6 +151,13 @@ export interface GameSession extends PlayableSession {
    * polymorphically is how the wrong one gets passed.
    */
   restore(saved: SavedGame, runId?: string): void;
+  /**
+   * `roll`'s two halves, for the server, which answers them as two requests so
+   * the player sees the dice before the referee has written about them. See
+   * `TurnMachine.throwDice`. In process, `roll` is still the one call.
+   */
+  throwDice(): void;
+  resolve(): Promise<void>;
 }
 
 /**
@@ -331,6 +338,13 @@ export function createGameSession(opts: SessionOptions = {}): GameSession {
     },
     async roll() {
       await turn()?.roll();
+      await settle();
+    },
+    throwDice() {
+      turn()?.throwDice();
+    },
+    async resolve() {
+      await turn()?.resolve();
       await settle();
     },
     async retry() {

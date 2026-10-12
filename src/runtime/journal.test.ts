@@ -197,7 +197,7 @@ describe("the transcript", () => {
     // Prompts and playbooks are the record's business.
     expect(at({ kind: "prompt", step: "1-target", messages: [] })).toBeUndefined();
     expect(at({ kind: "system", step: "1-target", blocks: [] })).toBeUndefined();
-    expect(at({ kind: "generation", pass: "dungeon-pass", prompt: "x", response: {}, usage: { inputTokens: 1, outputTokens: 1 } })).toBeUndefined();
+    expect(at({ kind: "generation", pass: "dungeon-pass", prompt: "x", response: {}, usage: { inputTokens: 1, outputTokens: 1, cacheWriteTokens: 0, cacheReadTokens: 0 } })).toBeUndefined();
   });
 
   it("keeps the referee's working-out, folded away", () => {
@@ -207,7 +207,7 @@ describe("the transcript", () => {
       round: 1,
       text: "Step 1: the desk.\n<post>The desk is oak.</post>",
       toolUses: [],
-      usage: { inputTokens: 1, outputTokens: 1 },
+      usage: { inputTokens: 1, outputTokens: 1, cacheWriteTokens: 0, cacheReadTokens: 0 },
       ms: 10,
       seq: 1,
       at: "2026-08-06T00:00:00.000Z",
