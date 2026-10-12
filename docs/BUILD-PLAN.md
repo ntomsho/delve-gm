@@ -626,10 +626,82 @@ committed to until the spike below has been looked at.**
   on the page rather than in a box.
 - **No image ever blocks a turn.** Prose first, picture when it lands. Nothing in game
   state depends on one existing, and a failed call is a missing picture, never an error.
-- **Storage is not the jsonb `doc`.** Supabase Storage (`@supabase/supabase-js` is
-  already a dependency) or Vercel Blob, with a URL on the record.
+- **Paid out of the same budget.** Every image call writes the `spend` ledger and is
+  gated by `DAILY_BUDGET_USD` like any other start; see
+  [Paying for strangers](#paying-for-strangers),
+  which comes first. Over the budget, a room simply has no plate. The curated shelf's
+  plates are drawn ahead of time by the author, so a guest never causes an image call.
 - **Ask for no lettering.** These models write nonsense text into anything that looks
   like it should carry some.
+
+**Storage: a table keyed by what the image shows.** An image link cannot go in the
+dungeon, because `base` is never written at runtime. It cannot go in the run's `state`
+either, because then only that run could see it and every copy would pay again.
+
+```sql
+create table public.plates (
+  key        text primary key,   -- sha256 of (prompt, model, PLATE_STYLE_VERSION)
+  status     text not null check (status in ('pending', 'ready', 'failed')),
+  path       text,               -- object path in the storage bucket
+  model      text not null,
+  attempts   integer not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+```
+
+- **The key is a hash of the prompt, and that gives sharing for free.** The prompt is
+  a pure function of the room's `base` as generated. A copy of a dungeon builds the same
+  prompt and so finds the same image. Two worlds from one seed have different prose, so
+  they get different images, which is correct (13a: a seed is a skeleton, not a world).
+  Bumping `PLATE_STYLE_VERSION` or changing the model redraws everything from then on,
+  rather than mixing two styles in one dungeon.
+- **Concealment is judged as generated, not as played.** The prompt reads `isHidden`
+  from the dungeon doc, never from the run, so a room's key never changes. A secret
+  door the player has found stays out of the plate; drawing it is a state plate
+  (kind 4 below), not this.
+- **Files go in a public Supabase Storage bucket**, at `plates/<key>.png`, served by its
+  CDN. A public bucket is safe because the key is a hash nobody can work out without the
+  `doc`, and the API refuses to make one for a room the run has not entered. The upload
+  needs `SUPABASE_SERVICE_ROLE_KEY`, server-only, in `.env.local` and on Vercel.
+  - Rejected: `bytea` in Postgres served through the API. That needs no new secret, but
+    every image then passes through the function and fills the 500 MB database tier,
+    which the curated-shelf decision is already protecting.
+- **One route:** `GET /api/runs/:id/plates/:roomId`.
+  1. Check ownership, as every route does.
+  2. Refuse a room the run has not entered. A plate of an unentered room shows the
+     player that room.
+  3. Build the prompt from the dungeon, hash it, and look up the key.
+     - `ready`: return the URL.
+     - Missing: claim it (`insert … on conflict do nothing` as `pending`), check the
+       budget, generate, threshold to 1-bit, upload, mark `ready`, return the URL. The
+       claim means two runs entering the same room pay once, and the 300s
+       `maxDuration` has plenty of room.
+     - `pending` under someone else's claim: `202`, and the client asks again in a few
+       seconds. A claim older than a named timeout is treated as abandoned.
+     - `failed`: retry while `attempts` is under `PLATE_MAX_ATTEMPTS`; past it, no plate.
+- **`?offline` and `?stub` never request a plate.** The fixture pages stay free.
+- **Images outlive their dungeons.** Shared by key, so no one dungeon owns one, and at
+  ~100 KB each an orphan costs too little to be worth a sweep.
+
+**Presentation: inline, at the arrival, in the page's own ink.**
+
+- **The plate sits in the room's arrival section in the narration**, between the room
+  name and its prose (`Narration.tsx`, the `arrival` branch). That is the module-booklet
+  moment, and it makes the scrollback an illustrated record of the run.
+  - Rejected: the room card, which is 320px wide and has no room for a picture.
+  - Rejected: the map area, which is for the map.
+- **Space is reserved at a fixed 3:2 the moment the player arrives**, with a faint
+  pencil placeholder, so a plate landing a few seconds later fills the space rather than
+  shoving the text the player is reading. The space collapses only on `failed`, which
+  is rare.
+- **The plate is drawn as ink, not shown as a photograph.** The server stores the 1-bit
+  image as black on transparent, and the page uses it as a CSS `mask-image` over a
+  `--color-ink` fill. The lines are exactly the text's ink, the paper is the page's
+  paper, and there is no box edge.
+- **Width is the prose measure (62ch).** A click opens it full size: the booklet held up.
+- **First arrival only.** Re-entering a room does not repeat its plate; the scrollback
+  already has it.
 
 **1. Room plates — lazily, on first entry.** Generating every room at generation time
 pays for rooms nobody reaches (R2 saw 3 of 12). The image call fires alongside the
@@ -718,7 +790,12 @@ artists — both are someone else's copyrighted work in a piece meant to be show
 from a prompt that describes the look in words, keep the 4–6 that are right, and those are
 the references (and, later, the LoRA's training set).
 
-**The spike comes before any of it.** A dev script, `src/dev/cli-illustrate.ts`: ~8 rooms
+**The spike comes before any of it**, and the storage and presentation design above
+waits on it too: a model that cannot hold the style makes the rest moot. The spike can
+run before [Paying for strangers](#paying-for-strangers) is built, because it is a dev
+script on the author's own key. It needs a `FAL_KEY` in `.env.local`. fal should serve
+every candidate above with one key; check that each one is listed before writing the
+script. A dev script, `src/dev/cli-illustrate.ts`: ~8 rooms
 from R1's dungeon plus a few of its creature kinds, the filtered prompts, 3–4 models
 through one aggregator key, the threshold and the border flood-fill, written to a side by
 side HTML contact sheet with cost and time per image. About $1–2 and a couple of minutes.
@@ -1314,18 +1391,149 @@ The machinery it sits on is built: `POST /api/dungeons/:id/duplicate` copies the
 
 ---
 
-### Rate limiting
+### Paying for strangers
 
-**Nothing rate-limits a signed-in player**, and generation is the expensive call. The
-Google consent screen's Testing mode — 100 invited addresses — is the only quota today,
-which is enough while it is invite-only and is not enough the moment anyone can sign in.
+**Blocks opening the app to the public, and blocks [Illustrations](#illustrations).**
 
-**It cannot be in-process**: one stateless Vercel function and no Redis on Hobby, so the
-counter is in Postgres and is charged **explicitly at the top of the handlers that call the
-model**, rather than in middleware that would have to guess what a route costs.
+**The app is going public, and the author pays.** A portfolio piece has to open on
+one click: no invite list, no key to paste. Today the only quota is the Google consent
+screen's Testing mode, 100 invited addresses, and nothing limits an account once it is
+in. This feature replaces that with a budget the author sets and the app enforces.
+It also replaces the old *Rate limiting* note, which was a subset of it.
 
-**And it must not read `profiles.tier` yet** — every account defaults to `byok` while in
-fact spending the author's key, so a tier-aware limiter today exempts everyone.
+**What a run costs.** R1, summed from its journal: **94 calls, ~865K input and ~72K
+output tokens, ~$1.23** on Haiku 4.5, of which generation is ~$0.04 (layer 4 below
+has the split). That figure is **low**: `client.ts` (lines 196 and 285) copies only `input_tokens` and
+`output_tokens` out of the response and drops `cache_creation_input_tokens` and
+`cache_read_input_tokens`. The journal has never seen a cache write, so a real per-run
+figure waits on the ledger below.
+
+Traffic to a portfolio piece is bursty: one post picked up somewhere is a few hundred
+strangers in an hour. That is why the total ceiling is the layer that cannot be skipped.
+Per-person limits only shape how a burst is shared out.
+
+**Four layers, built in this order:**
+
+**1. The ledger.** One table, written by every paid call, with the dollar cost computed
+in code:
+
+```sql
+create table public.spend (
+  id         bigint generated always as identity primary key,
+  at         timestamptz not null default now(),
+  owner_id   uuid references auth.users (id) on delete set null,
+  run_id     uuid references public.runs (id) on delete set null,
+  dungeon_id uuid references public.dungeons (id) on delete set null,
+  task       text not null,          -- the `Task` key, or an image task
+  model      text not null,
+  units      jsonb not null,         -- tokens in/out/cache-write/cache-read, or images
+  usd        numeric(10,6) not null
+);
+create index spend_at_idx on public.spend (at);
+create index spend_owner_idx on public.spend (owner_id, at);
+```
+
+- **`ON DELETE SET NULL` throughout.** Money spent stays spent after the account is
+  gone, and the daily total must not drop because somebody deleted their characters.
+- **Prices live beside the model strings**, as `PRICES` in `src/runtime/llm/models.ts`.
+  A price is a fact about a model string, and that file is the only place the strings
+  are. Cache writes are 1.25× input and cache reads 0.1× input.
+- **`Usage` gains the two cache fields.** That fixes the undercount above and lets the
+  ledger show whether the existing `cache_control` breakpoints are earning anything.
+- **Written at the transport, not at the call sites.** Every model call on the server
+  goes through the transport `configureAnthropic` sets up in `src/server/app.ts`, so
+  that is where the row is written. A paid call that skips the ledger is a bug, and it
+  is easiest to prevent where every call already passes through.
+  - **The catch:** that transport is module state and does not know whose request it is
+    serving. The handler therefore opens a request scope (`AsyncLocalStorage`, holding
+    `owner_id` and the run or dungeon id), and the transport reads it. A call made
+    outside any scope throws instead of writing an unowned row, so a missing scope
+    fails in tests rather than in the bill.
+  - The dev CLIs call the API directly with the author's key and are not metered. They
+    are not strangers.
+  - When this is built, it becomes a §2 contract: **every paid call on the server writes
+    the ledger, image calls included.**
+
+**2. The ceiling.** Two limits, both named constants, with values set after a week of
+ledger data rather than guessed now:
+
+- **`DAILY_BUDGET_USD` gates starting things**: generating a dungeon, starting a run,
+  drawing a plate. Once today's ledger sum passes it, the app stays open for anything
+  free (the roster, the shop, the library, finished runs) and says plainly that the
+  dungeon is closed until tomorrow (UTC).
+- **`HARD_CEILING_USD` gates every call**, turns included. It is set above the budget,
+  so a run started just under the line can be finished. Refusing a turn mid-fight is
+  far worse than overspending a little; refusing one at the hard ceiling is the
+  backstop working.
+- **The providers enforce a third limit.** Prepaid credit with auto-reload off on the
+  Anthropic workspace and on the image provider, plus the Anthropic workspace spend
+  limit. If the app's own accounting has a bug, the most it can lose is what is loaded.
+  This is configuration, not code, but it ships with the feature or the feature is not
+  done.
+- One indexed `sum(usd) … where at >= date_trunc('day', now() at time zone 'utc')` per
+  gated request. It needs no cache at this scale.
+
+**3. Identity that costs one click.**
+
+- **Supabase anonymous sign-in** as "Play as a guest". It gives a real `auth.users`
+  row, so the `owner_id` rule and RLS still apply. Upgrading with `linkIdentity`
+  (Google) keeps the same uid, so a guest who signs in keeps their characters.
+- **Turnstile on guest creation**, through Supabase Auth's built-in captcha support. It
+  is invisible to almost everyone and stops a script minting guests in bulk.
+- **Allowances per account per day**, as named constants. Guests play the curated shelf
+  (below) and do not generate. Signed-in accounts may generate. The turn cap per run,
+  `MAX_TURNS_PER_RUN`, is set generously above a real run (R1 took 92 calls), so that a
+  script cannot play one run forever.
+- **Guest accounts are cheap to reset**, so an allowance only slows abuse down. The
+  ceiling is what actually limits it. The allowances exist so one person in a burst
+  cannot use the whole day's budget.
+- **Tier is reworked, not read as it stands.** `profiles.tier` defaults every account to
+  `byok` while in fact spending the author's key. The limiter reads `is_anonymous` from
+  the token for guest/member, and `tier` becomes `member | unlimited`. `unlimited` is
+  the author and anyone they choose, exempt from allowances but not from the ceiling.
+  Bring-your-own-key is a later addition for heavy players, not part of this.
+- **The Google consent screen leaves Testing mode** for Production. Email and profile
+  scopes need only light verification.
+- **Stale guests are swept**: anonymous accounts unused for a named number of days are
+  deleted. The existing cascades take their characters and runs with them, and `spend`
+  keeps its rows.
+
+**4. Make each stranger cheaper. The money is in the turns.**
+
+| Run | Generation | Play | Play share |
+|---|---|---|---|
+| R1 (size 1, complete) | 2 calls, ~$0.04 | 92 calls, ~$1.19 | 97% |
+| R2 (size 2, 8 turns) | 4 calls, ~$0.08 | 27 calls, ~$0.40 | 84% |
+
+Input is about 72% of play's cost: ~9.3K input tokens per call against ~0.7K output.
+
+- **The turn prompt is the lever.**
+  - **Cache hit rate first.** A cache read bills at 0.1× input, and the turn loop resends
+    a large stable prefix every call, so this is potentially most of the bill. It is
+    unmeasured until `Usage` carries the cache fields.
+  - **Then the size of what is sent:** the §2.8 context policy, and how many model calls one
+    player turn takes.
+  - These are the only items in this feature that lower the cost of the median visitor
+    rather than capping the worst one.
+- **A curated shelf of finished dungeons** is what a guest plays. **Not for the token
+  saving, which is small:** generation is 3–15% of a run. It is worth having anyway:
+  - **The plates are the real money**, roughly 10 rooms at $0.014–0.075 each, which is
+    5–20× a dungeon's generation cost. Drawn once ahead of time, a guest never pays for
+    them.
+  - **The first click plays immediately.** Generation takes about a minute, which is
+    friction the "nearly frictionless" goal cannot afford.
+  - **The author has seen the dungeon.** A stranger's first impression is a world known
+    to be good, not a fresh roll that might be the one with three locks on a grate.
+- **Decide: copy or share.** Playing someone else's world today means
+  `duplicateDungeon`, a copy of a ~0.5 MB row, which at guest volume fills the 500 MB
+  tier in about a thousand plays. **Recommended: curated dungeons are shared, not
+  copied.** A `curated` flag lets a run reference a dungeon its owner does not own.
+  That is one exception in `mustGetDungeon` and one in `dungeons_owner` RLS, and it is
+  safe because `base` never changes at runtime (§2.4), so a shared dungeon cannot be
+  altered by playing it.
+**Builds on** [Dungeons as a generation cache](#dungeons-as-a-generation-cache). A
+guest's shelf and a member's cache hit are the same idea: a world somebody already
+built. Like the shelf, that cache is worth more for latency and plates than for tokens.
 
 ---
 
