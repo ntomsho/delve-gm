@@ -12,6 +12,7 @@ import {
   GUEST_RUNS_PER_DAY,
   hasRunLeft,
   MAX_GENERATED_SIZE,
+  mayStartRunIn,
   MEMBER_RUNS_PER_DAY,
   nextUtcMidnight,
   refusal,
@@ -60,6 +61,15 @@ describe("allowanceFor", () => {
     expect(nextUtcMidnight(new Date("2026-10-13T00:00:00Z")).toISOString()).toBe(
       "2026-10-14T00:00:00.000Z"
     );
+  });
+});
+
+describe("mayStartRunIn", () => {
+  it("lets the first run into a dungeon they wrote through with none left", () => {
+    const spent = allowanceFor({ guest: true, tier: "member", used: 1, now: NOW, unplayed: ["mine"] });
+    expect(hasRunLeft(spent)).toBe(false);
+    expect(mayStartRunIn(spent, "mine")).toBe(true);
+    expect(mayStartRunIn(spent, "a-copy")).toBe(false);
   });
 });
 

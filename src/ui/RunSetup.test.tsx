@@ -233,6 +233,7 @@ describe("the daily allowance", () => {
     left: 1,
     maxSize: 1,
     resetsAt: new Date(Date.now() + 3 * 3_600_000).toISOString(),
+    unplayed: [],
     ...over,
   });
   const sizeButton = (page: ReturnType<typeof renderDom>, label: string) =>
@@ -268,6 +269,22 @@ describe("the daily allowance", () => {
 
     await press(byText(page, "Go down"));
     expect(chosen).toEqual([]);
+  });
+
+  it("still lets them down a world they wrote and have not been down yet", async () => {
+    const spent = allowance({ used: 1, left: 0, unplayed: ["d-1"] });
+    const { page, chosen } = setup([world(), world({ id: "d-2", name: "The Relish Quarry" })], undefined, spent);
+
+    // A new one, or somebody's second run: both cost a run they do not have.
+    expect((byText(page, "Go down") as HTMLButtonElement).disabled).toBe(true);
+    await press(byText(page, "The Relish Quarry"));
+    expect((byText(page, "Go down") as HTMLButtonElement).disabled).toBe(true);
+
+    // The one they wrote: its first run was paid for by the writing.
+    await press(byText(page, "The Drowned Aviary"));
+    expect(text(page)).toContain("paid for when it was written");
+    await press(byText(page, "Go down"));
+    expect(chosen[0]).toMatchObject({ world: "existing", dungeonId: "d-1" });
   });
 
   it("limits nothing for an unlimited account", () => {

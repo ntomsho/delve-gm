@@ -225,7 +225,7 @@ export function RunSetup({
   // so an allowance that arrives after they clicked does not rewrite their click
   // in state — it only stops it being sent. Size 1 is always allowed.
   const chosenSize: Size = sizeAllowed(size) ? size : 1;
-  const outOfRuns = allowance?.left === 0;
+  const noneLeft = allowance?.left === 0;
   const [difficulty, setDifficulty] = useState<Difficulty>("medium");
   const [characterId, setCharacterId] = useState(initialId ?? characters[0]?.id);
   /**
@@ -247,6 +247,10 @@ export function RunSetup({
   // A world chosen and then no longer on the list — the roster refreshed under
   // the screen — is nothing rather than a run into a dungeon we cannot name.
   const fresh = !world;
+  // Writing a dungeon and its first run are ONE run, so a world this player
+  // wrote and has not been down yet costs nothing more, even with none left.
+  const free = world !== undefined && (allowance?.unplayed.includes(world.id) ?? false);
+  const outOfRuns = noneLeft && !free;
 
   return (
     <main className="min-h-screen bg-desk text-ink">
@@ -296,6 +300,10 @@ export function RunSetup({
               Already written, so there is nothing to wait for and nothing to
               pay. The world is exactly as you left it — what you did down there
               last time is not undone.
+              {allowance && allowance.limit !== null &&
+                (free
+                  ? " Your first time down it was paid for when it was written."
+                  : " Going down uses one of today's runs.")}
             </p>
           )}
         </Field>
@@ -400,6 +408,7 @@ export function RunSetup({
           {allowance && allowance.limit !== null && (
             <p className="mt-1.5 font-mono text-[11px] text-graphite" role="status">
               {allowance.left} of {allowance.limit} run{allowance.limit === 1 ? "" : "s"} left today
+              {" · writing a dungeon and your first run in it count as one"}
             </p>
           )}
           {allowance?.guest && onUpgrade && (

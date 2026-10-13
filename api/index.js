@@ -15434,6 +15434,24 @@ async function insertPartialDungeon(gd, owner, sql = db()) {
 	return row.id;
 }
 /**
+* This player's unfinished dungeon from these dice, if they have one.
+*
+* What makes "try seed N again" reuse a failed writing rather than start a
+* second one, which would also count against the day's allowance a second
+* time. Copies are never partial, but the filter says so anyway.
+*/
+async function findUnfinishedDungeon(owner, dice, sql = db()) {
+	const [row] = await sql`
+    select id, dungeon_key as "dungeonKey", owner_id as "ownerId", status, doc
+      from dungeons
+     where owner_id = ${owner} and status = 'partial' and copied_from is null
+       and seed = ${dice.seed} and size = ${dice.size} and level = ${dice.level}
+     order by created_at desc
+     limit 1
+  `;
+	return row;
+}
+/**
 * A dungeon, in full, for the player who owns it.
 *
 * OWNER IN THE WHERE CLAUSE, not an `if` after the read: someone else's dungeon
@@ -15967,6 +15985,7 @@ function nextUtcMidnight(now) {
 /** The rule, without the database, so it can be tested without one. */
 function allowanceFor(input) {
 	const resetsAt = nextUtcMidnight(input.now).toISOString();
+	const unplayed = input.unplayed ?? [];
 	if (input.tier === "unlimited") return {
 		guest: input.guest,
 		unlimited: true,
@@ -15974,7 +15993,8 @@ function allowanceFor(input) {
 		limit: null,
 		left: null,
 		maxSize: 5,
-		resetsAt
+		resetsAt,
+		unplayed
 	};
 	const limit = input.guest ? 1 : 3;
 	return {
@@ -15984,12 +16004,17 @@ function allowanceFor(input) {
 		limit,
 		left: Math.max(0, limit - input.used),
 		maxSize: 1,
-		resetsAt
+		resetsAt,
+		unplayed
 	};
 }
-/** True when the account may start another run (or write another dungeon) today. */
+/** True when the account may write another dungeon, or start a run that costs one. */
 function hasRunLeft(a) {
 	return a.left === null || a.left > 0;
+}
+/** True when a run into this dungeon may start: one left, or it rides on a writing. */
+function mayStartRunIn(a, dungeonId) {
+	return hasRunLeft(a) || a.unplayed.includes(dungeonId);
 }
 /**
 * The sentence a refused player reads. Said by the server so that the copy is in
@@ -16001,30 +16026,52 @@ function refusal(a) {
 	return `That is your ${a.limit} ${runs} for today. More at midnight UTC.${more}`;
 }
 /**
-* Read the tier and today's count in one round trip.
+* Read the tier, today's count and the unplayed dungeons in one round trip.
 *
 * A missing profile is a member. `handle_new_user` makes one for every account,
 * so this only matters in the instant between an account existing and its
 * trigger committing — and the safe reading of "we do not know" is the limited
 * one.
 *
+* "Written" is `copied_from is null`: a copy from the library is a dungeon the
+* player did not pay to write. "Rode on a writing" is the earliest run in one
+* of the player's own written dungeons, ever — so a dungeon written at 23:59
+* and played at 00:01 is one run, on the first day.
+*
 * The day boundary is computed in Postgres, against the same clock that stamped
-* `runs.created_at`, so the server and the database cannot disagree about which
-* day a run belongs to.
+* `created_at`, so the server and the database cannot disagree about which day
+* a run belongs to.
 */
 async function allowanceOf(user, sql = db(), now = /* @__PURE__ */ new Date()) {
 	const [row] = await sql`
+    with day as (
+      select date_trunc('day', now() at time zone 'utc') at time zone 'utc' as start
+    ),
+    written as (
+      select id, created_at from dungeons
+       where owner_id = ${user.id} and copied_from is null
+    ),
+    rode as (
+      select distinct on (r.dungeon_id) r.id
+        from runs r join written w on w.id = r.dungeon_id
+       order by r.dungeon_id, r.created_at, r.id
+    )
     select
       (select tier from profiles where id = ${user.id}) as tier,
-      (select count(*)::int from runs
-         where owner_id = ${user.id}
-           and created_at >= date_trunc('day', now() at time zone 'utc') at time zone 'utc'
-      ) as used
+      (select count(*)::int from written, day where written.created_at >= day.start)
+      + (select count(*)::int from runs, day
+          where runs.owner_id = ${user.id}
+            and runs.created_at >= day.start
+            and runs.id not in (select id from rode)) as used,
+      (select array_agg(d.id::text) from dungeons d
+        where d.owner_id = ${user.id} and d.copied_from is null and d.status = 'complete'
+          and not exists (select 1 from runs where runs.dungeon_id = d.id)) as unplayed
   `;
 	return allowanceFor({
 		guest: user.guest,
 		tier: row?.tier === "unlimited" ? "unlimited" : "member",
 		used: row?.used ?? 0,
+		unplayed: row?.unplayed ?? [],
 		now
 	});
 }
@@ -16172,6 +16219,15 @@ function createApp() {
 	*/
 	app.post("/api/dungeons", async (c) => {
 		const { seed, size, level } = await c.req.json();
+		const unfinished = await findUnfinishedDungeon(currentUser(c).id, {
+			seed,
+			size,
+			level
+		});
+		if (unfinished) return c.json({
+			dungeonId: unfinished.id,
+			chunks: chunksOf(unfinished.doc)
+		});
 		const allowance = await allowanceOf(currentUser(c));
 		if (!hasRunLeft(allowance)) return c.json({
 			error: refusal(allowance),
@@ -16233,6 +16289,10 @@ function createApp() {
 		const partial = stored.doc;
 		const chunk = Number(c.req.param("n"));
 		if (!chunksOf(partial).includes(chunk)) throw new HTTPException(404, { message: `no region ${chunk} in that dungeon` });
+		if ((await listChunks(stored.id)).some((r) => r.chunk === chunk)) return c.json({
+			chunk,
+			done: true
+		});
 		const result = await journalled(stored.id, (journal) => generateChunk(partial, chunk, { journal }));
 		await saveChunk(stored.id, result);
 		return c.json({
@@ -16346,7 +16406,7 @@ function createApp() {
 			dungeonId: busy.dungeonId
 		}, 409);
 		const allowance = await allowanceOf(user);
-		if (!hasRunLeft(allowance)) return c.json({
+		if (!mayStartRunIn(allowance, stored.id)) return c.json({
 			error: refusal(allowance),
 			allowance
 		}, 429);

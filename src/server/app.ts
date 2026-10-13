@@ -41,7 +41,7 @@ import { MODELS } from "../runtime/llm/models.ts";
 import { configureTransport } from "../runtime/llm/client.ts";
 import type { PlayerCharacter, Size } from "../engine/index.ts";
 import * as repo from "./repo.ts";
-import { allowanceOf, hasRunLeft, refusal } from "./allowance.ts";
+import { allowanceOf, hasRunLeft, mayStartRunIn, refusal } from "./allowance.ts";
 
 // ---------------------------------------------------------------------------
 // THE APP
@@ -193,6 +193,16 @@ export function createApp(): Hono<AuthEnv> {
       level: number;
     };
 
+    // A RETRY IS THE SAME WRITING, NOT A SECOND ONE. "Try seed N again" sends
+    // the same dice; if this player already has an unfinished dungeon from
+    // them, hand that back and let the client finish it. It was counted when
+    // it was made, so it is not gated again — a player whose only run of the
+    // day failed to write must be able to try again.
+    const unfinished = await repo.findUnfinishedDungeon(currentUser(c).id, { seed, size, level });
+    if (unfinished) {
+      return c.json({ dungeonId: unfinished.id, chunks: chunksOf(unfinished.doc) });
+    }
+
     // THE ONLY GATE ON GENERATION, and it sits on the first of the three
     // requests: once a structure exists, its chunks and its join are the same
     // dungeon being finished, not a new one being started. See `allowance.ts`.
@@ -261,6 +271,12 @@ export function createApp(): Hono<AuthEnv> {
     const chunk = Number(c.req.param("n"));
     if (!chunksOf(partial).includes(chunk)) {
       throw new HTTPException(404, { message: `no region ${chunk} in that dungeon` });
+    }
+
+    // Already written — a retry of a dungeon that failed somewhere else. The
+    // answer is kept, so asking the model again would buy nothing.
+    if ((await repo.listChunks(stored.id)).some((r) => r.chunk === chunk)) {
+      return c.json({ chunk, done: true });
     }
 
     const result = await journalled(stored.id, (journal) =>
@@ -406,9 +422,10 @@ export function createApp(): Hono<AuthEnv> {
 
     // AFTER the in-a-run check: a player sent here by a stale screen to start a
     // run they are already in should be told where it is, not that they are out
-    // of runs. A run is counted the moment its row exists — see `allowance.ts`.
+    // of runs. The first run into a dungeon they wrote is free — the writing was
+    // the run. See `allowance.ts`.
     const allowance = await allowanceOf(user);
-    if (!hasRunLeft(allowance)) {
+    if (!mayStartRunIn(allowance, stored.id)) {
       return c.json({ error: refusal(allowance), allowance }, 429);
     }
 

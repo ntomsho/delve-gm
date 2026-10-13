@@ -141,6 +141,14 @@ export function SignIn({ onSignIn, onGuest, notice }: Props) {
           A GUEST GETS ONE RUN A DAY, AN ACCOUNT GETS THREE. Sign in with Google
           later and a guest keeps their characters.
         </p>
+
+        {/* Google's consent screen requires the home page to link here. A
+            plain file in `public/`, so it needs no account and no app to load. */}
+        <p className="text-xs mt-4" style={{ fontFamily: font.mono }}>
+          <a href="/privacy.html" className="text-graphite underline underline-offset-4 hover:text-torch">
+            Privacy policy
+          </a>
+        </p>
       </div>
     </div>
   );

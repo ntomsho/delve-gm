@@ -367,6 +367,29 @@ export async function insertPartialDungeon(
 }
 
 /**
+ * This player's unfinished dungeon from these dice, if they have one.
+ *
+ * What makes "try seed N again" reuse a failed writing rather than start a
+ * second one, which would also count against the day's allowance a second
+ * time. Copies are never partial, but the filter says so anyway.
+ */
+export async function findUnfinishedDungeon(
+  owner: string,
+  dice: { seed: number; size: number; level: number },
+  sql: postgres.Sql = db()
+): Promise<StoredDungeon | undefined> {
+  const [row] = await sql<StoredDungeon[]>`
+    select id, dungeon_key as "dungeonKey", owner_id as "ownerId", status, doc
+      from dungeons
+     where owner_id = ${owner} and status = 'partial' and copied_from is null
+       and seed = ${dice.seed} and size = ${dice.size} and level = ${dice.level}
+     order by created_at desc
+     limit 1
+  `;
+  return row;
+}
+
+/**
  * A dungeon, in full, for the player who owns it.
  *
  * OWNER IN THE WHERE CLAUSE, not an `if` after the read: someone else's dungeon

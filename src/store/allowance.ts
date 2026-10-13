@@ -2,6 +2,9 @@
  * HOW MANY RUNS ARE LEFT TODAY
  * ============================
  *
+ * A "run" is writing a dungeon plus the first run into it, or a run into a
+ * dungeon that is already written. See `src/server/allowance.ts`.
+ *
  * The browser half of `src/server/allowance.ts`. Read when run setup opens, so
  * the screen can say how many are left before the player presses anything. It
  * decides nothing: the server asks again on every start, and a refusal it makes
@@ -22,6 +25,11 @@ export interface Allowance {
   maxSize: number;
   /** ISO timestamp of the next midnight UTC. */
   resetsAt: string;
+  /**
+   * The player's own written dungeons nobody has run yet. The first run into
+   * one rides on its writing, so it is free even with none left.
+   */
+  unplayed: string[];
 }
 
 export async function fetchAllowance(): Promise<Allowance> {

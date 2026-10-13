@@ -44,8 +44,8 @@ worlds and the library, the single equipment table, time categories and creature
 the first of three rewards sessions, levelling, and guest accounts with daily run
 allowances (layer 3 of *Paying for strangers*).
 
-**1,396 tests and build clean**, plus a third, explicitly-invoked vitest config
-(`npm run test:db`) holding **63** more that need a real database.
+**1,398 tests and build clean**, plus a third, explicitly-invoked vitest config
+(`npm run test:db`) holding **72** more that need a real database.
 
 Two playtests are the evidence base for most of what is left. Where a feature cites a
 `seq`, that is a line in the named run's `journal.jsonl`; a line number is the rendered
@@ -1478,15 +1478,17 @@ ledger data rather than guessed now:
 
 What landed, and binds what comes next:
 
-- **Allowances are runs started per UTC day**, counted off `runs` (no counter table),
-  in `src/server/allowance.ts`: `GUEST_RUNS_PER_DAY = 1`, `MEMBER_RUNS_PER_DAY = 3`.
-  Abandoned runs count; deleting a character refunds nothing.
-- **Generation is gated by the same count, not counted itself.** `POST /api/dungeons`
-  refuses (429) once no run is left today, and refuses (400) any size above
-  `MAX_GENERATED_SIZE = 1`. **Guests generate**, against the plan below, by the
-  author's call until the curated shelf exists. Only the first of the three generation
-  requests is gated. Repeated generation with a run still in hand is not capped; the
-  ceiling is what covers that.
+- **Allowances are "runs" per UTC day**, in `src/server/allowance.ts`:
+  `GUEST_RUNS_PER_DAY = 1`, `MEMBER_RUNS_PER_DAY = 3`. **One run is either** writing a
+  dungeon together with the first run into it, **or** a run into a dungeon already
+  written (a library copy, or a second run down your own). Counted off `dungeons`
+  (`copied_from is null`) and `runs`, no counter table. Abandoned runs count; deleting
+  a character refunds nothing.
+- **Writing is gated on a run being left** (429 otherwise) and capped at
+  `MAX_GENERATED_SIZE = 1` (400). **Guests write**, against the plan below, by the
+  author's call until the curated shelf exists. A retry of a failed writing (same
+  seed, size, level) reuses the unfinished row instead of counting a second, and
+  chunks already saved are not asked for again.
 - **`unlimited` is exempt from the count, the generation gate and the size cap.** Set
   by hand: `update profiles set tier = 'unlimited' where id = '<uid>'`.
 - `GET /api/allowance` feeds run setup. The gates never trust it.

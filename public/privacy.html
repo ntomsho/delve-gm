@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Privacy Policy</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;700&display=swap" />
+  <style>
+    /* The same paper, ink and torch as the app (src/index.css), so the page a
+       visitor reaches from the sign-in screen reads as part of it. */
+    :root {
+      --desk: #ede7da; --paper: #f6f2e8; --rule: #cfc7b4;
+      --ink: #22201c; --graphite: #6b6659; --torch: #b4521e;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--desk); color: var(--ink);
+      font: 16px/1.6 "Source Serif 4", Georgia, serif;
+    }
+    main {
+      max-width: 720px; margin: 48px auto; padding: 40px 48px;
+      background: var(--paper); border: 1px solid var(--rule);
+    }
+    @media (max-width: 760px) { main { margin: 0; padding: 32px 16px; border: 0; } }
+    .kicker {
+      font: 500 10px/1 "JetBrains Mono", monospace; letter-spacing: 0.2em;
+      text-transform: uppercase; color: var(--graphite);
+    }
+    h1 { font: 700 30px/1.15 "Space Grotesk", system-ui, sans-serif; margin: 10px 0 4px; letter-spacing: -0.02em; }
+    h2 { font: 700 18px/1.3 "Space Grotesk", system-ui, sans-serif; margin: 32px 0 8px; }
+    p, li { color: var(--ink); }
+    ul { padding-left: 20px; }
+    li { margin: 4px 0; }
+    a { color: var(--torch); text-underline-offset: 3px; }
+    .meta { font: 12px/1.5 "JetBrains Mono", monospace; color: var(--graphite); margin-bottom: 24px; }
+    hr { border: 0; height: 2px; background: var(--ink); margin: 16px 0 24px; }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="kicker">AI Dungeon</div>
+    <h1>Privacy Policy</h1>
+    <div class="meta">Last updated 12 October 2026</div>
+    <hr />
+
+    <p>
+      AI Dungeon is a single-player dungeon crawl refereed by an AI model, run as a
+      personal portfolio project. This page says what it collects, why, and who
+      else sees it. It is short because the app collects very little.
+    </p>
+
+    <h2>What is collected</h2>
+    <ul>
+      <li>
+        <strong>If you sign in with Google:</strong> your email address, name and
+        profile picture, as Google provides them. Only the basic profile scopes
+        are requested. Nothing else from your Google account is read.
+      </li>
+      <li>
+        <strong>If you play as a guest:</strong> no personal information. A guest
+        account is an anonymous id with no name or email attached.
+      </li>
+      <li>
+        <strong>What you make and do in the game:</strong> your characters, the
+        dungeons generated for you, and a record of each run, including the
+        actions you type and the AI's replies.
+      </li>
+      <li>
+        <strong>Usage counts:</strong> how many runs and dungeons an account has
+        started each day, to enforce the daily limits.
+      </li>
+    </ul>
+
+    <h2>Why</h2>
+    <p>
+      To let you sign in, save your characters and runs, generate and referee the
+      game, keep the daily limits, and diagnose problems when something goes
+      wrong. There is no advertising, no tracking for marketing, and your
+      information is never sold.
+    </p>
+
+    <h2>Who else processes it</h2>
+    <ul>
+      <li><strong>Supabase</strong>: sign-in and the database that stores everything above.</li>
+      <li><strong>Anthropic</strong>: the AI model. What you type during a run, and the game state needed to referee it, is sent to Anthropic's API to produce the reply.</li>
+      <li><strong>Vercel</strong>: hosts the site and the server.</li>
+      <li><strong>Google</strong>: only if you choose to sign in with Google.</li>
+      <li><strong>Cloudflare Turnstile</strong>: if enabled, a bot check when a guest account is created.</li>
+    </ul>
+    <p>Each processes data under its own terms and privacy policy.</p>
+
+    <h2>Cookies and storage</h2>
+    <p>
+      The site keeps your sign-in session in your browser's local storage so
+      you stay signed in. No advertising or analytics cookies are used.
+    </p>
+
+    <h2>Keeping and deleting it</h2>
+    <p>
+      Your data is kept while your account exists. You can delete characters in
+      the app at any time. To have your whole account and everything in it
+      deleted, email the address below. Guest accounts that go unused may be
+      deleted automatically. A guest who signs out cannot sign back in, so a
+      guest's characters are lost at that point.
+    </p>
+
+    <h2>Children</h2>
+    <p>The app is not intended for children under 13.</p>
+
+    <h2>Changes</h2>
+    <p>If this policy changes, the date at the top changes with it.</p>
+
+    <h2>Contact</h2>
+    <p><a href="mailto:ntomsho4545@gmail.com">ntomsho4545@gmail.com</a></p>
+
+    <p class="meta" style="margin-top: 32px"><a href="/">← Back to the game</a></p>
+  </main>
+</body>
+</html>

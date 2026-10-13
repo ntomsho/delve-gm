@@ -533,28 +533,34 @@ describe("the roster", () => {
 /*
  * GUESTS AND ALLOWANCES. Each case makes its own limited accounts, because the
  * file's main account is `unlimited` (see `beforeAll`). No case here reaches the
- * model: every generation request below is one the gate refuses first.
+ * model: every generation request below is refused, or is a retry that hands
+ * back a dungeon that already exists.
+ *
+ * The rule being held: writing a dungeon plus the first run into it is ONE run;
+ * any other run is one run.
  */
 describe("the daily allowance", () => {
-  /** A limited account of its own, a token for it, and a character on it. */
+  /** A limited account, a token for it, and a character on it. */
   async function anAccount(guest: boolean) {
     const id = await makeUser();
     const as = await tokenFor(id, guest);
     const pc = { ...testCharacter(), id: `pc-${crypto.randomUUID()}`, name: "Counted" };
     expect((await ask("/api/characters", { method: "POST", body: pc, as })).status).toBe(200);
-    const dungeon = await aFinishedDungeon(id);
-    return { id, as, pc, dungeon };
+    return { id, as, pc };
   }
+  type Account = Awaited<ReturnType<typeof anAccount>>;
 
-  async function start(a: Awaited<ReturnType<typeof anAccount>>) {
+  const allowanceOf = async (a: Account) =>
+    (await (await ask("/api/allowance", { as: a.as })).json()) as Record<string, any>;
+
+  /** Start a run and walk away at once, so the next start is not "in a run". */
+  async function runOnce(a: Account, dungeonId: string) {
     const res = await ask("/api/runs", {
       method: "POST",
-      body: { dungeonId: a.dungeon, character: a.pc },
+      body: { dungeonId, character: a.pc },
       as: a.as,
     });
     const body = (await res.json()) as Record<string, any>;
-    // Walk away at once, so the next start is not refused as "in a run" — the
-    // abandoned run still counts, which is the point.
     if (res.status === 200) {
       await ask(`/api/runs/${body.run.id}/abandon`, {
         method: "POST",
@@ -565,46 +571,88 @@ describe("the daily allowance", () => {
     return { status: res.status, body };
   }
 
-  it("lets a guest start one run a day and refuses the second", async () => {
+  const writeNew = (a: Account, size = 1) =>
+    ask("/api/dungeons", { method: "POST", body: { seed: 1, size, level: 1 }, as: a.as });
+
+  it("counts writing a dungeon and its first run as one, and refuses a second", async () => {
     const guest = await anAccount(true);
     try {
-      const before = await (await ask("/api/allowance", { as: guest.as })).json();
-      expect(before).toMatchObject({ guest: true, used: 0, limit: 1, left: 1, maxSize: 1 });
+      expect(await allowanceOf(guest)).toMatchObject({ guest: true, used: 0, limit: 1, left: 1 });
 
-      expect((await start(guest)).status).toBe(200);
+      // Written (here directly, standing in for the three generation requests).
+      const mine = await aFinishedDungeon(guest.id);
+      expect(await allowanceOf(guest)).toMatchObject({ used: 1, left: 0, unplayed: [mine] });
 
-      const second = await start(guest);
-      expect(second.status).toBe(429);
-      expect(second.body.error).toMatch(/Sign in with Google/);
-      expect(second.body.allowance).toMatchObject({ used: 1, left: 0 });
+      // The first run rides on the writing: allowed at 0 left, and still 1 used.
+      expect((await runOnce(guest, mine)).status).toBe(200);
+      expect(await allowanceOf(guest)).toMatchObject({ used: 1, left: 0, unplayed: [] });
+
+      // A second run down the same dungeon is a run of its own.
+      const again = await runOnce(guest, mine);
+      expect(again.status).toBe(429);
+      expect(again.body.error).toMatch(/Sign in with Google/);
+
+      // And no more writing either.
+      expect((await writeNew(guest)).status).toBe(429);
     } finally {
       await sql`delete from auth.users where id = ${guest.id}`;
     }
   });
 
-  it("lets a member start three, and deleting the character refunds nothing", async () => {
+  it("counts a run into somebody else's world as one", async () => {
+    const guest = await anAccount(true);
+    const stranger = await makeUser();
+    try {
+      const theirs = await aFinishedDungeon(stranger);
+      const copy = await ask(`/api/dungeons/${theirs}/duplicate`, { method: "POST", as: guest.as });
+      const { dungeonId } = (await copy.json()) as { dungeonId: string };
+
+      // Taking the copy is free; going down it is not.
+      expect(await allowanceOf(guest)).toMatchObject({ used: 0, unplayed: [] });
+      expect((await runOnce(guest, dungeonId)).status).toBe(200);
+      expect(await allowanceOf(guest)).toMatchObject({ used: 1, left: 0 });
+
+      expect((await writeNew(guest)).status).toBe(429);
+    } finally {
+      await sql`delete from auth.users where id in (${guest.id}, ${stranger})`;
+    }
+  });
+
+  it("gives a member three, and deleting the character refunds nothing", async () => {
     const member = await anAccount(false);
     try {
-      for (let i = 0; i < 3; i++) expect((await start(member)).status).toBe(200);
+      const mine = await aFinishedDungeon(member.id); // 1: written, first run rides
+      expect((await runOnce(member, mine)).status).toBe(200);
+      expect((await runOnce(member, mine)).status).toBe(200); // 2
+      expect((await runOnce(member, mine)).status).toBe(200); // 3
+      expect((await runOnce(member, mine)).status).toBe(429);
 
       await ask(`/api/characters/${member.pc.id}`, { method: "DELETE", as: member.as });
-      const after = await (await ask("/api/allowance", { as: member.as })).json();
-      expect(after).toMatchObject({ guest: false, used: 3, limit: 3, left: 0 });
+      expect(await allowanceOf(member)).toMatchObject({ guest: false, used: 3, limit: 3, left: 0 });
     } finally {
       await sql`delete from auth.users where id = ${member.id}`;
     }
   });
 
-  it("refuses to write a dungeon once the day's runs are spent", async () => {
+  /**
+   * "Try seed N again" after a failed writing. The partial row was counted when
+   * it was made; the retry must reuse it rather than make (and count) another,
+   * and must not be refused for having used the run it is retrying.
+   */
+  it("hands a retry back the unfinished dungeon instead of writing a second", async () => {
     const guest = await anAccount(true);
     try {
-      expect((await start(guest)).status).toBe(200);
+      const partial = await repo.insertPartialDungeon(world, guest.id);
+      expect(await allowanceOf(guest)).toMatchObject({ used: 1, left: 0 });
+
       const res = await ask("/api/dungeons", {
         method: "POST",
-        body: { seed: 1, size: 1, level: 1 },
+        body: { seed: world.seeds.dungeonSeed, size: world.size, level: world.level },
         as: guest.as,
       });
-      expect(res.status).toBe(429);
+      expect(res.status).toBe(200);
+      expect(((await res.json()) as { dungeonId: string }).dungeonId).toBe(partial);
+      expect(await allowanceOf(guest)).toMatchObject({ used: 1 });
     } finally {
       await sql`delete from auth.users where id = ${guest.id}`;
     }
@@ -613,11 +661,7 @@ describe("the daily allowance", () => {
   it("refuses anything bigger than size 1 before it costs a model call", async () => {
     const member = await anAccount(false);
     try {
-      const res = await ask("/api/dungeons", {
-        method: "POST",
-        body: { seed: 1, size: 2, level: 1 },
-        as: member.as,
-      });
+      const res = await writeNew(member, 2);
       expect(res.status).toBe(400);
       expect(((await res.json()) as { error: string }).error).toMatch(/size 1/);
     } finally {
