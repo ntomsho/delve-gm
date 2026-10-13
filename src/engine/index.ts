@@ -218,3 +218,4 @@ export * from "./dungeon-fixtures.ts";
 export * from "./plate-view.ts";
 export * from "./plate-hotspots.ts";
 export * from "./feature-presence.ts";
+export * from "./plate-prompt.ts";

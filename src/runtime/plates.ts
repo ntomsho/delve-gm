@@ -198,62 +198,76 @@ export function plateTags(p: RoomPlate): Map<string, string> {
   return tags;
 }
 
-/**
- * What the guide image's marks mean, for a model that is given one. The marks
- * are there to say WHERE; the prose says WHAT; and none of them may survive
- * into the drawing.
- */
-export const PLATE_GUIDE_NOTE =
-  "The guide image fixes the room's walls and the camera. Each dashed outline on the floor, " +
-  "tagged with a number, marks where the numbered feature stands; each lettered tag marks a " +
-  "doorway. Draw the thing described in place of each mark. Do not draw the dashed outlines, " +
-  "the tags, or any numbers or letters.";
+/** A thing in the picture, with where the camera put it. */
+export interface InView {
+  subject: PlateSubject;
+  /** the guide's tag; surfaces have none */
+  tag?: string;
+  /** where it is, as words from `plateView` */
+  where: string;
+  doorway: boolean;
+}
 
 /**
- * The spatial half of the prompt: where each thing goes in the frame.
+ * Everything the chosen camera shows, as the prompt needs it: the viewpoint,
+ * the doorways and objects with their tags and positions, and the surfaces.
  *
- * Everything the player could know about is listed. What the chosen camera
- * shows is the MUST list, tagged to match the guide image; anything it cannot
- * show is named as such, so the model is never told to draw a thing it would
- * have to cheat to show.
+ * Only what is in the picture. A thing named in a prompt only to say "do not
+ * draw this" tends to get drawn, so what the camera cannot see is left out
+ * entirely; the page still has a hotspot for it.
  */
-export function plateBrief(p: RoomPlate): string {
+export function plateInView(p: RoomPlate): { viewpoint: string; drawn: InView[]; surfaces: InView[] } {
   const v = p.view;
   const tags = plateTags(p);
-  const L: string[] = [];
-  L.push(
-    `Viewpoint: standing ${v.standing} of the room at eye height, looking ${v.facing}. ` +
-      `The floor runs about ${Math.round(v.deep / 5) * 5} ft ahead and ${Math.round(v.wide / 5) * 5} ft across.`
-  );
-
-  const shown: string[] = [];
-  const unseen: string[] = [];
-  const doors = [
-    ...p.exits.map((x, i) => [x, v.exits[i], ""] as const),
-    [p.entry, v.entry, ", the way the viewer came in"] as const,
-  ];
-  for (const [x, s, note] of doors) {
-    const what = (x.surface ? `${x.name} (the way out to daylight)` : x.name) + note;
-    const why = unseenReason(s);
-    if (why) unseen.push(`- ${what}: ${why}`);
-    else shown.push(`- [${tags.get(x.id)}] Doorway or opening — ${what}: ${exitWhere(s)}`);
+  const viewpoint =
+    `Standing ${v.standing} of the room at eye height, looking ${v.facing}. ` +
+    `The floor runs about ${Math.round(v.deep / 5) * 5} ft ahead and ${Math.round(v.wide / 5) * 5} ft across.`;
+  const drawn: InView[] = [];
+  const surfaces: InView[] = [];
+  const doors = [...p.exits.map((x, i) => [x, v.exits[i]] as const), [p.entry, v.entry] as const];
+  for (const [x, s] of doors) {
+    if (s.visible) drawn.push({ subject: x, tag: tags.get(x.id), where: exitWhere(s), doorway: true });
   }
-  const surfaces: string[] = [];
   p.features.forEach((f, i) => {
     const s = v.features[i];
-    const what = f.kind ? `${f.name} (${f.kind})` : f.name;
-    const why = unseenReason(s);
-    if (why) unseen.push(`- ${what}: ${why}`);
-    else if (f.presence === "surface") {
-      surfaces.push(`- ${what}: ${f.position === "throughout" ? "throughout the room" : featureWhere(s)}`);
-    } else shown.push(`- [${tags.get(f.id)}] ${what}: ${featureWhere(s)}`);
+    if (!s.visible) return;
+    if (f.presence === "surface") {
+      surfaces.push({ subject: f, where: f.position === "throughout" ? "throughout the room" : featureWhere(s), doorway: false });
+    } else drawn.push({ subject: f, tag: tags.get(f.id), where: featureWhere(s), doorway: false });
   });
+  return { viewpoint, drawn, surfaces };
+}
 
-  if (shown.length) L.push("", "Must be drawn, each where stated:", ...shown);
-  if (surfaces.length) L.push("", "Over the walls, floor or air of the room (no single spot):", ...surfaces);
-  if (p.senses.length) {
-    L.push("", "Heard or smelled, not seen (for mood only; draw nothing for these):", ...p.senses.map((x) => `- ${x.name}`));
+/**
+ * The spatial half of the prompt, as text for reading: what `plateInView`
+ * keeps, plus — for the person checking it, never the model — what was left
+ * out and why.
+ */
+export function plateBrief(p: RoomPlate): string {
+  const { viewpoint, drawn, surfaces } = plateInView(p);
+  const L = [`Viewpoint: ${viewpoint}`];
+  const name = (x: InView) =>
+    x.subject.surface ? `${x.subject.name} (the way out to daylight)` : x.subject.kind ? `${x.subject.name} (${x.subject.kind})` : x.subject.name;
+  if (drawn.length) {
+    L.push("", "Must be drawn, each where stated:");
+    for (const x of drawn) {
+      const came = x.subject.id === p.entryId ? ", the way the viewer came in" : "";
+      L.push(`- [${x.tag}] ${x.doorway ? "Doorway or opening — " : ""}${name(x)}${came}: ${x.where}`);
+    }
   }
-  if (unseen.length) L.push("", "Not visible from here (do not draw):", ...unseen);
+  if (surfaces.length) L.push("", "Over the walls, floor or air of the room (no single spot):", ...surfaces.map((x) => `- ${name(x)}: ${x.where}`));
+
+  const unseen: string[] = [];
+  const doors = [...p.exits.map((x, i) => [x, p.view.exits[i]] as const), [p.entry, p.view.entry] as const];
+  for (const [x, s] of doors) {
+    const why = unseenReason(s);
+    if (why) unseen.push(`- ${x.name}${x.id === p.entryId ? " (the way in)" : ""}: ${why}`);
+  }
+  p.features.forEach((f, i) => {
+    const why = unseenReason(p.view.features[i]);
+    if (why) unseen.push(`- ${f.name}: ${why}`);
+  });
+  for (const x of p.senses) unseen.push(`- ${x.name}: heard or smelled, not seen`);
+  if (unseen.length) L.push("", "Left out of the prompt:", ...unseen);
   return L.join("\n");
 }

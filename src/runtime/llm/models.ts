@@ -24,7 +24,12 @@ export type Task =
   /** describing a room the player has just walked into */
   | "room-entry"
   /** the runtime referee: triage, roll confirmation, resolution */
-  | "turn-loop";
+  | "turn-loop"
+  /**
+   * a room plate's words: the room's fiction cut down to what an illustrator
+   * would draw — its shell, and a short look for each thing in the frame
+   */
+  | "plate-visual";
 
 /**
  * Everything is on Haiku 4.5 while the pipeline is being built: it is the
@@ -54,6 +59,7 @@ export const MODELS: Record<Task, string> = {
   "tally-pass": "claude-haiku-4-5",
   "room-entry": "claude-haiku-4-5",
   "turn-loop": "claude-haiku-4-5",
+  "plate-visual": "claude-haiku-4-5",
 };
 
 /**
@@ -74,8 +80,37 @@ export const MAX_TOKENS: Record<Task, number> = {
   "tally-pass": 4096,
   "room-entry": 4096,
   "turn-loop": 4096,
+  // A sentence for the room and a short phrase per thing in the picture.
+  "plate-visual": 1024,
 };
 
 export function modelFor(task: Task): string {
   return MODELS[task];
 }
+
+// ---------------------------------------------------------------------------
+// IMAGE MODELS
+// ---------------------------------------------------------------------------
+
+/**
+ * The image models under trial for room plates, as fal endpoint ids. Same rule
+ * as the text models: no endpoint string anywhere else in the repo.
+ *
+ * Each has two endpoints because a plate is drawn either FROM the guide image
+ * (`guided`: an edit or control endpoint that takes it) or from the prompt
+ * alone (`unguided`: plain text-to-image — exteriors, and the no-guide
+ * control). FLUX.1 [pro] Canny only exists guided: it is a structure lock and
+ * there is nothing for it to lock to without one.
+ *
+ * Settings that are not a model choice — quality, size, steps — live with the
+ * caller, so trying GPT Image 2 at two qualities is one endpoint used twice.
+ */
+export type ImageModel = "gpt-image-2" | "flux-2-klein-4b" | "flux-2-pro" | "flux-1-pro-canny";
+
+export const IMAGE_MODELS: Record<ImageModel, { guided: string; unguided?: string }> = {
+  "gpt-image-2": { guided: "openai/gpt-image-2/edit", unguided: "openai/gpt-image-2" },
+  // 4B rather than 9B: Apache 2.0, where the 9B is non-commercial.
+  "flux-2-klein-4b": { guided: "fal-ai/flux-2/klein/4b/edit", unguided: "fal-ai/flux-2/klein/4b" },
+  "flux-2-pro": { guided: "fal-ai/flux-2-pro/edit", unguided: "fal-ai/flux-2-pro" },
+  "flux-1-pro-canny": { guided: "fal-ai/flux-pro/v1/canny" },
+};

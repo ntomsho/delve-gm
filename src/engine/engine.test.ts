@@ -71,7 +71,10 @@ describe("model strings", () => {
     const offenders = walk(join(process.cwd(), "src"))
       .filter((p) => !p.replace(/\\/g, "/").endsWith("src/runtime/llm/models.ts"))
       .filter((p) => !p.endsWith(".test.ts"))
-      .filter((p) => /["'](claude-[a-z0-9.-]+)["']/.test(readFileSync(p, "utf8")));
+      // Text models by their family prefix; image models by their fal endpoint shape.
+      .filter((p) =>
+        /["'](claude-[a-z0-9.-]+|fal-ai\/[a-z0-9.\/-]+|openai\/gpt-image[a-z0-9.\/-]*)["']/.test(readFileSync(p, "utf8"))
+      );
 
     expect(offenders).toEqual([]);
   });

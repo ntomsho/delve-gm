@@ -11,7 +11,7 @@
  *   - each FEATURE as a dashed outline of its footprint on the floor with a
  *     numbered tag, and each doorway with a lettered tag (`plateTags`). Never a
  *     solid: a box drawn where the altar goes comes back as a box. The prompt
- *     says what each tag is and that no mark is to be drawn (PLATE_GUIDE_NOTE).
+ *     says what each tag is and that no mark is to be drawn (`PLATE_GUIDE_NOTE`, src/engine/plate-prompt.ts).
  *
  * `marks: false` draws the architecture alone, for comparing against a model
  * that copies the marks anyway.

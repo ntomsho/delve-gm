@@ -851,17 +851,79 @@ from a prompt that describes the look in words, keep the 4–6 that are right, a
 the references (and, later, the LoRA's training set).
 
 **The spike comes before any of it**, and the storage and presentation design above
-waits on it too: a model that cannot hold the style makes the rest moot. The spike can
-run before [Paying for strangers](#paying-for-strangers) is built, because it is a dev
-script on the author's own key. It needs a `FAL_KEY` in `.env.local`. fal should serve
-every candidate above with one key; check that each one is listed before writing the
-script. A dev script, `src/dev/cli-illustrate.ts`: ~8 rooms
-from R1's dungeon plus a few of its creature kinds, the filtered prompts, 3–4 models
-through one aggregator key, the threshold and the border flood-fill, written to a side by
-side HTML contact sheet with cost and time per image. About $1–2 and a couple of minutes.
-It answers: which model holds the style, does the plate match the room, does the
-threshold rescue the cheap models, does the flood-fill leave clean sprites, and in-scene
-or spot art.
+waits on it too: a model that cannot hold the style makes the rest moot.
+
+*Round 1 is built and runs on the author's keys* (`ANTHROPIC_API_KEY` and `FAL_KEY` in
+`.env.local`):
+
+```
+node src/dev/cli-illustrate.ts --dry   # everything but the images
+node src/dev/cli-illustrate.ts         # ~144 images, est. $6.36
+```
+
+It writes a contact sheet to `out/illustrate/index.html`.
+
+- **Subjects** (`src/dev/plate-subjects.ts`): 3 exteriors and 12 interiors, chosen to cover
+  the layouts and a spread of looks (cave, rough-hewn or dressed stone; ruined, occupied
+  or pristine; wet or dry; overgrown or lifeless).
+  - Each interior is a real offline room picked by layout, with hand-written fiction at
+    content-pass length. Footprints are relabelled only where the shape suits.
+  - Single things (an altar, a desk) only take one-piece footprints.
+- **What the image model gets**:
+  - a fixed style text (`PLATE_STYLE`, versioned by `PLATE_STYLE_VERSION`);
+  - the guide image's role;
+  - a per-dungeon SETTING line;
+  - the room's shell;
+  - every thing in the frame, with a short look and where it goes.
+
+  The looks and shell come from one Haiku call per plate (`plate-visual` task,
+  `src/runtime/plate-visual.ts`; request text in `src/engine/plate-prompt.ts`), which is
+  forbidden numbers and positions. The WHERE is `plateView`'s.
+  - Out-of-frame things and senses are not mentioned at all; naming something only to
+    say "don't draw it" invites it.
+  - Exteriors are built from their description alone: a dungeon's THEME is about its
+    inside, and brought ceilings into an outside view.
+- **Setups**:
+  - GPT Image 2 at low (marks, plain, none) and medium (marks, plain)
+  - FLUX.2 [klein] 4B (marks, plain, none)
+  - FLUX.2 [pro] (marks, plain)
+  - FLUX.1 [pro] Canny (plain only: it locks to edges, so marks would come back as edges)
+
+  Endpoint ids live in `IMAGE_MODELS` (`src/runtime/llm/models.ts`). Every image is shown
+  converted to 1-bit with the page's buttons laid over it.
+**Spike outcome — DECIDED (2026-10-13, about $8 in all).** Judged on the 1-bit versions.
+
+- **Interiors: GPT Image 2 at low quality, with the marked guide plus style references.**
+  About $0.015 and 20 s a plate.
+  - Of everything tried, GPT followed the prompt and the guide most closely. Medium
+    quality was no better than low.
+  - The marked guide fits the layout a little more closely than the unmarked one (the
+    author's call), so marks stay. GPT never drew them; klein always did.
+  - Canny was useless: it returned the wireframe with nothing on the walls.
+- **Style: PLATE_STYLE v2, "sparse"**: mostly white paper, shading only in the deepest
+  shadows. v1 asked for cross-hatching and stippling and got dense engraving that went
+  busy or black at 1-bit.
+- **Style references: klein [4B] no-guide plates of I7, I8, I9 and I10** (barracks, flooded
+  nave, overgrown temple, forge cave), in the sparse style.
+  - They are sent as 1-bit at 768×512, after the guide, with a role note
+    (`plateReferenceNote`). Any frame klein drew is cropped off first.
+  - Klein had the best line art of any model but follows content loosely. Its plates as
+    references gave GPT's content klein's look.
+  - The references are kept in the repo at `assets/plate-refs/` (with a README saying
+    where each came from). The server route has to bundle them; on Vercel that means
+    listing them in the function's included files.
+- **Exteriors: klein [4B], prompt only, sparse style.** It was best on the castle and tied
+  on the abbey. Exteriors get no references; the text-to-image endpoint takes none.
+- **Open, refine later:**
+  - **Framing:** GPT sometimes swaps the guide's angled view for a symmetrical,
+    straight-on one (I2, I6). I8's one-point composition may be pulling it. Swapping I8
+    for an angled reference is the first thing to try.
+  - **Busy rooms:** foliage- and texture-heavy rooms (I4, I9, I12) still come out busier
+    than the references.
+  - **Condensed vs raw:** the check of condensed words against the raw fiction
+    (`rawVisual`) was not run.
+  - **Depth control:** a depth-map structure lock (the next thing to try if button
+    placement turns out too loose) was not tried.
 
 ---
 
