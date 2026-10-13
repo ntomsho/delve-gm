@@ -114,3 +114,17 @@ export const IMAGE_MODELS: Record<ImageModel, { guided: string; unguided?: strin
   "flux-2-pro": { guided: "fal-ai/flux-2-pro/edit", unguided: "fal-ai/flux-2-pro" },
   "flux-1-pro-canny": { guided: "fal-ai/flux-pro/v1/canny" },
 };
+
+/**
+ * What draws a room plate in the game: GPT Image 2 at low quality, from the
+ * marked guide and the style references (BUILD-PLAN, *Illustrations*, "Spike
+ * outcome"). Part of every plate's key, so changing it redraws from then on.
+ */
+export const PLATE_MODEL: ImageModel = "gpt-image-2";
+
+/**
+ * What draws a dungeon's cover, its exterior: FLUX.2 [klein] 4B from the
+ * prompt alone. The spike found it best on exteriors, and its text-to-image
+ * endpoint takes no references.
+ */
+export const COVER_MODEL: ImageModel = "flux-2-klein-4b";

@@ -47,6 +47,7 @@
 import { createGameStore, type RunState } from "../store/game.ts";
 import { acceptsInput, isTerminal, type Stage, type Step } from "./types.ts";
 import type { GeneratedDungeon, GenerationProgress } from "./generate.ts";
+import type { PlateAnswer } from "./plates.ts";
 import type { PlayableSession, RunRequest } from "./session.ts";
 import type { PlayerCharacter } from "../engine/index.ts";
 
@@ -222,11 +223,52 @@ export function createRemoteSession(opts: RemoteOptions = {}): PlayableSession {
     version = created.run.version;
     store.setState({ dungeon: created.dungeon, run: created.run.state, lastEvents: [] });
 
+    void cover();
     await act("enter");
+  }
+
+  /**
+   * Plates asked for, by room. The promise is kept, not the answer, so a second
+   * ask while the first is still drawing (a re-mount, a second panel) waits on
+   * the same request instead of being told "pending" by its own claim.
+   */
+  const plates = new Map<string, Promise<PlateAnswer>>();
+
+  /** One ask of a plate-like route, kept until it is an answer. See `plates`. */
+  function askOnce(key: string, path: string): Promise<PlateAnswer> {
+    let asked = plates.get(key);
+    if (!asked) {
+      asked = (async (): Promise<PlateAnswer> => {
+        const res = await http(`${base}${path}`);
+        // A picture is never worth an error on the page: anything but an answer is none.
+        return res.ok ? ((await res.json()) as PlateAnswer) : { status: "none" };
+      })().catch((): PlateAnswer => ({ status: "none" }));
+      plates.set(key, asked);
+      // "Ask again later" is not an answer to keep.
+      void asked.then((a) => a.status === "pending" && plates.delete(key));
+    }
+    return asked;
+  }
+
+  /**
+   * The cover, asked for as soon as there is a run. On a dungeon just written
+   * this is the ask that draws it, so it starts now rather than when the
+   * opening renders: the picture is then seconds behind the prose, not more.
+   */
+  function cover(): Promise<PlateAnswer> {
+    if (!runId) return Promise.resolve({ status: "none" });
+    return askOnce("cover", `/api/runs/${runId}/cover`);
   }
 
   return {
     store,
+
+    plate(roomId: string): Promise<PlateAnswer> {
+      if (!runId) return Promise.resolve({ status: "none" });
+      return askOnce(`room:${roomId}`, `/api/runs/${runId}/plates/${encodeURIComponent(roomId)}`);
+    },
+
+    cover,
 
     async begin({ seed, size, level, character }: RunRequest) {
       // Same guard as the in-process session, for the same reason: React mounts

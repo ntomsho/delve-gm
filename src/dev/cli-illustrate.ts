@@ -40,7 +40,7 @@ import { generateOffline } from "../runtime/__fixtures__/offline.ts";
 import type { GeneratedDungeon } from "../runtime/generate.ts";
 import { configureTransport } from "../runtime/llm/client.ts";
 import { IMAGE_MODELS, type ImageModel } from "../runtime/llm/models.ts";
-import { plateSketchSvg } from "../runtime/plate-sketch.ts";
+import { guidePng, oneBitPng, PLATE_H, PLATE_THRESHOLD, PLATE_W } from "../server/plate-image.ts";
 import {
   exteriorPlatePrompt,
   plateImagePrompt,
@@ -58,9 +58,7 @@ import { EXTERIORS, INTERIORS, THEMES, type Candidate, type InteriorSubject } fr
 // SETUPS
 // ---------------------------------------------------------------------------
 
-const W = 1536;
-const H = 1024;
-const SIZE = { width: W, height: H };
+const SIZE = { width: PLATE_W, height: PLATE_H };
 
 interface Setup {
   id: string;
@@ -170,8 +168,6 @@ const STYLES: Record<string, string> = {
     "lettering. No people, no creatures, no loose objects.",
 };
 
-/** Where a 1-bit pixel turns black. Below the middle so light hatching survives. */
-const THRESHOLD = 150;
 const CONCURRENCY = 4;
 
 // ---------------------------------------------------------------------------
@@ -413,18 +409,9 @@ function writeJson(path: string, value: unknown): void {
   writeFileSync(path, JSON.stringify(value, null, 2));
 }
 
-/**
- * The guide at the plate's full size. Drawn at the width its line weights
- * were set for and scaled up as a vector, so walls, dashes and tags all grow
- * together; drawn at full width instead, they come out hairline.
- */
-async function guidePng(p: RoomPlate, marks: boolean, path: string): Promise<void> {
+async function writeGuide(p: RoomPlate, marks: boolean, path: string): Promise<void> {
   mkdirSync(dirname(path), { recursive: true });
-  const drawnAt = 480;
-  await sharp(Buffer.from(plateSketchSvg(p, { marks, width: drawnAt })), { density: (72 * W) / drawnAt })
-    .resize(W, H)
-    .png()
-    .toFile(path);
+  writeFileSync(path, await guidePng(p, marks));
 }
 
 /** Where a reference's source plate can be: the runs it was drawn in, newest style first. */
@@ -482,7 +469,7 @@ async function prepareRef(id: string, outDir: string): Promise<string> {
 }
 
 async function toOneBit(raw: string, out: string): Promise<void> {
-  await sharp(raw).flatten({ background: "#ffffff" }).greyscale().threshold(THRESHOLD).png({ palette: true, colours: 2 }).toFile(out);
+  writeFileSync(out, await oneBitPng(readFileSync(raw)));
 }
 
 /**
@@ -632,8 +619,8 @@ async function main(): Promise<void> {
       visual = (await requestPlateVisual(b.plate)).value;
       writeJson(visualPath, { source: visualSource, value: visual });
     }
-    await guidePng(b.plate, true, join(sdir, "guide-marks.png"));
-    await guidePng(b.plate, false, join(sdir, "guide-plain.png"));
+    await writeGuide(b.plate, true, join(sdir, "guide-marks.png"));
+    await writeGuide(b.plate, false, join(sdir, "guide-plain.png"));
     const setting = settings[b.subject.theme];
     const prompts = Object.fromEntries(
       (["marks", "plain", "none"] as GuideMode[]).map((m) => [m, plateImagePrompt(b.plate, m, setting, visual!, style, refs.length)])
@@ -816,7 +803,7 @@ function writeSheet(dir: string, sections: string[], jobs: Job[], manifest: Reco
 <h1>Room plate spike — style: ${styleName}</h1>
 <p class="meta">${esc(STYLES[styleName])}</p>
 <div class="controls">
-  <label><input type="checkbox" id="show-raw"> Show raw output (default: converted to 1-bit at ${THRESHOLD})</label>
+  <label><input type="checkbox" id="show-raw"> Show raw output (default: converted to 1-bit at ${PLATE_THRESHOLD})</label>
   &nbsp; <label><input type="checkbox" id="show-buttons"> Show the page's buttons</label>
   &nbsp; <span class="meta">${jobs.length} images · ~$${spent.toFixed(2)} spent so far (estimate) · click an image for full size</span>
 </div>

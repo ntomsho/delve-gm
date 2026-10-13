@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 import { isSurfaceExit, touches } from "../engine/index.ts";
 import { generateOffline } from "./__fixtures__/offline.ts";
 import { plateSketchSvg } from "./plate-sketch.ts";
-import { plateBrief, plateEntries, plateTags, roomPlate } from "./plates.ts";
+import { plateBrief, plateEntries, plateEntryFor, plateTags, roomPlate } from "./plates.ts";
 
 const SEEDS = [1005, 42, 4201];
 
@@ -55,7 +55,7 @@ describe("roomPlate", () => {
           const p = roomPlate(d, gr.entityId, entryId)!;
           const svg = plateSketchSvg(p);
           for (const [id, t] of plateTags(p)) {
-            if (!svg.includes(`>${t}</text>`)) missing.push(`seed ${seed} ${p.roomName} via ${entryId}: ${t} (${id})`);
+            if (!svg.includes(`data-tag="${t}"`)) missing.push(`seed ${seed} ${p.roomName} via ${entryId}: ${t} (${id})`);
           }
         }
       }
@@ -122,5 +122,30 @@ describe("roomPlate", () => {
     const roomId = d.graph.rooms[0].entityId;
     const elsewhere = d.entities.connectors.find((c) => !touches(c, roomId))!;
     expect(roomPlate(d, roomId, elsewhere.id)).toBeUndefined();
+  });
+});
+
+describe("plateEntryFor", () => {
+  const d = generateOffline(1005, 1);
+  const entrance = d.stocked.entranceRoomId;
+  const other = d.graph.rooms.map((r) => r.entityId).find((id) => id !== entrance && plateEntries(d, id).length > 1)!;
+  const [first, second] = plateEntries(d, other);
+
+  it("refuses a room the run has not been in", () => {
+    expect(plateEntryFor(d, { log: [], currentRoomId: entrance }, other)).toBeUndefined();
+  });
+
+  it("draws from the door the first arrival was logged with", () => {
+    const log = [
+      { kind: "arrival", roomId: other, via: second },
+      { kind: "arrival", roomId: other, via: first },
+    ];
+    expect(plateEntryFor(d, { log, currentRoomId: entrance }, other)).toBe(second);
+  });
+
+  it("falls back to arrivedVia, then the way out of the dungeon", () => {
+    expect(plateEntryFor(d, { log: [], currentRoomId: other, arrivedVia: second }, other)).toBe(second);
+    const out = plateEntryFor(d, { log: [{ kind: "arrival", roomId: entrance }], currentRoomId: other }, entrance)!;
+    expect(isSurfaceExit(d.entities.connectors.find((c) => c.id === out)!)).toBe(true);
   });
 });

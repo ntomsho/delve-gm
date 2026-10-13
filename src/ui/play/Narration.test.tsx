@@ -69,3 +69,48 @@ describe("a creature's roll against them", () => {
     expect(t).not.toMatch(/vs/i);
   });
 });
+
+describe("a room's plate", () => {
+  const log = [
+    { kind: "arrival" as const, text: "A hall.", roomId: "r1", turn: 1 },
+    { kind: "arrival" as const, text: "A cell.", roomId: "r2", turn: 2 },
+    { kind: "arrival" as const, text: "The hall again.", roomId: "r1", turn: 3 },
+  ];
+
+  it("is asked for once per room, at its first arrival", () => {
+    const asked: string[] = [];
+    const plate = async (roomId: string) => {
+      asked.push(roomId);
+      return { status: "pending" as const };
+    };
+    const { container } = renderDom(h(Narration, { items: toItems(log, (id) => id), plate }));
+    expect(asked).toEqual(["r1", "r2"]);
+    expect(container.querySelectorAll('[aria-label$="still being drawn"]').length).toBe(2);
+  });
+
+  it("is never asked for without a loader, as on a local run", () => {
+    const { container } = renderDom(h(Narration, { items: toItems(log, (id) => id) }));
+    expect(container.querySelectorAll('[aria-label*="A drawing of"]').length).toBe(0);
+  });
+});
+
+describe("the dungeon's cover", () => {
+  const log = [{ kind: "opening" as const, text: "You came for the egg.", turn: 0 }];
+  const dungeon = { name: "The Drowned Aviary", objective: "Steal the brass egg" };
+
+  it("is asked for above the opening", () => {
+    let asked = 0;
+    const cover = async () => {
+      asked++;
+      return { status: "pending" as const };
+    };
+    const { container } = renderDom(h(Narration, { items: toItems(log, () => "", dungeon), cover }));
+    expect(asked).toBe(1);
+    expect(container.querySelector('[aria-label="A drawing of The Drowned Aviary, still being drawn"]')).not.toBeNull();
+  });
+
+  it("is never asked for on a local run", () => {
+    const { container } = renderDom(h(Narration, { items: toItems(log, () => "", dungeon) }));
+    expect(container.querySelector('[aria-label*="A drawing of"]')).toBeNull();
+  });
+});

@@ -320,6 +320,7 @@ export function createTurnMachine(referee: Referee, deps: TurnDeps): TurnMachine
         kind: entering ? "arrival" : "referee",
         text: reply.narration,
         ...(entering ? { roomId: before.currentRoomId } : {}),
+        ...(entering && before.arrivedVia ? { via: before.arrivedVia } : {}),
       });
       state().pushTranscript({ role: "referee", text: reply.narration });
     }
@@ -465,7 +466,12 @@ export function createTurnMachine(referee: Referee, deps: TurnDeps): TurnMachine
     // alternative to being wrong here is an arrival with no prose at all.
     if (shown !== undefined && needsComposition(r).length === 0) {
       journal.log({ kind: "narration", text: shown, arrival: true, roomId: r.currentRoomId });
-      state().pushLog({ kind: "arrival", text: shown, roomId: r.currentRoomId });
+      state().pushLog({
+        kind: "arrival",
+        text: shown,
+        roomId: r.currentRoomId,
+        ...(r.arrivedVia ? { via: r.arrivedVia } : {}),
+      });
       // Onto the referee's side of the exchange as well, exactly as a written
       // arrival lands there — the next call should not be able to tell which
       // kind of entry it followed.

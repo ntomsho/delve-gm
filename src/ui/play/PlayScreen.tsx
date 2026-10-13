@@ -33,6 +33,7 @@ import { acceptsInput, isTerminal } from "../../runtime/types.ts";
 import { characterView, mapView, roomView, shownRoom } from "../../store/selectors.ts";
 import type { GeneratedDungeon } from "../../runtime/generate.ts";
 import type { RunState } from "../../store/game.ts";
+import type { PlateAnswer } from "../../runtime/plates.ts";
 import { PHONE, TOUCH, useMediaQuery } from "../media.ts";
 
 export interface PlayScreenProps {
@@ -51,6 +52,10 @@ export interface PlayScreenProps {
    * local run, which has no roster to go back to.
    */
   onMainMenu?: () => void;
+  /** a room's plate for its first arrival. Absent on a local run, which never asks. */
+  plate?: (roomId: string) => Promise<PlateAnswer>;
+  /** the dungeon's cover, above the opening. Absent on a local run. */
+  cover?: () => Promise<PlateAnswer>;
 }
 
 export function PlayScreen({
@@ -63,6 +68,8 @@ export function PlayScreen({
   onAbandon,
   onLeave,
   onMainMenu,
+  plate,
+  cover,
 }: PlayScreenProps) {
   const [draft, setDraft] = useState("");
   const phone = useMediaQuery(PHONE);
@@ -182,7 +189,14 @@ export function PlayScreen({
   // Each panel built once, and laid out by whichever shell is showing.
   const narration = (
     <>
-      <Narration items={items} busy={busy} resolving={run.stage === "resolving"} compact={phone} />
+      <Narration
+        items={items}
+        busy={busy}
+        resolving={run.stage === "resolving"}
+        compact={phone}
+        {...(plate ? { plate } : {})}
+        {...(cover ? { cover } : {})}
+      />
       <InputArea
         stage={run.stage}
         roll={run.pendingRoll}

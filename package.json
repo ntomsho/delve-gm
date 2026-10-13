@@ -34,6 +34,7 @@
     "@fal-ai/client": "1.10.1",
     "@hono/node-server": "^2.1.1",
     "@supabase/supabase-js": "^2.112.3",
+    "@vercel/functions": "3.9.9",
     "hono": "^4.13.2",
     "jose": "^6.2.9",
     "postgres": "^3.4.9",

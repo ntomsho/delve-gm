@@ -317,15 +317,13 @@ describe("the map header", () => {
 });
 
 describe("run setup", () => {
-  it("states the cost of the size it is defaulted to", () => {
+  it("offers no size: every new world is size 1", () => {
     const html = renderToStaticMarkup(
       // Sheets, not roster entries: run setup only ever sees the characters who
       // can actually go, which App filters before it gets here.
       h(RunSetup, { characters: cs.map((e) => e.sheet), onConfirm: noop, onBack: noop })
     );
-    // Size 2 is two regions of six, and one writing call per region. If that
-    // ratio changes in `seeds.ts`, this screen is lying and this test says so.
-    expect(html).toContain("12 rooms · 2 regions · 2 writing calls");
+    expect(html).not.toContain("Size");
     expect(html).toContain("Go down");
     expect(html).toContain("Testy");
   });
@@ -373,9 +371,9 @@ describe("run setup", () => {
     expect(html).toContain("Size 3 · Level 2");
   });
 
-  it("still defaults to a new world, so the size controls are there", () => {
+  it("still defaults to a new world, so the difficulty control is there", () => {
     const html = setup([world()]);
-    expect(html).toContain("12 rooms · 2 regions · 2 writing calls");
+    expect(html).toContain("Difficulty");
     expect(html).toContain("The dungeon starts being written the moment you press it");
   });
 });

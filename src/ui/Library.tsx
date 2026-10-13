@@ -37,6 +37,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "./create/shared.tsx";
 import type { DungeonSummary, LibraryPage } from "../store/dungeons.ts";
+import { Ink } from "./play/Plate.tsx";
 import type { PlayerCharacter } from "../engine/index.ts";
 
 const LABEL = "font-mono text-[9px] tracking-[0.16em] text-graphite uppercase";
@@ -79,6 +80,9 @@ function Card({
 }) {
   return (
     <li className="flex flex-col border border-rule bg-paper p-5">
+      {dungeon.cover && (
+        <Ink url={dungeon.cover} className="mb-4 aspect-[3/2] w-full" label={`${dungeon.name}, from outside`} />
+      )}
       <div className={LABEL}>{written(dungeon.createdAt)}</div>
 
       <h2 className="mt-2 font-prose text-[21px] font-semibold leading-tight text-ink">

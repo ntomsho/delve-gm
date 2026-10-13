@@ -37,6 +37,43 @@ import { plateTags, type RoomPlate } from "./plates.ts";
 const INK = "#000000";
 const PAPER = "#FFFFFF";
 
+/**
+ * Tag lettering as strokes, not `<text>`. The guide is rasterised by sharp on
+ * the server, and a serverless function has no fonts installed: `<text>` there
+ * comes out as empty boxes or nothing. A path needs no font, so the guide is
+ * the same on the author's machine and on Vercel.
+ *
+ * Capitals and digits on a 4 × 6 grid, y down. 0 is slashed so it is not O.
+ */
+const GLYPHS: Record<string, string> = {
+  "0": "M0 0H4V6H0ZM4 0L0 6", "1": "M1 1L2 0V6M1 6H3", "2": "M0 0H4V3H0V6H4", "3": "M0 0H4V6H0M1 3H4",
+  "4": "M0 0V3H4M4 0V6", "5": "M4 0H0V3H4V6H0", "6": "M4 0H0V6H4V3H0", "7": "M0 0H4L1 6",
+  "8": "M0 0H4V6H0ZM0 3H4", "9": "M4 3H0V0H4V6H0",
+  A: "M0 6L2 0L4 6M1 3.5H3", B: "M0 0V6H3L4 5V4L3 3H0M0 0H3L4 1V2L3 3", C: "M4 0H0V6H4",
+  D: "M0 0V6H2.5L4 4.5V1.5L2.5 0Z", E: "M4 0H0V6H4M0 3H3", F: "M4 0H0V6M0 3H3", G: "M4 0H0V6H4V3H2",
+  H: "M0 0V6M4 0V6M0 3H4", I: "M1 0H3M2 0V6M1 6H3", J: "M4 0V6H0V4", K: "M0 0V6M4 0L0 3.5M1.5 2.5L4 6",
+  L: "M0 0V6H4", M: "M0 6V0L2 3L4 0V6", N: "M0 6V0L4 6V0", O: "M0 0H4V6H0Z", P: "M0 6V0H4V3H0",
+  Q: "M0 0H4V6H0ZM2.5 4.5L4 6", R: "M0 6V0H4V3H0M2 3L4 6", S: "M4 0H0V3H4V6H0", T: "M0 0H4M2 0V6",
+  U: "M0 0V6H4V0", V: "M0 0L2 6L4 0", W: "M0 0L1 6L2 3L3 6L4 0", X: "M0 0L4 6M4 0L0 6",
+  Y: "M0 0L2 3L4 0M2 3V6", Z: "M0 0H4L0 6H4",
+};
+
+/** `text` centred on (cx, cy), about the size the old 11px bold label was. */
+function strokeText(text: string, cx: number, cy: number): string {
+  const k = 8 / 6;
+  const advance = 4 * k + 2;
+  const chars = [...text.toUpperCase()].filter((ch) => GLYPHS[ch]);
+  const x0 = cx - (chars.length * advance - 2) / 2;
+  const strokes = chars
+    .map(
+      (ch, i) =>
+        `<path d="${GLYPHS[ch]}" transform="translate(${(x0 + i * advance).toFixed(1)} ${(cy - 4).toFixed(1)}) scale(${k.toFixed(3)})" ` +
+        `fill="none" stroke="${INK}" stroke-width="${(1.7 / k).toFixed(2)}" stroke-linecap="round" stroke-linejoin="round"/>`
+    )
+    .join("");
+  return `<g data-tag="${text}">${strokes}</g>`;
+}
+
 const WALL_FT = PLATE_WALL_FT;
 const DOOR_FT = PLATE_DOOR_FT;
 /** Nothing nearer the eye than this is drawn; polygons are cut at it. */
@@ -184,8 +221,7 @@ export function plateSketchSvg(p: RoomPlate, opts: SketchOptions = {}): string {
     const s = { x: q.x * W, y: q.y * H };
     tagMarks.push(
       `<circle cx="${s.x.toFixed(1)}" cy="${s.y.toFixed(1)}" r="9" fill="${PAPER}" stroke="${INK}" stroke-width="1.2"/>` +
-        `<text x="${s.x.toFixed(1)}" y="${(s.y + 4).toFixed(1)}" font-family="sans-serif" font-size="11" ` +
-        `font-weight="700" fill="${INK}" text-anchor="middle">${text}</text>`
+        strokeText(text, s.x, s.y)
     );
   };
 

@@ -700,7 +700,7 @@ either, because then only that run could see it and every copy would pay again.
 
 ```sql
 create table public.plates (
-  key        text primary key,   -- sha256 of (prompt, model, PLATE_STYLE_VERSION)
+  key        text primary key,   -- sha256 of what the plate is drawn from (`plateKey`)
   status     text not null check (status in ('pending', 'ready', 'failed')),
   path       text,               -- object path in the storage bucket
   model      text not null,
@@ -710,8 +710,12 @@ create table public.plates (
 );
 ```
 
-- **The key is a hash of the prompt, and that gives sharing for free.** The prompt is
-  a pure function of the room's `base` as generated. A copy of a dungeon builds the same
+- **The key is a hash of what the plate is drawn from, and that gives sharing for
+  free.** Not of the final prompt: that carries words Haiku wrote, which differ every
+  call, so a key made from it would never be found again. `plateKey`
+  (`src/server/plates.ts`) hashes the Haiku requests, the layout half of the prompt, the
+  guide SVG, the style version, the model and quality, and the number of references.
+  All of it is a pure function of the room's `base` as generated. A copy of a dungeon builds the same
   prompt and so finds the same image. Two worlds from one seed have different prose, so
   they get different images, which is correct (13a: a seed is a skeleton, not a world).
   Bumping `PLATE_STYLE_VERSION` or changing the model redraws everything from then on,
@@ -743,6 +747,49 @@ create table public.plates (
 - **`?offline` and `?stub` never request a plate.** The fixture pages stay free.
 - **Images outlive their dungeons.** Shared by key, so no one dungeon owns one, and at
   ~100 KB each an orphan costs too little to be worth a sweep.
+
+**Room plates are BUILT (2026-10-13)** as described here:
+- migration `20261013120000_plates.sql`, with `plates`, `plate_words` and the public
+  `plates` bucket;
+- `servePlate` / `livePlateWork` in `src/server/plates.ts`;
+- the sharp steps in `src/server/plate-image.ts`;
+- the route in `src/server/app.ts`;
+- `Plate.tsx` in the narration.
+
+Differences from the design above:
+- **The way in is the run's.** Each arrival in the log records `via`, the connector it
+  came in by. `plateEntryFor` draws from the first arrival's door, so the client names
+  only the room.
+- **The drawing starts on the server, the moment a turn puts the player in a room
+  they have not arrived in** (`playTurn`, kept alive with `waitUntil`), alongside the
+  arrival prose. The page's own ask then finds the plate pending, then ready. Asking
+  only from the page put the ~25 s drawing behind the prose.
+- **`plate_words`** keeps the per-dungeon SETTING line, so every plate in a dungeon is
+  drawn against the same line.
+- **Three paid calls in one request:** the setting (once per dungeon), the room's words
+  and the image. That is about 25–35 s.
+- **No budget check yet.** The `spend` ledger and `DAILY_BUDGET_USD` do not exist (see
+  [Paying for strangers](#paying-for-strangers)). The gate today is that a plate is
+  only drawn for an entered room, at most `PLATE_MAX_ATTEMPTS` (3) tries per key.
+  When the ledger lands, the claim in `servePlate` is where the check goes.
+- **The off switch is configuration.** Without `FAL_KEY`, `SUPABASE_URL` and
+  `SUPABASE_SERVICE_ROLE_KEY`, every room answers `none`.
+- **Guide tags are stroked paths, not `<text>`.** A serverless function has no fonts,
+  so sharp would rasterise `<text>` as nothing.
+
+**Dungeon covers are BUILT (2026-10-13).** A cover is the dungeon's exterior: the picture
+on its library card, beside it in run setup, and above its opening.
+- **When:** `finish` names the cover's key on the row (`dungeons.cover`, migration
+  `20261013180000_dungeon_covers.sql`). It stays beside `doc`, never in it.
+- **Drawn by the first ask:** `GET /api/runs/:id/cover`, which the client sends the moment
+  a run starts. So a new dungeon's cover lands a few seconds after its opening, and the
+  run never waits for it.
+- **From:** `coverDescription`, which is the opening prose plus the surface connector
+  into the first room, condensed by `requestPlateExterior` and drawn by `COVER_MODEL`
+  (klein 4B, prompt only, seeded with the dungeon seed). It is stored in `plates` like a
+  room plate.
+- **Copies** carry the key, so they share the picture. Dungeons finished before covers
+  have none and are never drawn.
 
 **Presentation: inline, at the arrival, in the page's own ink.**
 

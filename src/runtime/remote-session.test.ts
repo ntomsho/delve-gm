@@ -83,6 +83,8 @@ describe("generating through the API", () => {
       "POST /api/dungeons/dungeon_rx/chunks/2",
       "POST /api/dungeons/dungeon_rx/finish",
       "POST /api/runs",
+      // The cover, asked for as the run starts and not waited on.
+      "GET /api/runs/run-1/cover",
       "POST /api/runs/run-1/enter",
     ]);
 
@@ -121,6 +123,8 @@ describe("going down a world that is already written", () => {
     // No structure pass, no regions, no join — and therefore no bill.
     expect(sent.map((s) => `${s.method} ${s.path}`)).toEqual([
       "POST /api/runs",
+      // The cover, asked for as the run starts and not waited on.
+      "GET /api/runs/run-1/cover",
       "POST /api/runs/run-1/enter",
     ]);
   });

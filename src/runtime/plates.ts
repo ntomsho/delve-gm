@@ -271,3 +271,51 @@ export function plateBrief(p: RoomPlate): string {
   if (unseen.length) L.push("", "Left out of the prompt:", ...unseen);
   return L.join("\n");
 }
+
+/**
+ * Which way in a run's plate of `roomId` is drawn from, or undefined when the
+ * run has not been there (a plate of an unentered room shows the player that
+ * room) or the room cannot be drawn.
+ *
+ * The door is the one the FIRST arrival was logged with, since the plate sits
+ * at that arrival. An arrival logged before `via` was kept falls back to the
+ * run's `arrivedVia` while they are still in the room, then to the way out of
+ * the dungeon if the room has it, then to the first door the plan drew.
+ */
+export function plateEntryFor(
+  d: GeneratedDungeon,
+  run: { log: { kind: string; roomId?: string; via?: string }[]; currentRoomId: string; arrivedVia?: string },
+  roomId: string
+): string | undefined {
+  const first = run.log.find((e) => e.kind === "arrival" && e.roomId === roomId);
+  const here = run.currentRoomId === roomId;
+  if (!first && !here) return undefined;
+  const entries = plateEntries(d, roomId);
+  const wanted = first?.via ?? (here ? run.arrivedVia : undefined);
+  if (wanted && entries.includes(wanted)) return wanted;
+  const surface = d.entities.connectors.find((c) => entries.includes(c.id) && isSurfaceExit(c));
+  return surface?.id ?? entries[0];
+}
+
+/**
+ * What the server says about a room's plate. `pending`: somebody's request is
+ * drawing it, ask again shortly. `none`: there is not going to be one.
+ */
+export type PlateAnswer = { status: "ready"; url: string } | { status: "pending" } | { status: "none" };
+
+/**
+ * What a dungeon's cover is drawn from: the opening the player reads, and the
+ * way in that brings them to the first room — the place and its entrance as
+ * someone approaching would see them.
+ *
+ * Not the theme: that is about the inside, and in the spike it put ceilings
+ * into an outside view. Concealment does not arise; the way in from the surface
+ * is never hidden. Undefined for a dungeon with no way in from the surface.
+ */
+export function coverDescription(d: GeneratedDungeon): string | undefined {
+  const entrance = d.stocked.entranceRoomId;
+  const way = d.entities.connectors.find((c) => isSurfaceExit(c) && touches(c, entrance));
+  if (!way) return undefined;
+  const base = resolveBase(way, d.entities.registry) ?? "";
+  return [`THE PLACE: ${d.pass.name}`, d.pass.openingProse, "", `THE WAY IN: ${way.name}. ${base}`].join("\n");
+}

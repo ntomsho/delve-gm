@@ -175,6 +175,16 @@ describe("reading the shelf", () => {
 });
 
 describe("a card", () => {
+  it("carries the world's cover when it has one, and no picture when it has none", async () => {
+    const load = async (): Promise<LibraryPage> => ({
+      dungeons: [world(1, { cover: "https://cdn.example/plates/a.png" }), world(2)],
+    });
+    const page = await open(load);
+    const covers = [...page.container.querySelectorAll('[role="img"]')];
+    expect(covers.map((c) => c.getAttribute("aria-label"))).toEqual(["Hole 1, from outside"]);
+    expect((covers[0] as HTMLElement).style.maskImage).toContain("https://cdn.example/plates/a.png");
+  });
+
   it("names the character who would go down, on every one", async () => {
     const { load } = shelf(3, 3);
     const page = await open(load);

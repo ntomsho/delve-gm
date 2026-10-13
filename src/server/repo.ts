@@ -324,6 +324,8 @@ export interface StoredDungeon {
   ownerId: string;
   status: "partial" | "complete";
   doc: GeneratedDungeon;
+  /** the `plates` key of its cover; null for a dungeon finished before covers existed */
+  cover: string | null;
 }
 
 /**
@@ -343,6 +345,11 @@ export interface DungeonSummary {
   seed: number;
   status: "partial" | "complete";
   createdAt: string;
+  /**
+   * The cover's object path in the `plates` bucket, once it is drawn. The API
+   * turns it into a URL (`plateUrl`) before it leaves the server.
+   */
+  coverPath?: string | null;
 }
 
 /**
@@ -379,7 +386,7 @@ export async function findUnfinishedDungeon(
   sql: postgres.Sql = db()
 ): Promise<StoredDungeon | undefined> {
   const [row] = await sql<StoredDungeon[]>`
-    select id, dungeon_key as "dungeonKey", owner_id as "ownerId", status, doc
+    select id, dungeon_key as "dungeonKey", owner_id as "ownerId", status, doc, cover
       from dungeons
      where owner_id = ${owner} and status = 'partial' and copied_from is null
        and seed = ${dice.seed} and size = ${dice.size} and level = ${dice.level}
@@ -402,7 +409,7 @@ export async function getDungeon(
   sql: postgres.Sql = db()
 ): Promise<StoredDungeon | undefined> {
   const [row] = await sql<StoredDungeon[]>`
-    select id, dungeon_key as "dungeonKey", owner_id as "ownerId", status, doc
+    select id, dungeon_key as "dungeonKey", owner_id as "ownerId", status, doc, cover
       from dungeons where id = ${id} and owner_id = ${owner}
   `;
   return row;
@@ -417,11 +424,13 @@ export async function listDungeons(
     select id,
            coalesce(doc -> 'pass' ->> 'name', 'Unnamed')            as name,
            coalesce(doc -> 'pass' -> 'goal' ->> 'summary', '')      as objective,
-           size, level, seed, status,
-           created_at as "createdAt"
-      from dungeons
+           size, level, seed, d.status,
+           d.created_at as "createdAt",
+           p.path as "coverPath"
+      from dungeons d
+      left join plates p on p.key = d.cover and p.status = 'ready'
      where owner_id = ${owner}
-     order by created_at desc
+     order by d.created_at desc
   `;
 }
 
@@ -542,11 +551,13 @@ export async function listLibrary(
     select id,
            coalesce(doc -> 'pass' ->> 'name', 'Unnamed')            as name,
            coalesce(doc -> 'pass' -> 'goal' ->> 'summary', '')      as objective,
-           size, level, seed, status,
-           created_at                                              as "createdAt",
-           created_at::text || '|' || id::text                     as "cursor"
-      from dungeons
-     where status = 'complete'
+           size, level, seed, d.status,
+           d.created_at                                            as "createdAt",
+           d.created_at::text || '|' || d.id::text                 as "cursor",
+           p.path                                                  as "coverPath"
+      from dungeons d
+      left join plates p on p.key = d.cover and p.status = 'ready'
+     where d.status = 'complete'
        and owner_id <> ${viewer}
        ${
          at
@@ -568,10 +579,10 @@ export async function listLibrary(
               * the conversion itself. `created_at::text` round-trips with
               * `text::timestamptz` exactly. Found by `ownership.dbtest.ts`.
               */
-             sql`and (created_at, id) < (${at.at}::text::timestamptz, ${at.id}::text::uuid)`
+             sql`and (d.created_at, d.id) < (${at.at}::text::timestamptz, ${at.id}::text::uuid)`
            : sql``
        }
-     order by created_at desc, id desc
+     order by d.created_at desc, d.id desc
      limit ${limit + 1}
   `;
 
@@ -638,8 +649,8 @@ export async function duplicateDungeon(
     if (mine) return { id: mine.id, already: true };
 
     const [copy] = await tx<{ id: string }[]>`
-      insert into dungeons (dungeon_key, owner_id, seed, size, level, status, doc, copied_from)
-      select dungeon_key, ${owner}, seed, size, level, status, doc, id
+      insert into dungeons (dungeon_key, owner_id, seed, size, level, status, doc, copied_from, cover)
+      select dungeon_key, ${owner}, seed, size, level, status, doc, id, cover
         from dungeons where id = ${sourceId}
       returning id
     `;
@@ -1187,4 +1198,80 @@ export async function appendEvents(
 ): Promise<void> {
   if (events.length === 0) return;
   await sql.begin((tx) => insertEvents(tx, runId, events));
+}
+
+// ---------------------------------------------------------------------------
+// PLATES
+// ---------------------------------------------------------------------------
+
+export interface PlateRow {
+  key: string;
+  status: "pending" | "ready" | "failed";
+  path: string | null;
+  attempts: number;
+  /** milliseconds since the row last changed, by the database's clock */
+  ageMs: number;
+}
+
+export async function getPlate(key: string, sql: postgres.Sql = db()): Promise<PlateRow | undefined> {
+  const [row] = await sql<PlateRow[]>`
+    select key, status, path, attempts,
+           (extract(epoch from now() - updated_at) * 1000)::int as "ageMs"
+      from plates where key = ${key}
+  `;
+  return row;
+}
+
+/**
+ * Take the job of drawing a plate. True when this request is the one to draw it.
+ *
+ * ONE STATEMENT, so two runs entering the same room in the same instant cannot
+ * both win: a new key is inserted as `pending`; an existing one is taken over
+ * only when it failed and has attempts left, or when its `pending` claim is
+ * older than `staleMs` — the request that made it died without saying so.
+ */
+export async function claimPlate(
+  key: string,
+  model: string,
+  opts: { staleMs: number; maxAttempts: number },
+  sql: postgres.Sql = db()
+): Promise<boolean> {
+  const rows = await sql`
+    insert into plates (key, status, model, attempts) values (${key}, 'pending', ${model}, 1)
+    on conflict (key) do update
+       set status = 'pending', model = excluded.model, attempts = plates.attempts + 1,
+           error = null, updated_at = now()
+     where (plates.status = 'failed' and plates.attempts < ${opts.maxAttempts})
+        or (plates.status = 'pending' and plates.updated_at < now() - make_interval(secs => ${opts.staleMs / 1000}))
+    returning key
+  `;
+  return rows.length > 0;
+}
+
+export async function finishPlate(key: string, path: string, sql: postgres.Sql = db()): Promise<void> {
+  await sql`update plates set status = 'ready', path = ${path}, updated_at = now() where key = ${key}`;
+}
+
+export async function failPlate(key: string, error: string, sql: postgres.Sql = db()): Promise<void> {
+  await sql`update plates set status = 'failed', error = ${error.slice(0, 2000)}, updated_at = now() where key = ${key}`;
+}
+
+/** Shared words a plate is drawn from — see `plate_words`. */
+export async function getPlateWords(key: string, sql: postgres.Sql = db()): Promise<string | undefined> {
+  const [row] = await sql<{ value: string }[]>`select value from plate_words where key = ${key}`;
+  return row?.value;
+}
+
+/** The first answer is kept: a second plate racing the first reads the winner's. */
+export async function savePlateWords(key: string, value: string, sql: postgres.Sql = db()): Promise<string> {
+  await sql`insert into plate_words (key, value) values (${key}, ${value}) on conflict (key) do nothing`;
+  return (await getPlateWords(key, sql)) ?? value;
+}
+
+/**
+ * Name the cover a finished dungeon is to have. Written once, at `finish`; a
+ * dungeon whose `cover` is null was finished before covers and never gets one.
+ */
+export async function setDungeonCover(id: string, key: string, sql: postgres.Sql = db()): Promise<void> {
+  await sql`update dungeons set cover = ${key} where id = ${id} and cover is null`;
 }

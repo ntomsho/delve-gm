@@ -12,6 +12,8 @@
 
 import { useEffect, useRef } from "react";
 import { D20, Die, DiceRoll } from "./DiceRoll.tsx";
+import { Plate } from "./Plate.tsx";
+import type { PlateAnswer } from "../../runtime/plates.ts";
 import type { LogEntry } from "../../store/game.ts";
 import type { RolledOutcome } from "../../runtime/types.ts";
 import { isLoss, type Effect, type FoeRoll } from "../../runtime/effects.ts";
@@ -22,6 +24,10 @@ export interface Arrival {
   /** e.g. "ROOM 14 · DESCENT III" */
   label?: string;
   prose: string;
+  /** which room, for its plate */
+  roomId?: string;
+  /** the first arrival in this room: the only one that carries its plate */
+  first?: boolean;
 }
 
 /**
@@ -63,6 +69,7 @@ export function toItems(
   roomName: (id: string) => string,
   dungeon?: { name: string; objective: string }
 ): NarrationItem[] {
+  const seen = new Set<string>();
   return log.map((e) => {
     switch (e.kind) {
       case "opening":
@@ -72,8 +79,12 @@ export function toItems(
           objective: dungeon?.objective ?? "",
           prose: e.text,
         } as const;
-      case "arrival":
-        return { kind: "arrival", roomName: roomName(e.roomId ?? ""), prose: e.text } as const;
+      case "arrival": {
+        const roomId = e.roomId ?? "";
+        const first = roomId !== "" && !seen.has(roomId);
+        seen.add(roomId);
+        return { kind: "arrival", roomName: roomName(roomId), prose: e.text, roomId, first } as const;
+      }
       case "player":
         return { kind: "player", text: e.text } as const;
       case "effects":
@@ -203,8 +214,14 @@ export function Narration({
   busy,
   resolving,
   compact = false,
+  plate,
+  cover,
 }: {
   items: NarrationItem[];
+  /** a room's plate; absent on a local run, which never asks for one */
+  plate?: (roomId: string) => Promise<PlateAnswer>;
+  /** the dungeon's cover, above the opening; absent on a local run */
+  cover?: () => Promise<PlateAnswer>;
   busy?: boolean;
   /**
    * The newest roll is being written up. If it is also the newest item, it is
@@ -240,6 +257,7 @@ export function Narration({
                   {item.dungeonName}
                 </h1>
               )}
+              {cover && <Plate id="cover" subject={item.dungeonName || "the dungeon"} load={cover} />}
               <Prose>{item.prose}</Prose>
               {item.objective && (
                 // The one line they will come back to. Kept legible from across
@@ -272,6 +290,9 @@ export function Narration({
               >
                 {item.roomName}
               </h2>
+              {plate && item.first && item.roomId && (
+                <Plate id={item.roomId} subject={item.roomName} load={() => plate(item.roomId!)} />
+              )}
               <Prose>{item.prose}</Prose>
             </section>
           );

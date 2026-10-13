@@ -98,6 +98,11 @@ export interface LogEntry {
   /** arrivals only: which room, so the heading can name it */
   roomId?: string;
   /**
+   * Arrivals only: the connector they came in by, so the room's plate can be
+   * drawn from that side. Absent on arrivals logged before it was kept.
+   */
+  via?: string;
+  /**
    * The player's rolls only: the dice themselves, so the screen can draw them
    * rather than parse `text`. Absent on rolls logged before it existed, which
    * fall back to the line of text.

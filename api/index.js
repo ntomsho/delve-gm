@@ -7,6 +7,23 @@ import { z } from "zod";
 import { createStore } from "zustand/vanilla";
 import { createHash } from "node:crypto";
 import postgres from "postgres";
+import { readFileSync, readdirSync } from "node:fs";
+import { resolve } from "node:path";
+import { fal } from "@fal-ai/client";
+import sharp from "sharp";
+import { waitUntil } from "@vercel/functions";
+//#region \0rolldown/runtime.js
+var __defProp = Object.defineProperty;
+var __exportAll = (all, no_symbols) => {
+	let target = {};
+	for (var name in all) __defProp(target, name, {
+		get: all[name],
+		enumerable: true
+	});
+	if (!no_symbols) __defProp(target, Symbol.toStringTag, { value: "Module" });
+	return target;
+};
+//#endregion
 //#region src/server/auth.ts
 /**
 * WHO IS ASKING
@@ -9004,7 +9021,7 @@ function lRoutes(a, b) {
 		y: b.y
 	})];
 }
-var key = (p) => `${p.x},${p.y}`;
+var key$2 = (p) => `${p.x},${p.y}`;
 /** The four 2x2 blocks that have the anchor cell as one of their corners. */
 var CORNERS = [
 	[0, 0],
@@ -9050,19 +9067,19 @@ function makeBlocks(centres, rng) {
 		let placed = null;
 		for (const corner of rng.pickN(CORNERS, CORNERS.length)) {
 			const cells = blockAt(p, corner);
-			if (cells.some((c) => taken.has(key(c)))) continue;
+			if (cells.some((c) => taken.has(key$2(c)))) continue;
 			placed = cells;
 			break;
 		}
 		if (!placed) return null;
-		for (const c of placed) taken.add(key(c));
+		for (const c of placed) taken.add(key$2(c));
 		blocks.push(placed);
 	}
 	return blocks;
 }
 /** Cells orthogonally touching the block but not in it. */
 function rimOf(block) {
-	const inside = new Set(block.map(key));
+	const inside = new Set(block.map(key$2));
 	const out = /* @__PURE__ */ new Map();
 	for (const c of block) for (const [dx, dy] of [
 		[1, 0],
@@ -9074,15 +9091,15 @@ function rimOf(block) {
 			x: c.x + dx,
 			y: c.y + dy
 		};
-		if (!inside.has(key(n))) out.set(key(n), n);
+		if (!inside.has(key$2(n))) out.set(key$2(n), n);
 	}
 	return [...out.values()];
 }
 /** How many exit pairs a single connection will try before giving up on it. */
 var ROUTE_TRIES = 96;
-function route(blocks, graph, rng) {
+function route$1(blocks, graph, rng) {
 	const solid = /* @__PURE__ */ new Set();
-	for (const b of blocks) for (const c of b) solid.add(key(c));
+	for (const b of blocks) for (const c of b) solid.add(key$2(c));
 	const used = new Set(solid);
 	const centreOf = (b) => ({
 		x: b[0].x + .5,
@@ -9095,9 +9112,9 @@ function route(blocks, graph, rng) {
 	})).sort((p, q) => p.d - q.d || p.i - q.i);
 	const paths = [];
 	for (const { e } of order) {
-		const A = new Set(blocks[e.a].map(key));
-		const B = new Set(blocks[e.b].map(key));
-		if (rimOf(blocks[e.a]).some((c) => B.has(key(c)))) {
+		const A = new Set(blocks[e.a].map(key$2));
+		const B = new Set(blocks[e.b].map(key$2));
+		if (rimOf(blocks[e.a]).some((c) => B.has(key$2(c)))) {
 			paths.push({
 				a: e.a,
 				b: e.b,
@@ -9105,8 +9122,8 @@ function route(blocks, graph, rng) {
 			});
 			continue;
 		}
-		const exits = rimOf(blocks[e.a]).filter((c) => !used.has(key(c)));
-		const entries = rimOf(blocks[e.b]).filter((c) => !used.has(key(c)));
+		const exits = rimOf(blocks[e.a]).filter((c) => !used.has(key$2(c)));
+		const entries = rimOf(blocks[e.b]).filter((c) => !used.has(key$2(c)));
 		const pairs = [];
 		for (const from of exits) for (const to of entries) pairs.push({
 			from,
@@ -9120,7 +9137,7 @@ function route(blocks, graph, rng) {
 			if (rng.coin()) routes.reverse();
 			for (const rest of routes) {
 				const cells = [from, ...rest];
-				if (cells.some((c) => used.has(key(c)) || A.has(key(c)) || B.has(key(c)))) continue;
+				if (cells.some((c) => used.has(key$2(c)) || A.has(key$2(c)) || B.has(key$2(c)))) continue;
 				laid = cells;
 				break;
 			}
@@ -9131,7 +9148,7 @@ function route(blocks, graph, rng) {
 			a: e.a,
 			b: e.b
 		};
-		for (const c of laid) used.add(key(c));
+		for (const c of laid) used.add(key$2(c));
 		paths.push({
 			a: e.a,
 			b: e.b,
@@ -9156,7 +9173,7 @@ function route(blocks, graph, rng) {
 function shift(blocks, i, graph, rng) {
 	const others = /* @__PURE__ */ new Set();
 	blocks.forEach((b, j) => {
-		if (j !== i) for (const c of b) others.add(key(c));
+		if (j !== i) for (const c of b) others.add(key$2(c));
 	});
 	const linked = graph.edges.filter((e) => e.a === i || e.b === i).map((e) => e.a === i ? e.b : e.a);
 	const clear = [];
@@ -9167,7 +9184,7 @@ function shift(blocks, i, graph, rng) {
 			x: c.x + dx,
 			y: c.y + dy
 		}));
-		if (moved.some((c) => others.has(key(c)))) continue;
+		if (moved.some((c) => others.has(key$2(c)))) continue;
 		clear.push(moved);
 		if (linked.every((j) => {
 			const d = manhattan(moved[0], blocks[j][0]);
@@ -9189,7 +9206,7 @@ function seedBlockPlan(graph, seed) {
 	const blocks = makeBlocks(centres, rng);
 	if (!blocks) return null;
 	for (let repair = 0; repair <= REPAIRS; repair++) {
-		const got = route(blocks, graph, rng);
+		const got = route$1(blocks, graph, rng);
 		if (got.ok) return {
 			seed,
 			centres,
@@ -9248,9 +9265,9 @@ function growZones(seed, graph, isCorridor) {
 	const owner = /* @__PURE__ */ new Map();
 	const pathEnds = /* @__PURE__ */ new Map();
 	seed.blocks.forEach((cells, i) => {
-		for (const c of cells) owner.set(key(c), i);
+		for (const c of cells) owner.set(key$2(c), i);
 	});
-	for (const p of seed.paths) for (const c of p.cells) pathEnds.set(key(c), [p.a, p.b]);
+	for (const p of seed.paths) for (const c of p.cells) pathEnds.set(key$2(c), [p.a, p.b]);
 	const boxed = surroundedness(seed.blocks);
 	const turnOrder = seed.blocks.map((_c, i) => i).sort((a, b) => {
 		const ca = isCorridor?.(a) ? 1 : 0;
@@ -9274,7 +9291,7 @@ function growZones(seed, graph, isCorridor) {
 				x: c.x + dx,
 				y: c.y + dy
 			};
-			const k = key(n);
+			const k = key$2(n);
 			if (!mayTake(i, k)) continue;
 			owner.set(k, i);
 			if (pathEnds.has(k)) unclaimed--;
@@ -9291,7 +9308,7 @@ function growZones(seed, graph, isCorridor) {
 function contacts(zones, graph) {
 	const own = /* @__PURE__ */ new Map();
 	zones.forEach((cells, i) => {
-		for (const c of cells) own.set(key(c), i);
+		for (const c of cells) own.set(key$2(c), i);
 	});
 	const out = /* @__PURE__ */ new Map();
 	const push = (i, v) => {
@@ -9307,7 +9324,7 @@ function contacts(zones, graph) {
 					x: c.x + dx,
 					y: c.y + dy
 				};
-				if (own.get(key(n)) === e.b) {
+				if (own.get(key$2(n)) === e.b) {
 					found = {
 						mine: c,
 						theirs: n
@@ -9350,7 +9367,7 @@ function walkInZone(zone, from, to) {
 			let at = cur;
 			while (at) {
 				path.push(at);
-				at = prev.get(key(at)) ?? void 0;
+				at = prev.get(key$2(at)) ?? void 0;
 			}
 			return path;
 		}
@@ -9359,7 +9376,7 @@ function walkInZone(zone, from, to) {
 				x: cur.x + dx,
 				y: cur.y + dy
 			};
-			const k = key(n);
+			const k = key$2(n);
 			if (!zone.has(k) || prev.has(k)) continue;
 			prev.set(k, cur);
 			queue.push(n);
@@ -9415,13 +9432,13 @@ function buildRooms(seed, zones, graph, proportionOf, targetArea, rng) {
 	const touch = contacts(zones, graph);
 	const out = [];
 	for (let i = 0; i < zones.length; i++) {
-		const zone = new Set(zones[i].map(key));
-		const taken = new Set(seed.blocks[i].map(key));
+		const zone = new Set(zones[i].map(key$2));
+		const taken = new Set(seed.blocks[i].map(key$2));
 		for (const c of touch.get(i) ?? []) {
-			if (taken.has(key(c.mine))) continue;
+			if (taken.has(key$2(c.mine))) continue;
 			const run = walkInZone(zone, taken, c.mine);
 			if (!run) return null;
-			for (const p of run) taken.add(key(p));
+			for (const p of run) taken.add(key$2(p));
 		}
 		const band = ASPECT_BAND[proportionOf(i)];
 		const stray = (r) => r < band[0] ? band[0] - r : r > band[1] ? r - band[1] : 0;
@@ -9432,7 +9449,7 @@ function buildRooms(seed, zones, graph, proportionOf, targetArea, rng) {
 			for (const k of taken) {
 				const p = unkey(k);
 				for (const [dx, dy] of NEIGHBOURS) {
-					const n = key({
+					const n = key$2({
 						x: p.x + dx,
 						y: p.y + dy
 					});
@@ -9469,14 +9486,14 @@ function buildRooms(seed, zones, graph, proportionOf, targetArea, rng) {
 function chooseDoors(rooms, graph, rng) {
 	const doors = [];
 	for (const e of graph.edges) {
-		const other = new Set(rooms[e.b].map(key));
+		const other = new Set(rooms[e.b].map(key$2));
 		const along = [];
 		for (const c of rooms[e.a]) for (const [dx, dy] of NEIGHBOURS) {
 			const n = {
 				x: c.x + dx,
 				y: c.y + dy
 			};
-			if (other.has(key(n))) along.push({
+			if (other.has(key$2(n))) along.push({
 				a: e.a,
 				b: e.b,
 				from: c,
@@ -9503,14 +9520,14 @@ function surfaceDoor(rooms, entrance, rng) {
 	const mine = rooms[entrance];
 	if (!mine?.length) return null;
 	const owned = /* @__PURE__ */ new Set();
-	for (const cells of rooms) for (const c of cells) owned.add(key(c));
+	for (const cells of rooms) for (const c of cells) owned.add(key$2(c));
 	const options = [];
 	for (const c of mine) for (const [dx, dy] of NEIGHBOURS) {
 		const out = {
 			x: c.x + dx,
 			y: c.y + dy
 		};
-		if (!owned.has(key(out))) options.push({
+		if (!owned.has(key$2(out))) options.push({
 			room: entrance,
 			from: c,
 			to: out
@@ -9584,6 +9601,871 @@ function blockPlanValid(graph, isCorridor, seed, attempts = 100) {
 function roomSizes(rooms) {
 	return rooms.map((cells) => classOf(cells.length));
 }
+/**
+* What a view is worth. A feature outweighs any amount of floor a room can
+* have, so the camera never trades one away for a better angle; a way out
+* outweighs a few cells of floor; and the way in is worth a quarter of any
+* other way out, which tips a tie toward looking somewhere the player has not
+* just been.
+*/
+var PLATE_SCORE = {
+	tile: 1,
+	feature: 100,
+	exit: 20,
+	entry: 5
+};
+/** Eye height, in feet. Nothing stores a ceiling or a viewer's height; this is a guess. */
+var PLATE_EYE_FT = 5.5;
+var PLATE_DOOR_FT = 7.5;
+/** The plate's width over its height. 3:2, the space the page reserves for it. */
+var PLATE_ASPECT = 1.5;
+/**
+* Nothing nearer the eye than this, in feet, counts as in the picture: the
+* floor only comes into frame here, below the bottom edge before it. Derived
+* rather than chosen — a guess of four feet counted things at the viewer's
+* feet that the frame then cut off.
+*/
+var PLATE_MIN_AHEAD_FT = PLATE_EYE_FT / (Math.tan(50 * Math.PI / 180) / PLATE_ASPECT);
+/**
+* Standing spots within each floor cell, in feet from its corner on each axis:
+* against either wall and in the middle, nine to a cell. Back to a wall or in a
+* corner is where an illustrator stands; the middle is there so a room with no
+* good wall still has somewhere to stand.
+*/
+var SPOT_OFFSETS_FT = [
+	1,
+	2.5,
+	4
+];
+/**
+* Inside this many degrees of the line of sight, a thing is "straight ahead"
+* rather than left or right. About a fifth of the frame either side of centre.
+*/
+var CENTRE_DEG = 12;
+var key$1 = (x, y) => `${x},${y}`;
+/**
+* Every cell the straight line from `a` to `b` passes through is floor.
+*
+* An exact walk of the grid, not sampling: a sampled walk once stepped over
+* the tip of a rock corner and called a door around it visible (seed 4201, The
+* Stone Dormitory). A line through a cell corner exactly needs both cells
+* beside the corner to be floor, so a pinch between two rock cells is a wall.
+*/
+function clearLine(a, b, onFloor) {
+	const ax = a.x / 5;
+	const ay = a.y / 5;
+	const bx = b.x / 5;
+	const by = b.y / 5;
+	let cx = Math.floor(ax);
+	let cy = Math.floor(ay);
+	const ex = Math.floor(bx);
+	const ey = Math.floor(by);
+	const dx = bx - ax;
+	const dy = by - ay;
+	const sx = Math.sign(dx);
+	const sy = Math.sign(dy);
+	const tdx = dx !== 0 ? Math.abs(1 / dx) : Infinity;
+	const tdy = dy !== 0 ? Math.abs(1 / dy) : Infinity;
+	let tmx = dx > 0 ? (cx + 1 - ax) * tdx : dx < 0 ? (ax - cx) * tdx : Infinity;
+	let tmy = dy > 0 ? (cy + 1 - ay) * tdy : dy < 0 ? (ay - cy) * tdy : Infinity;
+	if (!onFloor(cx, cy)) return false;
+	let guard = Math.abs(ex - cx) + Math.abs(ey - cy) + 2;
+	while ((cx !== ex || cy !== ey) && guard-- > 0) {
+		if (Math.abs(tmx - tmy) < 1e-9) {
+			if (!onFloor(cx + sx, cy) || !onFloor(cx, cy + sy)) return false;
+			cx += sx;
+			cy += sy;
+			tmx += tdx;
+			tmy += tdy;
+		} else if (tmx < tmy) {
+			cx += sx;
+			tmx += tdx;
+		} else {
+			cy += sy;
+			tmy += tdy;
+		}
+		if (!onFloor(cx, cy)) return false;
+	}
+	return true;
+}
+/** The middle of the shared edge between two side-by-side cells, in feet. */
+function doorPoint(d) {
+	return {
+		x: ((d.inside.x + d.outside.x) / 2 + .5) * 5,
+		y: ((d.inside.y + d.outside.y) / 2 + .5) * 5
+	};
+}
+/**
+* Where a door is sighted at: just inside the threshold. The door point itself
+* is on the wall line, and a line ending on a wall is a line into rock.
+*/
+function doorTarget(d) {
+	const at = doorPoint(d);
+	return {
+		x: (at.x + (d.inside.x + .5) * 5) / 2,
+		y: (at.y + (d.inside.y + .5) * 5) / 2
+	};
+}
+/** Lines of sight from `eye` in this room: clear when every cell crossed is floor. */
+function plateSight(input, eye) {
+	const floor = new Set(input.floor.map((c) => key$1(c.x, c.y)));
+	const onFloor = (x, y) => floor.has(key$1(x, y));
+	return (p) => clearLine(eye, p, onFloor);
+}
+/**
+* Where a point lands in the plate, as fractions of its width and height from
+* the top-left — so it maps onto the final image at any resolution. Null when
+* the point is behind the eye. A point beside the frame comes back outside
+* 0..1 rather than null; whether that matters is the caller's question.
+*/
+function projectToFrame(eye, p) {
+	const ahead = (p.x - eye.x) * eye.forward.x + (p.y - eye.y) * eye.forward.y;
+	if (ahead < .3) return null;
+	const across = (p.x - eye.x) * eye.right.x + (p.y - eye.y) * eye.right.y;
+	const up = p.z - PLATE_EYE_FT;
+	const t = 2 * Math.tan(50 * Math.PI / 180);
+	return {
+		x: .5 + across / ahead / t,
+		y: .5 - up / ahead / t * PLATE_ASPECT
+	};
+}
+/**
+* Every place the camera may stand: nine spots in each floor cell, the floor
+* just inside each doorway among them. Never in a doorway itself — standing in
+* one, even back from the room, is a view of the room from somewhere the player
+* has not been: through a door they have not opened, or a sealed one.
+*/
+function standingSpots(input) {
+	const spots = [];
+	for (const c of input.floor) for (const ox of SPOT_OFFSETS_FT) for (const oy of SPOT_OFFSETS_FT) spots.push({
+		x: c.x * 5 + ox,
+		y: c.y * 5 + oy
+	});
+	return spots;
+}
+/** Cells split into pieces that touch edge to edge. */
+function connectedCells(cells) {
+	const left = new Map(cells.map((c) => [key$1(c.x, c.y), c]));
+	const pieces = [];
+	for (const start of cells) {
+		if (!left.delete(key$1(start.x, start.y))) continue;
+		const piece = [];
+		const queue = [start];
+		while (queue.length) {
+			const c = queue.pop();
+			piece.push(c);
+			for (const [dx, dy] of [
+				[1, 0],
+				[-1, 0],
+				[0, 1],
+				[0, -1]
+			]) {
+				const n = left.get(key$1(c.x + dx, c.y + dy));
+				if (n) {
+					left.delete(key$1(n.x, n.y));
+					queue.push(n);
+				}
+			}
+		}
+		pieces.push(piece);
+	}
+	return pieces;
+}
+var cellMiddle = (c) => ({
+	x: (c.x + .5) * 5,
+	y: (c.y + .5) * 5
+});
+var COMPASS = [
+	"east",
+	"south-east",
+	"south",
+	"south-west",
+	"west",
+	"north-west",
+	"north",
+	"north-east"
+];
+function compass(v) {
+	return COMPASS[(Math.round(Math.atan2(v.y, v.x) / (Math.PI / 4)) + 8) % 8];
+}
+/**
+* The room as seen from one eye looking one way. `plateView` calls this on the
+* camera it chose; it is exported so a test, or a dev sheet, can ask about any
+* other camera directly.
+*/
+function viewFrom(input, at, heading) {
+	const len = Math.hypot(heading.x, heading.y) || 1;
+	const forward = {
+		x: heading.x / len,
+		y: heading.y / len
+	};
+	const right = {
+		x: -forward.y,
+		y: forward.x
+	};
+	const eye = {
+		x: at.x,
+		y: at.y,
+		forward,
+		right
+	};
+	const sees = plateSight(input, eye);
+	const toView = (p) => ({
+		ahead: (p.x - eye.x) * forward.x + (p.y - eye.y) * forward.y,
+		across: (p.x - eye.x) * right.x + (p.y - eye.y) * right.y
+	});
+	const tanFov = Math.tan(50 * Math.PI / 180);
+	const framed = (v) => v.ahead >= PLATE_MIN_AHEAD_FT && Math.abs(v.across) <= v.ahead * tanFov;
+	let deep = 0;
+	let minAcross = Infinity;
+	let maxAcross = -Infinity;
+	for (const c of input.floor) for (const [dx, dy] of [
+		[0, 0],
+		[1, 0],
+		[0, 1],
+		[1, 1]
+	]) {
+		const v = toView({
+			x: (c.x + dx) * 5,
+			y: (c.y + dy) * 5
+		});
+		deep = Math.max(deep, v.ahead);
+		minAcross = Math.min(minAcross, v.across);
+		maxAcross = Math.max(maxAcross, v.across);
+	}
+	const depthOf = (ahead) => ahead < deep / 3 ? "near" : ahead < deep * 2 / 3 ? "middle" : "far";
+	const sideOf = (v) => {
+		const deg = Math.atan2(v.across, Math.max(v.ahead, .01)) * 180 / Math.PI;
+		return deg < -12 ? "left" : deg > CENTRE_DEG ? "right" : "centre";
+	};
+	const door = (d) => {
+		const at = doorPoint(d);
+		const v = toView(at);
+		const n = {
+			x: d.inside.x - d.outside.x,
+			y: d.inside.y - d.outside.y
+		};
+		const facesEye = (eye.x - at.x) * n.x + (eye.y - at.y) * n.y > 0;
+		const wall = v.ahead <= 0 ? "behind" : !facesEye ? "away" : n.x * forward.x + n.y * forward.y < -.7 ? "far" : v.across < 0 ? "left" : "right";
+		const inFrame = wall !== "behind" && framed(v);
+		const inSight = facesEye && sees(doorTarget(d));
+		return {
+			id: d.id,
+			...v,
+			depth: depthOf(v.ahead),
+			side: sideOf(v),
+			wall,
+			inFrame,
+			inSight,
+			visible: inFrame && inSight,
+			placed: true
+		};
+	};
+	const features = input.features.map((t) => {
+		if (!t.cells.length) return {
+			id: t.id,
+			ahead: 0,
+			across: 0,
+			depth: "middle",
+			side: "centre",
+			inFrame: true,
+			inSight: true,
+			visible: true,
+			placed: false
+		};
+		const mids = t.cells.map(cellMiddle);
+		const centre = {
+			x: mids.reduce((s, p) => s + p.x, 0) / mids.length,
+			y: mids.reduce((s, p) => s + p.y, 0) / mids.length
+		};
+		const v = toView(centre);
+		const cells = mids.map((p) => ({
+			framed: framed(toView(p)),
+			sighted: sees(p)
+		}));
+		const parts = connectedCells(t.cells);
+		const pieces = parts.length < 2 ? void 0 : parts.flatMap((part) => {
+			const pm = part.map(cellMiddle);
+			if (!pm.some((p) => framed(toView(p)) && sees(p))) return [];
+			const pv = toView({
+				x: pm.reduce((acc, p) => acc + p.x, 0) / pm.length,
+				y: pm.reduce((acc, p) => acc + p.y, 0) / pm.length
+			});
+			return [{
+				ahead: pv.ahead,
+				depth: depthOf(pv.ahead),
+				side: sideOf(pv)
+			}];
+		});
+		return {
+			id: t.id,
+			...v,
+			depth: depthOf(v.ahead),
+			side: sideOf(v),
+			...pieces ? { pieces } : {},
+			inFrame: cells.some((c) => c.framed),
+			inSight: cells.some((c) => c.sighted),
+			visible: cells.some((c) => c.framed && c.sighted),
+			placed: true
+		};
+	});
+	let tiles = 0;
+	for (const c of input.floor) {
+		const m = cellMiddle(c);
+		if (framed(toView(m)) && sees(m)) tiles++;
+	}
+	const entry = door(input.entry);
+	const exits = input.exits.map(door);
+	const score = tiles * PLATE_SCORE.tile + features.filter((f) => f.placed && f.visible).length * PLATE_SCORE.feature + exits.filter((x) => x.visible).length * PLATE_SCORE.exit + (entry.visible ? PLATE_SCORE.entry : 0);
+	return {
+		eye,
+		facing: compass(forward),
+		standing: standingPhrase(input.floor, eye),
+		deep,
+		wide: maxAcross - minAcross,
+		entry,
+		exits,
+		features,
+		tiles,
+		score
+	};
+}
+/** Where the eye stands, by thirds of the room's bounding box. */
+function standingPhrase(floor, eye) {
+	const xs = floor.map((c) => c.x);
+	const ys = floor.map((c) => c.y);
+	const x0 = Math.min(...xs) * 5;
+	const y0 = Math.min(...ys) * 5;
+	const w = (Math.max(...xs) + 1) * 5 - x0;
+	const h = (Math.max(...ys) + 1) * 5 - y0;
+	const col = Math.min(2, Math.floor((eye.x - x0) / w * 3));
+	const ns = [
+		"north",
+		"",
+		"south"
+	][Math.min(2, Math.floor((eye.y - y0) / h * 3))];
+	const ew = [
+		"west",
+		"",
+		"east"
+	][col];
+	if (ns && ew) return `in the ${ns}-${ew} corner`;
+	if (ns || ew) return `by the ${ns || ew} wall`;
+	return "in the middle";
+}
+/**
+* The best view of the room: every standing spot on the floor, every heading,
+* scored by PLATE_SCORE.
+*
+* Deterministic: spots and headings are tried in a fixed order and a tie keeps
+* the first, so a room's view — and with it the plate's cache key — never
+* changes between calls.
+*
+* The expensive part, sight lines, depends on the spot and not the heading, so
+* it is worked out once per spot and every heading reuses it.
+*/
+function plateView(input) {
+	const floor = new Set(input.floor.map((c) => key$1(c.x, c.y)));
+	const onFloor = (x, y) => floor.has(key$1(x, y));
+	const tanFov = Math.tan(50 * Math.PI / 180);
+	const targets = [];
+	let group = 0;
+	for (const c of input.floor) {
+		const m = cellMiddle(c);
+		targets.push({
+			at: m,
+			frame: m,
+			worth: PLATE_SCORE.tile,
+			group: group++
+		});
+	}
+	for (const f of input.features) {
+		for (const c of f.cells) {
+			const m = cellMiddle(c);
+			targets.push({
+				at: m,
+				frame: m,
+				worth: PLATE_SCORE.feature,
+				group
+			});
+		}
+		group++;
+	}
+	const doorTargets = (d, worth) => {
+		targets.push({
+			at: doorTarget(d),
+			frame: doorPoint(d),
+			worth,
+			group: group++,
+			wall: doorPoint(d),
+			normal: {
+				x: d.inside.x - d.outside.x,
+				y: d.inside.y - d.outside.y
+			}
+		});
+	};
+	for (const d of input.exits) doorTargets(d, PLATE_SCORE.exit);
+	doorTargets(input.entry, PLATE_SCORE.entry);
+	const headings = [];
+	for (let k = 0; k < 36; k++) {
+		const a = k / 36 * 2 * Math.PI;
+		headings.push({
+			x: Math.cos(a),
+			y: Math.sin(a)
+		});
+	}
+	let best;
+	const seenGroups = /* @__PURE__ */ new Set();
+	for (const at of standingSpots(input)) {
+		const sees = (p) => clearLine(at, p, onFloor);
+		const sighted = targets.filter((t) => (!t.wall || (at.x - t.wall.x) * t.normal.x + (at.y - t.wall.y) * t.normal.y > 0) && sees(t.at));
+		for (const h of headings) {
+			seenGroups.clear();
+			let score = 0;
+			for (const t of sighted) {
+				if (seenGroups.has(t.group)) continue;
+				const dx = t.frame.x - at.x;
+				const dy = t.frame.y - at.y;
+				const ahead = dx * h.x + dy * h.y;
+				const across = -dx * h.y + dy * h.x;
+				if (ahead < PLATE_MIN_AHEAD_FT || Math.abs(across) > ahead * tanFov) continue;
+				seenGroups.add(t.group);
+				score += t.worth;
+			}
+			if (!best || score > best.score) best = {
+				at,
+				heading: h,
+				score
+			};
+		}
+	}
+	if (!best) {
+		const d = input.entry;
+		return viewFrom(input, doorTarget(d), {
+			x: d.inside.x - d.outside.x,
+			y: d.inside.y - d.outside.y
+		});
+	}
+	return viewFrom(input, best.at, best.heading);
+}
+/** Distances are said to the nearest five feet, the grid's own unit. */
+var feet = (n) => `${Math.max(5, Math.round(n / 5) * 5)} ft`;
+var SIDE_ON_FAR_WALL = {
+	left: "to the left",
+	centre: "straight ahead",
+	right: "to the right"
+};
+var DEPTH_ON_SIDE_WALL = {
+	near: "close by",
+	middle: "partway along",
+	far: "toward the back"
+};
+var DEPTH_IN_ROOM = {
+	near: "in the foreground",
+	middle: "in the middle distance",
+	far: "at the back"
+};
+var SIDE_IN_ROOM = {
+	left: "on the left",
+	centre: "in the centre",
+	right: "on the right"
+};
+/** Where a way out is, as the viewer would point to it. */
+function exitWhere(s) {
+	if (s.wall === "behind") return "behind the viewer";
+	if (s.wall === "far") return `in the facing wall, ${SIDE_ON_FAR_WALL[s.side]}, ${feet(s.ahead)} away`;
+	return `in the ${s.wall} wall, ${DEPTH_ON_SIDE_WALL[s.depth]}, ${feet(s.ahead)} in`;
+}
+/** Where a feature stands, as the viewer would point to it. */
+function featureWhere(s) {
+	if (!s.placed) return "somewhere in plain view";
+	if (s.pieces && s.pieces.length > 1) {
+		const at = s.pieces.map((p) => `${DEPTH_IN_ROOM[p.depth]} ${SIDE_IN_ROOM[p.side]} (${feet(p.ahead)})`);
+		return `in ${s.pieces.length} places: ${at.join("; ")}`;
+	}
+	if (s.pieces?.length === 1) {
+		const p = s.pieces[0];
+		return `${DEPTH_IN_ROOM[p.depth]}, ${SIDE_IN_ROOM[p.side]}, ${feet(p.ahead)} away`;
+	}
+	return `${DEPTH_IN_ROOM[s.depth]}, ${SIDE_IN_ROOM[s.side]}, ${feet(s.ahead)} away`;
+}
+/** Height a feature's button sits at, in feet: the floor, where its outline is. */
+var FEATURE_Z = 0;
+/** Height a corner arrow sits at, in feet: about a hand's height on the wall. */
+var CORNER_Z = 4;
+var key = (x, y) => `${x},${y}`;
+var inFrame = (q) => q !== null && q.x >= 0 && q.x <= 1 && q.y >= 0 && q.y <= 1;
+/** Within the horizontal field of view and in front of the eye, whatever the height. */
+function inFieldOfView(eye, p) {
+	const ahead = (p.x - eye.x) * eye.forward.x + (p.y - eye.y) * eye.forward.y;
+	const across = (p.x - eye.x) * eye.right.x + (p.y - eye.y) * eye.right.y;
+	return ahead > 0 && Math.abs(across) <= ahead * Math.tan(50 * Math.PI / 180);
+}
+function edgeToward(eye, p, z) {
+	const ahead = (p.x - eye.x) * eye.forward.x + (p.y - eye.y) * eye.forward.y;
+	const across = (p.x - eye.x) * eye.right.x + (p.y - eye.y) * eye.right.y;
+	const deg = Math.abs(Math.atan2(across, ahead)) * 180 / Math.PI;
+	if (deg > 120) return "bottom";
+	if (deg <= 50) {
+		const q = projectToFrame(eye, {
+			...p,
+			z
+		});
+		if (!q || q.y > 1) return "bottom";
+	}
+	return across < 0 ? "left" : "right";
+}
+/**
+* Inside corners of the room: lattice points with floor on three sides and
+* rock on the fourth — the corners a path bends round. Each is nudged half a
+* foot off the rock so a sight line to it does not graze the wall.
+*/
+function cornersOf(floor) {
+	const on = new Set(floor.map((c) => key(c.x, c.y)));
+	const seen = /* @__PURE__ */ new Set();
+	const out = [];
+	for (const c of floor) for (const [i, j] of [
+		[c.x, c.y],
+		[c.x + 1, c.y],
+		[c.x, c.y + 1],
+		[c.x + 1, c.y + 1]
+	]) {
+		if (seen.has(key(i, j))) continue;
+		seen.add(key(i, j));
+		const rock = [
+			[i - 1, j - 1],
+			[i, j - 1],
+			[i - 1, j],
+			[i, j]
+		].filter(([x, y]) => !on.has(key(x, y)));
+		if (rock.length !== 1) continue;
+		const [rx, ry] = rock[0];
+		out.push({
+			x: i * 5 + (rx < i ? .5 : -.5),
+			y: j * 5 + (ry < j ? .5 : -.5)
+		});
+	}
+	return out;
+}
+/**
+* The shortest walk from the eye to `target` that keeps to the floor, as the
+* corners it bends round. Empty when the target is in plain sight; null when
+* nothing reaches it. Dijkstra over the eye, the inside corners and the target,
+* joined wherever a straight line between them stays on the floor — the taut
+* string a walk round the room's corners makes.
+*/
+function route(input, eye, target, corners) {
+	const on = new Set(input.floor.map((c) => key(c.x, c.y)));
+	const onFloor = (x, y) => on.has(key(x, y));
+	const fromEye = plateSight(input, eye);
+	const nodes = [
+		eye,
+		...corners,
+		target
+	];
+	const last = nodes.length - 1;
+	const clear = (a, b) => a === 0 ? fromEye(nodes[b]) : b === 0 ? fromEye(nodes[a]) : clearLine(nodes[a], nodes[b], onFloor);
+	const dist = nodes.map(() => Infinity);
+	const prev = nodes.map(() => -1);
+	const done = nodes.map(() => false);
+	dist[0] = 0;
+	for (;;) {
+		let u = -1;
+		for (let i = 0; i < nodes.length; i++) if (!done[i] && (u < 0 || dist[i] < dist[u])) u = i;
+		if (u < 0 || dist[u] === Infinity) return null;
+		if (u === last) break;
+		done[u] = true;
+		for (let v = 0; v < nodes.length; v++) {
+			if (done[v] || v === u) continue;
+			const d = dist[u] + Math.hypot(nodes[u].x - nodes[v].x, nodes[u].y - nodes[v].y);
+			if (d < dist[v] && clear(u, v)) {
+				dist[v] = d;
+				prev[v] = u;
+			}
+		}
+	}
+	const path = [];
+	for (let v = prev[last]; v > 0; v = prev[v]) path.unshift(nodes[v]);
+	return path;
+}
+/** Which way a walk turns at `corner`, heading on to `next`, seen from above. */
+function turnAt(from, corner, next) {
+	return (corner.x - from.x) * (next.y - corner.y) - (corner.y - from.y) * (next.x - corner.x) > 0 ? "right" : "left";
+}
+/**
+* Where something not in the picture is, as the plate can say it: round a
+* corner in view, walled off where it stands, or off one edge.
+*/
+function unseen(input, eye, sighted, anchor, corners) {
+	const wouldBe = projectToFrame(eye, anchor);
+	const points = inFieldOfView(eye, anchor) && inFrame(wouldBe) ? [wouldBe] : [];
+	const path = route(input, eye, sighted, corners);
+	if (path && path.length) {
+		const corner = path[0];
+		const at = projectToFrame(eye, {
+			...corner,
+			z: CORNER_Z
+		});
+		if (inFieldOfView(eye, corner) && inFrame(at)) return {
+			status: "around",
+			points: [],
+			around: {
+				...at,
+				turn: turnAt(eye, corner, path[1] ?? sighted)
+			}
+		};
+		if (!points.length) return {
+			status: "off-frame",
+			points,
+			edge: edgeToward(eye, corner, CORNER_Z)
+		};
+	}
+	if (points.length) return {
+		status: "behind-wall",
+		points
+	};
+	return {
+		status: "off-frame",
+		points,
+		edge: edgeToward(eye, anchor, anchor.z)
+	};
+}
+/**
+* Every way out (the way in among them) and every placed feature, as the page
+* should show it on the plate. Features with no footprint are left out: there
+* is nowhere to put their button.
+*/
+function plateHotspots(input, view) {
+	const { eye } = view;
+	const corners = cornersOf(input.floor);
+	const sees = plateSight(input, eye);
+	const out = [];
+	const door = (d, role, visible) => {
+		const anchor = {
+			...doorPoint(d),
+			z: PLATE_DOOR_FT / 2
+		};
+		if (visible) {
+			const q = projectToFrame(eye, anchor);
+			if (q) {
+				out.push({
+					id: d.id,
+					role,
+					status: "shown",
+					points: [q]
+				});
+				return;
+			}
+		}
+		out.push({
+			id: d.id,
+			role,
+			...unseen(input, eye, doorTarget(d), anchor, corners)
+		});
+	};
+	input.exits.forEach((d, i) => door(d, "exit", view.exits[i].visible));
+	door(input.entry, "entry", view.entry.visible);
+	input.features.forEach((f, i) => {
+		if (!f.cells.length) return;
+		const pieces = connectedCells(f.cells);
+		if (view.features[i].visible) {
+			const points = [];
+			for (const piece of pieces) {
+				const shows = piece.map(cellMiddle).filter((m) => {
+					const q = projectToFrame(eye, {
+						...m,
+						z: FEATURE_Z
+					});
+					return inFieldOfView(eye, m) && inFrame(q) && sees(m);
+				});
+				if (!shows.length) continue;
+				const c = {
+					x: shows.reduce((s, m) => s + m.x, 0) / shows.length,
+					y: shows.reduce((s, m) => s + m.y, 0) / shows.length
+				};
+				const q = projectToFrame(eye, {
+					...c,
+					z: FEATURE_Z
+				});
+				if (q) points.push(q);
+			}
+			if (points.length) {
+				out.push({
+					id: f.id,
+					role: "feature",
+					status: "shown",
+					points
+				});
+				return;
+			}
+		}
+		const nearest = f.cells.map(cellMiddle).reduce((a, b) => Math.hypot(a.x - eye.x, a.y - eye.y) <= Math.hypot(b.x - eye.x, b.y - eye.y) ? a : b);
+		out.push({
+			id: f.id,
+			role: "feature",
+			...unseen(input, eye, nearest, {
+				...nearest,
+				z: FEATURE_Z
+			}, corners)
+		});
+	});
+	return out;
+}
+//#endregion
+//#region src/engine/feature-presence.ts
+/** Table entries that are heard, smelled or felt, never seen. */
+var SENSE = /* @__PURE__ */ new Set([
+	"Faint breeze",
+	"Faint footsteps",
+	"Stench",
+	"Unusual smell",
+	"Vibrations",
+	"Whispers",
+	"Voices",
+	"Draft",
+	"Echoes",
+	"Noise",
+	"Smell",
+	"Tapping",
+	"Temperature",
+	"Scurrying",
+	"Deafening noise"
+]);
+/** Table entries that cover the room — its walls, floor or air — rather than stand in it. */
+var SURFACE = /* @__PURE__ */ new Set([
+	"Bas-relief",
+	"Blood trail",
+	"Chalk marks",
+	"Claw marks",
+	"Crumbling walls",
+	"Dripping water",
+	"Fading murals",
+	"Fungus",
+	"Graffiti",
+	"Mosaics",
+	"Slime trails",
+	"Smoke stains",
+	"Spider webs",
+	"Thick dust",
+	"Tree roots",
+	"Vines",
+	"Decay",
+	"Decor",
+	"Footprints",
+	"Light",
+	"Markings",
+	"Moisture",
+	"Mural",
+	"Residue",
+	"Shadows",
+	"Smoke",
+	"Stains",
+	"Surface",
+	"Writing",
+	"Choking dust",
+	"Dense fog",
+	"Spores",
+	"Toxic fumes"
+]);
+function featurePresence(keywords, position) {
+	const rolled = Object.entries(keywords ?? {});
+	if (rolled.some(([table]) => table === "Fixture")) return "object";
+	const values = rolled.map(([, v]) => v);
+	if (values.some((v) => SENSE.has(v))) return "sense";
+	if (values.some((v) => SURFACE.has(v))) return "surface";
+	if (position === "throughout") return "surface";
+	return "object";
+}
+/**
+* What the marks in the guide image mean. The marks say WHERE; the prose says
+* WHAT; and none of them may survive into the drawing.
+*/
+var PLATE_GUIDE_NOTE = "The guide image fixes the room's walls and the camera. Each dashed outline on the floor, tagged with a number, marks where the numbered feature stands; each lettered tag marks a doorway. Draw the thing described in place of each mark. Do not draw the dashed outlines, the tags, or any numbers or letters.";
+/**
+* What the style references are for. A reference is copied as readily as a
+* guide, so the prompt says which image is which and that only the manner of
+* drawing may be taken from the references — never their rooms or framing.
+*/
+function plateReferenceNote(count, afterGuide) {
+	return `${afterGuide ? `The first image is the guide. The other ${count} images are style references only` : `The ${count} images are style references only`}: draw in exactly their manner — the same line weight, the same sparing hatching, the same amount of white paper. Take nothing else from them: not their rooms, objects, layout or viewpoint.`;
+}
+/** The same, for a guide drawn with no marks: architecture only. */
+var PLATE_PLAIN_GUIDE_NOTE = "The guide image fixes the room's walls, doorways and the camera: follow its perspective and wall layout exactly. It shows no objects; draw the features listed below where stated.";
+var PLATE_VISUAL_SYSTEM = [
+	"You turn a room's written description into notes for an illustrator who draws in black ink.",
+	"",
+	"Write only what can be SEEN: materials, shapes, surfaces, condition, light and shadow.",
+	"Leave out sounds, smells, temperature, history, purpose, feelings, and anything a person or creature is doing.",
+	"Never write a number, a size, a distance, a count, or a direction (left, north, far end): where things are is decided elsewhere.",
+	"Never mention people or creatures.",
+	"",
+	"`room` describes only the room's shell — walls, floor, ceiling, air, light, condition — in one sentence of at most 30 words. Do not mention any doorway or any of the listed things in it.",
+	"`things` gives each listed thing a look: a noun phrase of at most 14 words saying what it looks like, with no name, no position and no number."
+].join("\n");
+var PLATE_SETTING_SYSTEM = [
+	"You turn a dungeon's written theme into one line for an illustrator who draws in black ink.",
+	"Write one sentence of at most 25 words: what the place is built from or carved out of, its condition, and its light.",
+	"Only what can be seen. No sounds, smells, history, people or creatures. No numbers."
+].join("\n");
+/** The user message for the per-room visual request. */
+function plateVisualMessage(roomName, roomBase, subjects) {
+	const L = [
+		`ROOM: ${roomName}`,
+		roomBase,
+		"",
+		"THINGS IN VIEW (give each a look, keyed by ref):"
+	];
+	for (const s of subjects) L.push(`- ref ${s.ref} (${s.kind}) ${s.name}: ${s.base}`);
+	if (!subjects.length) L.push("(none)");
+	return L.join("\n");
+}
+/** The user message for the per-dungeon setting request. */
+function plateSettingMessage(theme) {
+	return `THEME:\n${theme}`;
+}
+function roomPlatePrompt(p) {
+	const L = [
+		"STYLE",
+		p.style ?? "Clean black ink line art in the manner of a 1970s-80s fantasy adventure module's illustration booklet. Mostly white paper. Crisp, confident outlines define every form. Shading is sparing: a few hatched strokes only in the deepest shadows, no dense cross-hatching, no stippled texture, no large areas of solid black. Walls, floors and sky stay largely white. No grey, no colour. The picture fills the whole image edge to edge, with no frame, no border line, no box and no vignette around it. No lettering. No people, no creatures, no loose objects.",
+		""
+	];
+	if (p.references) L.push("STYLE REFERENCES", plateReferenceNote(p.references, p.guide !== "none"), "");
+	if (p.guide === "marks") L.push("GUIDE", PLATE_GUIDE_NOTE, "");
+	if (p.guide === "plain") L.push("GUIDE", PLATE_PLAIN_GUIDE_NOTE, "");
+	L.push("SETTING", p.setting, "", "ROOM", p.room, "", "VIEW", p.viewpoint);
+	if (p.drawn.length) {
+		L.push("", "MUST BE DRAWN, EACH WHERE STATED");
+		for (const d of p.drawn) {
+			const tag = p.guide === "marks" && d.tag ? `[${d.tag}] ` : "";
+			L.push(`- ${tag}${d.doorway ? "Doorway: " : ""}${d.look} — ${d.where}`);
+		}
+	}
+	if (p.surfaces.length) {
+		L.push("", "OVER THE WALLS, FLOOR OR AIR");
+		for (const s of p.surfaces) L.push(`- ${s.look} — ${s.where}`);
+	}
+	return L.join("\n");
+}
+function exteriorPlatePrompt(p) {
+	return [
+		"STYLE",
+		p.style ?? "Clean black ink line art in the manner of a 1970s-80s fantasy adventure module's illustration booklet. Mostly white paper. Crisp, confident outlines define every form. Shading is sparing: a few hatched strokes only in the deepest shadows, no dense cross-hatching, no stippled texture, no large areas of solid black. Walls, floors and sky stay largely white. No grey, no colour. The picture fills the whole image edge to edge, with no frame, no border line, no box and no vignette around it. No lettering. No people, no creatures, no loose objects.",
+		"",
+		"VIEW",
+		"An exterior view of the place from outside, at a distance, with its way in clearly visible.",
+		"",
+		"SCENE",
+		p.scene
+	].join("\n");
+}
+/** What Haiku is asked for an exterior: the place and its entrance, from outside. */
+var PLATE_EXTERIOR_SYSTEM = [
+	"You turn a written description of a dungeon's surroundings and entrance into notes for an illustrator who draws in black ink.",
+	"Write two or three sentences, at most 60 words, describing what someone approaching would SEE: the landscape, the structure, its condition, and the entrance.",
+	"If the description gives the time of day, the sky or the weather, open with them in plain words (\"At night, under a full moon, ...\"): they change the whole picture.",
+	"Keep anything it says about how many there are or what is absent (\"a single building, nothing else in sight\"): an illustrator adds what is not ruled out.",
+	"Leave out sounds, smells, history, purpose and feelings. No people or creatures. No numbers."
+].join("\n");
 //#endregion
 //#region src/runtime/llm/models.ts
 /**
@@ -9613,7 +10495,8 @@ var MODELS = {
 	"keys-pass": "claude-haiku-4-5",
 	"tally-pass": "claude-haiku-4-5",
 	"room-entry": "claude-haiku-4-5",
-	"turn-loop": "claude-haiku-4-5"
+	"turn-loop": "claude-haiku-4-5",
+	"plate-visual": "claude-haiku-4-5"
 };
 /**
 * Per-task output ceiling. Generation passes write a lot; turns write a little.
@@ -9627,11 +10510,39 @@ var MAX_TOKENS = {
 	"keys-pass": 4096,
 	"tally-pass": 4096,
 	"room-entry": 4096,
-	"turn-loop": 4096
+	"turn-loop": 4096,
+	"plate-visual": 1024
 };
 function modelFor(task) {
 	return MODELS[task];
 }
+var IMAGE_MODELS = {
+	"gpt-image-2": {
+		guided: "openai/gpt-image-2/edit",
+		unguided: "openai/gpt-image-2"
+	},
+	"flux-2-klein-4b": {
+		guided: "fal-ai/flux-2/klein/4b/edit",
+		unguided: "fal-ai/flux-2/klein/4b"
+	},
+	"flux-2-pro": {
+		guided: "fal-ai/flux-2-pro/edit",
+		unguided: "fal-ai/flux-2-pro"
+	},
+	"flux-1-pro-canny": { guided: "fal-ai/flux-pro/v1/canny" }
+};
+/**
+* What draws a room plate in the game: GPT Image 2 at low quality, from the
+* marked guide and the style references (BUILD-PLAN, *Illustrations*, "Spike
+* outcome"). Part of every plate's key, so changing it redraws from then on.
+*/
+var PLATE_MODEL = "gpt-image-2";
+/**
+* What draws a dungeon's cover, its exterior: FLUX.2 [klein] 4B from the
+* prompt alone. The spike found it best on exteriors, and its text-to-image
+* endpoint takes no references.
+*/
+var COVER_MODEL = "flux-2-klein-4b";
 //#endregion
 //#region src/runtime/llm/schemas.ts
 /**
@@ -9642,20 +10553,20 @@ function modelFor(task) {
 * two from drifting apart silently: change the interface without changing the
 * schema and this file stops compiling.
 */
-var nonEmpty = z.string().trim().min(1);
+var nonEmpty$1 = z.string().trim().min(1);
 var dungeonPassSchema = z.object({
-	name: nonEmpty,
-	theme: nonEmpty,
-	history: nonEmpty,
+	name: nonEmpty$1,
+	theme: nonEmpty$1,
+	history: nonEmpty$1,
 	goal: z.object({
-		summary: nonEmpty,
-		spec: nonEmpty
+		summary: nonEmpty$1,
+		spec: nonEmpty$1
 	}),
-	openingProse: nonEmpty,
+	openingProse: nonEmpty$1,
 	groups: z.array(z.object({
-		id: nonEmpty,
-		name: nonEmpty,
-		base: nonEmpty
+		id: nonEmpty$1,
+		name: nonEmpty$1,
+		base: nonEmpty$1
 	})).min(1)
 });
 var modifiers = z.object({
@@ -9685,54 +10596,54 @@ var statDeviations = z.object({
 */
 var position = z.string().optional();
 var writtenEntity = z.object({
-	ref: nonEmpty,
-	name: nonEmpty,
-	base: nonEmpty,
+	ref: nonEmpty$1,
+	name: nonEmpty$1,
+	base: nonEmpty$1,
 	position
 });
 var fixtureResponse = z.object({
-	kind: nonEmpty,
-	position: nonEmpty,
-	name: nonEmpty,
-	base: nonEmpty
+	kind: nonEmpty$1,
+	position: nonEmpty$1,
+	name: nonEmpty$1,
+	base: nonEmpty$1
 });
 var promotedDetail = z.object({
-	text: nonEmpty,
-	name: nonEmpty,
-	base: nonEmpty,
+	text: nonEmpty$1,
+	name: nonEmpty$1,
+	base: nonEmpty$1,
 	hidden: z.boolean().optional(),
 	position
 });
 var connectorResponse = z.object({
-	ref: nonEmpty,
-	name: nonEmpty,
-	form: nonEmpty,
+	ref: nonEmpty$1,
+	name: nonEmpty$1,
+	form: nonEmpty$1,
 	requirement: z.string().optional()
 });
 var groupResponse = z.object({
-	name: nonEmpty,
-	base: nonEmpty,
-	activity: nonEmpty,
+	name: nonEmpty$1,
+	base: nonEmpty$1,
+	activity: nonEmpty$1,
 	stats: statDeviations.optional()
 });
 var distinctResponse = z.object({
 	kind: z.enum(["elite", "named"]),
 	member: z.string().optional(),
-	name: nonEmpty,
-	base: nonEmpty,
+	name: nonEmpty$1,
+	base: nonEmpty$1,
 	isLeader: z.boolean().optional(),
-	activity: nonEmpty,
+	activity: nonEmpty$1,
 	stats: statDeviations.optional()
 });
 var encounterResponse = z.object({
-	ref: nonEmpty,
+	ref: nonEmpty$1,
 	group: groupResponse.optional(),
 	distinct: z.array(distinctResponse).optional()
 });
 var roomResponse = z.object({
-	ref: nonEmpty,
-	name: nonEmpty,
-	base: nonEmpty,
+	ref: nonEmpty$1,
+	name: nonEmpty$1,
+	base: nonEmpty$1,
 	entities: z.array(writtenEntity).optional(),
 	fixtures: z.array(fixtureResponse).optional(),
 	promotions: z.array(promotedDetail).optional(),
@@ -9744,31 +10655,31 @@ var roomResponse = z.object({
 			"RoomFeature",
 			"Creature"
 		]),
-		name: nonEmpty,
-		base: nonEmpty,
+		name: nonEmpty$1,
+		base: nonEmpty$1,
 		position
 	}).optional()
 });
 var contentPassSchema = z.object({ rooms: z.array(roomResponse).min(1) });
 var seamsPassSchema = z.object({ connectors: z.array(connectorResponse).min(1) });
 var keyResponse = z.object({
-	ref: nonEmpty,
-	name: nonEmpty,
-	base: nonEmpty,
+	ref: nonEmpty$1,
+	name: nonEmpty$1,
+	base: nonEmpty$1,
 	lockRequirement: z.string().optional()
 });
 var keysPassSchema = z.object({
 	keys: z.array(keyResponse),
-	goalProperties: z.array(nonEmpty).optional()
+	goalProperties: z.array(nonEmpty$1).optional()
 });
 var tallyRating = z.object({
-	challengeId: nonEmpty,
+	challengeId: nonEmpty$1,
 	risk: z.enum([
 		"low",
 		"moderate",
 		"high"
 	]),
-	why: nonEmpty
+	why: nonEmpty$1
 });
 var tallyPassSchema = z.object({ ratings: z.array(tallyRating) });
 var ability = z.enum([
@@ -9844,7 +10755,7 @@ var rollRequest = z.object({
 	ability,
 	bonus: z.number().int(),
 	edge,
-	description: nonEmpty,
+	description: nonEmpty$1,
 	weapon: z.string().optional(),
 	mode: z.enum(["damage", "stunt"]).optional(),
 	advantageUse: z.enum(["normal", "stunt-and-damage"]).optional(),
@@ -9858,8 +10769,8 @@ var rollRequest = z.object({
 /** A thing being brought into existence, appended to a holder's `children[]`. */
 var entitySpec = z.object({
 	type: z.enum(["Item", "RoomFeature"]),
-	name: nonEmpty,
-	base: nonEmpty,
+	name: nonEmpty$1,
+	base: nonEmpty$1,
 	state: z.string().optional(),
 	slots: z.number().int().optional(),
 	amount: z.string().optional(),
@@ -9883,8 +10794,8 @@ var diffValue = z.union([
 	entitySpec
 ]);
 var diff = z.object({
-	entityId: nonEmpty,
-	path: nonEmpty,
+	entityId: nonEmpty$1,
+	path: nonEmpty$1,
 	value: diffValue
 });
 var commitSchema = z.object({
@@ -9951,7 +10862,7 @@ var commitSchema = z.object({
 	* commit, for a draw the player can pick up; an information draw omits it.
 	*/
 	draw: z.object({
-		challengeId: nonEmpty,
+		challengeId: nonEmpty$1,
 		entityRef: z.string().optional()
 	}).optional(),
 	/**
@@ -9961,13 +10872,13 @@ var commitSchema = z.object({
 	* not whatever was written in the post — so this is a list of ids and carries
 	* no prose of its own.
 	*/
-	learned: z.array(nonEmpty).optional(),
+	learned: z.array(nonEmpty$1).optional(),
 	/**
 	* The player found money. HOW MUCH IS NOT YOURS TO SAY — the dungeon holds an
 	* allowance settled before play and the amount is rolled from it. `why` is one
 	* line for the record.
 	*/
-	coinGrant: z.object({ why: nonEmpty }).optional()
+	coinGrant: z.object({ why: nonEmpty$1 }).optional()
 });
 /**
 * One request in the batch. Flat rather than a discriminated union: JSON Schema
@@ -9976,7 +10887,7 @@ var commitSchema = z.object({
 */
 var rollSpecRequest = z.object({
 	/** the caller's own label, so the results can be told apart */
-	id: nonEmpty,
+	id: nonEmpty$1,
 	kind: z.enum([
 		"save",
 		"attack",
@@ -12823,6 +13734,119 @@ function renderOutcomes(outcomes) {
 	return outcomes.map((o) => `${o.id}: ${o.line}`).join("\n");
 }
 //#endregion
+//#region src/runtime/layout.ts
+var corner = (x, y) => `${x},${y}`;
+var uncorner = (c) => {
+	const [x, y] = c.split(",").map(Number);
+	return {
+		x,
+		y
+	};
+};
+/** Cell (x,y) covers the square from corner (x,y) to (x+1,y+1). */
+function boundaryEdges(cells, has) {
+	const edges = [];
+	for (const { x, y } of cells) {
+		if (!has(x, y - 1)) edges.push({
+			from: corner(x, y),
+			to: corner(x + 1, y)
+		});
+		if (!has(x + 1, y)) edges.push({
+			from: corner(x + 1, y),
+			to: corner(x + 1, y + 1)
+		});
+		if (!has(x, y + 1)) edges.push({
+			from: corner(x + 1, y + 1),
+			to: corner(x, y + 1)
+		});
+		if (!has(x - 1, y)) edges.push({
+			from: corner(x, y + 1),
+			to: corner(x, y)
+		});
+	}
+	return edges;
+}
+/** Twice the signed area. Positive is clockwise in screen coordinates. */
+function shoelace(loop) {
+	let sum = 0;
+	for (let i = 0; i < loop.length; i++) {
+		const a = loop[i];
+		const b = loop[(i + 1) % loop.length];
+		sum += a.x * b.y - b.x * a.y;
+	}
+	return sum;
+}
+/** Drop the middle of any three points in a line — a wall is one segment. */
+function simplify(loop) {
+	const out = [];
+	for (let i = 0; i < loop.length; i++) {
+		const prev = loop[(i - 1 + loop.length) % loop.length];
+		const here = loop[i];
+		const next = loop[(i + 1) % loop.length];
+		if (!(prev.x === here.x && here.x === next.x || prev.y === here.y && here.y === next.y)) out.push(here);
+	}
+	return out.length >= 3 ? out : loop;
+}
+function traceOutline(cells) {
+	const present = new Set(cells.map((c) => corner(c.x, c.y)));
+	const has = (x, y) => present.has(corner(x, y));
+	const leaving = /* @__PURE__ */ new Map();
+	for (const e of boundaryEdges(cells, has)) {
+		const list = leaving.get(e.from);
+		if (list) list.push(e);
+		else leaving.set(e.from, [e]);
+	}
+	const loops = [];
+	for (const [start, group] of leaving) while (group.length) {
+		const loop = [];
+		let edge = group.shift();
+		let at = start;
+		while (edge) {
+			loop.push(uncorner(at));
+			at = edge.to;
+			const next = leaving.get(at);
+			if (!next?.length) break;
+			const from = uncorner(edge.from);
+			const to = uncorner(edge.to);
+			const dx = to.x - from.x;
+			const dy = to.y - from.y;
+			let pick = 0;
+			let bestRank = -Infinity;
+			next.forEach((cand, i) => {
+				const c = uncorner(cand.to);
+				const ex = c.x - to.x;
+				const ey = c.y - to.y;
+				const cross = dx * ey - dy * ex;
+				const dot = dx * ex + dy * ey;
+				const rank = cross > 0 ? 3 : cross < 0 ? 1 : dot > 0 ? 2 : 0;
+				if (rank > bestRank) {
+					bestRank = rank;
+					pick = i;
+				}
+			});
+			edge = next.splice(pick, 1)[0];
+			if (at === start) break;
+		}
+		if (loop.length >= 4) loops.push(simplify(loop));
+	}
+	let outer = [];
+	const holes = [];
+	let widest = -Infinity;
+	for (const loop of loops) {
+		const area = shoelace(loop);
+		if (area > 0) if (area > widest) {
+			if (outer.length) holes.push(outer);
+			widest = area;
+			outer = loop;
+		} else holes.push(loop);
+		else holes.push(loop);
+	}
+	return {
+		outer,
+		holes
+	};
+}
+//#endregion
 //#region src/store/selectors.ts
 /**
 * VIEW MODELS
@@ -14483,7 +15507,8 @@ function createTurnMachine(referee, deps) {
 			state().pushLog({
 				kind: entering ? "arrival" : "referee",
 				text: reply.narration,
-				...entering ? { roomId: before.currentRoomId } : {}
+				...entering ? { roomId: before.currentRoomId } : {},
+				...entering && before.arrivedVia ? { via: before.arrivedVia } : {}
 			});
 			state().pushTranscript({
 				role: "referee",
@@ -14593,7 +15618,8 @@ function createTurnMachine(referee, deps) {
 			state().pushLog({
 				kind: "arrival",
 				text: shown,
-				roomId: r.currentRoomId
+				roomId: r.currentRoomId,
+				...r.arrivedVia ? { via: r.arrivedVia } : {}
 			});
 			state().pushTranscript({
 				role: "referee",
@@ -15225,6 +16251,45 @@ function db() {
 *
 * Node only.
 */
+var repo_exports = /* @__PURE__ */ __exportAll({
+	ENDED: () => ENDED,
+	activeRunFor: () => activeRunFor,
+	appendDungeonEvents: () => appendDungeonEvents,
+	appendEvents: () => appendEvents,
+	carriedOut: () => carriedOut,
+	claimPlate: () => claimPlate,
+	collectingSink: () => collectingSink,
+	commitTurn: () => commitTurn,
+	completeDungeon: () => completeDungeon,
+	createRun: () => createRun,
+	deleteCharacter: () => deleteCharacter,
+	duplicateDungeon: () => duplicateDungeon,
+	failPlate: () => failPlate,
+	findUnfinishedDungeon: () => findUnfinishedDungeon,
+	finishPlate: () => finishPlate,
+	getCharacter: () => getCharacter,
+	getDungeon: () => getDungeon,
+	getPlate: () => getPlate,
+	getPlateWords: () => getPlateWords,
+	getRun: () => getRun,
+	insertPartialDungeon: () => insertPartialDungeon,
+	lastDungeonSeq: () => lastDungeonSeq,
+	lastSeq: () => lastSeq,
+	listChunks: () => listChunks,
+	listDungeons: () => listDungeons,
+	listLibrary: () => listLibrary,
+	listRoster: () => listRoster,
+	listRuns: () => listRuns,
+	lockRun: () => lockRun,
+	readDungeonEvents: () => readDungeonEvents,
+	readJournal: () => readJournal,
+	releaseRun: () => releaseRun,
+	saveCharacter: () => saveCharacter,
+	saveChunk: () => saveChunk,
+	savePlateWords: () => savePlateWords,
+	setDungeonCover: () => setDungeonCover,
+	statusOf: () => statusOf
+});
 /**
 * A document, on its way into a jsonb column.
 *
@@ -15249,6 +16314,13 @@ function statusOf(stage) {
 	if (stage === "abandoned") return "abandoned";
 	return "active";
 }
+/** The endings a character's record counts. `active` is not one of them. */
+var ENDED = [
+	"dead",
+	"abandoned",
+	"escaped",
+	"goal_met"
+];
 var NO_RECORD = () => ({
 	dead: 0,
 	abandoned: 0,
@@ -15326,6 +16398,12 @@ async function activeRunFor(characterId, owner, sql = db()) {
      where owner_id = ${owner} and character_id = ${characterId} and status = 'active'
   `;
 	return row;
+}
+async function getCharacter(id, owner, sql = db()) {
+	const [row] = await sql`
+    select sheet from characters where id = ${id} and owner_id = ${owner}
+  `;
+	return row?.sheet;
 }
 /**
 * Insert or replace, keyed on the sheet's own id.
@@ -15442,7 +16520,7 @@ async function insertPartialDungeon(gd, owner, sql = db()) {
 */
 async function findUnfinishedDungeon(owner, dice, sql = db()) {
 	const [row] = await sql`
-    select id, dungeon_key as "dungeonKey", owner_id as "ownerId", status, doc
+    select id, dungeon_key as "dungeonKey", owner_id as "ownerId", status, doc, cover
       from dungeons
      where owner_id = ${owner} and status = 'partial' and copied_from is null
        and seed = ${dice.seed} and size = ${dice.size} and level = ${dice.level}
@@ -15460,7 +16538,7 @@ async function findUnfinishedDungeon(owner, dice, sql = db()) {
 */
 async function getDungeon(id, owner, sql = db()) {
 	const [row] = await sql`
-    select id, dungeon_key as "dungeonKey", owner_id as "ownerId", status, doc
+    select id, dungeon_key as "dungeonKey", owner_id as "ownerId", status, doc, cover
       from dungeons where id = ${id} and owner_id = ${owner}
   `;
 	return row;
@@ -15471,11 +16549,13 @@ async function listDungeons(owner, sql = db()) {
     select id,
            coalesce(doc -> 'pass' ->> 'name', 'Unnamed')            as name,
            coalesce(doc -> 'pass' -> 'goal' ->> 'summary', '')      as objective,
-           size, level, seed, status,
-           created_at as "createdAt"
-      from dungeons
+           size, level, seed, d.status,
+           d.created_at as "createdAt",
+           p.path as "coverPath"
+      from dungeons d
+      left join plates p on p.key = d.cover and p.status = 'ready'
      where owner_id = ${owner}
-     order by created_at desc
+     order by d.created_at desc
   `;
 }
 /**
@@ -15562,14 +16642,16 @@ async function listLibrary(viewer, opts = {}, sql = db()) {
     select id,
            coalesce(doc -> 'pass' ->> 'name', 'Unnamed')            as name,
            coalesce(doc -> 'pass' -> 'goal' ->> 'summary', '')      as objective,
-           size, level, seed, status,
-           created_at                                              as "createdAt",
-           created_at::text || '|' || id::text                     as "cursor"
-      from dungeons
-     where status = 'complete'
+           size, level, seed, d.status,
+           d.created_at                                            as "createdAt",
+           d.created_at::text || '|' || d.id::text                 as "cursor",
+           p.path                                                  as "coverPath"
+      from dungeons d
+      left join plates p on p.key = d.cover and p.status = 'ready'
+     where d.status = 'complete'
        and owner_id <> ${viewer}
-       ${at ? sql`and (created_at, id) < (${at.at}::text::timestamptz, ${at.id}::text::uuid)` : sql``}
-     order by created_at desc, id desc
+       ${at ? sql`and (d.created_at, d.id) < (${at.at}::text::timestamptz, ${at.id}::text::uuid)` : sql``}
+     order by d.created_at desc, d.id desc
      limit ${limit + 1}
   `;
 	const more = rows.length > limit;
@@ -15624,8 +16706,8 @@ async function duplicateDungeon(sourceId, owner, sql = db()) {
 			already: true
 		};
 		const [copy] = await tx`
-      insert into dungeons (dungeon_key, owner_id, seed, size, level, status, doc, copied_from)
-      select dungeon_key, ${owner}, seed, size, level, status, doc, id
+      insert into dungeons (dungeon_key, owner_id, seed, size, level, status, doc, copied_from, cover)
+      select dungeon_key, ${owner}, seed, size, level, status, doc, id, cover
         from dungeons where id = ${sourceId}
       returning id
     `;
@@ -15978,6 +17060,56 @@ async function appendEvents(runId, events, sql = db()) {
 	if (events.length === 0) return;
 	await sql.begin((tx) => insertEvents(tx, runId, events));
 }
+async function getPlate(key, sql = db()) {
+	const [row] = await sql`
+    select key, status, path, attempts,
+           (extract(epoch from now() - updated_at) * 1000)::int as "ageMs"
+      from plates where key = ${key}
+  `;
+	return row;
+}
+/**
+* Take the job of drawing a plate. True when this request is the one to draw it.
+*
+* ONE STATEMENT, so two runs entering the same room in the same instant cannot
+* both win: a new key is inserted as `pending`; an existing one is taken over
+* only when it failed and has attempts left, or when its `pending` claim is
+* older than `staleMs` — the request that made it died without saying so.
+*/
+async function claimPlate(key, model, opts, sql = db()) {
+	return (await sql`
+    insert into plates (key, status, model, attempts) values (${key}, 'pending', ${model}, 1)
+    on conflict (key) do update
+       set status = 'pending', model = excluded.model, attempts = plates.attempts + 1,
+           error = null, updated_at = now()
+     where (plates.status = 'failed' and plates.attempts < ${opts.maxAttempts})
+        or (plates.status = 'pending' and plates.updated_at < now() - make_interval(secs => ${opts.staleMs / 1e3}))
+    returning key
+  `).length > 0;
+}
+async function finishPlate(key, path, sql = db()) {
+	await sql`update plates set status = 'ready', path = ${path}, updated_at = now() where key = ${key}`;
+}
+async function failPlate(key, error, sql = db()) {
+	await sql`update plates set status = 'failed', error = ${error.slice(0, 2e3)}, updated_at = now() where key = ${key}`;
+}
+/** Shared words a plate is drawn from — see `plate_words`. */
+async function getPlateWords(key, sql = db()) {
+	const [row] = await sql`select value from plate_words where key = ${key}`;
+	return row?.value;
+}
+/** The first answer is kept: a second plate racing the first reads the winner's. */
+async function savePlateWords(key, value, sql = db()) {
+	await sql`insert into plate_words (key, value) values (${key}, ${value}) on conflict (key) do nothing`;
+	return await getPlateWords(key, sql) ?? value;
+}
+/**
+* Name the cover a finished dungeon is to have. Written once, at `finish`; a
+* dungeon whose `cover` is null was finished before covers and never gets one.
+*/
+async function setDungeonCover(id, key, sql = db()) {
+	await sql`update dungeons set cover = ${key} where id = ${id} and cover is null`;
+}
 /** The next midnight UTC after `now`. */
 function nextUtcMidnight(now) {
 	return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
@@ -16074,6 +17206,919 @@ async function allowanceOf(user, sql = db(), now = /* @__PURE__ */ new Date()) {
 		unplayed: row?.unplayed ?? [],
 		now
 	});
+}
+//#endregion
+//#region src/runtime/plates.ts
+/**
+* ROOM PLATES — what goes into one
+* ================================
+*
+* The join between a generated dungeon and `plateView`. This is where a room's
+* entities become cells and doors, and where CONCEALMENT IS FILTERED OUT: a
+* plate is a picture for the player, and a hidden feature or a secret door fed
+* to an image model is a picture of the secret (BUILD-PLAN, Illustrations).
+*
+* Reads the dungeon as GENERATED, never the run, so a room's plate does not
+* depend on what one player has found — it is the dungeon's, and every player
+* entering by the same door gets the same one.
+*
+* No creatures and no loose items: they move, die and get picked up, and a
+* picture of them is stale the moment they do.
+*/
+var pairKey = (a, b) => `${Math.min(a, b)}-${Math.max(a, b)}`;
+/**
+* Where a connector cuts this room's wall, as the plan drew it.
+*
+* Undefined when the plan has no door for it — a dungeon with no block plan,
+* or an edge the plan found no shared wall for. Either way there is nothing
+* honest to put in a picture.
+*/
+function doorOf(d, c, roomIndex) {
+	const plan = d.blockplan;
+	if (!plan) return void 0;
+	if (isSurfaceExit(c)) {
+		const s = plan.surface;
+		return s && s.room === roomIndex ? {
+			id: c.id,
+			inside: s.from,
+			outside: s.to
+		} : void 0;
+	}
+	const edge = d.graph.edges.find((e) => e.entityId === c.id);
+	if (!edge || edge.a !== roomIndex && edge.b !== roomIndex) return void 0;
+	const door = plan.doors.find((x) => pairKey(x.a, x.b) === pairKey(edge.a, edge.b));
+	if (!door) return void 0;
+	return door.a === roomIndex ? {
+		id: c.id,
+		inside: door.from,
+		outside: door.to
+	} : {
+		id: c.id,
+		inside: door.to,
+		outside: door.from
+	};
+}
+/**
+* The ways in a viewer could arrive by: every connector touching the room that
+* is not concealed and that the plan drew.
+*/
+function plateEntries(d, roomId) {
+	const i = d.graph.rooms.findIndex((r) => r.entityId === roomId);
+	if (i < 0) return [];
+	return d.entities.connectors.filter((c) => touches(c, roomId) && c.isHidden !== true).filter((c) => doorOf(d, c, i) !== void 0).map((c) => c.id);
+}
+/**
+* The room as seen from `entryId`, or undefined when it cannot be drawn: no
+* block plan, an unknown room, or a door the plan does not have.
+*/
+function roomPlate(d, roomId, entryId) {
+	const i = d.graph.rooms.findIndex((r) => r.entityId === roomId);
+	const room = d.entities.rooms.find((r) => r.id === roomId);
+	const floor = d.blockplan?.rooms[i];
+	if (i < 0 || !room || !floor?.length) return void 0;
+	const registry = d.entities.registry;
+	const entryConn = d.entities.connectors.find((c) => c.id === entryId);
+	const entry = entryConn && doorOf(d, entryConn, i);
+	if (!entry) return void 0;
+	const exitConns = d.entities.connectors.filter((c) => c.id !== entryId && touches(c, roomId) && c.isHidden !== true);
+	const exits = [];
+	const exitDoors = [];
+	for (const c of exitConns) {
+		const door = doorOf(d, c, i);
+		if (!door) continue;
+		exitDoors.push(door);
+		exits.push({
+			id: c.id,
+			name: c.name,
+			base: resolveBase(c, registry) ?? "",
+			surface: isSurfaceExit(c)
+		});
+	}
+	const subjects = d.entities.features.filter((f) => f.roomId === roomId && f.isHidden !== true).map((f) => ({
+		id: f.id,
+		name: f.name,
+		base: resolveBase(f, registry) ?? "",
+		kind: f.place?.fixture,
+		presence: featurePresence(f.keywords, f.place?.position),
+		position: f.place?.position
+	}));
+	const features = subjects.filter((x) => x.presence !== "sense");
+	const senses = subjects.filter((x) => x.presence === "sense");
+	const cellsOf = new Map(d.entities.features.map((f) => [f.id, f.place?.cells ?? []]));
+	const input = {
+		floor,
+		entry,
+		exits: exitDoors,
+		features: features.map((f) => ({
+			id: f.id,
+			cells: cellsOf.get(f.id) ?? []
+		}))
+	};
+	const view = plateView(input);
+	return {
+		roomId,
+		roomName: room.name,
+		roomBase: resolveBase(room, registry) ?? "",
+		entryId,
+		entry: {
+			id: entryConn.id,
+			name: entryConn.name,
+			base: resolveBase(entryConn, registry) ?? "",
+			surface: isSurfaceExit(entryConn)
+		},
+		input,
+		view,
+		exits,
+		features,
+		senses,
+		hotspots: plateHotspots(input, view)
+	};
+}
+/**
+* The tag each thing carries in the guide image and the brief: letters for
+* ways out (the way in last), numbers for features. Only things in the picture
+* are tagged — a tag on something the camera cannot see would be a promise the
+* picture cannot keep.
+*/
+function plateTags(p) {
+	const tags = /* @__PURE__ */ new Map();
+	[...p.view.exits, p.view.entry].filter((s) => s.visible).forEach((s, i) => tags.set(s.id, String.fromCharCode(65 + i)));
+	p.view.features.filter((s, i) => s.visible && p.features[i].presence === "object").forEach((s, i) => tags.set(s.id, String(i + 1)));
+	return tags;
+}
+/**
+* Everything the chosen camera shows, as the prompt needs it: the viewpoint,
+* the doorways and objects with their tags and positions, and the surfaces.
+*
+* Only what is in the picture. A thing named in a prompt only to say "do not
+* draw this" tends to get drawn, so what the camera cannot see is left out
+* entirely; the page still has a hotspot for it.
+*/
+function plateInView(p) {
+	const v = p.view;
+	const tags = plateTags(p);
+	const viewpoint = `Standing ${v.standing} of the room at eye height, looking ${v.facing}. The floor runs about ${Math.round(v.deep / 5) * 5} ft ahead and ${Math.round(v.wide / 5) * 5} ft across.`;
+	const drawn = [];
+	const surfaces = [];
+	const doors = [...p.exits.map((x, i) => [x, v.exits[i]]), [p.entry, v.entry]];
+	for (const [x, s] of doors) if (s.visible) drawn.push({
+		subject: x,
+		tag: tags.get(x.id),
+		where: exitWhere(s),
+		doorway: true
+	});
+	p.features.forEach((f, i) => {
+		const s = v.features[i];
+		if (!s.visible) return;
+		if (f.presence === "surface") surfaces.push({
+			subject: f,
+			where: f.position === "throughout" ? "throughout the room" : featureWhere(s),
+			doorway: false
+		});
+		else drawn.push({
+			subject: f,
+			tag: tags.get(f.id),
+			where: featureWhere(s),
+			doorway: false
+		});
+	});
+	return {
+		viewpoint,
+		drawn,
+		surfaces
+	};
+}
+/**
+* Which way in a run's plate of `roomId` is drawn from, or undefined when the
+* run has not been there (a plate of an unentered room shows the player that
+* room) or the room cannot be drawn.
+*
+* The door is the one the FIRST arrival was logged with, since the plate sits
+* at that arrival. An arrival logged before `via` was kept falls back to the
+* run's `arrivedVia` while they are still in the room, then to the way out of
+* the dungeon if the room has it, then to the first door the plan drew.
+*/
+function plateEntryFor(d, run, roomId) {
+	const first = run.log.find((e) => e.kind === "arrival" && e.roomId === roomId);
+	const here = run.currentRoomId === roomId;
+	if (!first && !here) return void 0;
+	const entries = plateEntries(d, roomId);
+	const wanted = first?.via ?? (here ? run.arrivedVia : void 0);
+	if (wanted && entries.includes(wanted)) return wanted;
+	return d.entities.connectors.find((c) => entries.includes(c.id) && isSurfaceExit(c))?.id ?? entries[0];
+}
+/**
+* What a dungeon's cover is drawn from: the opening the player reads, and the
+* way in that brings them to the first room — the place and its entrance as
+* someone approaching would see them.
+*
+* Not the theme: that is about the inside, and in the spike it put ceilings
+* into an outside view. Concealment does not arise; the way in from the surface
+* is never hidden. Undefined for a dungeon with no way in from the surface.
+*/
+function coverDescription(d) {
+	const entrance = d.stocked.entranceRoomId;
+	const way = d.entities.connectors.find((c) => isSurfaceExit(c) && touches(c, entrance));
+	if (!way) return void 0;
+	const base = resolveBase(way, d.entities.registry) ?? "";
+	return [
+		`THE PLACE: ${d.pass.name}`,
+		d.pass.openingProse,
+		"",
+		`THE WAY IN: ${way.name}. ${base}`
+	].join("\n");
+}
+//#endregion
+//#region src/runtime/plate-sketch.ts
+/**
+* A room plate's GUIDE IMAGE: the composition as plain line work.
+*
+* The same `PlateView` the prompt is written from, projected through a pinhole
+* at the chosen eye. It is drawn to be handed to an image model as a reference,
+* and a reference gets copied — so it carries only what should be copied:
+*
+*   - the ARCHITECTURE as line art: floor line, ceiling line, a vertical at each
+*     corner, doorways as outlined openings. No floor grid and no seam every
+*     five feet of wall; the grid is how the room was built, not how it looks.
+*   - each FEATURE as a dashed outline of its footprint on the floor with a
+*     numbered tag, and each doorway with a lettered tag (`plateTags`). Never a
+*     solid: a box drawn where the altar goes comes back as a box. The prompt
+*     says what each tag is and that no mark is to be drawn (`PLATE_GUIDE_NOTE`, src/engine/plate-prompt.ts).
+*
+* `marks: false` draws the architecture alone, for comparing against a model
+* that copies the marks anyway.
+*
+* Nothing the camera cannot see is drawn or tagged. Framework-free, so the dev
+* scripts can call it under plain node. Painter's algorithm, far to near.
+*/
+var INK = "#000000";
+var PAPER = "#FFFFFF";
+/**
+* Tag lettering as strokes, not `<text>`. The guide is rasterised by sharp on
+* the server, and a serverless function has no fonts installed: `<text>` there
+* comes out as empty boxes or nothing. A path needs no font, so the guide is
+* the same on the author's machine and on Vercel.
+*
+* Capitals and digits on a 4 × 6 grid, y down. 0 is slashed so it is not O.
+*/
+var GLYPHS = {
+	"0": "M0 0H4V6H0ZM4 0L0 6",
+	"1": "M1 1L2 0V6M1 6H3",
+	"2": "M0 0H4V3H0V6H4",
+	"3": "M0 0H4V6H0M1 3H4",
+	"4": "M0 0V3H4M4 0V6",
+	"5": "M4 0H0V3H4V6H0",
+	"6": "M4 0H0V6H4V3H0",
+	"7": "M0 0H4L1 6",
+	"8": "M0 0H4V6H0ZM0 3H4",
+	"9": "M4 3H0V0H4V6H0",
+	A: "M0 6L2 0L4 6M1 3.5H3",
+	B: "M0 0V6H3L4 5V4L3 3H0M0 0H3L4 1V2L3 3",
+	C: "M4 0H0V6H4",
+	D: "M0 0V6H2.5L4 4.5V1.5L2.5 0Z",
+	E: "M4 0H0V6H4M0 3H3",
+	F: "M4 0H0V6M0 3H3",
+	G: "M4 0H0V6H4V3H2",
+	H: "M0 0V6M4 0V6M0 3H4",
+	I: "M1 0H3M2 0V6M1 6H3",
+	J: "M4 0V6H0V4",
+	K: "M0 0V6M4 0L0 3.5M1.5 2.5L4 6",
+	L: "M0 0V6H4",
+	M: "M0 6V0L2 3L4 0V6",
+	N: "M0 6V0L4 6V0",
+	O: "M0 0H4V6H0Z",
+	P: "M0 6V0H4V3H0",
+	Q: "M0 0H4V6H0ZM2.5 4.5L4 6",
+	R: "M0 6V0H4V3H0M2 3L4 6",
+	S: "M4 0H0V3H4V6H0",
+	T: "M0 0H4M2 0V6",
+	U: "M0 0V6H4V0",
+	V: "M0 0L2 6L4 0",
+	W: "M0 0L1 6L2 3L3 6L4 0",
+	X: "M0 0L4 6M4 0L0 6",
+	Y: "M0 0L2 3L4 0M2 3V6",
+	Z: "M0 0H4L0 6H4"
+};
+/** `text` centred on (cx, cy), about the size the old 11px bold label was. */
+function strokeText(text, cx, cy) {
+	const k = 8 / 6;
+	const advance = 7.333333333333333;
+	const chars = [...text.toUpperCase()].filter((ch) => GLYPHS[ch]);
+	const x0 = cx - (chars.length * advance - 2) / 2;
+	return `<g data-tag="${text}">${chars.map((ch, i) => `<path d="${GLYPHS[ch]}" transform="translate(${(x0 + i * advance).toFixed(1)} ${(cy - 4).toFixed(1)}) scale(${k.toFixed(3)})" fill="none" stroke="${INK}" stroke-width="${(1.7 / k).toFixed(2)}" stroke-linecap="round" stroke-linejoin="round"/>`).join("")}</g>`;
+}
+var WALL_FT = 11;
+var DOOR_FT = PLATE_DOOR_FT;
+/** Nothing nearer the eye than this is drawn; polygons are cut at it. */
+var NEAR_FT = .3;
+/** How far a footprint outline is drawn inside its cells, so it clears the wall line. */
+var FOOTPRINT_INSET_FT = .75;
+/** Length of the pieces a footprint outline is cut into to test each for sight, in feet. */
+var OUTLINE_STEP_FT = .25;
+function plateSketchSvg(p, opts = {}) {
+	const W = opts.width ?? 480;
+	const H = Math.round(W / PLATE_ASPECT);
+	const marks = opts.marks ?? true;
+	const { eye } = p.view;
+	const focal = W / 2 / Math.tan(50 * Math.PI / 180);
+	const tags = plateTags(p);
+	/** World feet to camera space: ahead, across, up. */
+	const cam = (q) => ({
+		a: (q.x - eye.x) * eye.forward.x + (q.y - eye.y) * eye.forward.y,
+		c: (q.x - eye.x) * eye.right.x + (q.y - eye.y) * eye.right.y,
+		u: q.z - PLATE_EYE_FT
+	});
+	const screen = (q) => ({
+		x: W / 2 + q.c / q.a * focal,
+		y: H / 2 - q.u / q.a * focal
+	});
+	const fmt = (s) => `${s.x.toFixed(1)},${s.y.toFixed(1)}`;
+	/** Cut a camera-space polygon at the near plane (Sutherland–Hodgman, one plane). */
+	const clip = (poly, closed) => {
+		const out = [];
+		const n = closed ? poly.length : poly.length - 1;
+		for (let i = 0; i < n; i++) {
+			const s = poly[i];
+			const e = poly[(i + 1) % poly.length];
+			const sIn = s.a >= NEAR_FT;
+			const eIn = e.a >= NEAR_FT;
+			if (sIn) out.push(s);
+			if (sIn !== eIn) {
+				const t = (NEAR_FT - s.a) / (e.a - s.a);
+				out.push({
+					a: NEAR_FT,
+					c: s.c + (e.c - s.c) * t,
+					u: s.u + (e.u - s.u) * t
+				});
+			}
+		}
+		if (!closed && poly[n].a >= NEAR_FT) out.push(poly[n]);
+		return out;
+	};
+	const polygon = (pts, attrs) => {
+		const c = clip(pts.map(cam), true);
+		return c.length < 3 ? "" : `<polygon points="${c.map(screen).map(fmt).join(" ")}" ${attrs}/>`;
+	};
+	const line = (a, b, attrs) => {
+		const c = clip([cam(a), cam(b)], false);
+		return c.length < 2 ? "" : `<polyline points="${c.map(screen).map(fmt).join(" ")}" fill="none" ${attrs}/>`;
+	};
+	/** An open polyline in the room, cut at the near plane where it passes behind the eye. */
+	const line3 = (pts, attrs) => {
+		const runs = [[]];
+		for (let i = 0; i < pts.length - 1; i++) {
+			const seg = clip([cam(pts[i]), cam(pts[i + 1])], false);
+			if (seg.length < 2) {
+				if (runs[runs.length - 1].length) runs.push([]);
+				continue;
+			}
+			const run = runs[runs.length - 1];
+			if (!run.length) run.push(seg[0]);
+			run.push(seg[1]);
+		}
+		return runs.filter((r) => r.length > 1).map((r) => `<polyline points="${r.map(screen).map(fmt).join(" ")}" fill="none" ${attrs}/>`).join("");
+	};
+	const dist = (q) => Math.hypot(q.x - eye.x, q.y - eye.y);
+	const at3 = (q, z) => ({
+		x: q.x,
+		y: q.y,
+		z
+	});
+	const out = [`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">`, `<rect width="${W}" height="${H}" fill="${PAPER}"/>`];
+	const STROKE = `stroke="${INK}" stroke-width="1.4" stroke-linecap="round"`;
+	const floorKey = new Set(p.input.floor.map((c) => `${c.x},${c.y}`));
+	const isFloor = (x, y) => floorKey.has(`${x},${y}`);
+	const visibleDoors = /* @__PURE__ */ new Set();
+	const doorEdges = [...p.input.exits.map((d, i) => [d, p.view.exits[i]]), [p.input.entry, p.view.entry]];
+	for (const [d, s] of doorEdges) if (s.visible) visibleDoors.add(`${d.inside.x},${d.inside.y}>${d.outside.x},${d.outside.y}`);
+	const faces = [];
+	const STEPS = [
+		[0, -1],
+		[1, 0],
+		[0, 1],
+		[-1, 0]
+	];
+	for (const c of p.input.floor) for (const [dx, dy] of STEPS) {
+		if (isFloor(c.x + dx, c.y + dy)) continue;
+		const mid = {
+			x: (c.x + .5 + dx / 2) * 5,
+			y: (c.y + .5 + dy / 2) * 5
+		};
+		const t = {
+			x: -dy,
+			y: dx
+		};
+		const from = {
+			x: mid.x - t.x * 5 / 2,
+			y: mid.y - t.y * 5 / 2
+		};
+		const to = {
+			x: mid.x + t.x * 5 / 2,
+			y: mid.y + t.y * 5 / 2
+		};
+		if ((eye.x - mid.x) * -dx + (eye.y - mid.y) * -dy <= 0) continue;
+		const runs = (s) => isFloor(c.x + s * t.x, c.y + s * t.y) && !isFloor(c.x + s * t.x + dx, c.y + s * t.y + dy);
+		const key = `${c.x},${c.y}>${c.x + dx},${c.y + dy}`;
+		faces.push({
+			from,
+			to,
+			d: dist(mid),
+			cornerFrom: !runs(-1),
+			cornerTo: !runs(1),
+			door: visibleDoors.has(key)
+		});
+	}
+	faces.sort((a, b) => b.d - a.d);
+	const tagMarks = [];
+	const tag = (q, text) => {
+		const s = {
+			x: q.x * W,
+			y: q.y * H
+		};
+		tagMarks.push(`<circle cx="${s.x.toFixed(1)}" cy="${s.y.toFixed(1)}" r="9" fill="${PAPER}" stroke="${INK}" stroke-width="1.2"/>` + strokeText(text, s.x, s.y));
+	};
+	for (const f of faces) {
+		out.push(polygon([
+			at3(f.from, 0),
+			at3(f.to, 0),
+			at3(f.to, WALL_FT),
+			at3(f.from, WALL_FT)
+		], `fill="${PAPER}" stroke="${PAPER}" stroke-width="0.8"`), line(at3(f.from, 0), at3(f.to, 0), STROKE), line(at3(f.from, WALL_FT), at3(f.to, WALL_FT), STROKE));
+		if (f.cornerFrom) out.push(line(at3(f.from, 0), at3(f.from, WALL_FT), STROKE));
+		if (f.cornerTo) out.push(line(at3(f.to, 0), at3(f.to, WALL_FT), STROKE));
+		if (f.door) {
+			const lerp = (s) => ({
+				x: f.from.x + (f.to.x - f.from.x) * s,
+				y: f.from.y + (f.to.y - f.from.y) * s
+			});
+			const a = lerp(.15);
+			const b = lerp(.85);
+			out.push(polygon([
+				at3(a, 0),
+				at3(b, 0),
+				at3(b, DOOR_FT),
+				at3(a, DOOR_FT)
+			], `fill="${PAPER}" ${STROKE}`));
+		}
+	}
+	if (marks) {
+		const sees = plateSight(p.input, eye);
+		p.input.features.forEach((f, i) => {
+			if (!p.view.features[i].visible || p.features[i].presence !== "object") return;
+			for (const piece of connectedCells(f.cells)) {
+				const { outer, holes } = traceOutline(piece);
+				for (const ring of [outer, ...holes]) {
+					const pts = inset(ring, FOOTPRINT_INSET_FT / 5).map((q) => ({
+						x: q.x * 5,
+						y: q.y * 5
+					}));
+					for (const run of visibleRuns(pts, sees)) out.push(line3(run.map((q) => at3(q, .05)), `stroke="${INK}" stroke-width="1.2" stroke-dasharray="5 4"`));
+				}
+			}
+		});
+		for (const h of p.hotspots) {
+			const t = tags.get(h.id);
+			if (h.status === "shown" && t) for (const q of h.points) tag(q, t);
+		}
+	}
+	out.push(...tagMarks, "</svg>");
+	return out.filter(Boolean).join("\n");
+}
+/**
+* The stretches of a closed ring, in feet, whose every short piece passes the
+* sight test — as open polylines ready to draw.
+*/
+function visibleRuns(ring, sees) {
+	const runs = [];
+	let run = [];
+	for (let i = 0; i < ring.length; i++) {
+		const a = ring[i];
+		const b = ring[(i + 1) % ring.length];
+		const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / OUTLINE_STEP_FT));
+		for (let k = 0; k < steps; k++) {
+			const p0 = {
+				x: a.x + (b.x - a.x) * k / steps,
+				y: a.y + (b.y - a.y) * k / steps
+			};
+			const p1 = {
+				x: a.x + (b.x - a.x) * (k + 1) / steps,
+				y: a.y + (b.y - a.y) * (k + 1) / steps
+			};
+			if (sees({
+				x: (p0.x + p1.x) / 2,
+				y: (p0.y + p1.y) / 2
+			})) {
+				if (!run.length) run.push(p0);
+				run.push(p1);
+			} else if (run.length) {
+				runs.push(run);
+				run = [];
+			}
+		}
+	}
+	if (run.length) runs.push(run);
+	return runs;
+}
+/**
+* A rectilinear ring moved inward by `d` cells. `traceOutline` winds the outer
+* ring clockwise on screen (y down), so the inside is to the right of travel.
+*/
+function inset(ring, d) {
+	const n = ring.length;
+	return ring.map((v, i) => {
+		const prev = ring[(i - 1 + n) % n];
+		const next = ring[(i + 1) % n];
+		const inward = (a, b) => {
+			const dx = Math.sign(b.x - a.x);
+			return {
+				x: -Math.sign(b.y - a.y),
+				y: dx
+			};
+		};
+		const n1 = inward(prev, v);
+		const n2 = inward(v, next);
+		return {
+			x: v.x + (n1.x + n2.x) * d,
+			y: v.y + (n1.y + n2.y) * d
+		};
+	});
+}
+//#endregion
+//#region src/runtime/plate-visual.ts
+/**
+* ROOM PLATES — the words
+* =======================
+*
+* The Haiku calls that cut a room's fiction down to what an illustrator would
+* draw, and the assembly of the image prompt from their answers and the
+* camera's. The request text and the prompt layout are pure and live in
+* `src/engine/plate-prompt.ts`; this is the part that talks to the model.
+*
+* Three calls, each cached by the caller with what it describes:
+*
+*   setting   once per dungeon — what the place is built from, and its light
+*   visual    once per plate — the room's shell, and a look per thing in view
+*   exterior  once per dungeon — the place and its way in, from outside
+*
+* Only what `plateInView` kept is sent: concealment filtered, sounds and smells
+* dropped, nothing out of frame. The model writes no positions and no numbers;
+* the prompt's WHERE comes from code.
+*/
+var nonEmpty = z.string().trim().min(1);
+var visualSchema = z.object({
+	room: nonEmpty,
+	things: z.array(z.object({
+		ref: nonEmpty,
+		look: nonEmpty
+	}))
+});
+var lineSchema = z.object({ text: nonEmpty });
+/**
+* The refs the visual request keys on: the guide's tag where there is one,
+* and S1, S2… for surfaces, which carry none. Short on purpose — they are
+* echoed back once per thing.
+*/
+function visualSubjects(p) {
+	const { drawn, surfaces } = plateInView(p);
+	const refOf = /* @__PURE__ */ new Map();
+	const subjects = [];
+	for (const x of drawn) {
+		const ref = x.tag ?? `T${subjects.length + 1}`;
+		refOf.set(x.subject.id, ref);
+		subjects.push({
+			ref,
+			kind: x.doorway ? "doorway" : "object",
+			name: x.subject.name,
+			base: x.subject.base
+		});
+	}
+	surfaces.forEach((x, i) => {
+		const ref = `S${i + 1}`;
+		refOf.set(x.subject.id, ref);
+		subjects.push({
+			ref,
+			kind: "surface",
+			name: x.subject.name,
+			base: x.subject.base
+		});
+	});
+	return {
+		subjects,
+		refOf
+	};
+}
+async function requestPlateVisual(p) {
+	const { subjects } = visualSubjects(p);
+	const want = new Set(subjects.map((s) => s.ref));
+	const res = await callForJson({
+		task: "plate-visual",
+		system: PLATE_VISUAL_SYSTEM,
+		messages: [{
+			role: "user",
+			content: plateVisualMessage(p.roomName, p.roomBase, subjects)
+		}],
+		schema: visualSchema,
+		toolName: "plate_visual",
+		toolDescription: "The room's shell in one sentence, and a look for every listed thing, keyed by ref.",
+		check: (v) => [...want].filter((ref) => !v.things.some((t) => t.ref === ref)).map((ref) => ({
+			path: "things",
+			message: `no look for ref ${ref}`
+		}))
+	});
+	return {
+		value: {
+			room: res.value.room,
+			looks: Object.fromEntries(res.value.things.map((t) => [t.ref, t.look]))
+		},
+		usage: res.usage
+	};
+}
+async function requestLine(system, message) {
+	const res = await callForJson({
+		task: "plate-visual",
+		system,
+		messages: [{
+			role: "user",
+			content: message
+		}],
+		schema: lineSchema,
+		toolName: "plate_line",
+		toolDescription: "The text asked for."
+	});
+	return {
+		value: res.value.text,
+		usage: res.usage
+	};
+}
+function requestPlateSetting(theme) {
+	return requestLine(PLATE_SETTING_SYSTEM, plateSettingMessage(theme));
+}
+function requestPlateExterior(description) {
+	return requestLine(PLATE_EXTERIOR_SYSTEM, description);
+}
+/**
+* The image prompt for a room plate. `visual` may come from the model or —
+* for comparing against it — be built from the raw fiction; the prompt does
+* not care which.
+*/
+function plateImagePrompt(p, guide, setting, visual, style, references = 0) {
+	const { viewpoint, drawn, surfaces } = plateInView(p);
+	const { refOf } = visualSubjects(p);
+	const look = (id, fallback) => visual.looks[refOf.get(id) ?? ""] ?? fallback;
+	return roomPlatePrompt({
+		guide,
+		style,
+		references,
+		setting,
+		room: visual.room,
+		viewpoint,
+		drawn: drawn.map((x) => ({
+			tag: x.tag,
+			look: look(x.subject.id, x.subject.name),
+			where: x.where,
+			doorway: x.doorway
+		})),
+		surfaces: surfaces.map((x) => ({
+			look: look(x.subject.id, x.subject.name),
+			where: x.where
+		}))
+	});
+}
+/**
+* The same prompt with the fiction passed through uncut: the room's whole base
+* as ROOM and each thing's whole base as its look. The control the condensing
+* call is measured against.
+*/
+function rawVisual(p) {
+	const { subjects } = visualSubjects(p);
+	return {
+		room: p.roomBase,
+		looks: Object.fromEntries(subjects.map((s) => [s.ref, s.base]))
+	};
+}
+//#endregion
+//#region src/server/plate-image.ts
+/**
+* ROOM PLATES — the pixels
+* ========================
+*
+* Everything a plate needs done to an image, with sharp: the guide drawn to a
+* PNG, and the model's picture thresholded to 1-bit. Shared by the server and
+* the spike script (`src/dev/cli-illustrate.ts`) so both make the same image.
+*
+* Node only: sharp is native.
+*/
+/** A plate's size, the image model's 3:2 landscape. */
+var PLATE_W = 1536;
+var PLATE_H = 1024;
+/**
+* The guide at the plate's full size. Drawn at the width its line weights
+* were set for and scaled up as a vector, so walls, dashes and tags all grow
+* together; drawn at full width instead, they come out hairline.
+*/
+function guidePng(p, marks) {
+	const drawnAt = 480;
+	return sharp(Buffer.from(plateSketchSvg(p, {
+		marks,
+		width: drawnAt
+	})), { density: 72 * PLATE_W / drawnAt }).resize(PLATE_W, PLATE_H).png().toBuffer();
+}
+/**
+* Black ink on NOTHING: what the page gets. The paper is transparent, so the
+* page lays the plate down as a mask over its own ink colour and the picture's
+* white is the page's paper — no box edge, and the lines are exactly the
+* text's ink. Same threshold as `oneBitPng`, so the two are the same drawing.
+*/
+async function inkPng(image) {
+	const { data, info } = await sharp(image).flatten({ background: "#ffffff" }).greyscale().threshold(150).raw().toBuffer({ resolveWithObject: true });
+	const n = info.width * info.height;
+	const rgba = Buffer.alloc(n * 4);
+	for (let i = 0; i < n; i++) rgba[i * 4 + 3] = data[i * info.channels] < 128 ? 255 : 0;
+	return sharp(rgba, { raw: {
+		width: info.width,
+		height: info.height,
+		channels: 4
+	} }).png({ compressionLevel: 9 }).toBuffer();
+}
+/** The style references, sent after the guide. Bundled with the function — see `vercel.json`. */
+var PLATE_REFS_DIR = "assets/plate-refs";
+var sha = (s) => createHash("sha256").update(s).digest("hex");
+/** The key of the setting line a dungeon's plates share. */
+var settingKey = (theme) => `setting:${sha(PLATE_SETTING_SYSTEM + "\n" + plateSettingMessage(theme))}`;
+/** What a plate is drawn from, hashed. See the header for why not the prompt. */
+function plateKey(p, theme, references) {
+	const { subjects } = visualSubjects(p);
+	return sha(JSON.stringify({
+		style: 2,
+		model: `${IMAGE_MODELS[PLATE_MODEL].guided} low ${PLATE_W}x${PLATE_H}`,
+		references,
+		setting: settingKey(theme),
+		visual: PLATE_VISUAL_SYSTEM + "\n" + plateVisualMessage(p.roomName, p.roomBase, subjects),
+		layout: plateImagePrompt(p, "marks", "", rawVisual(p), void 0, references),
+		guide: plateSketchSvg(p, { marks: true })
+	}));
+}
+async function servePlate(d, roomId, entryId, work, store = repo_exports) {
+	const p = roomPlate(d, roomId, entryId);
+	if (!p) return { status: "none" };
+	const theme = d.pass.theme;
+	return serveKeyed(plateKey(p, theme, work.references), PLATE_MODEL, p.roomName, work, store, async () => {
+		const sKey = settingKey(theme);
+		const setting = await store.getPlateWords(sKey) ?? await store.savePlateWords(sKey, await work.setting(theme));
+		const visual = await work.visual(p);
+		const prompt = plateImagePrompt(p, "marks", setting, visual, void 0, work.references);
+		return work.draw(prompt, await guidePng(p, true));
+	});
+}
+/**
+* The dungeon from outside: the cover on its library card and above its
+* opening. Klein, prompt only, sparse style — the spike's exterior setup.
+*
+* Keyed like a plate, by what it is drawn from. The key is written onto the
+* dungeon row (`dungeons.cover`) when the dungeon is finished; a dungeon with
+* no key has no cover and never gets one drawn.
+*/
+function coverKey(d) {
+	const description = coverDescription(d);
+	if (!description) return void 0;
+	return sha(JSON.stringify({
+		style: 2,
+		model: `${IMAGE_MODELS[COVER_MODEL].unguided} ${PLATE_W}x${PLATE_H}`,
+		seed: d.seeds.dungeonSeed,
+		scene: PLATE_EXTERIOR_SYSTEM + "\n" + description,
+		prompt: exteriorPlatePrompt({ scene: "" })
+	}));
+}
+async function serveCover(d, key, work, store = repo_exports) {
+	const description = coverDescription(d);
+	if (!description) return { status: "none" };
+	return serveKeyed(key, COVER_MODEL, `${d.pass.name} (cover)`, work, store, async () => {
+		const scene = await work.scene(description);
+		return work.drawScene(exteriorPlatePrompt({ scene }), d.seeds.dungeonSeed);
+	});
+}
+/**
+* The claim, the draw and the store, for anything kept in `plates`.
+*
+*   ready    → the URL
+*   pending  → "ask again", unless the claim is stale
+*   missing  → claim it, draw it, store it, return the URL
+*   failed   → claim it again while attempts are left; past that, none
+*/
+async function serveKeyed(key, model, label, work, store, make) {
+	const row = await store.getPlate(key);
+	if (row?.status === "ready" && row.path) return {
+		status: "ready",
+		url: work.urlOf(row.path)
+	};
+	if (row?.status === "pending" && row.ageMs < 18e4) return { status: "pending" };
+	if (row?.status === "failed" && row.attempts >= 3) return { status: "none" };
+	if (!await store.claimPlate(key, model, {
+		staleMs: 18e4,
+		maxAttempts: 3
+	})) {
+		const now = await store.getPlate(key);
+		if (now?.status === "ready" && now.path) return {
+			status: "ready",
+			url: work.urlOf(now.path)
+		};
+		return now?.status === "pending" ? { status: "pending" } : { status: "none" };
+	}
+	try {
+		const picture = await make();
+		const path = `${key}.png`;
+		await work.upload(path, await inkPng(picture));
+		await store.finishPlate(key, path);
+		return {
+			status: "ready",
+			url: work.urlOf(path)
+		};
+	} catch (e) {
+		const body = e.body;
+		const why = `${e.message}${body ? ` ${JSON.stringify(body).slice(0, 400)}` : ""}`;
+		console.error(`[plate] ${label} (${key.slice(0, 12)}) failed: ${why}`);
+		await store.failPlate(key, why);
+		return { status: "none" };
+	}
+}
+/**
+* The live worker, or undefined when the server is not set up to draw — no
+* `FAL_KEY`, or no service-role key to store with. Then every room simply has
+* no plate, which is also the off switch.
+*/
+function livePlateWork() {
+	const falKey = process.env.FAL_KEY;
+	const supabaseUrl = process.env.SUPABASE_URL?.replace(/\/$/, "");
+	const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+	if (!falKey || !supabaseUrl || !serviceKey) return void 0;
+	fal.config({ credentials: falKey });
+	const dir = resolve(process.cwd(), PLATE_REFS_DIR);
+	const refFiles = readdirSync(dir).filter((f) => f.endsWith(".png")).sort();
+	let refUrls;
+	const refs = () => refUrls ??= Promise.all(refFiles.map((f) => fal.storage.upload(new Blob([readFileSync(resolve(dir, f))], { type: "image/png" })))).catch((e) => {
+		refUrls = void 0;
+		throw e;
+	});
+	return {
+		references: refFiles.length,
+		setting: async (theme) => (await requestPlateSetting(theme)).value,
+		visual: async (p) => (await requestPlateVisual(p)).value,
+		async draw(prompt, guide) {
+			const guideUrl = await fal.storage.upload(new Blob([new Uint8Array(guide)], { type: "image/png" }));
+			return fetchImage((await fal.subscribe(IMAGE_MODELS[PLATE_MODEL].guided, { input: {
+				prompt,
+				quality: "low",
+				image_size: {
+					width: PLATE_W,
+					height: PLATE_H
+				},
+				output_format: "png",
+				image_urls: [guideUrl, ...await refs()]
+			} })).data);
+		},
+		scene: async (description) => (await requestPlateExterior(description)).value,
+		async drawScene(prompt, seed) {
+			const endpoint = IMAGE_MODELS[COVER_MODEL].unguided;
+			if (!endpoint) throw new Error(`${COVER_MODEL} has no prompt-only endpoint`);
+			return fetchImage((await fal.subscribe(endpoint, { input: {
+				prompt,
+				image_size: {
+					width: PLATE_W,
+					height: PLATE_H
+				},
+				seed,
+				output_format: "png"
+			} })).data);
+		},
+		async upload(path, png) {
+			const res = await fetch(`${supabaseUrl}/storage/v1/object/plates/${path}`, {
+				method: "POST",
+				headers: {
+					authorization: `Bearer ${serviceKey}`,
+					apikey: serviceKey,
+					"content-type": "image/png",
+					"cache-control": "max-age=31536000, immutable",
+					"x-upsert": "true"
+				},
+				body: new Uint8Array(png)
+			});
+			if (!res.ok) throw new Error(`storing the plate failed (${res.status}): ${(await res.text()).slice(0, 300)}`);
+		},
+		urlOf: (path) => plateUrl(path)
+	};
+}
+/** The image a fal endpoint answered with. */
+async function fetchImage(data) {
+	const url = data.images?.[0]?.url;
+	if (!url) throw new Error(`no image in the response: ${JSON.stringify(data).slice(0, 300)}`);
+	const got = await fetch(url);
+	if (!got.ok) throw new Error(`fetching the image failed (${got.status})`);
+	return Buffer.from(await got.arrayBuffer());
+}
+/** The public URL of a stored plate or cover, or undefined when Storage is not configured. */
+function plateUrl(path) {
+	const base = process.env.SUPABASE_URL?.replace(/\/$/, "");
+	return base ? `${base}/storage/v1/object/public/plates/${path}` : void 0;
 }
 //#endregion
 //#region src/server/app.ts
@@ -16323,10 +18368,12 @@ function createApp() {
 			return done;
 		});
 		await completeDungeon(stored.id, complete, currentUser(c).id);
+		const cover = coverKey(complete);
+		if (cover) await setDungeonCover(stored.id, cover);
 		return c.json({ dungeonId: stored.id });
 	});
 	/** The player's own worlds. Summaries — nobody needs six whole dungeons. */
-	app.get("/api/dungeons", async (c) => c.json(await listDungeons(currentUser(c).id)));
+	app.get("/api/dungeons", async (c) => c.json((await listDungeons(currentUser(c).id)).map(withCover)));
 	/**
 	* THE LIBRARY — every complete world somebody else made, newest first.
 	*
@@ -16340,10 +18387,14 @@ function createApp() {
 	app.get("/api/dungeons/library", async (c) => {
 		const cursor = c.req.query("cursor");
 		const limit = Number(c.req.query("limit"));
-		return c.json(await listLibrary(currentUser(c).id, {
+		const page = await listLibrary(currentUser(c).id, {
 			...cursor ? { cursor } : {},
 			...Number.isFinite(limit) ? { limit } : {}
-		}));
+		});
+		return c.json({
+			...page,
+			dungeons: page.dungeons.map(withCover)
+		});
 	});
 	/**
 	* TAKE A COPY OF A WORLD.
@@ -16494,6 +18545,44 @@ function createApp() {
 		if (text === "") throw new HTTPException(400, { message: "nothing was typed" });
 		await s.submit(text);
 	}));
+	/**
+	* A room's picture, for the arrival in the scrollback. See `plates.ts`.
+	*
+	* Only a room this run has entered: a plate of anywhere else is a look at a
+	* room the player has not reached. The way in is the run's, read off its
+	* log (`plateEntryFor`); the client names only the room.
+	*
+	* `202` while somebody else's request is drawing it; the page asks again.
+	* Not a turn and not locked: it reads the run and writes nothing to it.
+	*/
+	app.get("/api/runs/:id/plates/:roomId", async (c) => {
+		const user = currentUser(c);
+		const run = await mustGetRun(c.req.param("id"), user.id);
+		const dungeon = await mustGetDungeon(run.dungeonId, user.id);
+		const roomId = c.req.param("roomId");
+		const entryId = plateEntryFor(dungeon.doc, run.state, roomId);
+		if (!entryId) throw new HTTPException(404, { message: "no plate for a room this run has not entered" });
+		const work = plateWorker();
+		if (!work) return c.json({ status: "none" });
+		const answer = await servePlate(dungeon.doc, roomId, entryId, work);
+		return c.json(answer, answer.status === "pending" ? 202 : 200);
+	});
+	/**
+	* The dungeon's cover, for the opening. Drawn by the first ask — the client
+	* sends one the moment a run starts — and served from then on.
+	*
+	* Through the run rather than the dungeon so the caller needs no dungeon id,
+	* and so the owner check is the run's. A dungeon with no cover key (finished
+	* before covers) answers `none` and is never drawn.
+	*/
+	app.get("/api/runs/:id/cover", async (c) => {
+		const user = currentUser(c);
+		const dungeon = await mustGetDungeon((await mustGetRun(c.req.param("id"), user.id)).dungeonId, user.id);
+		const work = plateWorker();
+		if (!work || !dungeon.cover) return c.json({ status: "none" });
+		const answer = await serveCover(dungeon.doc, dungeon.cover, work);
+		return c.json(answer, answer.status === "pending" ? 202 : 200);
+	});
 	app.get("/api/runs/:id/journal.jsonl", async (c) => {
 		const run = await mustGetRun(c.req.param("id"), currentUser(c).id);
 		const events = await readJournal(run.id, run.dungeonId);
@@ -16548,12 +18637,26 @@ async function playTurn(c, act) {
 		dungeon: dungeon.doc,
 		run: run.state
 	}, runId(dungeon.doc.seeds.dungeonSeed));
+	const plateStarted = /* @__PURE__ */ new Set();
+	const startPlate = (r) => {
+		const room = r.currentRoomId;
+		if (plateStarted.has(room) || r.log.some((e) => e.kind === "arrival" && e.roomId === room)) return;
+		plateStarted.add(room);
+		const work = plateWorker();
+		const entryId = work && plateEntryFor(dungeon.doc, r, room);
+		if (!work || !entryId) return;
+		waitUntil(servePlate(dungeon.doc, room, entryId, work).catch((e) => console.error("[plate] early start failed", e)));
+	};
+	startPlate(run.state);
+	const stopWatching = session.store.subscribe((s) => s.run && startPlate(s.run));
 	try {
 		await act(session, body);
 	} catch (e) {
+		stopWatching();
 		await releaseRun(id, owner);
 		throw e;
 	}
+	stopWatching();
 	const state = session.store.getState().run;
 	const result = await commitTurn({
 		runId: id,
@@ -16586,10 +18689,28 @@ async function mustGetDungeon(id, owner) {
 	if (!stored) throw new HTTPException(404, { message: `no such dungeon: ${id}` });
 	return stored;
 }
+/**
+* The plate worker, made on the first plate asked for rather than at start-up:
+* it reads the reference files, and an app that never draws should not need
+* them. `null` is "not set up", and every room then has no plate.
+*/
+var plateWork;
+function plateWorker() {
+	if (plateWork === void 0) plateWork = livePlateWork() ?? null;
+	return plateWork ?? void 0;
+}
 async function mustGetRun(id, owner) {
 	const run = await getRun(id, owner);
 	if (!run) throw new HTTPException(404, { message: `no such run: ${id}` });
 	return run;
+}
+/** A summary as the client gets it: the cover as a URL, never a storage path. */
+function withCover({ coverPath, ...summary }) {
+	const cover = coverPath ? plateUrl(coverPath) : void 0;
+	return cover ? {
+		...summary,
+		cover
+	} : summary;
 }
 var vercel_default = { fetch: createApp().fetch };
 /**

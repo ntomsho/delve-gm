@@ -80,17 +80,17 @@ describe("choosing a world", () => {
   });
 
   /*
-   * Size and level are the cost of WRITING a dungeon. Beside one that is
-   * already written they would be controls that change nothing, which is a
-   * worse thing to put in front of a player than an absence.
+   * Difficulty is a fact about WRITING a dungeon. Beside one that is already
+   * written it would be a control that changes nothing, which is a worse thing
+   * to put in front of a player than an absence.
    */
-  it("drops the size and level controls once a written world is chosen", async () => {
+  it("drops the difficulty control once a written world is chosen", async () => {
     const { page } = setup([world()]);
-    expect(text(page)).toContain("12 rooms · 2 regions · 2 writing calls");
+    expect(text(page)).toContain("Difficulty");
 
     await press(byText(page, "The Drowned Aviary"));
 
-    expect(text(page)).not.toContain("writing call");
+    expect(text(page)).not.toContain("Difficulty");
     expect(text(page)).toContain("nothing to wait for and nothing to pay");
     expect(text(page)).toContain("Straight down");
   });
@@ -103,9 +103,8 @@ describe("choosing a world", () => {
     await press(byText(page, "Go down"));
 
     expect(chosen).toEqual([
-      { world: "new", size: 2, level: 1, character: expect.objectContaining({ id: expect.any(String) }) },
+      { world: "new", size: 1, level: 1, character: expect.objectContaining({ id: expect.any(String) }) },
     ]);
-    expect(text(page)).toContain("12 rooms · 2 regions · 2 writing calls");
   });
 
   /*
@@ -129,7 +128,7 @@ describe("choosing a world", () => {
       })
     );
 
-    expect(text(page)).toContain("12 rooms · 2 regions · 2 writing calls");
+    expect(text(page)).toContain("Difficulty");
     await press(byText(page, "Go down"));
     expect(chosen).toEqual([expect.objectContaining({ world: "new" })]);
   });
@@ -189,33 +188,15 @@ describe("choosing a difficulty", () => {
 });
 
 /*
- * The big sizes are off for now. They are DRAWN and refused rather than removed,
- * so the control reads as a ceiling instead of as a smaller control -- and so
- * putting them back is deleting one line rather than restoring a widget.
+ * NO SIZE CONTROL. Every new world is size 1, for everyone, to hold the cost
+ * down; there is nothing to choose and so nothing drawn.
  */
-describe("the sizes that are turned off", () => {
-  const sizeButton = (page: ReturnType<typeof renderDom>, label: string) => {
-    const found = page
-      .all("button")
-      .find((b) => b.textContent === label && b.className.includes("border"));
-    if (!found) throw new Error(`no size button ${label}`);
-    return found as HTMLButtonElement;
-  };
-
-  it("still draws 4 and 5, refused", () => {
-    const { page } = setup([]);
-    expect(sizeButton(page, "3").disabled).toBe(false);
-    expect(sizeButton(page, "4").disabled).toBe(true);
-    expect(sizeButton(page, "5").disabled).toBe(true);
-  });
-
-  it("does not let one be chosen", async () => {
+describe("the size of a new world", () => {
+  it("is not asked, and is always 1", async () => {
     const { page, chosen } = setup([]);
-
-    await press(sizeButton(page, "4"));
+    expect(text(page)).not.toContain("Size");
     await press(byText(page, "Go down"));
-
-    expect(chosen[0]).toMatchObject({ world: "new", size: 2 });
+    expect(chosen[0]).toMatchObject({ world: "new", size: 1 });
   });
 });
 
@@ -236,20 +217,6 @@ describe("the daily allowance", () => {
     unplayed: [],
     ...over,
   });
-  const sizeButton = (page: ReturnType<typeof renderDom>, label: string) =>
-    page.all("button").find((b) => b.textContent === label && b.className.includes("border")) as
-      | HTMLButtonElement
-      | undefined;
-
-  it("offers only size 1 and sends size 1", async () => {
-    const { page, chosen } = setup([], undefined, allowance());
-    expect(sizeButton(page, "1")?.disabled).toBe(false);
-    expect(sizeButton(page, "2")?.disabled).toBe(true);
-
-    await press(byText(page, "Go down"));
-    expect(chosen[0]).toMatchObject({ world: "new", size: 1 });
-  });
-
   it("says how many are left, and offers a guest Google", () => {
     const { page } = setup([], undefined, allowance());
     expect(text(page)).toContain("1 of 1 run left today");
@@ -293,7 +260,17 @@ describe("the daily allowance", () => {
       undefined,
       allowance({ guest: false, unlimited: true, limit: null, left: null, maxSize: 5 })
     );
-    expect(sizeButton(page, "3")?.disabled).toBe(false);
+    expect((byText(page, "Go down") as HTMLButtonElement).disabled).toBe(false);
     expect(text(page)).not.toContain("left today");
+  });
+});
+
+describe("a world's cover", () => {
+  it("is drawn small beside a world that has one", () => {
+    const { page } = setup([world({ cover: "https://cdn.example/plates/a.png" }), world({ id: "d-2", name: "Bare" })]);
+    const inks = [...page.container.querySelectorAll("div")].filter((d) =>
+      (d as HTMLElement).style.maskImage.includes("https://cdn.example/plates/a.png")
+    );
+    expect(inks).toHaveLength(1);
   });
 });

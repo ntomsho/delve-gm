@@ -36,6 +36,8 @@ export interface DungeonSummary {
   seed: number;
   status: "partial" | "complete";
   createdAt: string;
+  /** the cover's URL, once drawn; absent on a dungeon written before covers */
+  cover?: string;
 }
 
 /** The server's own sentence when it has one — see the note in `characters.ts`. */

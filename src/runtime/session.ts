@@ -36,6 +36,7 @@ import { tallyRun } from "./tally.ts";
 import { challengeStateOf } from "./challenges.ts";
 import { generateDungeon, type GeneratedDungeon, type GenerateOptions } from "./generate.ts";
 import { MODELS } from "./llm/models.ts";
+import type { PlateAnswer } from "./plates.ts";
 import type { PlayerCharacter, Size } from "../engine/index.ts";
 
 /** What a run is: a seed, how big, how dangerous, and who walked in. */
@@ -114,6 +115,15 @@ export interface PlayableSession {
    * visibly is not there. `App` offers the control only where the method is.
    */
   resume?(runId: string): Promise<void>;
+  /**
+   * A room's plate, for its first arrival in the scrollback.
+   *
+   * OPTIONAL, AND ABSENT ON A LOCAL RUN: `?offline` and `?stub` never ask for
+   * one, so the fixture pages stay free.
+   */
+  plate?(roomId: string): Promise<PlateAnswer>;
+  /** The dungeon's cover, above the opening. Absent on a local run, like `plate`. */
+  cover?(): Promise<PlateAnswer>;
   /**
    * Start a run in a world that is already written.
    *

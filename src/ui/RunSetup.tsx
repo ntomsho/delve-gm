@@ -5,21 +5,20 @@
  * ration clocks, a named dungeon instead of a number. It will not stay three
  * fields, so it is not housed in something that only works while it is.
  *
- * Size is the only control here that spends the player's real time and real
- * money — it sets the region count and every region is one writing call — so
- * it says so, in rooms and calls, rather than offering five interchangeable
- * numbers. There is no seed control: the seed stays a URL parameter, where it
- * is a dev affordance rather than a decision the player is asked to have an
- * opinion about.
+ * THERE IS NO SIZE CONTROL. Every new world is size 1 (`NEW_WORLD_SIZE`):
+ * size sets the region count and every region is one writing call, and the
+ * author is holding the cost down while the app is public. Nor is there a seed
+ * control: the seed stays a URL parameter, where it is a dev affordance rather
+ * than a decision the player is asked to have an opinion about.
  *
  * **A WORLD OUTLIVES THE RUN PLAYED IN IT** — Phase 13a, and the first question
  * on the screen rather than a footnote under the last one. Every run before this
  * bought a fresh dungeon whether or not the player already had one they wanted
  * to go back down, because there was no way to say so; a dungeon was written,
  * played once and then unreachable. So the screen asks WHICH WORLD first, and
- * size and difficulty appear only under the branch that is actually rolling one
- * — they are facts about a world that already exists, and offering them beside a
- * chosen dungeon would be offering controls that do nothing.
+ * difficulty appears only under the branch that is actually rolling one — it is
+ * a fact about a world that already exists, and offering it beside a chosen
+ * dungeon would be offering a control that does nothing.
  *
  * DIFFICULTY IS ASKED, LEVEL IS SENT. The screen used to ask for a dungeon level
  * outright, which is a number the player has no way to judge without holding
@@ -35,20 +34,18 @@
 
 import { useState } from "react";
 import type { DungeonSummary } from "../store/dungeons.ts";
+import { Ink } from "./play/Plate.tsx";
 import type { PlayerCharacter, Size } from "../engine/index.ts";
 import { untilReset, type Allowance } from "../store/allowance.ts";
 
 const LABEL = "font-mono text-[9px] tracking-[0.16em] text-graphite uppercase";
 
-const SIZES: Size[] = [1, 2, 3, 4, 5];
-
 /**
- * TEMPORARILY OFF. A size 4 or 5 dungeon is four or five writing calls and
- * several minutes, and the block plan still throws a graph away and retries at
- * that size. They are shown rather than hidden so the ceiling is visible and
- * putting them back is deleting one line.
+ * The size of every world written from this screen: six rooms, one writing
+ * call. Larger worlds are off to keep the cost down; the server caps it too
+ * (`MAX_GENERATED_SIZE`).
  */
-const SIZES_OFF: Size[] = [4, 5];
+const NEW_WORLD_SIZE: Size = 1;
 
 /**
  * DIFFICULTY IS RELATIVE TO THE CHARACTER, which is what a player is actually
@@ -73,12 +70,6 @@ const DIFFICULTIES: { value: Difficulty; label: string }[] = [
  */
 const levelFor = (characterLevel: number, d: Difficulty): number =>
   Math.max(0, characterLevel + DIFFICULTY_OFFSET[d]);
-
-/** A size-n dungeon is n regions of six rooms, and one writing call per region. */
-function costOf(size: Size): string {
-  const plural = size === 1 ? "" : "s";
-  return `${size * 6} rooms · ${size} region${plural} · ${size} writing call${plural}`;
-}
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -158,12 +149,15 @@ function WorldRow({
   name,
   detail,
   objective,
+  cover,
 }: {
   chosen: boolean;
   onClick: () => void;
   name: string;
   detail: string;
   objective?: string;
+  /** the world's cover URL, drawn small beside it */
+  cover?: string;
 }) {
   return (
     <button
@@ -174,15 +168,20 @@ function WorldRow({
         chosen ? "border-torch bg-torch-wash" : "border-rule bg-paper hover:border-graphite active:bg-desk"
       }`}
     >
-      <span className="flex items-baseline justify-between gap-4">
-        <span className="font-display text-[16px] font-bold text-ink">{name}</span>
-        <span className="shrink-0 font-mono text-[11px] text-graphite">{detail}</span>
-      </span>
-      {objective && (
-        <span className="mt-1 block max-w-[52ch] font-prose text-[13px] leading-snug text-graphite">
-          {objective}
+      <span className="flex items-start gap-4">
+        {cover && <Ink url={cover} className="aspect-[3/2] w-24 shrink-0" />}
+        <span className="block min-w-0 flex-1">
+          <span className="flex items-baseline justify-between gap-4">
+            <span className="font-display text-[16px] font-bold text-ink">{name}</span>
+            <span className="shrink-0 font-mono text-[11px] text-graphite">{detail}</span>
+          </span>
+          {objective && (
+            <span className="mt-1 block max-w-[52ch] font-prose text-[13px] leading-snug text-graphite">
+              {objective}
+            </span>
+          )}
         </span>
-      )}
+      </span>
     </button>
   );
 }
@@ -218,13 +217,7 @@ export function RunSetup({
   onConfirm: (choice: RunChoice) => void;
   onBack: () => void;
 }) {
-  const [size, setSize] = useState<Size>(2);
   const [upgradeError, setUpgradeError] = useState<string>();
-  const sizeAllowed = (n: Size) => !SIZES_OFF.includes(n) && n <= (allowance?.maxSize ?? 5);
-  // The size actually being asked for. The choice is kept as the player made it,
-  // so an allowance that arrives after they clicked does not rewrite their click
-  // in state — it only stops it being sent. Size 1 is always allowed.
-  const chosenSize: Size = sizeAllowed(size) ? size : 1;
   const noneLeft = allowance?.left === 0;
   const [difficulty, setDifficulty] = useState<Difficulty>("medium");
   const [characterId, setCharacterId] = useState(initialId ?? characters[0]?.id);
@@ -291,6 +284,7 @@ export function RunSetup({
                   name={d.name}
                   detail={`Size ${d.size} · Level ${d.level}`}
                   {...(d.objective ? { objective: d.objective } : {})}
+                  {...(d.cover ? { cover: d.cover } : {})}
                 />
               </li>
             ))}
@@ -313,26 +307,6 @@ export function RunSetup({
             to show a player than an absence. */}
         {fresh && (
           <>
-            <Field label="Size">
-              <Segmented
-                options={SIZES.map((n) => ({
-                  value: n,
-                  label: String(n),
-                  ...(sizeAllowed(n) ? {} : { disabled: true, title: "Not available yet" }),
-                }))}
-                value={chosenSize}
-                onChange={setSize}
-              />
-              <p className="mt-3 font-mono text-[11px] text-graphite">{costOf(chosenSize)}</p>
-              <p className="mt-1.5 max-w-[46ch] font-prose text-[13px] leading-snug text-graphite">
-                The dungeon is written before you go in, so this is what the wait
-                will cost.{" "}
-                {allowance && !allowance.unlimited
-                  ? `Only size ${allowance.maxSize} for now.`
-                  : "The big ones are off for now."}
-              </p>
-            </Field>
-
             <Field label="Difficulty">
               <Segmented
                 options={DIFFICULTIES}
@@ -389,7 +363,7 @@ export function RunSetup({
               onConfirm(
                 world
                   ? { world: "existing", dungeonId: world.id, character }
-                  : { world: "new", size: chosenSize, level, character }
+                  : { world: "new", size: NEW_WORLD_SIZE, level, character }
               )
             }
             className="bg-torch px-6 py-3 font-mono text-[12px] uppercase tracking-[0.14em] text-paper transition-colors hover:bg-torch-deep active:bg-ink disabled:bg-rule disabled:text-pencil"

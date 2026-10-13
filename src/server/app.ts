@@ -42,6 +42,17 @@ import { configureTransport } from "../runtime/llm/client.ts";
 import type { PlayerCharacter, Size } from "../engine/index.ts";
 import * as repo from "./repo.ts";
 import { allowanceOf, hasRunLeft, mayStartRunIn, refusal } from "./allowance.ts";
+import {
+  coverKey,
+  livePlateWork,
+  plateUrl,
+  serveCover,
+  servePlate,
+  type PlateAnswer,
+  type PlateWork,
+} from "./plates.ts";
+import { plateEntryFor } from "../runtime/plates.ts";
+import { waitUntil } from "@vercel/functions";
 
 // ---------------------------------------------------------------------------
 // THE APP
@@ -309,11 +320,15 @@ export function createApp(): Hono<AuthEnv> {
     });
 
     await repo.completeDungeon(stored.id, complete, currentUser(c).id);
+    // Its cover is named now and drawn by the first ask for it — see
+    // `GET /api/runs/:id/cover`, which the client sends as the run starts.
+    const cover = coverKey(complete);
+    if (cover) await repo.setDungeonCover(stored.id, cover);
     return c.json({ dungeonId: stored.id });
   });
 
   /** The player's own worlds. Summaries — nobody needs six whole dungeons. */
-  app.get("/api/dungeons", async (c) => c.json(await repo.listDungeons(currentUser(c).id)));
+  app.get("/api/dungeons", async (c) => c.json((await repo.listDungeons(currentUser(c).id)).map(withCover)));
 
   /**
    * THE LIBRARY — every complete world somebody else made, newest first.
@@ -328,14 +343,13 @@ export function createApp(): Hono<AuthEnv> {
   app.get("/api/dungeons/library", async (c) => {
     const cursor = c.req.query("cursor");
     const limit = Number(c.req.query("limit"));
-    return c.json(
-      await repo.listLibrary(currentUser(c).id, {
-        ...(cursor ? { cursor } : {}),
-        // A limit that is not a number is no limit stated, which `listLibrary`
-        // reads as the default batch. It clamps whatever it is given besides.
-        ...(Number.isFinite(limit) ? { limit } : {}),
-      })
-    );
+    const page = await repo.listLibrary(currentUser(c).id, {
+      ...(cursor ? { cursor } : {}),
+      // A limit that is not a number is no limit stated, which `listLibrary`
+      // reads as the default batch. It clamps whatever it is given besides.
+      ...(Number.isFinite(limit) ? { limit } : {}),
+    });
+    return c.json({ ...page, dungeons: page.dungeons.map(withCover) });
   });
 
   /**
@@ -525,6 +539,51 @@ export function createApp(): Hono<AuthEnv> {
   );
 
   // -------------------------------------------------------------------------
+  // PLATES
+  // -------------------------------------------------------------------------
+
+  /**
+   * A room's picture, for the arrival in the scrollback. See `plates.ts`.
+   *
+   * Only a room this run has entered: a plate of anywhere else is a look at a
+   * room the player has not reached. The way in is the run's, read off its
+   * log (`plateEntryFor`); the client names only the room.
+   *
+   * `202` while somebody else's request is drawing it; the page asks again.
+   * Not a turn and not locked: it reads the run and writes nothing to it.
+   */
+  app.get("/api/runs/:id/plates/:roomId", async (c) => {
+    const user = currentUser(c);
+    const run = await mustGetRun(c.req.param("id"), user.id);
+    const dungeon = await mustGetDungeon(run.dungeonId, user.id);
+    const roomId = c.req.param("roomId");
+    const entryId = plateEntryFor(dungeon.doc, run.state, roomId);
+    if (!entryId) throw new HTTPException(404, { message: "no plate for a room this run has not entered" });
+    const work = plateWorker();
+    if (!work) return c.json({ status: "none" } satisfies PlateAnswer);
+    const answer = await servePlate(dungeon.doc, roomId, entryId, work);
+    return c.json(answer, answer.status === "pending" ? 202 : 200);
+  });
+
+  /**
+   * The dungeon's cover, for the opening. Drawn by the first ask — the client
+   * sends one the moment a run starts — and served from then on.
+   *
+   * Through the run rather than the dungeon so the caller needs no dungeon id,
+   * and so the owner check is the run's. A dungeon with no cover key (finished
+   * before covers) answers `none` and is never drawn.
+   */
+  app.get("/api/runs/:id/cover", async (c) => {
+    const user = currentUser(c);
+    const run = await mustGetRun(c.req.param("id"), user.id);
+    const dungeon = await mustGetDungeon(run.dungeonId, user.id);
+    const work = plateWorker();
+    if (!work || !dungeon.cover) return c.json({ status: "none" } satisfies PlateAnswer);
+    const answer = await serveCover(dungeon.doc, dungeon.cover, work);
+    return c.json(answer, answer.status === "pending" ? 202 : 200);
+  });
+
+  // -------------------------------------------------------------------------
   // REVIEW
   // -------------------------------------------------------------------------
 
@@ -604,9 +663,31 @@ async function playTurn(c: Context<AuthEnv>, act: Action): Promise<Response> {
   });
   session.restore({ dungeon: dungeon.doc, run: run.state }, runId(dungeon.doc.seeds.dungeonSeed));
 
+  // A ROOM'S PLATE STARTS THE MOMENT THE PLAYER IS IN IT, alongside the prose
+  // describing it rather than after. The client only learns of the new room
+  // when this whole turn comes back, arrival prose included; asking from there
+  // put the ~25 s drawing behind the writing. Not awaited: the turn answers when
+  // the prose is done, and the page's own ask for the plate finds it pending,
+  // then ready. `waitUntil` keeps the function alive for it on Vercel.
+  const plateStarted = new Set<string>();
+  const startPlate = (r: RunState) => {
+    const room = r.currentRoomId;
+    if (plateStarted.has(room) || r.log.some((e) => e.kind === "arrival" && e.roomId === room)) return;
+    plateStarted.add(room);
+    const work = plateWorker();
+    const entryId = work && plateEntryFor(dungeon.doc, r, room);
+    if (!work || !entryId) return;
+    waitUntil(
+      servePlate(dungeon.doc, room, entryId, work).catch((e) => console.error("[plate] early start failed", e))
+    );
+  };
+  startPlate(run.state);
+  const stopWatching = session.store.subscribe((s) => s.run && startPlate(s.run as RunState));
+
   try {
     await act(session, body);
   } catch (e) {
+    stopWatching();
     // Nothing is written, and the events go with it. They would take sequence
     // numbers a retry then could not reuse — `on conflict do nothing` would
     // drop the retry's events instead, which is the worse failure. The turn
@@ -616,6 +697,7 @@ async function playTurn(c: Context<AuthEnv>, act: Action): Promise<Response> {
     throw e;
   }
 
+  stopWatching();
   const state = session.store.getState().run as RunState;
   const result = await repo.commitTurn({
     runId: id,
@@ -655,8 +737,25 @@ async function mustGetDungeon(id: string, owner: string) {
   return stored;
 }
 
+/**
+ * The plate worker, made on the first plate asked for rather than at start-up:
+ * it reads the reference files, and an app that never draws should not need
+ * them. `null` is "not set up", and every room then has no plate.
+ */
+let plateWork: PlateWork | null | undefined;
+function plateWorker(): PlateWork | undefined {
+  if (plateWork === undefined) plateWork = livePlateWork() ?? null;
+  return plateWork ?? undefined;
+}
+
 async function mustGetRun(id: string, owner: string) {
   const run = await repo.getRun(id, owner);
   if (!run) throw new HTTPException(404, { message: `no such run: ${id}` });
   return run;
+}
+
+/** A summary as the client gets it: the cover as a URL, never a storage path. */
+function withCover({ coverPath, ...summary }: repo.DungeonSummary): repo.DungeonSummary & { cover?: string } {
+  const cover = coverPath ? plateUrl(coverPath) : undefined;
+  return cover ? { ...summary, cover } : summary;
 }

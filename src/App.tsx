@@ -730,6 +730,9 @@ export default function App() {
       // characters screen. Both are `toRoster`: leaving a live run and leaving
       // a finished one are the same move, because every commit is already saved.
       {...(LOCAL ? {} : { onLeave: toRoster, onMainMenu: toRoster })}
+      // `?offline` and `?stub` never ask for a plate; their session has no `plate`.
+      {...(!LOCAL && session.plate ? { plate: (roomId: string) => session.plate!(roomId) } : {})}
+      {...(!LOCAL && session.cover ? { cover: () => session.cover!() } : {})}
     />
   );
 }
