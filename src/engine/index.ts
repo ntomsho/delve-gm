@@ -211,3 +211,10 @@ export * from "./dungeon-geometry.ts";
 
 // --- fixtures: the menu, the position words, and placement ------------------
 export * from "./dungeon-fixtures.ts";
+
+// --- room plates: the room as seen from its doorway -------------------------
+// Where every way out and feature sits in the picture, from the drawn floor.
+// The prompt carries these answers so the image model does not invent them.
+export * from "./plate-view.ts";
+export * from "./plate-hotspots.ts";
+export * from "./feature-presence.ts";

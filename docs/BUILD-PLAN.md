@@ -632,8 +632,67 @@ committed to until the spike below has been looked at.**
   [Paying for strangers](#paying-for-strangers),
   which comes first. Over the budget, a room simply has no plate. The curated shelf's
   plates are drawn ahead of time by the author, so a guest never causes an image call.
-- **Ask for no lettering.** These models write nonsense text into anything that looks
-  like it should carry some.
+- **Lettering only in a fantasy script.** Where something should carry text — an
+  inscription, a sign — ask for it in an invented script of roughly the real text's
+  length, never in a readable alphabet. These models write nonsense into readable text.
+
+**Composition: settled in code, by a camera search.** *Built:* `plateView` /
+`viewFrom` (`src/engine/plate-view.ts`), `roomPlate` / `plateBrief` / `plateTags`
+(`src/runtime/plates.ts`), the guide image (`src/runtime/plate-sketch.ts`), and a contact
+sheet checking all of them against the map (`node src/dev/cli-plate-views.ts [--dungeon
+<json> | --seed N --size S]`, written to `out/plates/`).
+
+- **The camera is chosen by score.** Nine spots per floor cell, each tried at 36 headings
+  (100° field of view, 3:2 frame, eye at 5.5 ft). The camera never stands in a doorway,
+  only on the floor in front of one. A doorway view showed the room from somewhere the
+  player had not been, sometimes through a sealed door.
+  `PLATE_SCORE`: floor cell 1, feature 100, exit 20, the way in 5. A tie keeps the first, so
+  the view is deterministic. Sight lines are an exact grid walk. A thing counts only once it is past `PLATE_MIN_AHEAD_FT`
+  (~6.9 ft), where the floor enters the bottom of the frame.
+- **Measured (seed 4201, 43 views):** **95% of features and 70% of other exits** are in the
+  picture. Before the search, standing in the entry door, it was 74% and 28%. All three
+  misses are in 10-ft rooms (The Gallery, The Petrified Fountain), where no spot on the
+  floor is far enough back to frame everything; doorway spots had recovered them at 98%.
+  Search time is under 10 ms per view.
+- **The view barely depends on the way in.** At 5 points the entry only breaks ties, so
+  most rooms get the same camera whichever door the player used. The plate is still keyed
+  by its prompt; it just mostly comes out one per room.
+- **The guide image is architecture plus placement marks, never solids.** A reference gets
+  copied, so it carries only what should be: continuous walls with a vertical only at
+  corners, outlined doorways, no floor grid. Each visible feature is a dashed footprint
+  outline (one per connected piece) with a numbered tag; each visible doorway has a
+  lettered tag. The brief uses the same tags, and `PLATE_GUIDE_NOTE` tells the model the
+  marks are not to be drawn. `marks: false` draws the architecture alone. **The first
+  image test decides** whether models leave the marks out, and which variant to use.
+- **Feature presence, from the rolled table entry** (`featurePresence`,
+  `src/engine/feature-presence.ts`). There are three kinds:
+  - **object:** placed, outlined and tagged.
+  - **surface:** stains, murals, haze, anything "throughout". Drawn over the room and
+    given a button, but no outline or tag; the brief describes it in words.
+  - **sense:** sounds, smells, drafts. Not scored, drawn or given a button; the brief
+    lists it "for mood only".
+
+  Every fixture is an object. A table entry missing from the lists defaults to object.
+- **Outlines stop at walls.** A footprint outline is cut into 0.25 ft pieces and only the
+  pieces in line of sight are drawn. Walls run floor to ceiling, so seeing a floor
+  point is a 2D test.
+- **Hotspots for the page's buttons** (`plateHotspots`, `src/engine/plate-hotspots.ts`;
+  `RoomPlate.hotspots`). Positions are fractions of the plate from its top-left, from
+  the same projection as the guide, so a button sits on the doorway the model was told
+  to draw. Each door (the way in carries `role: "entry"`) and each drawable feature is
+  one of:
+  - **shown:** a button per point, one per visible piece of a feature.
+  - **around:** the first corner on the shortest walk to it, found by Dijkstra over
+    the room's inside corners, with which way the walk turns there. The arrow is the
+    button, so there is no dashed button as well.
+  - **behind-wall:** in the field of view but walled off, with no corner in the frame to
+    route through. A dashed button where it would be.
+  - **off-frame:** an arrow on the left, right or bottom edge. Past
+    `HOTSPOT_BEHIND_DEG` (120°), or straight ahead but below the frame, means bottom.
+
+  Each outcome is exactly one control. Guide tags are drawn at the hotspot points, so a
+  tag and its button cannot disagree. Seed 4201, 43 views: 136 shown, 17 around, 28
+  off-frame, no behind-wall.
 
 **Storage: a table keyed by what the image shows.** An image link cannot go in the
 dungeon, because `base` is never written at runtime. It cannot go in the run's `state`
