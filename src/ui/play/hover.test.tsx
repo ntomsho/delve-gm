@@ -14,7 +14,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 import { DungeonMap } from "./DungeonMap.tsx";
-import { ActionPill, HoverProvider, oneParagraph } from "./hover.tsx";
+import { ActionPill, HoverProvider, InspectSheet, oneParagraph } from "./hover.tsx";
 import { RoomCard } from "./RoomCard.tsx";
 import { drag, fire, hover, press, renderDom, unhover } from "../__fixtures__/dom.ts";
 import { color } from "../theme.ts";
@@ -355,7 +355,11 @@ describe("what the cursor says", () => {
     expect(paper.className).toContain("cursor-grab");
     expect(paper.hasAttribute("data-dragging")).toBe(false);
 
+    // A press is a tap until it moves — so not dragging yet.
     fire(r.one("svg"), "pointerdown", { clientX: 0, clientY: 0, pointerId: 1 });
+    expect(paper.hasAttribute("data-dragging")).toBe(false);
+
+    fire(r.one("svg"), "pointermove", { clientX: 20, clientY: 0, pointerId: 1 });
     expect(paper.className).toContain("cursor-grabbing");
     // What lets the drag beat the pointer the markers underneath it ask for.
     expect(paper.hasAttribute("data-dragging")).toBe(true);
@@ -371,5 +375,104 @@ describe("what the cursor says", () => {
 
     drag(r.one("svg"), { x: 0, y: 0 }, { x: 10, y: 4 });
     expect(paper.hasAttribute("data-dragging")).toBe(false);
+  });
+});
+
+// ===========================================================================
+// A FINGER: TAP TO INSPECT
+// ===========================================================================
+
+/**
+ * The same two panels on a touch screen. No hover card and no pill: a tap
+ * selects, and the sheet says what the card and the pill would have.
+ */
+function tapping(reachable: string[], { acting = true, onAct = vi.fn(), onActed = vi.fn() } = {}) {
+  const { map, room } = both();
+  const r = renderDom(
+    <HoverProvider touch acting={acting} reachable={new Set(reachable)} onAct={onAct}>
+      <DungeonMap map={map} />
+      <RoomCard room={room} />
+      <ActionPill />
+      <InspectSheet onActed={onActed} />
+    </HoverProvider>
+  );
+  return { r, map, room, onAct, onActed };
+}
+
+const sheet = () => document.querySelector("[role='dialog']");
+
+describe("tapping, on a touch screen", () => {
+  it("opens the sheet with the card's words, and lights the thing on both panels", async () => {
+    const { r, room } = tapping([]);
+    const thing = room.contents.find((c) => c.id === biggest.id)!;
+
+    await press(row(r, thing.id));
+    expect(sheet()?.textContent).toContain(thing.name);
+    expect(sheet()?.textContent).toContain(thing.position!);
+    expect(sheet()?.textContent).toContain(thing.composed!);
+    expect(litDots(r)).toHaveLength(biggest.at.length);
+    expect(row(r, thing.id).className).toContain("bg-torch-wash");
+    // Nothing hovers on a phone, so nothing of react-tooltip's is mounted.
+    expect(document.querySelector(".react-tooltip")).toBeNull();
+  });
+
+  it("puts it down on a second tap of the same thing", async () => {
+    const { r } = tapping([]);
+    await press(row(r, biggest.id));
+    await press(row(r, biggest.id));
+    expect(sheet()).toBeNull();
+    expect(litDots(r)).toHaveLength(0);
+  });
+
+  it("sends the verb, closes, and says so to whoever switches tabs", async () => {
+    const { r, room, onAct, onActed } = tapping([]);
+    const thing = room.contents.find((c) => c.id === biggest.id)!;
+
+    await press(row(r, thing.id));
+    const button = sheet()!.querySelector("[data-sends]")!;
+    expect(button.textContent).toBe("Examine?");
+    await press(button);
+
+    expect(onAct).toHaveBeenCalledWith(button.getAttribute("data-sends"));
+    expect(onActed).toHaveBeenCalledOnce();
+    expect(sheet()).toBeNull();
+  });
+
+  it("offers no button while the referee is working, and says why", async () => {
+    const { r } = tapping([], { acting: false });
+    await press(row(r, biggest.id));
+    expect(sheet()!.querySelector("[data-sends]")).toBeNull();
+    expect(sheet()!.textContent).toContain("Wait for the referee to act");
+  });
+
+  // Through the map's own pointer handlers, as *Markers answer a click* asks:
+  // a press that never moves captures nothing, so its click reaches the marker.
+  it("selects a map marker tapped through the map's own pointer handlers", async () => {
+    const { r, map } = tapping([]);
+    const marker = r.all("svg g")[map.fixtures.findIndex((f) => f.id === biggest.id)];
+    const dot = marker.querySelector("circle")!;
+
+    fire(dot, "pointerdown", { clientX: 10, clientY: 10, pointerId: 1 });
+    fire(dot, "pointerup", { clientX: 12, clientY: 11, pointerId: 1 });
+    await press(dot);
+    expect(sheet()?.textContent).toContain(map.fixtures.find((f) => f.id === biggest.id)!.name);
+    expect(litDots(r)).toHaveLength(biggest.at.length);
+  });
+
+  it("selects nothing at the end of a drag", async () => {
+    const { r, map } = tapping([]);
+    const marker = r.all("svg g")[map.fixtures.findIndex((f) => f.id === biggest.id)];
+    const dot = marker.querySelector("circle")!;
+
+    drag(dot, { x: 10, y: 10 }, { x: 60, y: 10 });
+    await press(dot);
+    expect(sheet()).toBeNull();
+  });
+
+  it("puts the selection down on a tap of empty paper", async () => {
+    const { r } = tapping([]);
+    await press(row(r, biggest.id));
+    await press(r.one("svg"));
+    expect(sheet()).toBeNull();
   });
 });

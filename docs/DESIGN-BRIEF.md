@@ -20,7 +20,10 @@ The subject's own world is where the visual direction should come from — this 
 
 Hard constraints:
 
-- Desktop-first. Must not break at tablet width. Mobile is out of scope.
+- Desktop-first, and the desktop design is settled. Must not break at tablet width.
+  **Phones are now in scope**: a layout for about 390px wide, with the soft keyboard up
+  and down, and no hover anywhere. The open questions are listed under *Phones* in
+  `docs/BUILD-PLAN.md` §3.
 - Tailwind only. No component library.
 - The map is SVG, React-rendered.
 - Text is the primary medium. Whatever the design does, prose must be comfortable to read for an hour. Type choice for the narration column is the most consequential decision in this brief.

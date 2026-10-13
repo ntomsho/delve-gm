@@ -9,16 +9,22 @@
  * columns; below, the map and room card band across the top and the narration
  * and sheet sit side by side, so the reading column keeps its measure rather
  * than being squeezed.
+ *
+ * ON A PHONE (`PHONE`, 640px and under) it is none of those: the same panels,
+ * built here exactly once, are handed to `PhonePlay` as three tabs. Width picks
+ * the layout; whether a tap or a hover inspects is picked separately, by `TOUCH`
+ * — see `src/ui/media.ts`.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CharacterPanel } from "./CharacterPanel.tsx";
 import { DungeonMap, MapHeader } from "./DungeonMap.tsx";
-import { ActionPill, HoverProvider } from "./hover.tsx";
+import { ActionPill, HoverProvider, InspectSheet } from "./hover.tsx";
 import { EndOfRun, type Ending } from "./EndOfRun.tsx";
 import { GameMenu } from "./GameMenu.tsx";
 import { InputArea } from "./InputArea.tsx";
 import { Narration, type NarrationItem } from "./Narration.tsx";
+import { PhonePlay, type Tab } from "./PhonePlay.tsx";
 import { RoomCard } from "./RoomCard.tsx";
 import { floorplanLayout, pointLayout } from "../../runtime/layout.ts";
 import { placedThings } from "../../runtime/occupancy.ts";
@@ -27,6 +33,7 @@ import { acceptsInput, isTerminal } from "../../runtime/types.ts";
 import { characterView, mapView, roomView, shownRoom } from "../../store/selectors.ts";
 import type { GeneratedDungeon } from "../../runtime/generate.ts";
 import type { RunState } from "../../store/game.ts";
+import { PHONE, TOUCH, useMediaQuery } from "../media.ts";
 
 export interface PlayScreenProps {
   dungeon: GeneratedDungeon;
@@ -58,6 +65,10 @@ export function PlayScreen({
   onMainMenu,
 }: PlayScreenProps) {
   const [draft, setDraft] = useState("");
+  const phone = useMediaQuery(PHONE);
+  const touch = useMediaQuery(TOUCH);
+  // Chat first: a run starts, and resumes, where it is played.
+  const [tab, setTab] = useState<Tab>("chat");
   /*
    * THE END-OF-RUN SCREEN IS ASKED FOR, NOT THRUST UP. It used to start open,
    * over the top of the final post — the death, the escape — so the paragraph
@@ -105,6 +116,7 @@ export function PlayScreen({
     [run, dungeon, shown]
   );
   const pc = useMemo(() => characterView(run), [run]);
+  const explored = useMemo(() => map.rooms.filter((r) => r.known).length, [map]);
 
   /**
    * The sweep under the narration: on whenever the game is working.
@@ -167,77 +179,134 @@ export function PlayScreen({
   // `carriedOut` does the same sum against the database.
   const xpTotal = (run.pc.xp ?? 0) + (run.tally?.total ?? 0);
 
+  // Each panel built once, and laid out by whichever shell is showing.
+  const narration = (
+    <>
+      <Narration items={items} busy={busy} resolving={run.stage === "resolving"} compact={phone} />
+      <InputArea
+        stage={run.stage}
+        roll={run.pendingRoll}
+        turns={run.turnCount}
+        draft={draft}
+        onDraft={setDraft}
+        onSubmit={(text) => {
+          setDraft("");
+          onSubmit(text);
+        }}
+        onRoll={onRoll}
+        onRetry={onRetry}
+        onAbandon={onAbandon}
+        onShowSummary={() => setSummary(true)}
+        compact={phone}
+      />
+    </>
+  );
+
+  /*
+   * THE ENDING, OVER THE TOP OF EVERYTHING.
+   *
+   * Up on its own the moment the run ends, and dismissable back to this
+   * screen — the map and the scrollback are the record of what just
+   * happened and the player should be able to read back through them
+   * without leaving. `RunOver` in the input area brings it back.
+   *
+   * `abandoned` is included: it is the one ending with nothing to score
+   * and nothing kept, and saying so is exactly what the screen is for.
+   */
+  const endOfRun = ending && summary && (
+    <EndOfRun
+      stage={ending}
+      turns={run.turnCount}
+      loot={loot}
+      keeps={keepsWhatTheyFound(run.stage)}
+      {...(run.tally ? { tally: run.tally } : {})}
+      xpTotal={xpTotal}
+      level={run.pc.level}
+      {...(death ? { death } : {})}
+      onDismiss={() => setSummary(false)}
+      {...(onLeave ? { onLeave } : {})}
+    />
+  );
+
   return (
     // The map and the room card are two drawings of one room, and the provider
     // is what lets them agree about which thing in it the player is pointing at:
     // hover a row, the marker lights; hover the marker, the row lights. It also
-    // carries what a click on either one may offer — see `ActionPill`.
-    <HoverProvider acting={acceptsInput(run.stage)} reachable={reachable} onAct={act}>
-      <main className="grid h-screen bg-paper text-ink [grid-template-areas:'map_narr_char''card_narr_char'] [grid-template-columns:320px_minmax(0,1fr)_300px] [grid-template-rows:minmax(0,1fr)_auto] max-[1200px]:[grid-template-areas:'map_card''narr_char'] max-[1200px]:[grid-template-columns:minmax(0,1fr)_296px] max-[1200px]:[grid-template-rows:220px_minmax(0,1fr)]">
-        <div className="flex min-h-0 flex-col border-r border-rule p-4 [grid-area:map] max-[1200px]:border-b">
-          {onMainMenu && <GameMenu onMainMenu={onMainMenu} busy={busy} />}
-          <MapHeader name={dungeon.pass.name} map={map} />
-          <div className="flex min-h-0 flex-1 items-center justify-center">
-            <DungeonMap map={map} className="h-full w-full" />
-          </div>
-        </div>
-
-        <div className="min-h-0 border-r border-rule bg-panel [grid-area:card] max-[1200px]:border-b max-[1200px]:border-r-0">
-          {room && <RoomCard room={room} />}
-        </div>
-
-        <div className="flex min-h-0 flex-col [grid-area:narr]">
-          <Narration items={items} busy={busy} resolving={run.stage === "resolving"} />
-          <InputArea
+    // carries what a click on either one may offer — see `ActionPill`. On a
+    // touch screen the same is true of a tap, and `InspectSheet` does the
+    // offering.
+    <HoverProvider
+      acting={acceptsInput(run.stage)}
+      reachable={reachable}
+      onAct={act}
+      touch={touch}
+      scope={phone ? tab : undefined}
+    >
+      {phone ? (
+        <>
+          <PhonePlay
             stage={run.stage}
-            roll={run.pendingRoll}
-            turns={run.turnCount}
-            draft={draft}
-            onDraft={setDraft}
-            onSubmit={(text) => {
-              setDraft("");
-              onSubmit(text);
-            }}
-            onRoll={onRoll}
-            onRetry={onRetry}
-            onAbandon={onAbandon}
-            onShowSummary={() => setSummary(true)}
+            busy={busy}
+            narrated={items.length}
+            explored={explored}
+            pc={pc}
+            tab={tab}
+            onTab={setTab}
+            {...(onMainMenu ? { onMainMenu } : {})}
+            map={
+              <>
+                <MapHeader name={dungeon.pass.name} map={map} compact />
+                {/* The map takes every drag for itself — panning — so a swipe
+                    that starts on it is not a swipe. See `PhonePlay`. */}
+                <div data-no-swipe className="mx-4 h-[360px] border border-rule-faint bg-paper">
+                  <DungeonMap map={map} className="h-full w-full" controls />
+                </div>
+                <p className="mx-4 mt-1.5 font-mono text-[9px] uppercase tracking-[0.14em] text-ash">
+                  Tap anything to inspect · drag to pan
+                </p>
+                {room && (
+                  <div className="mt-3.5 border-t border-rule bg-panel">
+                    <RoomCard room={room} compact />
+                  </div>
+                )}
+              </>
+            }
+            chat={narration}
+            sheet={<CharacterPanel pc={pc} compact />}
           />
-        </div>
+          {endOfRun}
+        </>
+      ) : (
+        <main className="grid h-screen bg-paper text-ink [grid-template-areas:'map_narr_char''card_narr_char'] [grid-template-columns:320px_minmax(0,1fr)_300px] [grid-template-rows:minmax(0,1fr)_auto] max-[1200px]:[grid-template-areas:'map_card''narr_char'] max-[1200px]:[grid-template-columns:minmax(0,1fr)_296px] max-[1200px]:[grid-template-rows:220px_minmax(0,1fr)]">
+          <div className="flex min-h-0 flex-col border-r border-rule p-4 [grid-area:map] max-[1200px]:border-b">
+            {onMainMenu && <GameMenu onMainMenu={onMainMenu} busy={busy} />}
+            <MapHeader name={dungeon.pass.name} map={map} />
+            <div className="flex min-h-0 flex-1 items-center justify-center">
+              <DungeonMap map={map} className="h-full w-full" />
+            </div>
+          </div>
 
-        <div className="min-h-0 border-l border-rule [grid-area:char]">
-          <CharacterPanel pc={pc} />
-        </div>
+          <div className="min-h-0 border-r border-rule bg-panel [grid-area:card] max-[1200px]:border-b max-[1200px]:border-r-0">
+            {room && <RoomCard room={room} />}
+          </div>
 
-        {/* One mount for both panels, portalled to the document like the hover
-            cards. It finds its anchors by attribute, so it does not care which
-            panel raised it nor where in the grid that panel sits. */}
-        <ActionPill />
+          <div className="flex min-h-0 flex-col [grid-area:narr]">{narration}</div>
 
-        {/* THE ENDING, OVER THE TOP OF EVERYTHING.
-          *
-          * Up on its own the moment the run ends, and dismissable back to this
-          * screen — the map and the scrollback are the record of what just
-          * happened and the player should be able to read back through them
-          * without leaving. `RunOver` in the input area brings it back.
-          *
-          * `abandoned` is included: it is the one ending with nothing to score
-          * and nothing kept, and saying so is exactly what the screen is for. */}
-        {ending && summary && (
-          <EndOfRun
-            stage={ending}
-            turns={run.turnCount}
-            loot={loot}
-            keeps={keepsWhatTheyFound(run.stage)}
-            {...(run.tally ? { tally: run.tally } : {})}
-            xpTotal={xpTotal}
-            level={run.pc.level}
-            {...(death ? { death } : {})}
-            onDismiss={() => setSummary(false)}
-            {...(onLeave ? { onLeave } : {})}
-          />
-        )}
-      </main>
+          <div className="min-h-0 border-l border-rule [grid-area:char]">
+            <CharacterPanel pc={pc} />
+          </div>
+
+          {/* One mount for both panels, portalled to the document like the hover
+              cards. It finds its anchors by attribute, so it does not care which
+              panel raised it nor where in the grid that panel sits. Absent on a
+              touch screen, which gets the sheet instead — a tablet held
+              landscape is this grid with a finger. */}
+          <ActionPill />
+          <InspectSheet className="fixed inset-x-0 bottom-0 z-40 mx-auto max-w-[480px] border-x" />
+
+          {endOfRun}
+        </main>
+      )}
     </HoverProvider>
   );
 }

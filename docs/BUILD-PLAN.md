@@ -1585,6 +1585,104 @@ argued with is part of the genre. No decision.
 
 ---
 
+### Phones — **PLAY SCREEN BUILT; Characters and Character creation next**
+
+Mobile used to be a non-goal (§5). It no longer is. The layout is Claude Design's mobile
+handoff (`design_handoff_mobile_responsive/README.md`, kept outside the repo). It covers
+three screens, and they are three sessions:
+
+1. **Play — built.** `PhonePlay.tsx` is the shell: Map / Chat / Character tabs under 640px
+   (`PHONE` in `src/ui/media.ts`), with the desktop and tablet grids unchanged. Beyond the
+   handoff, at the author's request:
+   - a sideways swipe anywhere moves one tab, with no wrap. Swipes that start on the map
+     box (`data-no-swipe`) or in a field don't count.
+   - the open tab grows (`flex-grow` 1 → 1.8, 280ms) and pushes the others aside.
+   - the Chat label always wears `STAGE_TONE[stage].label`, runs the `sweep` bar while
+     `busy`, and carries a torch dot when narration has landed since Chat was last open.
+     The handoff's dot for `WANTS_YOU` stages was dropped, since the colour already says it.
+
+   Tap-to-inspect (`InspectSheet`, `HoverState.selection`) is chosen by `TOUCH`, not width,
+   so a landscape tablet gets the grid with the sheet. **Not yet checked on a real phone.**
+2. **Characters** (`Characters.tsx`): stacked rows, More/Less, the account panel. Handoff §2.
+3. **Character creation** (`src/ui/create/*`): step strip, sticky footer, Equipment
+   sub-tabs. Handoff §3.
+
+*Markers answer a click* is probably fixed by the same change: `DungeonMap` no longer
+captures the pointer until a press has moved `TAP_SLOP` (6px), so a click reaches the
+marker. The jsdom test goes through the map's own handlers, but nobody has clicked a
+marker in a real browser yet.
+
+What follows is the plan as written before the handoff arrived, kept for the record.
+
+**What there is today.** A viewport meta in `index.html`. One play-screen breakpoint at
+`max-[1200px]` (`PlayScreen.tsx:176`), which goes from three columns (320px | narration |
+300px) to two (narration | 296px). At 390px wide that leaves the narration about 90px.
+The menu screens use `max-w-[…]` and mostly shrink fine. The map pans by touch
+(`DungeonMap.tsx`: pointer events, `setPointerCapture`, `touch-none`).
+
+**What breaks on a phone, in order of how much it matters:**
+
+1. **The play screen has no single-column layout.** Map, room card, narration, input and
+   character panel all have to fit in about 390×700, with the soft keyboard taking
+   roughly 40% of that while the player types.
+2. **Hover-only information.** `ThingTooltip` in `hover.tsx` opens on hover, and touch
+   has none. The `ActionPill` opens on click (`openOnClick`), but a tap may raise both
+   the card and the pill, or only one. Find out on a real device; jsdom can't tell us.
+3. **Height.** `h-screen` is `100vh`, which on iOS and Android sits behind the address
+   bar and the keyboard. The input row at the bottom is the one thing that must never be
+   hidden. Needs `dvh` (or `visualViewport`) plus `env(safe-area-inset-*)`.
+4. **Sending a turn.** Enter only (`InputArea.tsx`, the `onKeyDown` handler). There is no
+   send button. Some Android keyboards report Enter as `key === "Unidentified"`
+   (keyCode 229), and a phone player expects a button anyway. `box.current?.focus()`
+   whenever input opens will raise the keyboard every turn, which may or may not be
+   wanted.
+5. **Map zoom is wheel-only** (`onWheel`). Needs pinch: two pointers, distance ratio
+   feeding the same `k` clamp of 1–6, aimed at the midpoint the way the wheel aims at
+   the cursor. Pointer capture has to stay per pointer, or the second finger is lost.
+6. **Fixed columns in menus.** `StepEquipment.tsx:118` and `Shop.tsx:410`
+   (`grid-cols-[minmax(0,1fr)_300px]`), `StepTraits.tsx:53` (`110px_1fr_auto`), and
+   `LoadingScreen.tsx:37` (`w-[380px]`, a width, not a max-width).
+7. **Tap targets and type.** 107 uses of `text-[9–11px]`, and buttons like the pill
+   (`py-1.5`) are well under 44px tall. A design question, not a find-and-replace.
+
+**What the design pass has to answer.** These go into the Claude Design prompt
+(`docs/DESIGN-BRIEF.md`):
+
+- The play screen at 390×844, with and without the keyboard up. What is visible while
+  typing, and how the player gets to the map, room card and character sheet. Tabs, a
+  bottom sheet and a drawer are all possible; the brief's "never more than a glance away"
+  for HP and conditions has to survive whichever it is.
+- What a tap on a map marker or room-card row does now that a hover can't happen.
+  Card, then pill on a second tap? Card with the pill inside it?
+- Where a roll's dice and the "Roll" button sit when the keyboard is down.
+- The end-of-run dialog, the shop, and character creation at phone width.
+- Whether the tablet layout (`max-[1200px]`) changes too or stays as it is.
+
+**Build, once the design lands.** One session, in this order, each step its own commit:
+
+1. **Viewport plumbing.** `h-screen` → `h-dvh` on the play screen, and safe-area padding
+   on the input row. On its own this fixes nothing visible on desktop, which is how to
+   tell it is safe.
+2. **The phone play layout** behind a new breakpoint below the tablet one. The desktop
+   and tablet grids stay byte-identical; `PlayScreen` keeps one component tree and only
+   regroups it, so `HoverProvider` still wraps everything and map and card still agree.
+3. **Tap behaviour for `hover.tsx`**, as the design specifies it. Branch on
+   `matchMedia("(hover: none)")`, not on width: a narrow desktop window still has a
+   mouse.
+4. **A send button** in `InputArea`, shown on every width or only on `(hover: none)`,
+   per design.
+5. **Pinch zoom** in `DungeonMap.tsx`. Test it through the map's own pointer handlers,
+   the lesson of *Markers answer a click*.
+6. **The menu screens'** fixed columns collapse below the phone breakpoint.
+
+**Verifying it.** Tests can't say whether this works; jsdom has no layout. Done means:
+the existing suite still passes; a run played to the end on a real phone (iOS Safari and
+Android Chrome) without zooming the page, losing the input under the keyboard, or needing
+a hover; and desktop screenshots at 1440 and 1100 unchanged against the ones handed to
+Design.
+
+---
+
 ## 4. Accepted gaps
 
 Known, deliberate, and not currently anybody's feature. Revisit if the symptom starts
@@ -1616,8 +1714,8 @@ mattering.
 ## 5. Non-goals
 
 No multiplayer, no party (one PC). No between-dungeon persistence beyond saved
-characters. No light or ration clocks yet, though `turnCount` exists for them. No mobile
-layout — desktop-first, must not break at tablet width.
+characters. No light or ration clocks yet, though `turnCount` exists for them. (Mobile
+was a non-goal; it is now *Phones* in §3.)
 
 **And no retrofitting.** A dungeon generated by an earlier build is disposable: this is
 still development, there is no installed base, and a fix that applies from the next

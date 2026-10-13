@@ -202,6 +202,7 @@ export function Narration({
   items,
   busy,
   resolving,
+  compact = false,
 }: {
   items: NarrationItem[];
   busy?: boolean;
@@ -210,21 +211,32 @@ export function Narration({
    * drawn live — the die tumbling and landing — while the prose is awaited.
    */
   resolving?: boolean;
+  /** drawn for a phone: tighter margins, smaller headings */
+  compact?: boolean;
 }) {
-  const end = useRef<HTMLDivElement>(null);
+  const scroller = useRef<HTMLDivElement>(null);
 
+  // The newest line kept in view by scrolling THIS box, not by asking the last
+  // line to scroll itself into view: `scrollIntoView` scrolls every ancestor
+  // that can, and on iOS that includes the page, which slid the phone layout up
+  // under its own tab bar.
   useEffect(() => {
-    end.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    const el = scroller.current;
+    if (!el) return;
+    if (typeof el.scrollTo === "function") el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    else el.scrollTop = el.scrollHeight;
   }, [items.length, busy]);
 
   return (
-    <div className="flex-1 overflow-y-auto px-8 py-6">
+    <div ref={scroller} className={`flex-1 overflow-y-auto ${compact ? "px-[18px] pb-3 pt-5" : "px-8 py-6"}`}>
       {items.map((item, i) => {
         if (item.kind === "opening") {
           return (
             <section key={i} className="mb-8">
               {item.dungeonName && (
-                <h1 className="mb-4 font-display text-[26px] font-bold leading-tight text-ink">
+                <h1
+                  className={`mb-4 font-display font-bold leading-tight text-ink ${compact ? "text-[24px]" : "text-[26px]"}`}
+                >
                   {item.dungeonName}
                 </h1>
               )}
@@ -255,7 +267,9 @@ export function Narration({
                 </span>
                 <span className="h-px flex-1 bg-rule" />
               </div>
-              <h2 className="mb-3 font-display text-[22px] font-bold leading-tight text-ink">
+              <h2
+                className={`mb-3 font-display font-bold leading-tight text-ink ${compact ? "text-[21px]" : "text-[22px]"}`}
+              >
                 {item.roomName}
               </h2>
               <Prose>{item.prose}</Prose>
@@ -321,8 +335,6 @@ export function Narration({
           />
         </div>
       )}
-
-      <div ref={end} />
     </div>
   );
 }

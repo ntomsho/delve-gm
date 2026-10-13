@@ -47,6 +47,34 @@ const DOOR = 3.5;
 const OUT = 15;
 /** How much of the way toward the cursor one wheel click takes the view. */
 const PULL = 0.5;
+/** How far zoom goes in. Out stops at the whole map. */
+const MAX_K = 6;
+/**
+ * How far a press may wander, in screen pixels, and still be a tap.
+ *
+ * A finger is never perfectly still, and a tap that registered as a two-pixel
+ * drag would select nothing — which on a touch screen is the only way to
+ * inspect anything at all.
+ */
+const TAP_SLOP = 6;
+
+type View = { x: number; y: number; k: number };
+
+/**
+ * A screen point in map units, through the svg's own fitting.
+ *
+ * The viewBox is letterboxed into the box (`xMidYMid meet`), so a box with a
+ * different aspect from the drawing has blank bands on two sides — and a pinch
+ * that ignored them would drift, the paper sliding out from under the fingers.
+ */
+function toMap(v: View, w: number, h: number, rect: DOMRect, px: number, py: number) {
+  const vw = w / v.k;
+  const vh = h / v.k;
+  const s = Math.min(rect.width / vw, rect.height / vh);
+  const ox = (rect.width - vw * s) / 2;
+  const oy = (rect.height - vh * s) / 2;
+  return { x: -v.x + (px - rect.left - ox) / s, y: -v.y + (py - rect.top - oy) / s };
+}
 
 // ---------------------------------------------------------------------------
 // SHAPES
@@ -106,7 +134,7 @@ function doorRect(door: LayoutDoor) {
  */
 function Fixture({ f }: { f: MapFixtureView }) {
   const anchor = useAnchor(MAP_TIP);
-  const lit = useHover().hovered === f.id;
+  const lit = useHover().lit === f.id;
 
   return (
     <g
@@ -163,17 +191,23 @@ function outward(at: Point, through: Point): Point {
  * it, and a header that scrolled out of frame with the paper would be a worse
  * header. They are siblings in the map cell instead.
  */
-export function MapHeader({ name, map }: { name: string; map: MapView }) {
+export function MapHeader({ name, map, compact = false }: { name: string; map: MapView; compact?: boolean }) {
   const explored = map.rooms.filter((r) => r.known).length;
 
   return (
-    <header className="mb-2 flex shrink-0 items-baseline justify-between gap-3">
+    <header
+      className={`flex shrink-0 items-baseline justify-between gap-3 ${compact ? "px-4 pb-2 pt-3.5" : "mb-2"}`}
+    >
       {name && (
-        <h2 className="truncate font-display text-[14px] font-bold leading-tight text-ink">
+        <h2
+          className={`truncate font-display font-bold leading-tight text-ink ${compact ? "text-[16px]" : "text-[14px]"}`}
+        >
           {name}
         </h2>
       )}
-      <span className="shrink-0 font-mono text-[9px] uppercase tracking-[0.16em] text-graphite">
+      <span
+        className={`shrink-0 font-mono uppercase tracking-[0.16em] text-graphite ${compact ? "text-[10px]" : "text-[9px]"}`}
+      >
         {explored}/{map.rooms.length} explored
       </span>
     </header>
@@ -187,6 +221,11 @@ export function MapHeader({ name, map }: { name: string; map: MapView }) {
 export interface DungeonMapProps {
   map: MapView;
   className?: string;
+  /**
+   * `+`, `−` and `FIT` over the top-right corner. For a screen with no wheel —
+   * the phone layout asks for them; the desktop grid has a wheel and does not.
+   */
+  controls?: boolean;
 }
 
 /**
@@ -198,22 +237,58 @@ export interface DungeonMapProps {
  * the game that the hover context carries, so this component takes a drawing and
  * nothing else.
  */
-export function DungeonMap({ map, className }: DungeonMapProps) {
+export function DungeonMap({ map, className, controls = false }: DungeonMapProps) {
   const rooms = new Map(map.rooms.map((r) => [r.id, r]));
-  const [view, setView] = useState<{ x: number; y: number; k: number }>({ x: 0, y: 0, k: 1 });
+  const [view, setView] = useState<View>({ x: 0, y: 0, k: 1 });
   // The drag itself is a ref, because it changes on every pointer move and
   // nothing renders from it. Whether a drag is HAPPENING is state, because the
   // cursor renders from it — a grabbing hand for as long as the press is held.
   const [grabbing, setGrabbing] = useState(false);
   const box = useRef<HTMLDivElement>(null);
-  const drag = useRef<{ x: number; y: number; ox: number; oy: number }>(null);
+  /** every finger (or the one mouse) currently down, and where it is now */
+  const pointers = useRef(new Map<number, { x: number; y: number }>());
+  /**
+   * One press in progress. `moved` is whether it has gone past `TAP_SLOP` —
+   * until it has, it is a tap in waiting, and it captures nothing.
+   */
+  const drag = useRef<{ x: number; y: number; ox: number; oy: number; moved: boolean } | null>(null);
+  /** two fingers: the map point they started over, how far apart, at what zoom */
+  const pinch = useRef<{ at: { x: number; y: number }; d: number; k: number } | null>(null);
+  /** the click a finished drag or pinch is about to produce, which must select nothing */
+  const swallow = useRef(false);
   const anchor = useAnchor(MAP_TIP);
-  const { hovered } = useHover();
+  const { lit, touch, select } = useHover();
 
   const { w, h } = map.bounds;
   // Pan is in map units, so a drag moves the paper the same distance under the
   // cursor whatever the zoom.
   const viewBox = `${-view.x} ${-view.y} ${w / view.k} ${h / view.k}`;
+
+  /**
+   * Zoom by a factor, pulling `aim` (map units) part of the way to the middle.
+   *
+   * Kept on the paper. A zoom should never leave the drawing half out of frame;
+   * a DRAG still may, because pushing the sheet aside is what a drag is for.
+   * That is also what makes zooming all the way out land exactly on the whole
+   * map rather than near it.
+   */
+  function zoom(by: number, aim?: { x: number; y: number }) {
+    setView((v) => {
+      const k = Math.min(MAX_K, Math.max(1, v.k * by));
+      const seen = { w: w / v.k, h: h / v.k }; // the view as it stands
+      const next = { w: w / k, h: h / k }; // the view it is becoming
+      const centre = { x: -v.x + seen.w / 2, y: -v.y + seen.h / 2 };
+      const to = aim ?? centre;
+      const corner = (from: number, at: number, span: number, whole: number) =>
+        Math.max(0, Math.min(whole - span, from + (at - from) * PULL - span / 2));
+
+      return {
+        k,
+        x: -corner(centre.x, to.x, next.w, w),
+        y: -corner(centre.y, to.y, next.h, h),
+      };
+    });
+  }
 
   /**
    * A wheel zooms, and moves what you are pointing at toward the middle.
@@ -228,59 +303,106 @@ export function DungeonMap({ map, className }: DungeonMapProps) {
    */
   function onWheel(e: React.WheelEvent) {
     const rect = box.current?.getBoundingClientRect();
-    const { clientX, clientY, deltaY } = e;
-
-    setView((v) => {
-      const k = Math.min(6, Math.max(1, v.k * (deltaY < 0 ? 1.15 : 1 / 1.15)));
-      const seen = { w: w / v.k, h: h / v.k }; // the view as it stands
-      const next = { w: w / k, h: h / k }; // the view it is becoming
-      const centre = { x: -v.x + seen.w / 2, y: -v.y + seen.h / 2 };
-
-      // The cursor in map units. With no laid-out box there is nothing to aim
-      // at — before the first layout, and under jsdom — and the middle of the
-      // view stands in for it, which makes the zoom centre-preserving.
-      const aim =
-        rect && rect.width > 0 && rect.height > 0
-          ? {
-              x: -v.x + ((clientX - rect.left) / rect.width) * seen.w,
-              y: -v.y + ((clientY - rect.top) / rect.height) * seen.h,
-            }
-          : centre;
-
-      // Kept on the paper. A zoom should never leave the drawing half out of
-      // frame; a DRAG still may, because pushing the sheet aside is what a drag
-      // is for. That is also what makes zooming all the way out land exactly on
-      // the whole map rather than near it.
-      const corner = (from: number, to: number, span: number, whole: number) =>
-        Math.max(0, Math.min(whole - span, from + (to - from) * PULL - span / 2));
-
-      return {
-        k,
-        x: -corner(centre.x, aim.x, next.w, w),
-        y: -corner(centre.y, aim.y, next.h, h),
-      };
-    });
+    // With no laid-out box there is nothing to aim at — before the first
+    // layout, and under jsdom — and the middle of the view stands in for it,
+    // which makes the zoom centre-preserving.
+    const aim =
+      rect && rect.width > 0 && rect.height > 0
+        ? {
+            x: -view.x + ((e.clientX - rect.left) / rect.width) * (w / view.k),
+            y: -view.y + ((e.clientY - rect.top) / rect.height) * (h / view.k),
+          }
+        : undefined;
+    zoom(e.deltaY < 0 ? 1.15 : 1 / 1.15, aim);
   }
 
+  /**
+   * A PRESS IS A TAP UNTIL IT MOVES.
+   *
+   * Pointer capture used to start on the press, and while a pointer is captured
+   * the browser sends the click that ends it to the CAPTURING element — the svg —
+   * not to the marker under it. Now capture waits until the press has travelled
+   * `TAP_SLOP`, and a press that never does is left alone to become the click it
+   * was. That is the whole of tapping to inspect on a phone, and it should also
+   * be *Markers answer a click* in the build plan.
+   */
   function onPointerDown(e: React.PointerEvent) {
-    drag.current = { x: e.clientX, y: e.clientY, ox: view.x, oy: view.y };
-    setGrabbing(true);
-    e.currentTarget.setPointerCapture(e.pointerId);
+    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (pointers.current.size === 2) {
+      // The second finger: whatever the first was doing, this is a pinch now.
+      const rect = box.current?.getBoundingClientRect();
+      const [a, b] = [...pointers.current.values()];
+      drag.current = null;
+      swallow.current = true;
+      if (rect && rect.width > 0 && rect.height > 0) {
+        const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+        pinch.current = {
+          at: toMap(view, w, h, rect, mid.x, mid.y),
+          d: Math.hypot(a.x - b.x, a.y - b.y) || 1,
+          k: view.k,
+        };
+      }
+      return;
+    }
+
+    drag.current = { x: e.clientX, y: e.clientY, ox: view.x, oy: view.y, moved: false };
   }
 
   function onPointerMove(e: React.PointerEvent) {
+    if (!pointers.current.has(e.pointerId)) return;
+    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const rect = box.current?.getBoundingClientRect();
+
+    const p = pinch.current;
+    if (p && pointers.current.size >= 2 && rect && rect.width > 0 && rect.height > 0) {
+      const [a, b] = [...pointers.current.values()];
+      const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      const k = Math.min(MAX_K, Math.max(1, p.k * (Math.hypot(a.x - b.x, a.y - b.y) / p.d)));
+      // Keep the map point the fingers started over under where they are now:
+      // where the midpoint falls at zero pan, less where it has to be.
+      const at = toMap({ x: 0, y: 0, k }, w, h, rect, mid.x, mid.y);
+      setView({ k, x: at.x - p.at.x, y: at.y - p.at.y });
+      return;
+    }
+
     const d = drag.current;
     if (!d) return;
-    const r = box.current?.getBoundingClientRect();
+    if (!d.moved) {
+      if (Math.hypot(e.clientX - d.x, e.clientY - d.y) < TAP_SLOP) return;
+      d.moved = true;
+      setGrabbing(true);
+      e.currentTarget.setPointerCapture(e.pointerId);
+    }
     // Screen pixels back into map units, so the paper tracks the cursor.
-    const scale = (w / view.k) / (r?.width || w);
+    const scale = (w / view.k) / (rect?.width || w);
     setView((v) => ({ ...v, x: d.ox + (e.clientX - d.x) * scale, y: d.oy + (e.clientY - d.y) * scale }));
   }
 
-  const endDrag = () => {
+  function endPointer(e: React.PointerEvent) {
+    pointers.current.delete(e.pointerId);
+    if (drag.current?.moved) swallow.current = true;
+    if (pointers.current.size < 2) pinch.current = null;
     drag.current = null;
     setGrabbing(false);
-  };
+  }
+
+  /**
+   * After a drag or a pinch, the release's click must not land on whatever
+   * happens to be under the finger. Caught on the way down, before it reaches
+   * anything, so neither a marker nor the pill's click-to-open ever hears it.
+   */
+  function onClickCapture(e: React.MouseEvent) {
+    if (!swallow.current) return;
+    swallow.current = false;
+    e.stopPropagation();
+    e.preventDefault();
+  }
+
+  /** A tap on empty paper puts down whatever was picked up. */
+  function onClick(e: React.MouseEvent) {
+    if (touch && !(e.target as Element).closest("[data-hover-id]")) select(undefined);
+  }
 
   return (
     // The map is paper you push around, so it says so at rest and while it is
@@ -299,8 +421,11 @@ export function DungeonMap({ map, className }: DungeonMapProps) {
         onWheel={onWheel}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
-        onPointerUp={endDrag}
-        onPointerLeave={endDrag}
+        onPointerUp={endPointer}
+        onPointerCancel={endPointer}
+        onPointerLeave={endPointer}
+        onClickCapture={onClickCapture}
+        onClick={onClick}
         onDoubleClick={() => setView({ x: 0, y: 0, k: 1 })}
       >
         {/* Rooms first, so doors and markers sit on top of the walls. */}
@@ -324,7 +449,7 @@ export function DungeonMap({ map, className }: DungeonMapProps) {
               // A wash rather than a fill while it is being pointed at: the
               // room is the biggest thing on the map and turning it torch would
               // drown out every marker standing in it.
-              fill={hovered === r.id ? color.torchWash : r.mapped ? "none" : color.paper}
+              fill={lit === r.id ? color.torchWash : r.mapped ? "none" : color.paper}
               stroke={color.ink}
               strokeWidth={1.4}
               strokeLinejoin="round"
@@ -378,6 +503,28 @@ export function DungeonMap({ map, className }: DungeonMapProps) {
           ))}
       </svg>
 
+      {controls && (
+        <div className="absolute right-2 top-2 flex flex-col gap-1">
+          {[
+            { label: "+", name: "Zoom in", go: () => zoom(1.3) },
+            { label: "−", name: "Zoom out", go: () => zoom(1 / 1.3) },
+            { label: "FIT", name: "Fit the whole map", go: () => setView({ x: 0, y: 0, k: 1 }) },
+          ].map((b) => (
+            <button
+              key={b.label}
+              type="button"
+              aria-label={b.name}
+              onClick={b.go}
+              className={`flex h-10 w-10 items-center justify-center border border-rule bg-paper font-mono active:bg-torch-wash ${
+                b.label === "FIT" ? "text-[9px] tracking-[0.1em] text-graphite" : "text-[16px] text-ink"
+              }`}
+            >
+              {b.label}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Portalled to the document, so it is not clipped by this box nor
           overpainted by the panel below it. See `hover.tsx`. */}
       <ThingTooltip id={MAP_TIP} float />
@@ -396,8 +543,8 @@ export function DungeonMap({ map, className }: DungeonMapProps) {
  */
 function Door({ c }: { c: MapConnectorView }) {
   const anchor = useAnchor(MAP_TIP);
-  const { hovered, reachable } = useHover();
-  const lit = hovered === c.id;
+  const { lit: litId, reachable } = useHover();
+  const lit = litId === c.id;
   if (!c.known) return null;
   const door = c.door!;
   const rect = doorRect(door);

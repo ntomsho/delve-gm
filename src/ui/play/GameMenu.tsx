@@ -28,19 +28,32 @@ export interface GameMenuProps {
   onMainMenu(): void;
   /** a turn is in flight */
   busy: boolean;
+  /**
+   * The phone's top bar: shorter words, a finger's height, and no `title`,
+   * which a finger cannot raise — the link is the whole affordance.
+   */
+  compact?: boolean;
 }
 
-export function GameMenu({ onMainMenu, busy }: GameMenuProps) {
+export function GameMenu({ onMainMenu, busy, compact = false }: GameMenuProps) {
   return (
-    <nav aria-label="Game menu" className="mb-3 shrink-0">
+    <nav aria-label="Game menu" className={compact ? "shrink-0" : "mb-3 shrink-0"}>
       <button
         type="button"
         onClick={onMainMenu}
         disabled={busy}
-        title={busy ? "Waiting on the referee — your run is saved either way" : "Your run is saved; resume it from your characters"}
-        className="font-mono text-[10px] uppercase tracking-[0.14em] text-graphite transition-colors hover:text-ink active:text-torch disabled:text-pencil"
+        title={
+          compact
+            ? undefined
+            : busy
+              ? "Waiting on the referee — your run is saved either way"
+              : "Your run is saved; resume it from your characters"
+        }
+        className={`font-mono text-[10px] uppercase tracking-[0.14em] text-graphite transition-colors hover:text-ink active:text-torch disabled:text-pencil ${
+          compact ? "h-11 pr-2" : ""
+        }`}
       >
-        ← Main menu
+        {compact ? "← Menu" : "← Main menu"}
       </button>
     </nav>
   );

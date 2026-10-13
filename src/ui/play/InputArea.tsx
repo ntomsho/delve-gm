@@ -19,6 +19,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { STAGE_HINT, STAGE_NAME, STAGE_TONE } from "../theme.ts";
 import { acceptsInput, isTerminal, type Stage, type RollSpec } from "../../runtime/types.ts";
 import { ENDINGS, type Ending } from "./EndOfRun.tsx";
+import { TOUCH, useMediaQuery } from "../media.ts";
 
 export interface InputAreaProps {
   stage: Stage;
@@ -42,6 +43,11 @@ export interface InputAreaProps {
    * have lost them.
    */
   onShowSummary(): void;
+  /**
+   * Drawn for a phone: tighter padding, bigger targets, and a Send button —
+   * see *Phones* in docs/BUILD-PLAN.md.
+   */
+  compact?: boolean;
 }
 
 /**
@@ -68,7 +74,7 @@ const EDGE_LABEL: Record<RollSpec["edge"], string> = {
 };
 
 /** The terms of the bet. Never the DC — that is the referee's business. */
-function RollOffer({ roll, onRoll }: { roll: RollSpec; onRoll(): void }) {
+function RollOffer({ roll, onRoll, compact }: { roll: RollSpec; onRoll(): void; compact?: boolean }) {
   return (
     <div className="mb-3 border-l-2 border-torch bg-torch-wash py-2 pl-3">
       <div className="font-mono text-[9px] uppercase tracking-[0.16em] text-torch-deep">
@@ -84,7 +90,9 @@ function RollOffer({ roll, onRoll }: { roll: RollSpec; onRoll(): void }) {
         <button
           type="button"
           onClick={onRoll}
-          className="bg-torch px-4 py-1.5 font-mono text-[11px] uppercase tracking-[0.1em] text-paper transition-colors hover:bg-torch-deep active:bg-ink"
+          className={`bg-torch font-mono uppercase tracking-[0.1em] text-paper transition-colors hover:bg-torch-deep active:bg-ink ${
+            compact ? "h-11 min-w-28 px-5 text-[12px]" : "px-4 py-1.5 text-[11px]"
+          }`}
         >
           Roll
         </button>
@@ -93,7 +101,7 @@ function RollOffer({ roll, onRoll }: { roll: RollSpec; onRoll(): void }) {
   );
 }
 
-function Error({ onRetry }: { onRetry(): void }) {
+function Error({ onRetry, compact }: { onRetry(): void; compact?: boolean }) {
   // The software talking, not the referee. Says what happened and what to do.
   return (
     <div className="mb-3 border-l-2 border-torch py-2 pl-3">
@@ -106,7 +114,9 @@ function Error({ onRetry }: { onRetry(): void }) {
       <button
         type="button"
         onClick={onRetry}
-        className="mt-2 border border-torch px-3 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-torch transition-colors hover:bg-torch-wash active:bg-torch active:text-paper"
+        className={`mt-2 border border-torch px-3 font-mono text-[10px] uppercase tracking-[0.12em] text-torch transition-colors hover:bg-torch-wash active:bg-torch active:text-paper ${
+          compact ? "h-10" : "py-1"
+        }`}
       >
         Try again
       </button>
@@ -133,7 +143,17 @@ function Error({ onRetry }: { onRetry(): void }) {
  * puts the reckoning up when the player is ready for it. (Abandoning is the
  * exception: there is no final post to read — see `PlayScreen`.)
  */
-function RunOver({ stage, turns, onShow }: { stage: Ending; turns: number; onShow(): void }) {
+function RunOver({
+  stage,
+  turns,
+  onShow,
+  compact,
+}: {
+  stage: Ending;
+  turns: number;
+  onShow(): void;
+  compact?: boolean;
+}) {
   return (
     <div
       className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-l-2 py-2 pl-3"
@@ -157,7 +177,9 @@ function RunOver({ stage, turns, onShow }: { stage: Ending; turns: number; onSho
       <button
         type="button"
         onClick={onShow}
-        className="bg-torch px-5 py-2 font-mono text-[11px] uppercase tracking-[0.12em] text-paper transition-colors hover:bg-torch-deep active:bg-ink"
+        className={`bg-torch px-5 font-mono text-[11px] uppercase tracking-[0.12em] text-paper transition-colors hover:bg-torch-deep active:bg-ink ${
+          compact ? "h-11" : "py-2"
+        }`}
       >
         End run
       </button>
@@ -178,15 +200,17 @@ function RunOver({ stage, turns, onShow }: { stage: Ending; turns: number; onSho
  * Deliberately quiet, and deliberately two presses. It is not a move in the
  * game and should not sit where moves sit.
  */
-function Abandon({ onAbandon }: { onAbandon(): void }) {
+function Abandon({ onAbandon, compact }: { onAbandon(): void; compact?: boolean }) {
   const [asking, setAsking] = useState(false);
+  // A finger needs a band to land in, not the height of a 9px word.
+  const tap = compact ? "inline-flex h-8 items-center" : "";
 
   if (!asking) {
     return (
       <button
         type="button"
         onClick={() => setAsking(true)}
-        className="font-mono text-[9px] uppercase tracking-[0.14em] text-pencil underline decoration-rule underline-offset-4 transition-colors hover:text-torch active:text-torch-deep"
+        className={`${tap} font-mono text-[9px] uppercase tracking-[0.14em] text-pencil underline decoration-rule underline-offset-4 transition-colors hover:text-torch active:text-torch-deep`}
       >
         Abandon run
       </button>
@@ -194,7 +218,7 @@ function Abandon({ onAbandon }: { onAbandon(): void }) {
   }
 
   return (
-    <span className="flex items-baseline gap-3 font-mono text-[9px] uppercase tracking-[0.14em]">
+    <span className={`flex gap-3 font-mono text-[9px] uppercase tracking-[0.14em] ${compact ? "flex-wrap items-center" : "items-baseline"}`}>
       <span className="text-graphite">Leave this run for good?</span>
       {/* Both take a hover and a press like anything else pressable. They are
           two words in a sentence, so the state is the colour rather than a box —
@@ -202,14 +226,14 @@ function Abandon({ onAbandon }: { onAbandon(): void }) {
       <button
         type="button"
         onClick={onAbandon}
-        className="text-torch underline decoration-torch underline-offset-4 transition-colors hover:text-torch-deep active:text-ink"
+        className={`${tap} text-torch underline decoration-torch underline-offset-4 transition-colors hover:text-torch-deep active:text-ink`}
       >
         Abandon
       </button>
       <button
         type="button"
         onClick={() => setAsking(false)}
-        className="text-graphite underline decoration-rule underline-offset-4 transition-colors hover:text-ink active:text-ink"
+        className={`${tap} text-graphite underline decoration-rule underline-offset-4 transition-colors hover:text-ink active:text-ink`}
       >
         Keep playing
       </button>
@@ -218,16 +242,21 @@ function Abandon({ onAbandon }: { onAbandon(): void }) {
 }
 
 export function InputArea(props: InputAreaProps) {
-  const { stage, roll, turns, draft, onDraft, onSubmit, onRoll, onRetry, onAbandon } = props;
+  const { stage, roll, turns, draft, onDraft, onSubmit, onRoll, onRetry, onAbandon, compact = false } = props;
   const open = acceptsInput(stage);
   const tone = STAGE_TONE[stage];
   const box = useRef<HTMLTextAreaElement>(null);
+  const touch = useMediaQuery(TOUCH);
 
   // Keyboard-first: the player should never need the mouse on a normal turn,
   // so focus returns to the box the moment the game wants something.
+  //
+  // NOT ON A TOUCH SCREEN, where focus is the soft keyboard coming up over the
+  // narration the player is in the middle of reading. There the box waits to
+  // be tapped.
   useEffect(() => {
-    if (open) box.current?.focus();
-  }, [open, stage]);
+    if (open && !touch) box.current?.focus();
+  }, [open, stage, touch]);
 
   // THE BOX GROWS WITH WHAT IS IN IT.
   //
@@ -255,9 +284,13 @@ export function InputArea(props: InputAreaProps) {
     const text = draft.trim();
     if (text && open) onSubmit(text);
   };
+  // A phone has no reliable Enter — some keyboards never report one — and a
+  // tablet's finger expects something to press. A hardware Enter still sends.
+  const sendButton = compact || touch;
+  const sendable = open && draft.trim() !== "";
 
   return (
-    <div className="border-t px-8 py-4" style={{ borderColor: tone.rule }}>
+    <div className={`border-t ${compact ? "px-4 py-3" : "px-8 py-4"}`} style={{ borderColor: tone.rule }}>
       <div className="mb-2 flex items-baseline justify-between">
         <span
           className="font-mono text-[10px] uppercase tracking-[0.16em]"
@@ -285,13 +318,13 @@ export function InputArea(props: InputAreaProps) {
         )}
       </div>
 
-      {stage === "roll_offered" && roll && <RollOffer roll={roll} onRoll={onRoll} />}
-      {stage === "error" && <Error onRetry={onRetry} />}
+      {stage === "roll_offered" && roll && <RollOffer roll={roll} onRoll={onRoll} compact={compact} />}
+      {stage === "error" && <Error onRetry={onRetry} compact={compact} />}
       {(stage === "dead" ||
         stage === "escaped" ||
         stage === "goal_met" ||
         stage === "abandoned") && (
-        <RunOver stage={stage} turns={turns} onShow={props.onShowSummary} />
+        <RunOver stage={stage} turns={turns} onShow={props.onShowSummary} compact={compact} />
       )}
 
       {/* The tabletop convention, and it is doing real work. */}
@@ -304,8 +337,9 @@ export function InputArea(props: InputAreaProps) {
           the only thing left to do, so it is the only thing there. */}
       {!isTerminal(stage) && (
         <>
+          <div className="flex items-stretch gap-2">
           <div
-            className="flex items-start gap-2 border px-3 py-2"
+            className={`flex flex-1 items-start gap-2 border ${compact ? "min-h-11 px-2.5 py-[9px]" : "px-3 py-2"}`}
             style={{
               borderColor: open ? "var(--color-ink)" : "var(--color-rule-faint)",
               background: open ? "var(--color-paper)" : "var(--color-desk)",
@@ -326,7 +360,11 @@ export function InputArea(props: InputAreaProps) {
                 }
                 if (e.key === "Escape") onDraft("");
               }}
-              className="flex-1 resize-none overflow-y-auto bg-transparent font-prose text-[15px] leading-relaxed text-ink outline-none disabled:cursor-not-allowed"
+              // 16px on a phone: iOS zooms the whole page into any field set
+              // smaller than that the moment it is focused.
+              className={`flex-1 resize-none overflow-y-auto bg-transparent font-prose leading-relaxed text-ink outline-none disabled:cursor-not-allowed ${
+                compact ? "text-[16px]" : "text-[15px]"
+              }`}
               aria-label={STAGE_NAME[stage]}
             />
             {open && (
@@ -336,6 +374,18 @@ export function InputArea(props: InputAreaProps) {
                 aria-hidden
               />
             )}
+          </div>
+          {sendButton && (
+            <button
+              type="button"
+              onClick={send}
+              disabled={!sendable}
+              className="w-14 shrink-0 self-end font-mono text-[10px] uppercase tracking-[0.14em] text-paper transition-colors active:bg-torch disabled:cursor-not-allowed"
+              style={{ minHeight: 44, background: sendable ? "var(--color-ink)" : "var(--color-pencil)" }}
+            >
+              Send
+            </button>
+          )}
           </div>
 
           <div className="mt-1.5 flex items-baseline justify-between gap-4">
@@ -351,8 +401,9 @@ export function InputArea(props: InputAreaProps) {
              * the server takes it whatever stage the row is standing in.
              */}
             <span className="flex items-baseline gap-5">
-              <Abandon onAbandon={onAbandon} />
-              {open && (
+              <Abandon onAbandon={onAbandon} compact={compact} />
+              {/* The keys, for a hand that has them. */}
+              {open && !touch && (
                 <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-pencil">
                   ↵ send · ⇧↵ newline · ⎋ clear
                 </span>

@@ -143,3 +143,29 @@ describe("the end-of-run detail", () => {
     }
   });
 });
+
+/*
+ * PHONES. No reliable Enter on a soft keyboard, so the compact layout has a
+ * button — which must refuse to send what the box would have refused.
+ */
+
+describe("the send button", () => {
+  const sendButton = (c: HTMLElement) =>
+    [...c.querySelectorAll("button")].find((b) => b.textContent === "Send") as HTMLButtonElement | undefined;
+
+  it("is not there on the desktop layout with a mouse", () => {
+    expect(sendButton(render("awaiting_action", 0, { draft: "look" }))).toBeUndefined();
+  });
+
+  it("is disabled with nothing typed, or while the input is locked", () => {
+    expect(sendButton(render("awaiting_action", 0, { compact: true, draft: "  " }))!.disabled).toBe(true);
+    expect(sendButton(render("thinking", 0, { compact: true, draft: "look" }))!.disabled).toBe(true);
+  });
+
+  it("sends what is in the box", async () => {
+    const sent: string[] = [];
+    const c = render("awaiting_action", 0, { compact: true, draft: " look around ", onSubmit: (t) => sent.push(t) });
+    await press(sendButton(c)!);
+    expect(sent).toEqual(["look around"]);
+  });
+});

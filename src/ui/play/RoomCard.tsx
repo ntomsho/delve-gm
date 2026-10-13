@@ -12,12 +12,14 @@
  * the prose could not be inspected at all.
  */
 
-import type { ReactNode } from "react";
+import { createContext, useContext, type ReactNode } from "react";
 import { CARD_TIP, ThingTooltip, useAnchor, useHover } from "./hover.tsx";
 import { thingVerb, wayVerb } from "./verbs.ts";
 import { exitLabel, type EntityView, type ExitView, type RoomView } from "../../store/selectors.ts";
 
 const LABEL = "font-mono text-[9px] uppercase tracking-[0.16em] text-graphite";
+/** The phone's: a size up, because it is read at arm's length. */
+const LABEL_COMPACT = "font-mono text-[10px] uppercase tracking-[0.16em] text-graphite";
 
 /**
  * A row the cursor is on: torch rule down the left, torch wash behind.
@@ -27,8 +29,20 @@ const LABEL = "font-mono text-[9px] uppercase tracking-[0.16em] text-graphite";
  * and the transparent border keeps the text from stepping sideways when it lights.
  */
 const ROW = "-mx-1.5 border-l-2 px-1.5 transition-colors";
+/**
+ * The phone's: every row a 48px button, ruled off from the next, because a
+ * finger has to be able to pick one row out of a list of them.
+ */
+const ROW_COMPACT =
+  "-mx-2 flex min-h-12 items-center justify-between gap-3 border-b border-l-2 border-b-rule-faint py-2 pl-2.5 pr-2 transition-colors";
+
+/** Whether the card is being drawn for a phone. Read by the rows. */
+const Compact = createContext(false);
 const LIT = "border-torch bg-torch-wash";
 const UNLIT = "border-transparent";
+// Left side only, so the rule under each phone row keeps its own colour.
+const LIT_COMPACT = "border-l-torch bg-torch-wash";
+const UNLIT_COMPACT = "border-l-transparent";
 
 /**
  * One way out.
@@ -44,12 +58,13 @@ const UNLIT = "border-transparent";
  */
 function Exit({ exit }: { exit: ExitView }) {
   const anchor = useAnchor(CARD_TIP);
-  const { hovered, reachable } = useHover();
-  const lit = hovered === exit.connectorId;
+  const { lit: litId, reachable } = useHover();
+  const lit = litId === exit.connectorId;
+  const compact = useContext(Compact);
 
   return (
     <li
-      className={`font-prose text-[13px] leading-snug ${ROW} ${lit ? LIT : UNLIT}`}
+      className={`font-prose leading-snug ${compact ? `text-[15px] ${ROW_COMPACT}` : `text-[13px] ${ROW}`} ${compact ? (lit ? LIT_COMPACT : UNLIT_COMPACT) : lit ? LIT : UNLIT}`}
       {...anchor(
         exit.connectorId,
         {
@@ -67,22 +82,26 @@ function Exit({ exit }: { exit: ExitView }) {
         wayVerb({ ...exit, toUnknown: !exit.toKnown }, reachable.has(exit.connectorId))
       )}
     >
-      <span
-        className={exit.blocked ? "text-graphite" : exit.surface ? "text-torch" : "text-ink"}
-      >
-        {exitLabel(exit)}
-      </span>
-      {exit.blocked ? (
-        // What blocks it, as it looks from this side — the player's planning
-        // information.
-        <span className="block font-prose text-[12px] italic text-torch">{exit.requirement}</span>
-      ) : (
-        !exit.toKnown &&
-        !exit.surface && (
-          <span className="ml-1 font-mono text-[10px] uppercase tracking-[0.1em] text-pencil">
-            unexplored
+      <span className={compact ? "min-w-0" : undefined}>
+        <span
+          className={exit.blocked ? "text-graphite" : exit.surface ? "text-torch" : "text-ink"}
+        >
+          {exitLabel(exit)}
+        </span>
+        {exit.blocked && (
+          // What blocks it, as it looks from this side — the player's planning
+          // information.
+          <span className={`block font-prose italic text-torch ${compact ? "text-[13px]" : "text-[12px]"}`}>
+            {exit.requirement}
           </span>
-        )
+        )}
+      </span>
+      {!exit.blocked && !exit.toKnown && !exit.surface && (
+        <span
+          className={`font-mono uppercase tracking-[0.1em] text-pencil ${compact ? "shrink-0 text-[9px]" : "ml-1 text-[10px]"}`}
+        >
+          unexplored
+        </span>
       )}
     </li>
   );
@@ -101,20 +120,26 @@ function Exit({ exit }: { exit: ExitView }) {
  */
 function Content({ e, detail }: { e: EntityView; detail?: ReactNode }) {
   const anchor = useAnchor(CARD_TIP);
-  const lit = useHover().hovered === e.id;
+  const lit = useHover().lit === e.id;
+  const compact = useContext(Compact);
 
   return (
     <li
-      className={`font-prose text-[13px] leading-snug text-ink ${ROW} ${lit ? LIT : UNLIT}`}
+      className={`font-prose leading-snug text-ink ${compact ? `text-[15px] ${ROW_COMPACT}` : `text-[13px] ${ROW}`} ${compact ? (lit ? LIT_COMPACT : UNLIT_COMPACT) : lit ? LIT : UNLIT}`}
       {...anchor(e.id, { title: e.name, note: e.position, body: e.composed }, thingVerb(e.name))}
     >
-      {e.name}
-      {detail}
+      <span className={compact ? "min-w-0" : undefined}>
+        {e.name}
+        {detail}
+      </span>
     </li>
   );
 }
 
-export function RoomCard({ room }: { room: RoomView }) {
+export function RoomCard({ room, compact = false }: { room: RoomView; compact?: boolean }) {
+  const label = compact ? LABEL_COMPACT : LABEL;
+  const group = compact ? "mt-4" : "mt-3";
+  const list = compact ? "" : "space-y-1";
   const creatures = room.contents.filter((c) => c.kind === "Creature");
   const things = room.contents.filter((c) => c.kind !== "Creature");
   // Already sorted — the way they came, then the known, then the unexplored.
@@ -124,15 +149,19 @@ export function RoomCard({ room }: { room: RoomView }) {
   const ahead = room.exits.filter((e) => !e.cameFrom);
 
   return (
-    <section className="overflow-y-auto p-4">
-      <h3 className="mb-1 font-display text-[15px] font-bold leading-tight text-ink">
+    <Compact.Provider value={compact}>
+    <section className={compact ? "px-4 pb-6 pt-4" : "overflow-y-auto p-4"}>
+      {compact && <div className={`${LABEL_COMPACT} mb-1`}>You are in</div>}
+      <h3
+        className={`mb-1 font-display font-bold leading-tight text-ink ${compact ? "text-[18px]" : "text-[15px]"}`}
+      >
         {room.name}
       </h3>
 
       {creatures.length > 0 && (
-        <div className="mt-3">
-          <div className={`${LABEL} mb-1.5`}>Here with you</div>
-          <ul className="space-y-1">
+        <div className={group}>
+          <div className={`${label} mb-1.5`}>Here with you</div>
+          <ul className={list}>
             {creatures.map((c) => (
               <Content
                 key={c.id}
@@ -143,7 +172,7 @@ export function RoomCard({ room }: { room: RoomView }) {
                       <span className="ml-1 font-mono text-[11px] text-graphite">×{c.count}</span>
                     )}
                     {c.activity && (
-                      <span className="block font-prose text-[12px] italic text-graphite">
+                      <span className={`block font-prose italic text-graphite ${compact ? "text-[13px]" : "text-[12px]"}`}>
                         {c.activity}
                       </span>
                     )}
@@ -156,16 +185,16 @@ export function RoomCard({ room }: { room: RoomView }) {
       )}
 
       {things.length > 0 && (
-        <div className="mt-3">
-          <div className={`${LABEL} mb-1.5`}>In this room</div>
-          <ul className="space-y-1">
+        <div className={group}>
+          <div className={`${label} mb-1.5`}>In this room</div>
+          <ul className={list}>
             {things.map((t) => (
               <Content
                 key={t.id}
                 e={t}
                 detail={
                   t.contains.length > 0 && (
-                    <span className="ml-1 font-mono text-[10px] text-graphite">
+                    <span className={`ml-1 font-mono text-graphite ${compact ? "text-[11px]" : "text-[10px]"}`}>
                       ({t.contains.map((c) => c.name).join(", ")})
                     </span>
                   )
@@ -182,14 +211,14 @@ export function RoomCard({ room }: { room: RoomView }) {
           the card, named and set apart below the rule, because deciding to turn
           back is a real decision and it should not have to be hunted for; it
           just stops being the first thing under the contents. */}
-      <div className="mt-3">
-        <div className={`${LABEL} mb-1.5`}>Exits</div>
-        <ul className="space-y-1">
+      <div className={group}>
+        <div className={`${label} mb-1.5`}>Exits</div>
+        <ul className={list}>
           {ahead.map((e) => (
             <Exit key={e.connectorId} exit={e} />
           ))}
           {ahead.length === 0 && (
-            <li className="font-prose text-[13px] italic text-pencil">
+            <li className={`font-prose italic text-pencil ${compact ? "py-2 text-[15px]" : "text-[13px]"}`}>
               {behind.length > 0 ? "Nothing but the way you came." : "No way out that you can see."}
             </li>
           )}
@@ -197,10 +226,10 @@ export function RoomCard({ room }: { room: RoomView }) {
       </div>
 
       {behind.length > 0 && (
-        <div className="mt-3">
+        <div className={group}>
           <div className="mb-3 h-px bg-rule" />
-          <div className={`${LABEL} mb-1.5`}>You came in from</div>
-          <ul className="space-y-1">
+          <div className={`${label} mb-1.5`}>You came in from</div>
+          <ul className={list}>
             {behind.map((e) => (
               <Exit key={e.connectorId} exit={e} />
             ))}
@@ -213,5 +242,6 @@ export function RoomCard({ room }: { room: RoomView }) {
           the panel that draws it. See `hover.tsx`. */}
       <ThingTooltip id={CARD_TIP} />
     </section>
+    </Compact.Provider>
   );
 }

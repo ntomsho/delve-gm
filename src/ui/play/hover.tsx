@@ -29,7 +29,7 @@
  * mount their own tooltip and still be rendered on their own in a test.
  */
 
-import { createContext, useContext, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { Tooltip, type TooltipRefProps } from "react-tooltip";
 import { color, font } from "../theme.ts";
 import type { Verb } from "./verbs.ts";
@@ -64,6 +64,24 @@ export interface HoverCard {
   body?: string;
 }
 
+/**
+ * WHAT A TAP PICKED, on a screen with no hover.
+ *
+ * The card and the verb are captured at the tap rather than read back off the
+ * element later, because the sheet that shows them is not anchored to anything —
+ * it sits at the bottom of the screen, and the thing tapped may have scrolled or
+ * panned away by the time the player reads it.
+ *
+ * The verb is kept even while the game is not acting. Whether it may be PRESSED
+ * is asked again at render, so a sheet opened during a model call turns into a
+ * button the moment the referee is done, instead of having to be tapped again.
+ */
+export interface Selection {
+  id: string;
+  card: HoverCard;
+  verb?: Verb;
+}
+
 interface HoverState {
   /**
    * The id of the thing under the cursor — an entity id, a connector id or a
@@ -72,6 +90,20 @@ interface HoverState {
    */
   hovered?: string;
   setHovered(id?: string): void;
+  /**
+   * TOUCH: there is no hover, so a tap selects instead. The cards and the pill
+   * are not mounted; `InspectSheet` shows the selection. See `src/ui/media.ts`.
+   */
+  touch: boolean;
+  /** what a tap picked. Always undefined with a mouse. */
+  selection?: Selection;
+  select: Dispatch<SetStateAction<Selection | undefined>>;
+  /**
+   * THE ONE ID BOTH PANELS LIGHT: what the cursor is on with a mouse, what was
+   * tapped with a finger. Every highlight reads this and not `hovered`, so the
+   * map and the room card cannot disagree about which of the two is in charge.
+   */
+  lit?: string;
   /**
    * The game will take an action right now. False through a model call, a roll
    * and an ended run, and then NOTHING carries a verb — a pill that opens onto a
@@ -100,6 +132,8 @@ interface HoverState {
  */
 const Ctx = createContext<HoverState>({
   setHovered: () => {},
+  touch: false,
+  select: () => {},
   acting: false,
   reachable: new Set(),
   act: () => {},
@@ -117,22 +151,37 @@ export interface HoverProviderProps {
   reachable?: ReadonlySet<string>;
   /** what a answered pill sends. Absent means the panels are read-only. */
   onAct?(sentence: string): void;
+  /** see `HoverState.touch` */
+  touch?: boolean;
+  /**
+   * The selection belongs to whatever this names, and goes when it changes —
+   * `PlayScreen` passes the open tab, so a sheet does not follow the player onto
+   * a tab where the thing it describes is not drawn.
+   */
+  scope?: unknown;
 }
 
 /** Wraps the panels that should light each other up. `PlayScreen` is the only caller. */
-export function HoverProvider({ children, acting, reachable, onAct }: HoverProviderProps) {
+export function HoverProvider({ children, acting, reachable, onAct, touch = false, scope }: HoverProviderProps) {
   const [hovered, setHovered] = useState<string>();
+  const [selection, select] = useState<Selection>();
+  useEffect(() => select(undefined), [scope, touch]);
+
   const value = useMemo(
     () => ({
       hovered,
       setHovered,
+      touch,
+      selection,
+      select,
+      lit: touch ? selection?.id : hovered,
       // A provider given no way to send cannot offer to send, whatever the stage
       // says. One test rather than two for every caller to remember.
       acting: acting === true && onAct !== undefined,
       reachable: reachable ?? new Set<string>(),
       act: onAct ?? (() => {}),
     }),
-    [hovered, acting, reachable, onAct]
+    [hovered, selection, touch, acting, reachable, onAct]
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
@@ -154,8 +203,12 @@ export interface AnchorProps {
   "data-verb"?: string;
   /** what answering it sends */
   "data-verb-text"?: string;
-  onMouseEnter(): void;
-  onMouseLeave(): void;
+  /** with a mouse */
+  onMouseEnter?(): void;
+  onMouseLeave?(): void;
+  /** with a finger: a tap selects, and the same tap again puts it down */
+  onClick?(): void;
+  role?: "button";
 }
 
 /**
@@ -169,18 +222,30 @@ export interface AnchorProps {
  * one place and no caller can forget it: no attribute, no anchor, no pill.
  */
 export function useAnchor(tip: string) {
-  const { setHovered, acting } = useHover();
-  return (id: string, card: HoverCard, verb?: Verb): AnchorProps => ({
-    "data-tooltip-id": tip,
-    "data-hover-id": id,
-    "data-hover-title": card.title,
-    "data-hover-note": card.note,
-    "data-hover-body": card.body,
-    "data-verb": acting ? verb?.label : undefined,
-    "data-verb-text": acting ? verb?.sentence : undefined,
-    onMouseEnter: () => setHovered(id),
-    onMouseLeave: () => setHovered(undefined),
-  });
+  const { setHovered, acting, touch, select } = useHover();
+  return (id: string, card: HoverCard, verb?: Verb): AnchorProps => {
+    const data = {
+      "data-tooltip-id": tip,
+      "data-hover-id": id,
+      "data-hover-title": card.title,
+      "data-hover-note": card.note,
+      "data-hover-body": card.body,
+      "data-verb": acting ? verb?.label : undefined,
+      "data-verb-text": acting ? verb?.sentence : undefined,
+    };
+    if (touch) {
+      return {
+        ...data,
+        role: "button",
+        onClick: () => select((s) => (s?.id === id ? undefined : { id, card, ...(verb ? { verb } : {}) })),
+      };
+    }
+    return {
+      ...data,
+      onMouseEnter: () => setHovered(id),
+      onMouseLeave: () => setHovered(undefined),
+    };
+  };
 }
 
 /**
@@ -273,6 +338,9 @@ function Card({ anchor }: { anchor: Element | null }) {
  * injected because the CORE half of it is what positions the thing.
  */
 export function ThingTooltip({ id, float = false }: { id: string; float?: boolean }) {
+  // Nothing hovers on a touch screen, and a card that opened on a tap would
+  // fight the sheet for the same job. See `InspectSheet`.
+  if (useHover().touch) return null;
   return (
     <Tooltip
       id={id}
@@ -375,9 +443,10 @@ function Pill({
  * hover cards do not pay that and neither should this.
  */
 export function ActionPill() {
-  const { act } = useHover();
+  const { act, touch } = useHover();
   const tip = useRef<TooltipRefProps>(null);
 
+  if (touch) return null;
   return (
     <Tooltip
       ref={tip}
@@ -416,5 +485,88 @@ export function ActionPill() {
         />
       )}
     />
+  );
+}
+
+// ---------------------------------------------------------------------------
+// THE SHEET
+// ---------------------------------------------------------------------------
+
+/**
+ * THE CARD AND THE PILL, FOR A FINGER.
+ *
+ * A touch screen has no hover to raise the card on and no cursor to float the
+ * pill beside, so both become one sheet across the bottom of the screen: the
+ * same three lines `Card` reads, and the same verb `Pill` offers, as a button
+ * wide enough to hit. Tap the thing again, tap ×, or tap empty paper to put it
+ * down; tap something else and the sheet changes to that.
+ *
+ * Positioned by the caller, which knows whether it is sitting above a tab bar or
+ * at the foot of the whole screen.
+ */
+export function InspectSheet({ className, onActed }: { className?: string; onActed?(): void }) {
+  const { selection, select, acting, act } = useHover();
+  if (!selection) return null;
+  const { card, verb } = selection;
+
+  return (
+    <div
+      role="dialog"
+      aria-label={card.title}
+      className={`border-t border-ink bg-paper px-4 pb-4 pt-3.5 ${className ?? ""}`}
+      style={{
+        boxShadow: "0 -6px 20px rgba(34,32,28,0.12)",
+        animation: "sheet-in 180ms ease-out",
+      }}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 pt-1.5">
+          <div className="font-display text-[17px] font-bold leading-tight text-ink">{card.title}</div>
+          {card.note && (
+            <div className="mt-1 font-mono text-[10px] uppercase tracking-[0.14em] text-torch-deep">
+              {card.note}
+            </div>
+          )}
+        </div>
+        <button
+          type="button"
+          aria-label="Close"
+          onClick={() => select(undefined)}
+          className="-mr-3 -mt-1.5 flex h-11 w-11 shrink-0 items-center justify-center font-mono text-[18px] text-graphite active:text-ink"
+        >
+          ×
+        </button>
+      </div>
+
+      {card.body && (
+        <p className="mt-2 font-prose text-[15px] leading-[1.5] text-graphite">{oneParagraph(card.body)}</p>
+      )}
+
+      {verb && (
+        <div className="mt-3">
+          {acting ? (
+            <button
+              type="button"
+              data-sends={verb.sentence}
+              onClick={() => {
+                select(undefined);
+                act(verb.sentence);
+                onActed?.();
+              }}
+              className="h-12 w-full border border-ink bg-ink font-mono text-[12px] uppercase tracking-[0.14em] text-paper active:border-torch active:bg-torch"
+            >
+              {verb.label}
+            </button>
+          ) : (
+            <div className="flex h-12 items-center justify-center font-mono text-[10px] uppercase tracking-[0.14em] text-pencil">
+              Wait for the referee to act
+            </div>
+          )}
+          <div className="mt-2 font-mono text-[9px] uppercase tracking-[0.12em] text-pencil">
+            Sends: &ldquo;{verb.sentence}&rdquo;
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
