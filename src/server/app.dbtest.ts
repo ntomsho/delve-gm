@@ -89,6 +89,18 @@ function stubJwks(jwks: { keys: JWK[] }): void {
 }
 
 let jwks: { keys: JWK[] };
+let signingKey: CryptoKey;
+
+/** A token for any account, signed by the key the stubbed JWKS publishes. */
+function tokenFor(id: string, guest = false): Promise<string> {
+  return new SignJWT(guest ? { is_anonymous: true } : {})
+    .setProtectedHeader({ alg: "ES256", kid: "test-key" })
+    .setIssuedAt()
+    .setSubject(id)
+    .setAudience("authenticated")
+    .setExpirationTime("1h")
+    .sign(signingKey);
+}
 
 beforeAll(async () => {
   if (!process.env.DATABASE_URL) {
@@ -103,18 +115,17 @@ beforeAll(async () => {
   process.env.ANTHROPIC_API_KEY ??= "sk-ant-not-a-real-key-for-tests";
 
   const { privateKey, publicKey } = await generateKeyPair("ES256", { extractable: true });
+  signingKey = privateKey;
   jwks = { keys: [{ ...(await exportJWK(publicKey)), kid: "test-key", alg: "ES256", use: "sig" }] };
   stubJwks(jwks);
 
   sql = db();
   owner = await makeUser();
-  token = await new SignJWT({})
-    .setProtectedHeader({ alg: "ES256", kid: "test-key" })
-    .setIssuedAt()
-    .setSubject(owner)
-    .setAudience("authenticated")
-    .setExpirationTime("1h")
-    .sign(privateKey);
+  // UNLIMITED, because this file starts far more than three runs from one
+  // account and most of it is not about the allowance. The allowance cases at
+  // the bottom make limited accounts of their own.
+  await sql`update profiles set tier = 'unlimited' where id = ${owner}`;
+  token = await tokenFor(owner);
 
   // Imported here rather than at the top: `createApp` reads the environment at
   // construction, and the two variables above have only just been set.
@@ -145,10 +156,10 @@ async function makeUser(): Promise<string> {
 }
 
 /** A signed-in request. Every call below goes through the real gate. */
-function ask(path: string, init: { method?: string; body?: unknown } = {}) {
+function ask(path: string, init: { method?: string; body?: unknown; as?: string } = {}) {
   return app.request(path, {
     method: init.method ?? "GET",
-    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    headers: { authorization: `Bearer ${init.as ?? token}`, "content-type": "application/json" },
     ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
   });
 }
@@ -516,5 +527,106 @@ describe("the roster", () => {
     const now = after.find((e) => e.sheet.id === pc.id);
     expect(now.record).toEqual({ dead: 0, abandoned: 1, escaped: 0, goalMet: 0 });
     expect(now.activeRun).toBeUndefined();
+  });
+});
+
+/*
+ * GUESTS AND ALLOWANCES. Each case makes its own limited accounts, because the
+ * file's main account is `unlimited` (see `beforeAll`). No case here reaches the
+ * model: every generation request below is one the gate refuses first.
+ */
+describe("the daily allowance", () => {
+  /** A limited account of its own, a token for it, and a character on it. */
+  async function anAccount(guest: boolean) {
+    const id = await makeUser();
+    const as = await tokenFor(id, guest);
+    const pc = { ...testCharacter(), id: `pc-${crypto.randomUUID()}`, name: "Counted" };
+    expect((await ask("/api/characters", { method: "POST", body: pc, as })).status).toBe(200);
+    const dungeon = await aFinishedDungeon(id);
+    return { id, as, pc, dungeon };
+  }
+
+  async function start(a: Awaited<ReturnType<typeof anAccount>>) {
+    const res = await ask("/api/runs", {
+      method: "POST",
+      body: { dungeonId: a.dungeon, character: a.pc },
+      as: a.as,
+    });
+    const body = (await res.json()) as Record<string, any>;
+    // Walk away at once, so the next start is not refused as "in a run" — the
+    // abandoned run still counts, which is the point.
+    if (res.status === 200) {
+      await ask(`/api/runs/${body.run.id}/abandon`, {
+        method: "POST",
+        body: { version: body.run.version },
+        as: a.as,
+      });
+    }
+    return { status: res.status, body };
+  }
+
+  it("lets a guest start one run a day and refuses the second", async () => {
+    const guest = await anAccount(true);
+    try {
+      const before = await (await ask("/api/allowance", { as: guest.as })).json();
+      expect(before).toMatchObject({ guest: true, used: 0, limit: 1, left: 1, maxSize: 1 });
+
+      expect((await start(guest)).status).toBe(200);
+
+      const second = await start(guest);
+      expect(second.status).toBe(429);
+      expect(second.body.error).toMatch(/Sign in with Google/);
+      expect(second.body.allowance).toMatchObject({ used: 1, left: 0 });
+    } finally {
+      await sql`delete from auth.users where id = ${guest.id}`;
+    }
+  });
+
+  it("lets a member start three, and deleting the character refunds nothing", async () => {
+    const member = await anAccount(false);
+    try {
+      for (let i = 0; i < 3; i++) expect((await start(member)).status).toBe(200);
+
+      await ask(`/api/characters/${member.pc.id}`, { method: "DELETE", as: member.as });
+      const after = await (await ask("/api/allowance", { as: member.as })).json();
+      expect(after).toMatchObject({ guest: false, used: 3, limit: 3, left: 0 });
+    } finally {
+      await sql`delete from auth.users where id = ${member.id}`;
+    }
+  });
+
+  it("refuses to write a dungeon once the day's runs are spent", async () => {
+    const guest = await anAccount(true);
+    try {
+      expect((await start(guest)).status).toBe(200);
+      const res = await ask("/api/dungeons", {
+        method: "POST",
+        body: { seed: 1, size: 1, level: 1 },
+        as: guest.as,
+      });
+      expect(res.status).toBe(429);
+    } finally {
+      await sql`delete from auth.users where id = ${guest.id}`;
+    }
+  });
+
+  it("refuses anything bigger than size 1 before it costs a model call", async () => {
+    const member = await anAccount(false);
+    try {
+      const res = await ask("/api/dungeons", {
+        method: "POST",
+        body: { seed: 1, size: 2, level: 1 },
+        as: member.as,
+      });
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { error: string }).error).toMatch(/size 1/);
+    } finally {
+      await sql`delete from auth.users where id = ${member.id}`;
+    }
+  });
+
+  it("does not limit an unlimited account", async () => {
+    const mine = await (await ask("/api/allowance")).json();
+    expect(mine).toMatchObject({ unlimited: true, limit: null, left: null });
   });
 });

@@ -41,6 +41,7 @@ import { MODELS } from "../runtime/llm/models.ts";
 import { configureTransport } from "../runtime/llm/client.ts";
 import type { PlayerCharacter, Size } from "../engine/index.ts";
 import * as repo from "./repo.ts";
+import { allowanceOf, hasRunLeft, refusal } from "./allowance.ts";
 
 // ---------------------------------------------------------------------------
 // THE APP
@@ -192,6 +193,17 @@ export function createApp(): Hono<AuthEnv> {
       level: number;
     };
 
+    // THE ONLY GATE ON GENERATION, and it sits on the first of the three
+    // requests: once a structure exists, its chunks and its join are the same
+    // dungeon being finished, not a new one being started. See `allowance.ts`.
+    const allowance = await allowanceOf(currentUser(c));
+    if (!hasRunLeft(allowance)) {
+      return c.json({ error: refusal(allowance), allowance }, 429);
+    }
+    if (!(size <= allowance.maxSize)) {
+      return c.json({ error: `Only size ${allowance.maxSize} dungeons for now.`, allowance }, 400);
+    }
+
     const { sink, events } = repo.collectingSink();
     const journal = createJournal(sink);
     const partial = await generateStructure({ seed, size, level, journal });
@@ -342,6 +354,14 @@ export function createApp(): Hono<AuthEnv> {
 
   app.get("/api/runs", async (c) => c.json(await repo.listRuns(currentUser(c).id)));
 
+  /**
+   * How many runs are left today, and how big a dungeon may be written.
+   *
+   * Asked by run setup when it opens, so the screen can say so before the
+   * player presses anything. The gates above do not trust it: they ask again.
+   */
+  app.get("/api/allowance", async (c) => c.json(await allowanceOf(currentUser(c))));
+
   app.get("/api/runs/:id", async (c) => {
     const user = currentUser(c);
     const run = await mustGetRun(c.req.param("id"), user.id);
@@ -382,6 +402,14 @@ export function createApp(): Hono<AuthEnv> {
         { error: "in a run", runId: busy.id, dungeonId: busy.dungeonId },
         409
       );
+    }
+
+    // AFTER the in-a-run check: a player sent here by a stale screen to start a
+    // run they are already in should be told where it is, not that they are out
+    // of runs. A run is counted the moment its row exists — see `allowance.ts`.
+    const allowance = await allowanceOf(user);
+    if (!hasRunLeft(allowance)) {
+      return c.json({ error: refusal(allowance), allowance }, 429);
     }
 
     const state = newRun(stored.doc, character);

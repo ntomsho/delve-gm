@@ -41,10 +41,11 @@ Built, live and deployed at **https://aidungeon.vercel.app**: generation end to 
 model, character creation and the shop (which sells as well as buys), the map, accounts
 and ownership, run continuity (resume, abandon, the one-run-at-a-time lock), shared
 worlds and the library, the single equipment table, time categories and creature agency,
-the first of three rewards sessions, and levelling.
+the first of three rewards sessions, levelling, and guest accounts with daily run
+allowances (layer 3 of *Paying for strangers*).
 
-**1,336 tests and build clean**, plus a third, explicitly-invoked vitest config
-(`npm run test:db`) holding **58** more that need a real database.
+**1,396 tests and build clean**, plus a third, explicitly-invoked vitest config
+(`npm run test:db`) holding **63** more that need a real database.
 
 Two playtests are the evidence base for most of what is left. Where a feature cites a
 `seq`, that is a line in the named run's `journal.jsonl`; a line number is the rendered
@@ -1473,7 +1474,27 @@ ledger data rather than guessed now:
 - One indexed `sum(usd) … where at >= date_trunc('day', now() at time zone 'utc')` per
   gated request. It needs no cache at this scale.
 
-**3. Identity that costs one click.**
+**3. Identity that costs one click. BUILT, except where marked.**
+
+What landed, and binds what comes next:
+
+- **Allowances are runs started per UTC day**, counted off `runs` (no counter table),
+  in `src/server/allowance.ts`: `GUEST_RUNS_PER_DAY = 1`, `MEMBER_RUNS_PER_DAY = 3`.
+  Abandoned runs count; deleting a character refunds nothing.
+- **Generation is gated by the same count, not counted itself.** `POST /api/dungeons`
+  refuses (429) once no run is left today, and refuses (400) any size above
+  `MAX_GENERATED_SIZE = 1`. **Guests generate**, against the plan below, by the
+  author's call until the curated shelf exists. Only the first of the three generation
+  requests is gated. Repeated generation with a run still in hand is not capped; the
+  ceiling is what covers that.
+- **`unlimited` is exempt from the count, the generation gate and the size cap.** Set
+  by hand: `update profiles set tier = 'unlimited' where id = '<uid>'`.
+- `GET /api/allowance` feeds run setup. The gates never trust it.
+- **Turnstile is wired but off** until `VITE_TURNSTILE_SITE_KEY` is set *and* captcha
+  is on in Supabase. See `src/ui/turnstile.ts`.
+- **Not built:** the stale-guest sweep and `MAX_TURNS_PER_RUN`.
+
+The original design, kept for the parts still open:
 
 - **Supabase anonymous sign-in** as "Play as a guest". It gives a real `auth.users`
   row, so the `owner_id` rule and RLS still apply. Upgrading with `linkIdentity`

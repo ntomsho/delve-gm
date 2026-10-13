@@ -62,7 +62,10 @@ function keySet() {
 async function verifyToken(token) {
 	const { payload } = await jwtVerify(token, keySet(), { audience: "authenticated" });
 	if (typeof payload.sub !== "string" || payload.sub === "") throw new Error("token carries no subject");
-	return { id: payload.sub };
+	return {
+		id: payload.sub,
+		guest: payload.is_anonymous === true
+	};
 }
 var UNAUTHORIZED = "sign in first";
 /**
@@ -15957,6 +15960,74 @@ async function appendEvents(runId, events, sql = db()) {
 	if (events.length === 0) return;
 	await sql.begin((tx) => insertEvents(tx, runId, events));
 }
+/** The next midnight UTC after `now`. */
+function nextUtcMidnight(now) {
+	return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
+}
+/** The rule, without the database, so it can be tested without one. */
+function allowanceFor(input) {
+	const resetsAt = nextUtcMidnight(input.now).toISOString();
+	if (input.tier === "unlimited") return {
+		guest: input.guest,
+		unlimited: true,
+		used: input.used,
+		limit: null,
+		left: null,
+		maxSize: 5,
+		resetsAt
+	};
+	const limit = input.guest ? 1 : 3;
+	return {
+		guest: input.guest,
+		unlimited: false,
+		used: input.used,
+		limit,
+		left: Math.max(0, limit - input.used),
+		maxSize: 1,
+		resetsAt
+	};
+}
+/** True when the account may start another run (or write another dungeon) today. */
+function hasRunLeft(a) {
+	return a.left === null || a.left > 0;
+}
+/**
+* The sentence a refused player reads. Said by the server so that the copy is in
+* one place, and so a refusal the interface did not predict still reads well.
+*/
+function refusal(a) {
+	const runs = a.limit === 1 ? "run" : "runs";
+	const more = a.guest ? ` Sign in with Google for 3 a day.` : "";
+	return `That is your ${a.limit} ${runs} for today. More at midnight UTC.${more}`;
+}
+/**
+* Read the tier and today's count in one round trip.
+*
+* A missing profile is a member. `handle_new_user` makes one for every account,
+* so this only matters in the instant between an account existing and its
+* trigger committing — and the safe reading of "we do not know" is the limited
+* one.
+*
+* The day boundary is computed in Postgres, against the same clock that stamped
+* `runs.created_at`, so the server and the database cannot disagree about which
+* day a run belongs to.
+*/
+async function allowanceOf(user, sql = db(), now = /* @__PURE__ */ new Date()) {
+	const [row] = await sql`
+    select
+      (select tier from profiles where id = ${user.id}) as tier,
+      (select count(*)::int from runs
+         where owner_id = ${user.id}
+           and created_at >= date_trunc('day', now() at time zone 'utc') at time zone 'utc'
+      ) as used
+  `;
+	return allowanceFor({
+		guest: user.guest,
+		tier: row?.tier === "unlimited" ? "unlimited" : "member",
+		used: row?.used ?? 0,
+		now
+	});
+}
 //#endregion
 //#region src/server/app.ts
 /**
@@ -16101,6 +16172,15 @@ function createApp() {
 	*/
 	app.post("/api/dungeons", async (c) => {
 		const { seed, size, level } = await c.req.json();
+		const allowance = await allowanceOf(currentUser(c));
+		if (!hasRunLeft(allowance)) return c.json({
+			error: refusal(allowance),
+			allowance
+		}, 429);
+		if (!(size <= allowance.maxSize)) return c.json({
+			error: `Only size ${allowance.maxSize} dungeons for now.`,
+			allowance
+		}, 400);
 		const { sink, events } = collectingSink();
 		const partial = await generateStructure({
 			seed,
@@ -16232,6 +16312,13 @@ function createApp() {
 		});
 	});
 	app.get("/api/runs", async (c) => c.json(await listRuns(currentUser(c).id)));
+	/**
+	* How many runs are left today, and how big a dungeon may be written.
+	*
+	* Asked by run setup when it opens, so the screen can say so before the
+	* player presses anything. The gates above do not trust it: they ask again.
+	*/
+	app.get("/api/allowance", async (c) => c.json(await allowanceOf(currentUser(c))));
 	app.get("/api/runs/:id", async (c) => {
 		const user = currentUser(c);
 		const run = await mustGetRun(c.req.param("id"), user.id);
@@ -16258,6 +16345,11 @@ function createApp() {
 			runId: busy.id,
 			dungeonId: busy.dungeonId
 		}, 409);
+		const allowance = await allowanceOf(user);
+		if (!hasRunLeft(allowance)) return c.json({
+			error: refusal(allowance),
+			allowance
+		}, 429);
 		const state = newRun(stored.doc, character);
 		const run = await createRun({
 			dungeonId: stored.id,

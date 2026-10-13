@@ -20,8 +20,11 @@
  * that got forgotten would fail as a 401 in a corner nobody exercises. So
  * `authedFetch` is the door and neither module knows a token exists.
  *
- * GOOGLE IS THE ONLY WAY IN, deliberately: one provider, one button, and no
- * password reset flow, email deliverability problem or credential store to own.
+ * GOOGLE OR A GUEST, and nothing else: one provider, and no password reset
+ * flow, email deliverability problem or credential store to own. A guest is a
+ * Supabase anonymous account — a real `auth.users` row, so every ownership rule
+ * holds unchanged — and linking Google to it later keeps the same user id, so a
+ * guest who signs up keeps their characters.
  */
 
 import { createClient, type Session, type SupabaseClient } from "@supabase/supabase-js";
@@ -68,6 +71,8 @@ export function client(): SupabaseClient {
 /** Who is signed in, as the interface needs them. */
 export interface Account {
   id: string;
+  /** Made by "Play as a guest" and not yet linked to Google. */
+  guest: boolean;
   email?: string;
   name?: string;
   avatar?: string;
@@ -78,6 +83,7 @@ export function accountOf(session: Session | null): Account | undefined {
   const meta = session.user.user_metadata ?? {};
   return {
     id: session.user.id,
+    guest: session.user.is_anonymous === true,
     email: session.user.email,
     name: (meta.full_name ?? meta.name) as string | undefined,
     avatar: (meta.avatar_url ?? meta.picture) as string | undefined,
@@ -97,6 +103,49 @@ export async function signIn(): Promise<void> {
     options: { redirectTo: window.location.origin },
   });
   if (error) throw error;
+}
+
+/**
+ * Play as a guest: an account with no identity behind it.
+ *
+ * `captchaToken` is the Turnstile answer when the project has captcha on (see
+ * `ui/turnstile.ts`). Supabase checks it, not us; without the setting on, it is
+ * ignored.
+ */
+export async function signInAsGuest(captchaToken?: string): Promise<void> {
+  const { error } = await client().auth.signInAnonymously(
+    captchaToken ? { options: { captchaToken } } : undefined
+  );
+  if (error) throw error;
+}
+
+/**
+ * Turn a guest into a member by linking Google to the SAME account.
+ *
+ * Needs "manual linking" switched on in the Supabase dashboard. If that Google
+ * account already belongs to somebody, Supabase sends them back with
+ * `identity_already_exists` in the URL — see `linkWasRefused`.
+ */
+export async function upgradeToGoogle(): Promise<void> {
+  const { error } = await client().auth.linkIdentity({
+    provider: "google",
+    options: { redirectTo: window.location.origin },
+  });
+  if (error) throw error;
+}
+
+/**
+ * True when the page has just come back from a link that Google could not make
+ * because the Google account is already somebody's — usually the player's own,
+ * from before they played as a guest.
+ *
+ * The answer to that is to sign in to the account they already have. The
+ * guest's characters stay with the guest account, which is cheaper to explain
+ * than a merge would be to build.
+ */
+export function linkWasRefused(): boolean {
+  const where = `${window.location.search}&${window.location.hash.replace(/^#/, "")}`;
+  return new URLSearchParams(where.replace(/^\?/, "")).get("error_code") === "identity_already_exists";
 }
 
 export async function signOut(): Promise<void> {

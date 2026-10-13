@@ -36,6 +36,7 @@
 import { useState } from "react";
 import type { DungeonSummary } from "../store/dungeons.ts";
 import type { PlayerCharacter, Size } from "../engine/index.ts";
+import { untilReset, type Allowance } from "../store/allowance.ts";
 
 const LABEL = "font-mono text-[9px] tracking-[0.16em] text-graphite uppercase";
 
@@ -189,6 +190,8 @@ function WorldRow({
 export function RunSetup({
   characters,
   dungeons = [],
+  allowance,
+  onUpgrade,
   initialId,
   onConfirm,
   onBack,
@@ -201,12 +204,28 @@ export function RunSetup({
    * was never there.
    */
   dungeons?: DungeonSummary[];
+  /**
+   * Today's runs and the largest size this account may write. ABSENT is "not
+   * known yet", and the screen then limits nothing — the server is the gate, and
+   * a screen that locked itself while a request was in flight would be a screen
+   * that flickers locked for every player with runs to spare.
+   */
+  allowance?: Allowance;
+  /** Link Google to a guest account, for more runs a day. */
+  onUpgrade?: () => Promise<void>;
   /** Whoever the player pressed *Send down* on. Falls back to the first. */
   initialId?: string;
   onConfirm: (choice: RunChoice) => void;
   onBack: () => void;
 }) {
   const [size, setSize] = useState<Size>(2);
+  const [upgradeError, setUpgradeError] = useState<string>();
+  const sizeAllowed = (n: Size) => !SIZES_OFF.includes(n) && n <= (allowance?.maxSize ?? 5);
+  // The size actually being asked for. The choice is kept as the player made it,
+  // so an allowance that arrives after they clicked does not rewrite their click
+  // in state — it only stops it being sent. Size 1 is always allowed.
+  const chosenSize: Size = sizeAllowed(size) ? size : 1;
+  const outOfRuns = allowance?.left === 0;
   const [difficulty, setDifficulty] = useState<Difficulty>("medium");
   const [characterId, setCharacterId] = useState(initialId ?? characters[0]?.id);
   /**
@@ -291,17 +310,18 @@ export function RunSetup({
                 options={SIZES.map((n) => ({
                   value: n,
                   label: String(n),
-                  ...(SIZES_OFF.includes(n)
-                    ? { disabled: true, title: "Not available yet" }
-                    : {}),
+                  ...(sizeAllowed(n) ? {} : { disabled: true, title: "Not available yet" }),
                 }))}
-                value={size}
+                value={chosenSize}
                 onChange={setSize}
               />
-              <p className="mt-3 font-mono text-[11px] text-graphite">{costOf(size)}</p>
+              <p className="mt-3 font-mono text-[11px] text-graphite">{costOf(chosenSize)}</p>
               <p className="mt-1.5 max-w-[46ch] font-prose text-[13px] leading-snug text-graphite">
                 The dungeon is written before you go in, so this is what the wait
-                will cost. The big ones are off for now.
+                will cost.{" "}
+                {allowance && !allowance.unlimited
+                  ? `Only size ${allowance.maxSize} for now.`
+                  : "The big ones are off for now."}
               </p>
             </Field>
 
@@ -355,13 +375,13 @@ export function RunSetup({
         <div className="border-t border-rule-faint pt-8">
           <button
             type="button"
-            disabled={!character}
+            disabled={!character || outOfRuns}
             onClick={() =>
               character &&
               onConfirm(
                 world
                   ? { world: "existing", dungeonId: world.id, character }
-                  : { world: "new", size, level, character }
+                  : { world: "new", size: chosenSize, level, character }
               )
             }
             className="bg-torch px-6 py-3 font-mono text-[12px] uppercase tracking-[0.14em] text-paper transition-colors hover:bg-torch-deep active:bg-ink disabled:bg-rule disabled:text-pencil"
@@ -369,10 +389,39 @@ export function RunSetup({
             Go down
           </button>
           <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.14em] text-graphite">
-            {fresh
-              ? "The dungeon starts being written the moment you press it"
-              : "Straight down — this one is already written"}
+            {outOfRuns
+              ? `No runs left today · more ${untilReset(allowance.resetsAt)}`
+              : fresh
+                ? "The dungeon starts being written the moment you press it"
+                : "Straight down — this one is already written"}
           </p>
+          {/* HOW MANY ARE LEFT, said before the player spends one rather than
+              after they are refused. Nothing at all for an unlimited account. */}
+          {allowance && allowance.limit !== null && (
+            <p className="mt-1.5 font-mono text-[11px] text-graphite" role="status">
+              {allowance.left} of {allowance.limit} run{allowance.limit === 1 ? "" : "s"} left today
+            </p>
+          )}
+          {allowance?.guest && onUpgrade && (
+            <p className="mt-3 max-w-[46ch] font-prose text-[13px] leading-snug text-graphite">
+              Playing as a guest.{" "}
+              <button
+                type="button"
+                onClick={() =>
+                  void onUpgrade().catch((e) =>
+                    setUpgradeError(e instanceof Error ? e.message : String(e))
+                  )
+                }
+                className="text-torch underline decoration-torch underline-offset-4 transition-colors hover:text-torch-deep active:text-ink"
+              >
+                Sign in with Google
+              </button>{" "}
+              for three runs a day. You keep your characters.
+              {upgradeError && (
+                <span className="mt-1 block font-mono text-[11px] text-torch-deep">{upgradeError}</span>
+              )}
+            </p>
+          )}
         </div>
       </div>
     </main>

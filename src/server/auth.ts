@@ -38,13 +38,17 @@ import { HTTPException } from "hono/http-exception";
  * The signed-in user, as the rest of the server sees them.
  *
  * `id` is the `sub` claim, which is the `auth.users` primary key and therefore
- * the value in every `owner_id` column. There is deliberately nothing else on
- * here yet — no tier, no email — because nothing in Phase 11 reads them and a
- * field nobody reads is a field that goes stale. Phase 12's BYOK/VIP split is
- * where `tier` arrives, from `profiles` rather than from the token.
+ * the value in every `owner_id` column.
+ *
+ * `guest` is the `is_anonymous` claim: an account made by "Play as a guest"
+ * rather than by Google. It comes from the token because Supabase puts it
+ * there and flips it when the guest links Google, so there is no column to
+ * keep in step. `tier` is NOT on here — it is the author's to set and lives in
+ * `profiles`, read by `allowance.ts` on the few routes that need it.
  */
 export interface AuthUser {
   id: string;
+  guest: boolean;
 }
 
 /** Hono's context, taught what `c.get("user")` holds. */
@@ -79,15 +83,15 @@ function keySet(): ReturnType<typeof createRemoteJWKSet> {
  * so the failure is one function rather than one per caller.
  */
 export async function verifyToken(token: string): Promise<AuthUser> {
-  // `audience` is Supabase's own constant for a signed-in user; an anonymous
-  // token carries a different one, so this is also what keeps anonymous
-  // sign-ins out for as long as the project has them switched off.
+  // `audience` is Supabase's own constant for a signed-in user. A guest's token
+  // carries it TOO — anonymous accounts take the `authenticated` role — so this
+  // does not tell a guest from a member; `is_anonymous` below does.
   const { payload } = await jwtVerify(token, keySet(), { audience: "authenticated" });
 
   if (typeof payload.sub !== "string" || payload.sub === "") {
     throw new Error("token carries no subject");
   }
-  return { id: payload.sub };
+  return { id: payload.sub, guest: payload.is_anonymous === true };
 }
 
 const UNAUTHORIZED = "sign in first";

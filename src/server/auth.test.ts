@@ -35,10 +35,10 @@ beforeAll(async () => {
 
 /** A token as Supabase would issue one, with whatever we want changed. */
 async function mint(
-  claims: { sub?: string; aud?: string; expiresIn?: string } = {},
+  claims: { sub?: string; aud?: string; expiresIn?: string; is_anonymous?: unknown } = {},
   key: CryptoKey = privateKey
 ): Promise<string> {
-  let jwt = new SignJWT({})
+  let jwt = new SignJWT(claims.is_anonymous === undefined ? {} : { is_anonymous: claims.is_anonymous })
     .setProtectedHeader({ alg: "ES256", kid: "test-key" })
     .setIssuedAt()
     .setAudience(claims.aud ?? "authenticated")
@@ -74,7 +74,17 @@ describe("verifyToken", () => {
   it("accepts a properly signed token and reports its subject", async () => {
     const { verifyToken } = await freshAuth();
     const user = await verifyToken(await mint({ sub: "user-abc" }));
-    expect(user).toEqual({ id: "user-abc" });
+    expect(user).toEqual({ id: "user-abc", guest: false });
+  });
+
+  it("reads a guest from `is_anonymous`, and only a literal true counts", async () => {
+    const { verifyToken } = await freshAuth();
+    expect(await verifyToken(await mint({ sub: "g", is_anonymous: true }))).toEqual({ id: "g", guest: true });
+    expect(await verifyToken(await mint({ sub: "m", is_anonymous: false }))).toEqual({ id: "m", guest: false });
+    // A string is not the claim Supabase writes, and anything unexpected is a
+    // member rather than a guest: the allowance gate fails closed either way,
+    // because a member's limit is still a limit.
+    expect(await verifyToken(await mint({ sub: "s", is_anonymous: "true" }))).toEqual({ id: "s", guest: false });
   });
 
   it("refuses a token signed by a key it does not know", async () => {
@@ -90,9 +100,9 @@ describe("verifyToken", () => {
   });
 
   /**
-   * Supabase gives an anonymous sign-in a different audience. The project has
-   * them switched off, and this is the line that keeps them out if anybody ever
-   * turns them on without reading this file.
+   * `anon` is the audience of the publishable key itself — a page that holds
+   * the key and no session. It is NOT what a guest carries: a guest account
+   * signs in as `authenticated` with `is_anonymous: true`, and is let in.
    */
   it("refuses a token whose audience is not `authenticated`", async () => {
     const { verifyToken } = await freshAuth();

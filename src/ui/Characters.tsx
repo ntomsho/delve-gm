@@ -294,6 +294,7 @@ export function Characters({
   notice,
   account,
   onSignOut,
+  onUpgrade,
 }: {
   characters?: CharacterEntry[];
   onStartRun: (pc: PlayerCharacter) => void;
@@ -331,8 +332,10 @@ export function Characters({
    * those are played entirely in the browser and require no account, so a
    * sign-out control there would offer to end a session that does not exist.
    */
-  account?: { email?: string; name?: string };
+  account?: { guest?: boolean; email?: string; name?: string };
   onSignOut?: () => void;
+  /** Link Google to a guest account. Only offered to a guest. */
+  onUpgrade?: () => void;
 }) {
   return (
     <main className="min-h-screen bg-desk text-ink">
@@ -342,7 +345,23 @@ export function Characters({
             <div className="font-mono text-[10px] uppercase tracking-[0.26em] text-graphite">Knave 1.0</div>
             {account && onSignOut && (
               <div className="flex items-baseline gap-3 font-mono text-[10px] text-ash">
-                <span className="truncate max-w-[24ch]">{account.email ?? account.name}</span>
+                {account.guest ? (
+                  <>
+                    <span>Guest</span>
+                    {onUpgrade && (
+                      <button
+                        type="button"
+                        onClick={onUpgrade}
+                        title="Keeps your characters, and gives you three runs a day instead of one"
+                        className="uppercase tracking-[0.14em] text-torch underline decoration-torch underline-offset-4 transition-colors hover:text-torch-deep active:text-ink"
+                      >
+                        Keep them — sign in with Google
+                      </button>
+                    )}
+                  </>
+                ) : (
+                  <span className="truncate max-w-[24ch]">{account.email ?? account.name}</span>
+                )}
                 <button
                   type="button"
                   onClick={onSignOut}

@@ -621,9 +621,9 @@ describe("profiles", () => {
     await inRollback(async (tx) => {
       const a = await makeUser(tx, "a");
       const [row] = await tx<{ tier: string }[]>`select tier from profiles where id = ${a}`;
-      // The trigger ran, and a new account brings its own key until somebody
-      // makes them a guest of ours.
-      expect(row?.tier).toBe("byok");
+      // The trigger ran, and a new account is an ordinary limited member until
+      // the author makes it otherwise.
+      expect(row?.tier).toBe("member");
     });
   });
 });

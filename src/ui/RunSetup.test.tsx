@@ -20,6 +20,7 @@ import { renderDom, press } from "./__fixtures__/dom.ts";
 import { RunSetup, type RunChoice } from "./RunSetup.tsx";
 import { testCharacter } from "../runtime/__fixtures__/offline.ts";
 import type { DungeonSummary } from "../store/dungeons.ts";
+import type { Allowance } from "../store/allowance.ts";
 
 const world = (over: Partial<DungeonSummary> = {}): DungeonSummary => ({
   id: "d-1",
@@ -34,12 +35,17 @@ const world = (over: Partial<DungeonSummary> = {}): DungeonSummary => ({
 });
 
 /** The screen, with somewhere to catch what confirming it says. */
-function setup(dungeons: DungeonSummary[], characters = [testCharacter()]) {
+function setup(
+  dungeons: DungeonSummary[],
+  characters = [testCharacter()],
+  allowance?: Allowance
+) {
   const chosen: RunChoice[] = [];
   const page = renderDom(
     h(RunSetup, {
       characters,
       dungeons,
+      ...(allowance ? { allowance, onUpgrade: async () => {} } : {}),
       onConfirm: (c: RunChoice) => chosen.push(c),
       onBack: () => {},
     })
@@ -210,5 +216,67 @@ describe("the sizes that are turned off", () => {
     await press(byText(page, "Go down"));
 
     expect(chosen[0]).toMatchObject({ world: "new", size: 2 });
+  });
+});
+
+/*
+ * THE DAILY ALLOWANCE. The server is the gate; what this screen owes the player
+ * is to say how many are left before they press anything, and not to offer a
+ * button the server will refuse.
+ */
+describe("the daily allowance", () => {
+  const allowance = (over: Partial<Allowance> = {}): Allowance => ({
+    guest: true,
+    unlimited: false,
+    used: 0,
+    limit: 1,
+    left: 1,
+    maxSize: 1,
+    resetsAt: new Date(Date.now() + 3 * 3_600_000).toISOString(),
+    ...over,
+  });
+  const sizeButton = (page: ReturnType<typeof renderDom>, label: string) =>
+    page.all("button").find((b) => b.textContent === label && b.className.includes("border")) as
+      | HTMLButtonElement
+      | undefined;
+
+  it("offers only size 1 and sends size 1", async () => {
+    const { page, chosen } = setup([], undefined, allowance());
+    expect(sizeButton(page, "1")?.disabled).toBe(false);
+    expect(sizeButton(page, "2")?.disabled).toBe(true);
+
+    await press(byText(page, "Go down"));
+    expect(chosen[0]).toMatchObject({ world: "new", size: 1 });
+  });
+
+  it("says how many are left, and offers a guest Google", () => {
+    const { page } = setup([], undefined, allowance());
+    expect(text(page)).toContain("1 of 1 run left today");
+    expect(text(page)).toContain("Sign in with Google");
+  });
+
+  it("will not go down with none left, and says when more arrive", async () => {
+    const { page, chosen } = setup(
+      [],
+      undefined,
+      allowance({ guest: false, limit: 3, used: 3, left: 0 })
+    );
+    expect((byText(page, "Go down") as HTMLButtonElement).disabled).toBe(true);
+    expect(text(page)).toMatch(/No runs left today · more in 3 hours/i);
+    // A member is not told to sign in.
+    expect(text(page)).not.toContain("Sign in with Google");
+
+    await press(byText(page, "Go down"));
+    expect(chosen).toEqual([]);
+  });
+
+  it("limits nothing for an unlimited account", () => {
+    const { page } = setup(
+      [],
+      undefined,
+      allowance({ guest: false, unlimited: true, limit: null, left: null, maxSize: 5 })
+    );
+    expect(sizeButton(page, "3")?.disabled).toBe(false);
+    expect(text(page)).not.toContain("left today");
   });
 });

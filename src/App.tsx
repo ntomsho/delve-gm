@@ -65,7 +65,17 @@ import {
 } from "./store/dungeons.ts";
 import { Library } from "./ui/Library.tsx";
 import { SignIn } from "./ui/SignIn.tsx";
-import { authedFetch, onAuthChange, signIn, signOut, type Account } from "./store/auth.ts";
+import {
+  authedFetch,
+  linkWasRefused,
+  onAuthChange,
+  signIn,
+  signInAsGuest,
+  signOut,
+  upgradeToGoogle,
+  type Account,
+} from "./store/auth.ts";
+import { fetchAllowance, type Allowance } from "./store/allowance.ts";
 import {
   createGameSession,
   describeFailure,
@@ -182,6 +192,13 @@ export default function App() {
    * delete, would be spending two requests to achieve less reliably.
    */
   const [dungeons, setDungeons] = useState<DungeonSummary[]>();
+  /**
+   * How many runs are left today. Read when run setup opens, for the same
+   * reason as `dungeons`: it is the one screen that asks, and a figure fetched
+   * as it is shown cannot be stale. `undefined` is "not known", which the
+   * screen treats as no limit — the server is the gate, not this.
+   */
+  const [allowance, setAllowance] = useState<Allowance>();
   /** A refusal from the server, in its own words, shown on the roster. */
   const [notice, setNotice] = useState<string>();
 
@@ -292,8 +309,12 @@ export default function App() {
    */
   async function openSetup() {
     setDungeons(undefined);
+    setAllowance(undefined);
     setScreen("setup");
     if (LOCAL) return;
+    void fetchAllowance()
+      .then(setAllowance)
+      .catch((e) => console.warn("[app] could not read the allowance:", e));
     try {
       setDungeons((await listDungeons()).filter((d) => d.status === "complete"));
     } catch (e) {
@@ -408,6 +429,10 @@ export default function App() {
    */
   useEffect(() => {
     if (LOCAL) return;
+    // A guest tried to link a Google account that already has an account of its
+    // own. Sign them in to that one: it is theirs, and it is what they asked for
+    // by pressing a Google button. See `linkWasRefused`.
+    if (linkWasRefused()) void signIn();
     return onAuthChange((who) => {
       setAccount(who);
       setAuthReady(true);
@@ -454,7 +479,7 @@ export default function App() {
     // rather than a spinner — it is one paint, and a flash of "loading" before
     // a flash of the app is worse than a moment of the desk.
     if (!authReady) return <div className="min-h-screen" style={{ background: "#EDE7DA" }} />;
-    if (!account) return <SignIn onSignIn={signIn} />;
+    if (!account) return <SignIn onSignIn={signIn} onGuest={signInAsGuest} />;
   }
 
   if (error) {
@@ -562,7 +587,24 @@ export default function App() {
         }
         {...(notice ? { notice } : {})}
         account={account}
-        onSignOut={() => void signOut()}
+        onSignOut={() => {
+          // A guest has no way back in: signing out IS deleting, as far as they
+          // can tell. Say so once rather than letting a habit cost a roster.
+          if (
+            account?.guest &&
+            !window.confirm(
+              "A guest account cannot be signed back into. Your characters will be lost. Sign out anyway?"
+            )
+          ) {
+            return;
+          }
+          void signOut();
+        }}
+        onUpgrade={() =>
+          void upgradeToGoogle().catch((e) =>
+            setNotice(e instanceof Error ? e.message : String(e))
+          )
+        }
       />
 
       {/*
@@ -652,6 +694,8 @@ export default function App() {
         // here, and offering one would be offering a move the server refuses.
         characters={(characters ?? []).filter((e) => !e.activeRun).map((e) => e.sheet)}
         {...(dungeons ? { dungeons } : {})}
+        {...(allowance ? { allowance } : {})}
+        onUpgrade={upgradeToGoogle}
         initialId={chosenId}
         onBack={() => setScreen("characters")}
         onConfirm={(choice) =>
