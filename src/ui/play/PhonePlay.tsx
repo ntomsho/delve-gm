@@ -1,8 +1,9 @@
 /**
- * THE PLAY SCREEN ON A PHONE: three tabs where the desktop has three columns.
+ * THE PLAY SCREEN ON A PHONE: four tabs where the desktop has three columns.
  *
  *   Map         the map, and the room card under it
  *   Chat        the narration and the input — where a run is played
+ *   Room        the picture of the room they are standing in, with its buttons
  *   Character   the sheet
  *
  * The layout is Claude Design's mobile handoff; see *Phones* in
@@ -11,7 +12,7 @@
  * and is handed the three bodies already built, so it never has to know what
  * a map or a turn is.
  *
- * ALL THREE BODIES STAY MOUNTED, the inactive two hidden but laid out. The
+ * ALL THE BODIES STAY MOUNTED, the inactive ones hidden but laid out. The
  * narration keeps its scroll position and goes on following the newest line
  * while the player is looking at the map, and the sheet keeps noticing a drop
  * in HP while it is out of sight — which is what lets its tab carry a badge.
@@ -25,7 +26,7 @@ import { STAGE_NAME, STAGE_TONE } from "../theme.ts";
 import type { Stage } from "../../runtime/types.ts";
 import type { CharacterView } from "../../store/selectors.ts";
 
-export type Tab = "map" | "chat" | "sheet";
+export type Tab = "map" | "chat" | "room" | "sheet";
 
 /**
  * In order, left to right — which is also the order a swipe walks them in.
@@ -34,6 +35,7 @@ export type Tab = "map" | "chat" | "sheet";
 export const TABS: { id: Tab; label: string }[] = [
   { id: "map", label: "Map" },
   { id: "chat", label: "Chat" },
+  { id: "room", label: "Room" },
   { id: "sheet", label: "Character" },
 ];
 
@@ -101,10 +103,11 @@ export interface PhonePlayProps {
   onMainMenu?: () => void;
   map: ReactNode;
   chat: ReactNode;
+  room: ReactNode;
   sheet: ReactNode;
 }
 
-export function PhonePlay({ stage, busy, narrated, explored, pc, tab, onTab, onMainMenu, map, chat, sheet }: PhonePlayProps) {
+export function PhonePlay({ stage, busy, narrated, explored, pc, tab, onTab, onMainMenu, map, chat, room, sheet }: PhonePlayProps) {
   const tone = STAGE_TONE[stage];
   const vv = useVisualViewport();
 
@@ -229,13 +232,16 @@ export function PhonePlay({ stage, busy, narrated, explored, pc, tab, onTab, onM
         <section className={`${panel("chat")} flex flex-col`} aria-hidden={tab !== "chat"} aria-label="Chat">
           {chat}
         </section>
+        <section className={`${panel("room")} overflow-y-auto`} aria-hidden={tab !== "room"} aria-label="Room">
+          {room}
+        </section>
         <section className={`${panel("sheet")} overflow-y-auto bg-panel`} aria-hidden={tab !== "sheet"} aria-label="Character">
           {sheet}
         </section>
 
         {/* Over whichever tab raised it — and the provider puts it down when
-            the tab changes, so in practice that is always the map. Pressing its
-            verb sends a turn, and the turn is read in Chat. */}
+            the tab changes, so in practice that is the map or the room. Pressing
+            its verb sends a turn, and the turn is read in Chat. */}
         <InspectSheet
           className="absolute inset-x-0 bottom-0 z-10 max-h-[75%] overflow-y-auto"
           onActed={() => onTab("chat")}

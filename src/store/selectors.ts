@@ -727,7 +727,25 @@ export interface MapConnectorView extends LayoutConnector {
  * when they observe again — which is the same precedence `dungeon-entities.ts`
  * sets for prose. What they were told binds.
  */
+/**
+ * The marks a thing standing in a room is drawn with, on the map and on the
+ * room's plate, in the order they are handed out. See `MapFixtureView.shape`.
+ */
+export const FIXTURE_SHAPES = ["circle", "diamond", "triangle", "square", "star", "hexagon"] as const;
+export type FixtureShape = (typeof FIXTURE_SHAPES)[number];
+
 export interface MapFixtureView extends LayoutFixture {
+  /**
+   * Its mark, so the map and the plate can be matched at a glance.
+   *
+   * Handed out by its order among everything placed in its room, as the
+   * dungeon was generated: the first gets a circle, the second a diamond, and
+   * so on round `FIXTURE_SHAPES`. Counted over the CONCEALED ones too, so
+   * finding a secret never changes the mark of anything already on the map.
+   * No room in the measured dungeons placed more than four, so two marks in
+   * one room do not repeat in practice; past six they would.
+   */
+  shape: FixtureShape;
   /** the entity's name, for the hover */
   name: string;
   /** what the player read about it. Never undefined: it is why this is drawn. */
@@ -831,6 +849,15 @@ export function mapView(
   for (const f of run.entities.features) placed.set(f.id, f);
   for (const i of run.entities.items) placed.set(i.id, i);
 
+  // Every placed thing's mark, by its order in its room — before any filtering.
+  const shapes = new Map<string, FixtureShape>();
+  const perRoom = new Map<string, number>();
+  for (const f of base.fixtures) {
+    const n = perRoom.get(f.roomId) ?? 0;
+    perRoom.set(f.roomId, n + 1);
+    shapes.set(f.id, FIXTURE_SHAPES[n % FIXTURE_SHAPES.length]);
+  }
+
   const fixtures: MapFixtureView[] = [];
   for (const f of base.fixtures) {
     const entity = placed.get(f.id);
@@ -849,6 +876,7 @@ export function mapView(
     const place = (entity as { place?: { position: string } }).place;
     fixtures.push({
       ...f,
+      shape: shapes.get(f.id)!,
       name: entity.name,
       composed: entity.composed,
       position: place ? positionPhrase(place.position) : undefined,

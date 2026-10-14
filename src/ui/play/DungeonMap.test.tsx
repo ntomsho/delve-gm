@@ -253,7 +253,7 @@ describe("the fixture layer", () => {
     // One <g> per thing, so the hover reads the entity, not the cell.
     expect(r.all("g")).toHaveLength(map.fixtures.length);
     const cells = map.fixtures.reduce((n, f) => n + f.at.length, 0);
-    expect(r.all("g circle")).toHaveLength(cells);
+    expect(r.all("g path[data-shape]")).toHaveLength(cells);
     expect(cells).toBeGreaterThan(map.fixtures.length);
   });
 
@@ -287,7 +287,7 @@ describe("the fixture layer", () => {
       </HoverProvider>
     );
 
-    const torch = () => r.all("g circle").filter((c) => c.getAttribute("fill") === color.torch);
+    const torch = () => r.all("g path[data-shape]").filter((c) => c.getAttribute("fill") === color.torch);
     expect(torch()).toHaveLength(0);
 
     await hover(r.all("g")[map.fixtures.indexOf(f)]);
@@ -457,6 +457,7 @@ describe("clicking a thing on the map", () => {
           id: "f1",
           roomId: "here",
           kind: "RoomFeature",
+          shape: "circle",
           at: [{ x: 10, y: 10 }],
           r: 3,
           name: "a cracked font",
@@ -466,7 +467,7 @@ describe("clicking a thing on the map", () => {
     });
     const r = inPlay(map);
 
-    await press(r.one("g circle"));
+    await press(r.one("g path[data-shape]"));
     expect(pill()!.textContent).toBe("Examine?");
     expect(pill()!.getAttribute("data-sends")).toBe("I examine the cracked font.");
   });

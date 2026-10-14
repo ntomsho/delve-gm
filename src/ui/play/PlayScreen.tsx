@@ -25,12 +25,13 @@ import { GameMenu } from "./GameMenu.tsx";
 import { InputArea } from "./InputArea.tsx";
 import { Narration, type NarrationItem } from "./Narration.tsx";
 import { PhonePlay, type Tab } from "./PhonePlay.tsx";
+import { Plate } from "./Plate.tsx";
 import { RoomCard } from "./RoomCard.tsx";
 import { floorplanLayout, pointLayout } from "../../runtime/layout.ts";
 import { placedThings } from "../../runtime/occupancy.ts";
 import { causeOfDeath, keepsWhatTheyFound, lootOf } from "../../runtime/loot.ts";
 import { acceptsInput, isTerminal } from "../../runtime/types.ts";
-import { characterView, mapView, roomView, shownRoom } from "../../store/selectors.ts";
+import { characterView, mapView, roomView, shownRoom, type MapView } from "../../store/selectors.ts";
 import type { GeneratedDungeon } from "../../runtime/generate.ts";
 import type { RunState } from "../../store/game.ts";
 import type { PlateAnswer } from "../../runtime/plates.ts";
@@ -302,6 +303,14 @@ export function PlayScreen({
               </>
             }
             chat={narration}
+            room={
+              <RoomTab
+                name={room?.name}
+                {...(plate && here ? { load: () => plate(here.roomId), roomId: here.roomId } : {})}
+                {...(here?.cameFrom ? { cameFrom: here.cameFrom } : {})}
+                map={map}
+              />
+            }
             sheet={<CharacterPanel pc={pc} compact />}
           />
           {endOfRun}
@@ -338,6 +347,44 @@ export function PlayScreen({
         </main>
       )}
     </HoverProvider>
+  );
+}
+
+/**
+ * THE ROOM TAB, on a phone: the picture of the room they are standing in, under
+ * its name, with its buttons on it — the plate a desktop keeps stuck to the top
+ * of the chat. A local run, which never asks for pictures, says so.
+ */
+function RoomTab({
+  name,
+  roomId,
+  load,
+  cameFrom,
+  map,
+}: {
+  name?: string;
+  roomId?: string;
+  load?: () => Promise<PlateAnswer>;
+  cameFrom?: string;
+  map: MapView;
+}) {
+  return (
+    // Centred in the tab, which is otherwise a picture floating at the top of an empty screen.
+    <div className="flex min-h-full flex-col justify-center px-4 py-4 [&>*:last-child]:mb-0">
+      <h2 className="mb-3 font-display text-[21px] font-bold leading-tight text-ink">{name ?? "Somewhere"}</h2>
+      {roomId && load ? (
+        <Plate
+          key={roomId}
+          id={roomId}
+          subject={name ?? "this room"}
+          load={load}
+          map={map}
+          {...(cameFrom ? { cameFrom } : {})}
+        />
+      ) : (
+        <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-ash">No picture of this room</p>
+      )}
+    </div>
   );
 }
 

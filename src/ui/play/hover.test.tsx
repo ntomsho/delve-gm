@@ -96,7 +96,7 @@ const row = (r: { one(s: string): Element }, id: string) => r.one(`li[data-hover
 
 /** Dots drawn in torch — the map's half of the highlight. */
 const litDots = (r: { all(s: string): Element[] }) =>
-  r.all("g circle").filter((c) => c.getAttribute("fill") === color.torch);
+  r.all("g path[data-shape]").filter((c) => c.getAttribute("fill") === color.torch);
 
 // ===========================================================================
 // THE SAME HOVER FROM EITHER SIDE
@@ -450,7 +450,7 @@ describe("tapping, on a touch screen", () => {
   it("selects a map marker tapped through the map's own pointer handlers", async () => {
     const { r, map } = tapping([]);
     const marker = r.all("svg g")[map.fixtures.findIndex((f) => f.id === biggest.id)];
-    const dot = marker.querySelector("circle")!;
+    const dot = marker.querySelector("path[data-shape]")!;
 
     fire(dot, "pointerdown", { clientX: 10, clientY: 10, pointerId: 1 });
     fire(dot, "pointerup", { clientX: 12, clientY: 11, pointerId: 1 });
@@ -462,7 +462,7 @@ describe("tapping, on a touch screen", () => {
   it("selects nothing at the end of a drag", async () => {
     const { r, map } = tapping([]);
     const marker = r.all("svg g")[map.fixtures.findIndex((f) => f.id === biggest.id)];
-    const dot = marker.querySelector("circle")!;
+    const dot = marker.querySelector("path[data-shape]")!;
 
     drag(dot, { x: 10, y: 10 }, { x: 60, y: 10 });
     await press(dot);
@@ -474,5 +474,24 @@ describe("tapping, on a touch screen", () => {
     await press(row(r, biggest.id));
     await press(r.one("svg"));
     expect(sheet()).toBeNull();
+  });
+
+  it("keeps the thing lit, not the sheet, when the player changes tab", async () => {
+    const { map, room } = both();
+    const at = (scope: string) => (
+      <HoverProvider touch acting reachable={new Set()} onAct={() => {}} scope={scope}>
+        <DungeonMap map={map} />
+        <RoomCard room={room} />
+        <InspectSheet />
+      </HoverProvider>
+    );
+    const r = renderDom(at("map"));
+    await press(row(r, biggest.id));
+    r.update(at("chat"));
+    expect(sheet()).toBeNull();
+    expect(litDots(r)).toHaveLength(biggest.at.length);
+    // The next tap of anything puts it down.
+    await press(r.one("svg"));
+    expect(litDots(r)).toHaveLength(0);
   });
 });

@@ -47,6 +47,12 @@ export const color = {
 
   /** ink of a different bottle — links, and the player's own words */
   indigo: "#1D3A57",
+  /**
+   * Old copper gone green: the way out of the dungeon, on a plate. Its own
+   * colour rather than torch, because torch is what a lit thing turns, and the
+   * way out must stand apart without looking permanently pointed at.
+   */
+  verdigris: "#3F6E5B",
 } as const;
 
 /**

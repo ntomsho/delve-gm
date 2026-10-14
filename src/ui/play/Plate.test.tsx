@@ -11,7 +11,7 @@ import { act } from "react";
 import { describe, expect, it } from "vitest";
 import { DungeonMap } from "./DungeonMap.tsx";
 import { ActionPill, HoverProvider } from "./hover.tsx";
-import { Plate } from "./Plate.tsx";
+import { doorHeading, Plate } from "./Plate.tsx";
 import { color } from "../theme.ts";
 import { hover, press, renderDom, unhover } from "../__fixtures__/dom.ts";
 import type { PlateAnswer } from "../../runtime/plates.ts";
@@ -35,6 +35,7 @@ const door: MapConnectorView = {
 const bench: MapFixtureView = {
   id: "f1",
   roomId: "here",
+  shape: "diamond",
   at: [{ x: 10, y: 10 }],
   r: 3,
   name: "a stone bench",
@@ -93,10 +94,29 @@ describe("a plate's buttons", () => {
 
   it("marks the way they came in by with a U-turn, and only that one", async () => {
     const r = await shown(<Plate id="here" subject="The here" load={async () => ready} map={map} cameFrom="c1" />);
-    expect(spot(r, "c1")!.hasAttribute("data-came-from")).toBe(true);
-    expect(spot(r, "c1")!.querySelector("svg")).not.toBeNull();
+    expect(spot(r, "c1")!.getAttribute("data-door")).toBe("came-from");
     expect(spot(r, "f1")!.hasAttribute("data-came-from")).toBe(false);
-    expect(spot(r, "f1")!.querySelector("svg")).toBeNull();
+  });
+
+  it("draws a door as an arch with an arrow for which way it leads on the map", async () => {
+    const r = await shown(<Plate id="here" subject="The here" load={async () => ready} map={map} />);
+    // The hand-built door leads east.
+    expect(spot(r, "c1")!.getAttribute("data-door")).toBe("arrow");
+    expect(spot(r, "c1")!.getAttribute("data-heading")).toBe("e");
+    expect(spot(r, "c1")!.querySelector("g")!.getAttribute("transform")).toBe("rotate(90 12 15)");
+  });
+
+  it("draws the way out of the dungeon walking out, whichever way they came in", async () => {
+    const out = { ...map, connectors: [{ ...door, surface: true }] };
+    const r = await shown(<Plate id="here" subject="The here" load={async () => ready} map={out} cameFrom="c1" />);
+    expect(spot(r, "c1")!.getAttribute("data-door")).toBe("way-out");
+    expect(spot(r, "c1")!.querySelector("path")!.getAttribute("fill")).toBe(color.verdigris);
+  });
+
+  it("gives a feature its map mark", async () => {
+    const r = await shown(<Plate id="here" subject="The here" load={async () => ready} map={map} />);
+    expect(spot(r, "f1")!.getAttribute("data-shape")).toBe("diamond");
+    expect(spot(r, "f1")!.hasAttribute("data-door")).toBe(false);
   });
 
   it("is only a picture without a map", async () => {
@@ -124,16 +144,28 @@ describe("a plate's buttons", () => {
         <DungeonMap map={map} />
       </HoverProvider>
     );
-    const dot = () => spot(r, "f1")!.firstElementChild!;
-    const marker = () => r.one("svg g circle");
+    const lit = () => spot(r, "f1")!.hasAttribute("data-lit");
+    const marker = () => r.one("svg[role=img] path[data-shape]");
 
     await hover(spot(r, "f1")!);
     expect(marker().getAttribute("fill")).toBe(color.torch);
-    expect(dot().className).toContain("bg-torch");
+    expect(lit()).toBe(true);
+    expect(marker().getAttribute("style")).toContain("scale(1.45)");
     await unhover(spot(r, "f1")!);
     expect(marker().getAttribute("fill")).toBe(color.graphite);
 
-    await hover(r.one("svg g"));
-    expect(dot().className).toContain("bg-torch");
+    expect(lit()).toBe(false);
+    await hover(r.one("svg[role=img] g[data-hover-id=f1]"));
+    expect(lit()).toBe(true);
+  });
+});
+
+describe("doorHeading", () => {
+  it("reads the map's compass, north up", () => {
+    const at = { x: 10, y: 10 };
+    expect(doorHeading({ at, through: { x: 10, y: 4 } })).toBe("n");
+    expect(doorHeading({ at, through: { x: 10, y: 16 } })).toBe("s");
+    expect(doorHeading({ at, through: { x: 16, y: 11 } })).toBe("e");
+    expect(doorHeading({ at, through: { x: 4, y: 9 } })).toBe("w");
   });
 });

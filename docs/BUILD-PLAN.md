@@ -782,11 +782,31 @@ Differences from the design above:
   from the dungeon on every ask, not stored with the image. Each dot is the map's marker
   for that thing (`doorHover` / `fixtureHover` in `DungeonMap.tsx`): the same card, the
   same verb, and the same `lit` id, so the plate, the map and the room card light
-  together. A thing the map does not show has no dot. The way out of the dungeon is
-  torch, as on the map. Dots have a 3 px ink rim. The door they came in by
-  (`ExitView.cameFrom`) carries a U-turn. Only the plate of the room the player is in has
-  buttons. A resumed run asks only for the current room's plate; rooms already arrived in
-  at mount (`resumed` in `PlayScreen`) are skipped. Not built yet: the `around`, `behind-wall` and `off-frame` arrows.
+  together. A thing the map does not show has no button.
+  - **Doors** are an arched doorway (`ARCH`, `src/ui/play/marks.ts`) with an arrow for
+    the way the door leads on the map's compass (`doorHeading`). The door they came in by
+    (`ExitView.cameFrom`) has a U-turn instead. The way out of the dungeon has a figure
+    walking out, on `verdigris` (#3F6E5B), not torch, so it doesn't look permanently lit.
+    The way out wins over the U-turn in the entrance room.
+  - **Features** carry their map mark (`MapFixtureView.shape`): circle, diamond,
+    triangle, square, star, hexagon (`FIXTURE_SHAPES`), handed out in `mapView` by
+    order among everything placed in the room, concealed included, so a found secret
+    never shifts the others. Not stored; existing dungeons get marks too. No measured
+    room places more than four.
+  - **Lit grows.** Map marks, map doors and plate buttons scale up while lit
+    (`grows` in `DungeonMap.tsx`). On a phone, a tapped thing stays lit when the tab
+    changes (`kept` in `HoverProvider`); the sheet does not follow.
+  - Only the plate of the room the player is in has buttons. A resumed run asks only
+    for the current room's plate; rooms already arrived in at mount (`resumed` in
+    `PlayScreen`) are skipped.
+  - **Where plates sit.** On a desktop chat at least `WIDE_MIN_PX` (860) wide, plates
+    stand in a right-hand column beside their text (`Narration`, in runs from one plate
+    to the next). The current room's latest arrival carries its plate too, so the plate
+    the player is standing in is the lowest, and it is sticky to the top of the chat.
+    Narrower, plates sit under each arrival's heading as before. Phones keep them in the
+    chat, never sticky, and have a **Room** tab between Chat and Character
+    (`RoomTab` in `PlayScreen.tsx`): the current room's name and plate, with buttons.
+  - Not built yet: the `around`, `behind-wall` and `off-frame` arrows.
 
 **Dungeon covers are BUILT (2026-10-13).** A cover is the dungeon's exterior: the picture
 on its library card, beside it in run setup, and above its opening.

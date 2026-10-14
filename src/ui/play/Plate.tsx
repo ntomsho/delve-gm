@@ -10,19 +10,23 @@
  * lines are exactly the text's ink, the paper is the page's paper, and there is
  * no box edge. A click opens it full size.
  *
- * THE BUTTONS. A room's plate carries a white dot at each place the guide image
- * put a tag — every doorway and object the image model was told to draw — and
- * each dot is the same control as the map's marker for that thing: the same
- * hover card, the same question on a click, and the same `lit` id, so pointing
- * at a dot lights the map and the room card and pointing at either lights the
- * dot. A thing the map does not show yet gets no dot, so the plate is fogged
- * exactly as the map is.
+ * THE BUTTONS. A room's plate carries a button at each place the guide image
+ * put a tag: every doorway and object the image model was told to draw. A door
+ * is an arched doorway with an arrow for which way it leads on the map; a
+ * feature carries its map mark, the same shape. Each is the same control as the map's
+ * marker for that thing: the same hover card, the same question on a click, and
+ * the same `lit` id, so pointing at a button lights the map and the room card
+ * and pointing at either lights the button. A thing the map does not show yet
+ * gets no button, so the plate is fogged exactly as the map is.
  */
 
 import { useEffect, useRef, useState } from "react";
 import type { PlateAnswer, PlateSpot } from "../../runtime/plates.ts";
 import type { MapView } from "../../store/selectors.ts";
-import { doorHover, fixtureHover } from "./DungeonMap.tsx";
+import type { FixtureShape } from "../../store/selectors.ts";
+import { doorHover, fixtureHover, grows } from "./DungeonMap.tsx";
+import { ARCH, ARROW_NORTH, headingTurn, shapePath, UTURN, WALKER, type Heading } from "./marks.ts";
+import { color } from "../theme.ts";
 import { PLATE_TIP, useAnchor, useHover, type HoverCard } from "./hover.tsx";
 import type { Verb } from "./verbs.ts";
 
@@ -53,74 +57,106 @@ function inkStyle(url: string) {
   };
 }
 
-/** The way they came in by: a turn back the way they came, drawn inside its dot. */
-function UTurn() {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      className="h-3.5 w-3.5"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <path d="M11 14V7a4 4 0 0 0-8 0v1" />
-      <path d="M1 6l2 2.5L5.5 6" />
-    </svg>
-  );
+/**
+ * The map's door, as a heading: from the door toward its far side, whichever
+ * axis is longer, on the map's compass with north up.
+ */
+export function doorHeading(door: { at: { x: number; y: number }; through: { x: number; y: number } }): Heading {
+  const dx = door.through.x - door.at.x;
+  const dy = door.through.y - door.at.y;
+  if (Math.abs(dx) >= Math.abs(dy)) return dx >= 0 ? "e" : "w";
+  return dy >= 0 ? "s" : "n";
 }
 
 /**
- * One dot. White like the map's doors; the way out of the dungeon in the map's
- * torch. A heavy ink rim and a white halo round it, so it holds against any
- * part of the drawing, dark hatching or bare paper.
+ * What a button looks like. A door is an arched doorway with what is inside it
+ * saying which door: an arrow for the way it leads, the U-turn for the way they
+ * came in, somebody walking out for the way out of the dungeon. A feature is
+ * its map mark, the same shape. A door with no wall to read a heading off (a
+ * dungeon drawn without a block plan) gets no arrow.
  */
-function Spot({
-  spot,
-  card,
-  verb,
-  surface,
-  cameFrom,
-}: {
-  spot: PlateSpot;
-  card: HoverCard;
-  verb: Verb;
-  surface: boolean;
-  cameFrom: boolean;
-}) {
+type Look =
+  | { kind: "door"; inside: "arrow" | "came-from" | "way-out" | "none"; heading?: Heading }
+  | { kind: "feature"; shape: FixtureShape };
+
+/** A white halo and a soft shadow, following the shape: holds on hatching and on bare paper. */
+const HALO = "drop-shadow(0 0 1.2px #fff) drop-shadow(0 0 1.2px #fff) drop-shadow(0 1px 2px rgb(34 32 28 / 0.4))";
+
+/** The glyph inside an arch, in the arch's 24 x 24 box. */
+function Inside({ look, ink }: { look: Extract<Look, { kind: "door" }>; ink: string }) {
+  const line = { fill: "none", stroke: ink, strokeWidth: 2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
+  if (look.inside === "came-from") return <g {...line}>{UTURN.map((d) => <path key={d} d={d} />)}</g>;
+  if (look.inside === "way-out") {
+    return (
+      <g {...line} strokeWidth={1.7}>
+        <circle {...WALKER.head} fill={ink} stroke="none" />
+        {WALKER.strokes.map((d) => (
+          <path key={d} d={d} />
+        ))}
+      </g>
+    );
+  }
+  if (look.inside === "arrow" && look.heading) {
+    return (
+      <g {...line} transform={`rotate(${headingTurn(look.heading)} 12 15)`}>
+        {ARROW_NORTH.map((d) => (
+          <path key={d} d={d} />
+        ))}
+      </g>
+    );
+  }
+  return null;
+}
+
+/**
+ * One button. Paper with a heavy ink rim, like the map's doors; the way out of
+ * the dungeon in verdigris, its own colour, so it stands apart without looking
+ * lit. Torch while it is lit — pointed at here, on the map or in the room card,
+ * or picked on another tab — and a little bigger.
+ */
+function Spot({ spot, card, verb, look }: { spot: PlateSpot; card: HoverCard; verb: Verb; look: Look }) {
   const anchor = useAnchor(PLATE_TIP);
   const lit = useHover().lit === spot.id;
-  const size = cameFrom ? (lit ? "h-7 w-7" : "h-6 w-6") : lit ? "h-[22px] w-[22px]" : "h-[18px] w-[18px]";
+  const wayOut = look.kind === "door" && look.inside === "way-out";
+  const fill = lit ? color.torch : wayOut ? color.verdigris : color.paper;
+  const rim = lit ? color.torchDeep : color.ink;
+  const ink = lit || wayOut ? color.paper : color.ink;
+  const size = look.kind === "door" ? 30 : 22;
   return (
-    // The hit area is wider than the dot, for the same reason the map's are: a
-    // dot is small and a cursor is not that accurate.
+    // The hit area is wider than the mark, for the same reason the map's are: a
+    // mark is small and a cursor is not that accurate.
     <span
-      className="absolute flex h-9 w-9 -translate-x-1/2 -translate-y-1/2 items-center justify-center"
+      className="absolute flex h-10 w-10 -translate-x-1/2 -translate-y-1/2 items-center justify-center"
       style={{ left: `${spot.x * 100}%`, top: `${spot.y * 100}%` }}
       data-plate-spot={spot.id}
-      {...(cameFrom ? { "data-came-from": "" } : {})}
+      {...(look.kind === "door" ? { "data-door": look.inside } : { "data-shape": look.shape })}
+      {...(look.kind === "door" && look.heading ? { "data-heading": look.heading } : {})}
+      {...(look.kind === "door" && look.inside === "came-from" ? { "data-came-from": "" } : {})}
+      {...(lit ? { "data-lit": "" } : {})}
       {...anchor(spot.id, card, verb)}
     >
-      <span
-        className={`flex items-center justify-center rounded-full border-[3px] transition-all ${size} ${
-          lit
-            ? "border-torch-deep bg-torch text-paper"
-            : surface
-              ? "border-ink bg-torch-deep text-paper"
-              : "border-ink bg-paper text-ink"
-        }`}
-        style={{ boxShadow: "0 0 0 2px rgb(255 255 255 / 0.85), 0 1px 4px rgb(34 32 28 / 0.35)" }}
+      <svg
+        viewBox="0 0 24 24"
+        width={size}
+        height={size}
+        aria-hidden
+        style={{ filter: HALO, overflow: "visible", ...grows(lit, 1.25) }}
       >
-        {cameFrom && <UTurn />}
-      </span>
+        {look.kind === "door" ? (
+          <>
+            <path d={ARCH} fill={fill} stroke={rim} strokeWidth={2.4} strokeLinejoin="round" />
+            <Inside look={look} ink={ink} />
+          </>
+        ) : (
+          <path d={shapePath(look.shape, 12, 12, 8)} fill={fill} stroke={rim} strokeWidth={2.6} strokeLinejoin="round" />
+        )}
+      </svg>
     </span>
   );
 }
 
 /**
- * The plate's dots, each looked up on the map: no entry there, no dot.
+ * The plate's buttons, each looked up on the map: no entry there, no button.
  * `cameFrom` is the connector they walked in by, which carries the U-turn.
  */
 function Spots({ spots, map, cameFrom }: { spots: PlateSpot[]; map: MapView; cameFrom?: string }) {
@@ -131,12 +167,19 @@ function Spots({ spots, map, cameFrom }: { spots: PlateSpot[]; map: MapView; cam
         const c = map.connectors.find((x) => x.id === s.id && x.known);
         if (c) {
           const [card, verb] = doorHover(c, reachable.has(c.id));
-          return <Spot key={i} spot={s} card={card} verb={verb} surface={c.surface} cameFrom={c.id === cameFrom} />;
+          const look: Look = c.surface
+            ? { kind: "door", inside: "way-out" }
+            : c.id === cameFrom
+              ? { kind: "door", inside: "came-from" }
+              : c.door
+                ? { kind: "door", inside: "arrow", heading: doorHeading(c.door) }
+                : { kind: "door", inside: "none" };
+          return <Spot key={i} spot={s} card={card} verb={verb} look={look} />;
         }
         const f = map.fixtures.find((x) => x.id === s.id);
         if (f) {
           const [card, verb] = fixtureHover(f);
-          return <Spot key={i} spot={s} card={card} verb={verb} surface={false} cameFrom={false} />;
+          return <Spot key={i} spot={s} card={card} verb={verb} look={{ kind: "feature", shape: f.shape }} />;
         }
         return null;
       })}

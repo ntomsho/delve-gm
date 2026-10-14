@@ -38,6 +38,7 @@ function Shell({
       onTab={setTab}
       map={<div data-no-swipe>the map</div>}
       chat={<textarea aria-label="box" />}
+      room={<div>the room</div>}
       sheet={<div>the sheet</div>}
     />
   );
@@ -67,7 +68,8 @@ function swipe(target: Element, dx: number, dy = 0) {
 
 describe("which way a swipe goes", () => {
   it("steps one tab toward the side the finger came from", () => {
-    expect(swipeTo("chat", -100)).toBe("sheet");
+    expect(swipeTo("chat", -100)).toBe("room");
+    expect(swipeTo("room", -100)).toBe("sheet");
     expect(swipeTo("chat", 100)).toBe("map");
   });
 
@@ -81,7 +83,7 @@ describe("swiping the screen", () => {
   it("opens the next tab on a sideways swipe anywhere", () => {
     const r = renderDom(<Shell />);
     swipe(r.one("header"), -120);
-    expect(open(r)).toBe("sheet");
+    expect(open(r)).toBe("room");
     swipe(r.one("header"), 120);
     swipe(r.one("header"), 120);
     expect(open(r)).toBe("map");

@@ -29,7 +29,7 @@
  * mount their own tooltip and still be rendered on their own in a test.
  */
 
-import { createContext, useContext, useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { Tooltip, type TooltipRefProps } from "react-tooltip";
 import { color, font } from "../theme.ts";
 import type { Verb } from "./verbs.ts";
@@ -158,7 +158,7 @@ export interface HoverProviderProps {
   /**
    * The selection belongs to whatever this names, and goes when it changes —
    * `PlayScreen` passes the open tab, so a sheet does not follow the player onto
-   * a tab where the thing it describes is not drawn.
+   * another tab. The thing it picked stays LIT there, though; see `kept`.
    */
   scope?: unknown;
 }
@@ -166,8 +166,28 @@ export interface HoverProviderProps {
 /** Wraps the panels that should light each other up. `PlayScreen` is the only caller. */
 export function HoverProvider({ children, acting, reachable, onAct, touch = false, scope }: HoverProviderProps) {
   const [hovered, setHovered] = useState<string>();
-  const [selection, select] = useState<Selection>();
-  useEffect(() => select(undefined), [scope, touch]);
+  const [selection, setSelection] = useState<Selection>();
+  /**
+   * WHAT WAS PICKED ON THE TAB THE PLAYER LEFT. The sheet goes with the tab, but
+   * the thing stays lit: the room's plate on the Chat tab and the map on its own
+   * tab draw the same things, and the one just tapped should still be standing
+   * out on the other. Put down by the next tap of anything.
+   */
+  const [kept, setKept] = useState<string>();
+  const select: Dispatch<SetStateAction<Selection | undefined>> = useCallback((next) => {
+    setKept(undefined);
+    setSelection(next);
+  }, []);
+  const left = useRef(selection);
+  left.current = selection;
+  useEffect(() => {
+    setKept(left.current?.id);
+    setSelection(undefined);
+  }, [scope]);
+  useEffect(() => {
+    setKept(undefined);
+    setSelection(undefined);
+  }, [touch]);
 
   const value = useMemo(
     () => ({
@@ -176,14 +196,14 @@ export function HoverProvider({ children, acting, reachable, onAct, touch = fals
       touch,
       selection,
       select,
-      lit: touch ? selection?.id : hovered,
+      lit: touch ? (selection?.id ?? kept) : hovered,
       // A provider given no way to send cannot offer to send, whatever the stage
       // says. One test rather than two for every caller to remember.
       acting: acting === true && onAct !== undefined,
       reachable: reachable ?? new Set<string>(),
       act: onAct ?? (() => {}),
     }),
-    [hovered, selection, touch, acting, reachable, onAct]
+    [hovered, selection, kept, select, touch, acting, reachable, onAct]
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
