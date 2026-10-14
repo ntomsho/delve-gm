@@ -33,7 +33,7 @@
  * far side known when the near side is).
  *
  * A BLOCKED WAY GETS EXAMINE. It is the one place this reverses `TravelConfirm`,
- * which offered travel through anything and let the referee say no. The pill
+ * which offered travel through anything and let the game master say no. The pill
  * sends immediately, so "go through the barred door" would spend a turn on an
  * answer the player has already been given in the room card; examining the bar
  * is the move that gets them somewhere, and it is one keystroke to type the

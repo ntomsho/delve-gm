@@ -22,19 +22,19 @@
  * ON `composed` AS A SOURCE OF TRUTH. It was originally specified as a pure
  * cache that nothing should ever read to make a decision, and mechanically it
  * still is one: it is derived, it goes stale, and it is rewritten from the
- * other two. But the referee is not a render pass, and the rule had a
+ * other two. But the game master is not a render pass, and the rule had a
  * consequence nobody wanted — a description that mentioned a climbable ledge,
  * a state that did not, and a player told on one turn that the ledge was there
  * and on the next that it never existed.
  *
  * So at runtime the precedence is the other way round: what the player has been
  * told BINDS. If `composed` and `state` disagree about something the player is
- * acting on, `composed` is right and `state` is behind, and the referee's job
+ * acting on, `composed` is right and `state` is behind, and the game master's job
  * is to catch the record up rather than to argue. Going back on what the player
  * was told is the one failure a run does not recover from.
  *
  * Nothing in this file enforces that — it is a rule about judgement and it
- * lives in the referee's playbook. It is written here because this is where
+ * lives in the game master's playbook. It is written here because this is where
  * anyone reading the lifetimes will look for it.
  */
 
@@ -99,7 +99,7 @@ export interface IEntity {
    * See `setIsHidden`.
    *
    * DECIDED AT FIRST COMPOSITION, not at generation. When an entity is composed
-   * for the first time — `composed === undefined` — the referee reads the
+   * for the first time — `composed === undefined` — the game master reads the
    * fiction and asks whether someone standing in the room would notice it. That
    * is a judgement about what has just been written, not something a procgen
    * roll can make, so it is made where the prose is.
@@ -252,8 +252,8 @@ export interface ICreature extends IEntity {
    * means to be.
    *
    * "It hears the fight and comes" is one instruction and three rooms of
-   * walking, and the walking is a graph question the referee has no business
-   * guessing at — the same argument `routeTo` makes for the player. The referee
+   * walking, and the walking is a graph question the game master has no business
+   * guessing at — the same argument `routeTo` makes for the player. The game master
    * writes the destination; the applier moves it and clears this on arrival.
    */
   approach?: string;
@@ -506,7 +506,7 @@ export interface IRoomConnector extends IEntity {
    * A null end is the surface: daylight, the street, the hillside the party
    * climbed down from. It is not a room and never will be one, which is why it
    * is absent rather than pointing at a placeholder — a placeholder would be
-   * something the map draws, the router walks into, and the referee describes.
+   * something the map draws, the router walks into, and the game master describes.
    *
    * Every dungeon has at least one, on the entrance room. Stepping through it
    * ends the run: see `Stage` / `departed`.
@@ -659,7 +659,7 @@ export function resolveBase(e: IEntity, reg: TemplateRegistry): string | undefin
  * A player-visible name, in the case a player-visible name is written in.
  *
  * Names are minted by a model in two places — the content pass when it writes
- * the dungeon, and the referee when it creates something mid-run — and both
+ * the dungeon, and the game master when it creates something mid-run — and both
  * produce whatever register the surrounding sentence was in. One R2 dungeon
  * held "The Residue", "The Cutlass", "The ledger" and "unmarked ledger" at the
  * same time. A name is a label, and a label is capitalised.

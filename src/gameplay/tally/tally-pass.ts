@@ -7,13 +7,13 @@
  * WHY IT IS ONE CALL AT THE END rather than a judgement made in the turn. Risk
  * is the thing being priced, and risk is only legible afterwards: the fight that
  * looked deadly and cost four hit points was not deadly, and the door that
- * looked routine took three failed saves and a broken arm. A referee asked
+ * looked routine took three failed saves and a broken arm. A game master asked
  * mid-turn how dangerous the thing it is currently narrating is has neither the
  * outcome nor the comparison, and every answer it gives is an answer about
  * atmosphere. Asked at the end, with the whole ledger in front of it, it is
  * being asked a question it can actually answer.
  *
- * It also takes the XP call OFF THE REFEREE ENTIRELY, which is worth as much as
+ * It also takes the XP call OFF THE GAME MASTER ENTIRELY, which is worth as much as
  * the accuracy: nothing in a turn has to think about scoring, so nothing in a
  * turn is tempted to narrate toward it.
  *

@@ -908,7 +908,7 @@ describe("what a character brings back up", () => {
  * ===========================
  *
  * A `system` event carries 25–45 kB of standing instructions, and before the
- * blocks were split out it carried them again on every referee call — the
+ * blocks were split out it carried them again on every game master call — the
  * journal's own "write this once per run" set lives on a journal object, and the
  * server makes one per REQUEST. Two thirds of a measured run's journal was the
  * same three blocks three times.

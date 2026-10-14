@@ -38,7 +38,7 @@ function area(stage: Stage, turns: number, over: Partial<InputAreaProps> = {}) {
 
 describe("the turn tracker", () => {
   // `run.turnCount` is CLOSED turns and has been since Phase 2. The player is
-  // living through the next one, which is also the number the referee is given.
+  // living through the next one, which is also the number the game master is given.
   it("counts the turn in progress, not the turns behind it", () => {
     expect(area("awaiting_action", 0)).toContain("Turn 1");
     expect(area("awaiting_action", 7)).toContain("Turn 8");
@@ -66,7 +66,7 @@ describe("the turn tracker", () => {
 
 describe("walking away", () => {
   it("offers the way out for as long as the run is live", () => {
-    // Including while the referee is working, which is when a player in front of
+    // Including while the game master is working, which is when a player in front of
     // a `thinking` that will never finish most needs it.
     for (const stage of ["awaiting_action", "roll_offered", "thinking", "error"] as Stage[]) {
       expect(area(stage, 2)).toContain("Abandon run");

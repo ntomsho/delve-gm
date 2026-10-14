@@ -5,23 +5,23 @@
  * The character sheet and the current room, rendered fresh for every call. This
  * is the "re-rendered each turn" half of BUILD-PLAN §4.4, and it is the half
  * that matters: the entity `state` fields are the game's long-term memory, and
- * this is how they reach the referee. The transcript only carries the thread of
+ * this is how they reach the game master. The transcript only carries the thread of
  * a conversation.
  *
  * TWO RULES SHAPE EVERY LINE HERE.
  *
  * **Ids are quoted, never invented.** Every entity is rendered with its id in
- * brackets, because the applier resolves what the referee writes and a diff
+ * brackets, because the applier resolves what the game master writes and a diff
  * naming something that does not exist costs a retry. If it can be addressed,
  * its id is on the page.
  *
- * **The referee sees more than the player.** Concealed things are listed and
- * marked, because the referee has to know what is there to be found; creature
+ * **The game master sees more than the player.** Concealed things are listed and
+ * marked, because the game master has to know what is there to be found; creature
  * defenses are listed, because somebody has to set a difficulty. Neither ever
  * reaches `ui/` — see `RoomViewOptions`, which gates both.
  *
  * Built on the same `roomView` / `characterView` the screen uses, so the player
- * and the referee cannot end up looking at different rooms.
+ * and the game master cannot end up looking at different rooms.
  */
 
 import {
@@ -86,7 +86,7 @@ export function renderCharacter(pc: CharacterView): string {
 function itemDetail(i: EntityView): string | undefined {
   const bits = [
     // FIRST, because it is the field that runs out. A ration is food because of
-    // its name and still there because of this, and the referee spends it by
+    // its name and still there because of this, and the game master spends it by
     // writing the next value down — at nothing, the row goes.
     i.amount,
     i.slots !== undefined ? `${i.slots} slot${i.slots === 1 ? "" : "s"}` : undefined,
@@ -184,12 +184,12 @@ export function renderRoom(room: RoomView): string {
     : "- (nothing in it)";
 
   // The destination is NAMED, not just id'd. A bare uuid is unusable: asked to
-  // send the player back to the Laboratory, a referee holding only ids has to
+  // send the player back to the Laboratory, a game master holding only ids has to
   // guess which one that is, and it guesses wrong. The name is withheld until
   // they have been through, which is also exactly when they can ask for it by
-  // name — so what the referee can route to and what the player can say are the
+  // name — so what the game master can route to and what the player can say are the
   // same set. `exitLabel` is what the player's panel shows; it is repeated here
-  // verbatim so the referee can match their words to it.
+  // verbatim so the game master can match their words to it.
   const exits = room.exits.length
     ? room.exits
         .map((x) => {
@@ -204,7 +204,7 @@ export function renderRoom(room: RoomView): string {
             // The same words a concealed thing standing in the room carries —
             // see `renderEntity`. Without it a secret door arrived here dressed
             // exactly like an open one, and the room's ways-out list is the
-            // thing the referee counts when it writes "three ways lead out".
+            // thing the game master counts when it writes "three ways lead out".
             x.isHidden
               ? `NOT YET FOUND BY THE PLAYER — do not describe it, do not count it ` +
                 `among the ways out, and do not hint at it except through a clue they find`
@@ -237,7 +237,7 @@ export function renderRoom(room: RoomView): string {
     // AS DRAWN, and it is the map the player is looking at.
     //
     // The same sentence the content pass was given when it wrote this room, so
-    // the prose above and this line cannot disagree. It is here so the referee
+    // the prose above and this line cannot disagree. It is here so the game master
     // can say where in the room something happens and have the map corroborate
     // it — the half of the loop the fixtures are the other half of.
     room.geometry
@@ -279,18 +279,18 @@ export function renderRoom(room: RoomView): string {
  *   rooms away   what replaces handing over the graph; see `roomDistances`
  *   WOUNDED      rather than hit points, which are wanted only in front of the
  *                player, where `renderRoom` supplies them
- *   activity     the field this whole thing exists to let the referee rewrite
+ *   activity     the field this whole thing exists to let the game master rewrite
  *
  * EVERY ROOM IS NAMED, AND UNVISITED ONES ARE MARKED. `renderRoom`'s ways-out
  * list deliberately withholds a far room's name until the player has been
- * through, so that what the referee can route to and what the player can say
+ * through, so that what the game master can route to and what the player can say
  * are the same set. This does not follow that rule, and the departure is the
- * point: the referee is being asked to judge what the CHARACTER plausibly
+ * point: the game master is being asked to judge what the CHARACTER plausibly
  * knows, and it cannot make that call from a redacted page. The marker keeps
  * both things true at once — it sees the name, and it sees that the player
  * could not say it.
  *
- * THIS IS REFEREE-ONLY KNOWLEDGE, in the same class as creature defenses and
+ * THIS IS GAME-MASTER-ONLY KNOWLEDGE, in the same class as creature defenses and
  * concealed things (see the head of this file). It is the one thing the runtime
  * hands over that the character does not have.
  */
@@ -333,7 +333,7 @@ export function renderOtherRoomCreatures(census: CensusEntry[]): string {
 /**
  * The player's own roll, as the step-5 input.
  *
- * The DC is on the page. The referee set it and is the one deciding what the
+ * The DC is on the page. The game master set it and is the one deciding what the
  * result means; withholding it here would only invite it to guess whether the
  * roll cleared.
  */
@@ -387,13 +387,13 @@ export function renderRecords(records: TurnRecord[]): string {
  *
  * The dungeon places about four keys before play and holds the rest back,
  * because a key written into a room before anyone walked in cannot be about
- * what the player turned out to be doing. This is that reserve: the referee
+ * what the player turned out to be doing. This is that reserve: the game master
  * picks one when the fiction offers a place to put it, and the applier refuses
  * anything not on this list.
  *
  * THE FACTS ARE QUOTED EXACTLY and must be handed over exactly, because the
  * same wording is what gets written onto the thing the fact is about — see
- * `recordFact`. What the referee invents is the OBJECT and the moment, never
+ * `recordFact`. What the game master invents is the OBJECT and the moment, never
  * the fact.
  *
  * Trimmed in code before it gets here, nearest first. See `offerDraws`.
@@ -422,7 +422,7 @@ export function renderDraws(offers: DrawOffer[]): string {
 }
 
 /**
- * Facts the player has already been told, so the referee stops offering them.
+ * Facts the player has already been told, so the game master stops offering them.
  *
  * Short by construction: it is what a run has actually learned, and a long run
  * learns a dozen things.

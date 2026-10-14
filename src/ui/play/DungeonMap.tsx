@@ -117,7 +117,7 @@ function doorRect(door: LayoutDoor) {
 
 /**
  * WHAT A THING SAYS WHEN POINTED AT, and what a click on it offers — the map's
- * words, shared with the buttons on a room's plate so the two cannot drift.
+ * words, shared with the buttons on a room's illustration so the two cannot drift.
  */
 export function fixtureHover(f: MapFixtureView): [HoverCard, Verb] {
   return [{ title: f.name || "Something", note: f.position, body: f.composed }, thingVerb(f.name)];

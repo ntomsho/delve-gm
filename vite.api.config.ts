@@ -3,7 +3,7 @@
  * ================
  *
  * The API is bundled by Vite rather than by the host's own bundler, for one
- * reason: the referee's playbook is markdown imported with `?raw`
+ * reason: the game master's playbook is markdown imported with `?raw`
  * (`prompts/loader.ts`). Vite understands that and esbuild — which is what
  * Vercel's Node runtime bundles with — does not. Building here inlines the
  * prose into plain JavaScript, so what gets deployed has no `?raw` left in it

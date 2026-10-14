@@ -68,7 +68,7 @@ describe("a run through a generated dungeon", () => {
 
     // --- establishing something that was never written down ----------------
     // Create and take it up in ONE commit: a ref lives for the commit that
-    // minted it, because that is the only window in which the referee cannot
+    // minted it, because that is the only window in which the game master cannot
     // yet know the real id.
     commits.push(
       turn(

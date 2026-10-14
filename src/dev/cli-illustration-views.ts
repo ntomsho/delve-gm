@@ -1,11 +1,11 @@
 /**
- * ROOM PLATE COMPOSITIONS, CHECKED AGAINST THE MAP
+ * ROOM ILLUSTRATION COMPOSITIONS, CHECKED AGAINST THE MAP
  * ================================================
  *
  *   node src/dev/cli-illustration-views.ts                          # offline seed 1005, size 1
  *   node src/dev/cli-illustration-views.ts --offline --seed 42 --size 2
  *   node src/dev/cli-illustration-views.ts --dungeon out/live-4201.json
- *   ... --out out/plates/views.html
+ *   ... --out out/illustrations/views.html
  *
  * No model calls, no key. For every room and every door into it, one row:
  * the room from above with the viewer's eye and field of view drawn on it, the
@@ -23,7 +23,7 @@ import { dirname, resolve } from "node:path";
 import {
   exitWhere,
   featureWhere,
-  PLATE_HALF_FOV_DEG,
+  ILLUSTRATION_HALF_FOV_DEG,
   unseenReason,
 } from "../illustrations/view.ts";
 import { touches } from "../shared/world/entities.ts";
@@ -32,9 +32,9 @@ import { type Size } from "../generation/content/blueprint.ts";
 import { generateOffline } from "../fixtures/offline.ts";
 import type { GeneratedDungeon } from "../generation/generate.ts";
 import { traceOutline } from "../generation/floorplan/map-layout.ts";
-import { plateSketchSvg } from "../illustrations/sketch.ts";
+import { illustrationSketchSvg } from "../illustrations/sketch.ts";
 import { hotspotMarks } from "./lib/illustration-overlay.ts";
-import { plateBrief, plateEntries, plateTags, roomPlate, type RoomPlate } from "../illustrations/room-illustration.ts";
+import { illustrationBrief, illustrationEntries, illustrationTags, roomIllustration, type RoomIllustration } from "../illustrations/room-illustration.ts";
 
 interface Args {
   dungeon?: string;
@@ -68,8 +68,8 @@ const CELL_PX = 26;
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 /** The room from above, north up, with the eye and its field of view on it. */
-function topDownSvg(d: GeneratedDungeon, p: RoomPlate): string {
-  const tags = plateTags(p);
+function topDownSvg(d: GeneratedDungeon, p: RoomIllustration): string {
+  const tags = illustrationTags(p);
   const tagOf = (id: string) => tags.get(id) ?? "–";
   const floor = p.input.floor;
   const all = [...floor, p.input.entry.outside, ...p.input.exits.map((x) => x.outside)];
@@ -102,7 +102,7 @@ function topDownSvg(d: GeneratedDungeon, p: RoomPlate): string {
   const { eye, deep } = p.view;
   const reach = Math.max(deep, 10) * 1.1;
   const ray = (sign: number) => {
-    const t = (PLATE_HALF_FOV_DEG * Math.PI) / 180;
+    const t = (ILLUSTRATION_HALF_FOV_DEG * Math.PI) / 180;
     const fx = eye.forward.x * Math.cos(t) + sign * eye.right.x * Math.sin(t);
     const fy = eye.forward.y * Math.cos(t) + sign * eye.right.y * Math.sin(t);
     return atFt({ x: eye.x + fx * reach, y: eye.y + fy * reach });
@@ -165,13 +165,13 @@ function topDownSvg(d: GeneratedDungeon, p: RoomPlate): string {
 }
 
 /** The page's buttons over the unmarked guide: what the final image would carry. */
-function hotspotSvg(p: RoomPlate, width = 480): string {
+function hotspotSvg(p: RoomIllustration, width = 480): string {
   const H = Math.round(width / 1.5);
-  return plateSketchSvg(p, { marks: false, width }).replace("</svg>", hotspotMarks(p, width, H) + "\n</svg>");
+  return illustrationSketchSvg(p, { marks: false, width }).replace("</svg>", hotspotMarks(p, width, H) + "\n</svg>");
 }
 
-function row(d: GeneratedDungeon, p: RoomPlate, entryName: string): string {
-  const tags = plateTags(p);
+function row(d: GeneratedDungeon, p: RoomIllustration, entryName: string): string {
+  const tags = illustrationTags(p);
   const tagOf = (id: string) => tags.get(id) ?? "–";
   const things: string[] = [];
   p.exits.forEach((x, i) => {
@@ -207,11 +207,11 @@ function row(d: GeneratedDungeon, p: RoomPlate, entryName: string): string {
   <h2>${esc(p.roomName)} <small>entered by ${esc(entryName)} · standing ${p.view.standing}, facing ${p.view.facing}, score ${p.view.score}${hiddenCount ? ` · ${hiddenCount} hidden, excluded` : ""}</small></h2>
   <div class="grid">
     <figure>${topDownSvg(d, p)}<figcaption>From above, north up</figcaption></figure>
-    <figure>${plateSketchSvg(p)}<figcaption>Guide image, with marks</figcaption></figure>
+    <figure>${illustrationSketchSvg(p)}<figcaption>Guide image, with marks</figcaption></figure>
     <figure>${hotspotSvg(p)}<figcaption>Buttons, on the guide without marks</figcaption></figure>
     <div class="text">
       <ul>${things.join("")}</ul>
-      <details><summary>Brief</summary><pre>${esc(plateBrief(p))}</pre></details>
+      <details><summary>Brief</summary><pre>${esc(illustrationBrief(p))}</pre></details>
       <details><summary>Room prose</summary><p>${esc(p.roomBase)}</p>
         ${[...p.exits.map((x) => [tagOf(x.id), x] as const), [`${tagOf(p.entryId)} (way in)`, p.entry] as const, ...p.features.map((f) => [tagOf(f.id), f] as const)]
           .map(([k, x]) => `<p><b>${k}</b> ${esc(x.base)}</p>`)
@@ -236,8 +236,8 @@ function main(): void {
   /** [drawable, not] across every view */
   const tally = { exits: [0, 0], features: [0, 0] };
   for (const gr of d.graph.rooms) {
-    for (const entryId of plateEntries(d, gr.entityId)) {
-      const p = roomPlate(d, gr.entityId, entryId);
+    for (const entryId of illustrationEntries(d, gr.entityId)) {
+      const p = roomIllustration(d, gr.entityId, entryId);
       if (!p) continue;
       const conn = d.entities.connectors.find((c) => c.id === entryId)!;
       const name = conn.name || "an unnamed door";
@@ -248,7 +248,7 @@ function main(): void {
     }
   }
 
-  const title = `${d.pass.name} — plate compositions`;
+  const title = `${d.pass.name} — illustration compositions`;
   const html = `<!doctype html>
 <html><head><meta charset="utf-8"><title>${esc(title)}</title>
 <style>
@@ -263,15 +263,15 @@ function main(): void {
   section { border-top: 1px solid #d6cfbf; }
 </style></head><body>
 <h1>${esc(title)}</h1>
-<p>Seed ${d.seeds.dungeonSeed} · size ${d.size} · ${count} views. Orange dot and wedge: the eye and its ${PLATE_HALF_FOV_DEG * 2}° field of view. Orange door: the way in. Grey: hidden, kept out of the brief.</p>
+<p>Seed ${d.seeds.dungeonSeed} · size ${d.size} · ${count} views. Orange dot and wedge: the eye and its ${ILLUSTRATION_HALF_FOV_DEG * 2}° field of view. Orange door: the way in. Grey: hidden, kept out of the brief.</p>
 <p><b>In the picture:</b> ${pct(tally.features)} of features, ${pct(tally.exits)} of other exits, across all views.</p>
 ${rows.join("\n")}
 </body></html>`;
 
-  const outPath = resolve(args.out ?? `out/plates/views-${args.dungeon ? d.id : `offline-${args.seed}-s${args.size}`}.html`);
+  const outPath = resolve(args.out ?? `out/illustrations/views-${args.dungeon ? d.id : `offline-${args.seed}-s${args.size}`}.html`);
   mkdirSync(dirname(outPath), { recursive: true });
   writeFileSync(outPath, html);
-  console.error(`[plates] ${count} views of ${d.graph.rooms.length} rooms -> ${outPath}`);
+  console.error(`[illustrations] ${count} views of ${d.graph.rooms.length} rooms -> ${outPath}`);
 }
 
 main();

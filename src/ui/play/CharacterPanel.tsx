@@ -180,7 +180,7 @@ export function CharacterPanel({ pc, compact = false }: { pc: CharacterView; com
         </div>
         {over && (
           <p className="mb-2 font-prose text-[12px] italic text-torch">
-            Over capacity. The referee will notice.
+            Over capacity. The game master will notice.
           </p>
         )}
         <ul className="space-y-[2px] font-mono text-[11px]">
@@ -343,7 +343,7 @@ function CompactSheet({ pc, drops }: { pc: CharacterView; drops: ReturnType<type
           ))}
         </div>
         {slots.overburdened && (
-          <p className="mb-2 font-prose text-[13px] italic text-torch">Over capacity. The referee will notice.</p>
+          <p className="mb-2 font-prose text-[13px] italic text-torch">Over capacity. The game master will notice.</p>
         )}
         <ul className="font-mono text-[12px]">
           {pc.inventory.map((i) => {

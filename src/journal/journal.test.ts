@@ -1,5 +1,5 @@
 /**
- * The journal, driven by a real turn against the stub referee.
+ * The journal, driven by a real turn against the stub game master.
  *
  * Two things worth proving. First that a run produces the events it claims to —
  * a log with a hole in it is worse than no log, because you trust it. Second
@@ -18,7 +18,7 @@ import {
 } from "./journal.ts";
 import { render } from "./render.ts";
 import { createTurnMachine } from "../gameplay/turn.ts";
-import { stubReferee } from "../fixtures/stub-game-master.ts";
+import { stubGameMaster } from "../fixtures/stub-game-master.ts";
 import { generateOffline, testCharacter } from "../fixtures/offline.ts";
 import { createGameStore } from "../gameplay/state/store.ts";
 import { MODELS } from "../llm/models.ts";
@@ -43,8 +43,8 @@ beforeEach(() => {
 });
 
 /** The machine under test drives this file's store and writes to its journal. */
-const machineFor = (referee: typeof stubReferee) =>
-  createTurnMachine(referee, { store: useGame, journal });
+const machineFor = (gameMaster: typeof stubGameMaster) =>
+  createTurnMachine(gameMaster, { store: useGame, journal });
 
 // ---------------------------------------------------------------------------
 
@@ -120,12 +120,12 @@ describe("every event", () => {
 
 describe("a turn, end to end", () => {
   it("records the arrival, the input, the change, and every stage between", async () => {
-    const machine = machineFor(stubReferee);
+    const machine = machineFor(stubGameMaster);
 
     await machine.enterRoom();
     await machine.submit("I search the floor");
 
-    // The shape of a turn: what the player did, what the referee said, what it
+    // The shape of a turn: what the player did, what the game master said, what it
     // changed, and where the game went.
     expect(kinds()).toContain("stage");
     expect(kinds()).toContain("narration");
@@ -147,7 +147,7 @@ describe("a turn, end to end", () => {
   });
 
   it("records a refused commit with the applier's reasons, and the retry", async () => {
-    const machine = machineFor(stubReferee);
+    const machine = machineFor(stubGameMaster);
     await machine.enterRoom();
     // The stub's `cheat` branch writes `name`, which is never writable, and
     // says the same thing again when asked — so the turn ends in `error`.
@@ -163,7 +163,7 @@ describe("a turn, end to end", () => {
   });
 
   it("records the player's own roll with the dice and the difficulty", async () => {
-    const machine = machineFor(stubReferee);
+    const machine = machineFor(stubGameMaster);
     await machine.enterRoom();
     // "climb", not "force the door" — the stub checks for a door first and
     // asks which one, which is a clarification and not a roll.
@@ -200,7 +200,7 @@ describe("the transcript", () => {
     expect(at({ kind: "generation", pass: "dungeon-pass", prompt: "x", response: {}, usage: { inputTokens: 1, outputTokens: 1, cacheWriteTokens: 0, cacheReadTokens: 0 } })).toBeUndefined();
   });
 
-  it("keeps the referee's working-out, folded away", () => {
+  it("keeps the game master's working-out, folded away", () => {
     const text = render({
       kind: "response",
       step: "1-target",

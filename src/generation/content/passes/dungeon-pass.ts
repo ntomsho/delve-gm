@@ -78,7 +78,7 @@ export interface DungeonPassResponse {
   goal: {
     /** one line, shown to the player as their objective */
     summary: string;
-    /** what actually satisfies it, for the referee */
+    /** what actually satisfies it, for the game master */
     spec: string;
   };
   /** what the player reads before the first room */
@@ -137,7 +137,7 @@ goal        You are given a Dungeon Reward and a Mission. Resolve them into ONE
             objective -- take one, discard the other, or fuse them, whichever
             reads best. Then write it twice:
               summary: one line the player is told before they go in.
-              spec:    what actually counts as achieving it, for the referee.
+              spec:    what actually counts as achieving it, for the game master.
                        Concrete enough to adjudicate: what must be found, done,
                        taken, or ended. This decides when the run is won, so do
                        not leave it to taste.
@@ -206,7 +206,7 @@ HARD RULES
    was asked to go and do. They are read minutes apart, and disagreeing is worse
    than either of them being weak.
 7. The opening tells the player what they were TOLD, not what is true. Theme and
-   history are the facts, and they are for the referee. What reached the player
+   history are the facts, and they are for the game master. What reached the player
    is allowed to be partial, and should be.`;
 
 const DUNGEON_PASS_SCHEMA = `Return JSON only, no prose outside it:
@@ -217,7 +217,7 @@ const DUNGEON_PASS_SCHEMA = `Return JSON only, no prose outside it:
   "history": "<what it was, what happened, who is here now>",
   "goal": {
     "summary": "<one line, told to the player>",
-    "spec": "<what counts as achieving it, for the referee>"
+    "spec": "<what counts as achieving it, for the game master>"
   },
   "openingProse": "<second person: what the place is, what is said to have happened, what lives there, why they came, and — plainly, in its own sentence — what they are here to do>",
   "groups": [
@@ -232,7 +232,7 @@ const DUNGEON_PASS_SCHEMA = `Return JSON only, no prose outside it:
 export interface DungeonPassResult {
   /**
    * The standing fiction as one string. Consumed by the content pass and, at
-   * runtime, as the cached static prefix on every referee call.
+   * runtime, as the cached static prefix on every game master call.
    *
    * Built ONCE, here, from bp.inhabitants alone. Nothing appends to it and no
    * later pass regenerates it -- wanderer bases land in registry.groups as

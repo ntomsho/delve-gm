@@ -24,7 +24,7 @@ import { resolve } from "node:path";
 import { serve } from "@hono/node-server";
 import { registerRawMarkdown } from "./lib/raw-md.ts";
 
-// BEFORE the app is imported. The referee's playbook is markdown loaded with
+// BEFORE the app is imported. The game master's playbook is markdown loaded with
 // Vite's `?raw`, which plain `node` does not understand — see raw-md.ts — and a
 // static import of the app would be hoisted above this line.
 registerRawMarkdown();

@@ -1,6 +1,6 @@
 /**
  * The dice tool. What is being tested is the TRANSLATION — that a request the
- * referee wrote maps onto the engine function the rule lives in, and that what
+ * game master wrote maps onto the engine function the rule lives in, and that what
  * comes back says what actually happened. The rules themselves are tested in
  * `rules/knave/rolls.test.ts` and are not re-tested here.
  */
@@ -61,7 +61,7 @@ describe("kinds", () => {
     const [got] = rollBatch(rng(), [{ id: "herbal", kind: "consult", uses: 2 }]);
 
     expect(got.failed).toBe(false);
-    // The referee passes what the book has HAD; the third reading is this one.
+    // The game master passes what the book has HAD; the third reading is this one.
     expect(got.line).toContain("reading 3");
     expect(got.line).toContain("book.uses 3");
     expect(got.line).toContain(expected.exhausted ? "THE LAST OF IT" : "THERE IS MORE IN IT");
@@ -168,7 +168,7 @@ describe("the batch", () => {
     expect(r.draws).toBe(4);
   });
 
-  it("keys results by the referee's own ids", () => {
+  it("keys results by the game master's own ids", () => {
     const text = renderOutcomes(
       rollBatch(rng(), [
         { id: "ghoul-1", kind: "morale" },

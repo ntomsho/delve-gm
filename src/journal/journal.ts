@@ -3,7 +3,7 @@
  * ===========
  *
  * Everything that happened in a run, written down as it happens, to a file per
- * run. Not the scrollback the player reads and not the transcript the referee
+ * run. Not the scrollback the player reads and not the transcript the game master
  * is shown — both of those are shaped for somebody. This is shaped for nobody,
  * and that is the point: it is what you read afterwards when a turn went wrong
  * and you need to know whether the fault was the prompt, the model, the dice,
@@ -14,9 +14,9 @@
  *   the seed and the sheet          what this run was
  *   every generation call           prompt and response, per pass and per chunk
  *   the whole generated dungeon     the baseline every later diff applies to
- *   every referee call              what it was sent, what it said, what it cost
+ *   every game master call              what it was sent, what it said, what it cost
  *   every player input              verbatim
- *   every roll                      the player's own, and each of the referee's
+ *   every roll                      the player's own, and each of the game master's
  *   every commit                    proposed, then applied or refused, with why
  *   every stage change              and the step behind it
  *
@@ -113,7 +113,7 @@ export type JournalEvent =
    * repeating it would make the file 90% playbook.
    */
   | { kind: "system"; step: Step; blocks: SystemBlock[] }
-  /** what the referee was sent this call, minus the system blocks above */
+  /** what the game master was sent this call, minus the system blocks above */
   | { kind: "prompt"; step: Step; messages: Message[] }
   /** what it said — including the working-out outside the post */
   | {
@@ -133,10 +133,10 @@ export type JournalEvent =
   | { kind: "foe"; text: string }
   /** the player's own roll, thrown by the interface */
   | { kind: "roll"; source: "player"; outcome: RolledOutcome; draws: number }
-  /** the referee's batch, thrown by the dice tool */
+  /** the game master's batch, thrown by the dice tool */
   | {
       kind: "roll";
-      source: "referee";
+      source: "game-master";
       requested: RollRequestParsed[];
       outcomes: DiceOutcome[];
       draws: number;
@@ -148,7 +148,7 @@ export type JournalEvent =
       ok: boolean;
       /** why it was refused; present only when ok is false */
       reasons?: string[];
-      /** consequences the applier performed that the referee did not state */
+      /** consequences the applier performed that the game master did not state */
       events?: WorldEvent[];
       /** a retry: the same turn, asked again with the reasons in front of it */
       retry?: boolean;
@@ -197,7 +197,7 @@ export function createJournal(sink?: Sink, startSeq = 0): Journal {
   /**
    * Steps whose playbook has already been written. Tracked on the journal
    * rather than at the call site because "have I already written this" is a
-   * property of the journal, not of the referee — and it is per run, because
+   * property of the journal, not of the game master — and it is per run, because
    * two runs each want their own copy of the instructions they were played
    * under.
    */

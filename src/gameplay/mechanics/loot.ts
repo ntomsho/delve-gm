@@ -140,7 +140,7 @@ export interface DeathReport {
    * NAMED ONLY WHEN THE GAME ACTUALLY KNOWS. The last turn record carries the
    * target of the roll that was thrown, and a roll thrown at a creature on the
    * turn the player's hit points reached zero is as close to a killer as
-   * anything written down gets. A turn that threw no dice — a hazard the referee
+   * anything written down gets. A turn that threw no dice — a hazard the game master
    * resolved outright — leaves this absent, and the screen says where they died
    * rather than inventing who did it.
    */

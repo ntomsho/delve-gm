@@ -9,7 +9,7 @@
  * Framework-free on purpose: these are plain functions over state, so the turn
  * machine can use the same room view for prompt assembly that the screen uses
  * for display. One place where "what is in this room" is decided means the
- * player and the referee cannot end up looking at different rooms.
+ * player and the game master cannot end up looking at different rooms.
  */
 
 import {
@@ -64,7 +64,7 @@ import type { RunState } from "../state/store.ts";
 /**
  * A creature's numbers, for whoever has to set a difficulty.
  *
- * REFEREE ONLY, and that is why it is optional and gated rather than always
+ * GAME MASTER ONLY, and that is why it is optional and gated rather than always
  * present: a defense on a panel is a defense the player has read, and the whole
  * of step 4 rests on the difficulty staying hidden. `roomView` fills it in only
  * when asked, prompt assembly asks, and nothing in `ui/` does.
@@ -106,7 +106,7 @@ export interface EntityView {
    * How much of it is left — "3 days", "50 feet", "a handful".
    *
    * Writable since the applier existed and rendered nowhere until Phase 15: the
-   * referee could write how many rations were down to and neither it nor the
+   * game master could write how many rations were down to and neither it nor the
    * player could read it back. It surfaces here because a meal is the one thing
    * rest cannot happen without.
    */
@@ -117,9 +117,9 @@ export interface EntityView {
    * books only: what it is about, how many readings it has had, and whether
    * there is anything left in it.
    *
-   * Carried through to the referee rather than kept for the panel, because the
+   * Carried through to the game master rather than kept for the panel, because the
    * `consult` roll takes the current `uses` and the suggestion rule in step 3
-   * turns on the subject. A book the referee cannot see the subject of is a
+   * turns on the subject. A book the game master cannot see the subject of is a
    * book nobody is ever told they are carrying.
    */
   book?: { subject: string; uses: number; exhausted: boolean };
@@ -128,7 +128,7 @@ export interface EntityView {
    * wall", "the far end". Absent for anything that was never placed, which is
    * every creature and every dungeon generated without a drawing.
    *
-   * This is the referee's half of the agreement the map keeps: the same word
+   * This is the game master's half of the agreement the map keeps: the same word
    * the content pass chose, so "the altar at the far end" is something the
    * player can check against the dot.
    */
@@ -232,7 +232,7 @@ export interface ExitView {
   /**
    * Which wall of THIS room it cuts, and where along it — "the east wall,
    * toward the north end". The same phrase the content pass was given when it
-   * wrote the room, so the referee and the prose already on the page agree.
+   * wrote the room, so the game master and the prose already on the page agree.
    */
   wall?: string;
 }
@@ -256,7 +256,7 @@ export interface RoomView {
    *
    * The same sentence `buildContentPassPayload` was given, from the same
    * function, on purpose. The prose on the page was written to it, so the
-   * referee reading a different description of the same room is the one way
+   * game master reading a different description of the same room is the one way
    * this could go wrong — and rendering it twice from one derivation is how
    * that is made impossible rather than merely unlikely.
    */
@@ -267,7 +267,7 @@ export interface RoomViewOptions {
   /**
    * Include what the player is not aware of. FALSE for anything the player
    * sees — a concealed thing listed in the panel is a concealed thing no
-   * longer. TRUE for prompt assembly, where the referee has to know what is
+   * longer. TRUE for prompt assembly, where the game master has to know what is
    * there to be found.
    *
    * Concealment is transitive: a coin in a false-backed drawer is not visible
@@ -276,7 +276,7 @@ export interface RoomViewOptions {
   includeHidden?: boolean;
   /**
    * Include each creature's defenses, attack bonus, damage die and morale.
-   * TRUE for prompt assembly, where the referee sets difficulties off them.
+   * TRUE for prompt assembly, where the game master sets difficulties off them.
    * FALSE — always — for anything the player sees. See CombatView.
    */
   includeStats?: boolean;
@@ -310,7 +310,7 @@ export function roomView(
 
   // CONCEALED WAYS ARE NOT COUNTED IN THE SENTENCE. The geometry line says how
   // many ways out there are and which walls they are in, and it is read by the
-  // referee and rendered beside prose the player will read. A secret door
+  // game master and rendered beside prose the player will read. A secret door
   // included in that count is a secret door described. It comes back the moment
   // `isHidden` goes false, which is exactly when the player has found it.
   const concealed = new Set(
@@ -339,7 +339,7 @@ export function roomView(
         // else, the way they last came in by is a fact about a different room.
         cameFrom: roomId === run.currentRoomId && c.id === run.arrivedVia,
         // Only reachable with `includeHidden`, which is prompt assembly — where
-        // the referee has to know a secret way is there without being free to
+        // the game master has to know a secret way is there without being free to
         // mention it. Rendered as the same NOT YET FOUND mark a concealed thing
         // standing in the room carries, because it means the same thing and
         // reading it twice two ways is how one of them gets missed.
@@ -372,7 +372,7 @@ export function roomView(
 /**
  * One line of the census — a creature the player is not standing next to.
  *
- * REFEREE ONLY, like `CombatView` above and for a stronger reason: this is the
+ * GAME MASTER ONLY, like `CombatView` above and for a stronger reason: this is the
  * one thing the runtime hands over that the *character* does not have. Nothing
  * in `ui/` reads it.
  */
@@ -408,7 +408,7 @@ export interface CensusEntry {
  * disagree.
  *
  * A GROUP OF NONE IS GONE. `count: 0` is a wiped-out group the applier has not
- * removed, and listing it invites the referee to send a dead pack somewhere.
+ * removed, and listing it invites the game master to send a dead pack somewhere.
  *
  * Distances come from `roomDistances`, which walks the graph WITHOUT the
  * visited-only rule `shortestPath` applies to the player — a creature knows its
@@ -499,7 +499,7 @@ function geometryOf(dungeon: GeneratedDungeon, roomId: string): SitedRoom | unde
  *
  * Stable within a band: `sort` on an array built in world order leaves ties in
  * world order, so a room's exits do not shuffle between turns. Used by the panel
- * AND by `renderRoom`, because the referee offering a way out in a different
+ * AND by `renderRoom`, because the game master offering a way out in a different
  * order than the player is reading them is how "the second door" stops meaning
  * anything.
  */
@@ -518,8 +518,8 @@ function byUsefulness(a: ExitView, b: ExitView): number {
  *
  * Withheld until the player has been through, because a room's name is a thing
  * they learn by arriving. That withholding is why this is the one place the
- * label is built: the panel and the referee's prompt must agree about what the
- * player is able to name, or the referee will offer them a room they cannot
+ * label is built: the panel and the game master's prompt must agree about what the
+ * player is able to name, or the game master will offer them a room they cannot
  * ask for.
  */
 export function exitLabel(e: ExitView): string {
@@ -549,7 +549,7 @@ export function theRoom(name: string): string {
  * RunState. Undefined only before the first arrival of a run, when the honest
  * thing to show is nothing.
  *
- * The referee is NOT shown this. It is told where they actually stand.
+ * The game master is NOT shown this. It is told where they actually stand.
  */
 export function shownRoom(run: RunState): string | undefined {
   // A run saved before this existed comes back with nothing here; anything but
@@ -643,7 +643,7 @@ export function characterView(run: RunState): CharacterView {
   };
 }
 
-/** A creature's defense, for the referee — never shown to the player. */
+/** A creature's defense, for the game master — never shown to the player. */
 export function creatureDefense(creature: ICreature, ability: Ability): number {
   return creatureAbilityDefense(creature.stats, ability);
 }
@@ -738,7 +738,7 @@ export interface MapFixtureView extends LayoutFixture {
   composed: string;
   /**
    * Where it stands, as prose — "along the north wall". The same fact the
-   * referee is given, said the same way, so the hover and the narration match
+   * game master is given, said the same way, so the hover and the narration match
    * word for word rather than merely agreeing.
    */
   position?: string;

@@ -17,7 +17,7 @@
  * Unrecognised values are DROPPED, never fatal — a room with one fewer bench in
  * it is a smaller loss than a generation that fails.
  *
- * A fixture becomes a real `IRoomFeature` with a name and a base, so the referee
+ * A fixture becomes a real `IRoomFeature` with a name and a base, so the game master
  * can be asked about it, the player can act on it, and it can carry state. It is
  * not map decoration with prose attached; it is a thing in the room that the map
  * happens to know where to draw.

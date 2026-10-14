@@ -110,7 +110,7 @@ beforeAll(async () => {
 
   process.env.SUPABASE_URL = ISSUER;
   // Never used — no route below calls the model — but `createApp` refuses to be
-  // built without one, and rightly: a server that cannot reach the referee
+  // built without one, and rightly: a server that cannot reach the game master
   // should say so at startup rather than on the first turn.
   process.env.ANTHROPIC_API_KEY ??= "sk-ant-not-a-real-key-for-tests";
 

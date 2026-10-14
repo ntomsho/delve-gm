@@ -206,7 +206,7 @@ describe("the room the player has read", () => {
     expect(shownRoom(useGame.getState().run!)).toBeUndefined();
 
     // Prose that is not an arrival does not move it.
-    useGame.getState().pushLog({ kind: "referee", text: "You heave at the door." });
+    useGame.getState().pushLog({ kind: "game-master", text: "You heave at the door." });
     expect(shownRoom(useGame.getState().run!)).toBeUndefined();
 
     useGame.getState().showRoom(ROOM);
@@ -261,10 +261,10 @@ describe("the game store", () => {
     expect(useGame.getState().run!.entities.rooms[0].base).toBe("a cold room");
   });
 
-  it("death overrides whatever stage the referee asked for", () => {
+  it("death overrides whatever stage the game master asked for", () => {
     useGame.getState().start(dungeon(), pc());
     const r = useGame.getState().commit({
-      // The referee wants to carry on; hit points say otherwise.
+      // The game master wants to carry on; hit points say otherwise.
       nextStage: "awaiting_action",
       timeSpent: "instant",
       nextStep: "1-target",
@@ -290,7 +290,7 @@ describe("the game store", () => {
   it("closes the exchange when a turn is recorded", () => {
     useGame.getState().start(dungeon(), pc());
     useGame.getState().pushTranscript({ role: "player", text: "I search the desk" });
-    useGame.getState().pushTranscript({ role: "referee", text: "Which desk?" });
+    useGame.getState().pushTranscript({ role: "game-master", text: "Which desk?" });
     expect(useGame.getState().run!.transcript).toHaveLength(2);
 
     useGame.getState().recordTurn({ action: "search the desk", outcome: "found a key", diffsApplied: 2 });

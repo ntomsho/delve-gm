@@ -8,7 +8,7 @@
  * blocked way offers, what a room offers when you are standing in it.
  *
  * The sentences are asserted whole. They are the entire interface between a click
- * and the referee — the referee answers text and nothing else — so "contains the
+ * and the game master — the game master answers text and nothing else — so "contains the
  * word examine" would pass on a sentence no player would have typed.
  */
 
@@ -43,7 +43,7 @@ const way = (over: Partial<Wayish> = {}): Wayish => ({
 //
 // Names are written to read well standing alone — "an iron door" under a marker
 // — and a sentence naming one wants the definite form. Getting this wrong is not
-// cosmetic: the sentence goes to the referee as the player's own words, and
+// cosmetic: the sentence goes to the game master as the player's own words, and
 // "I examine an iron door" reads like a different door from the one on the map.
 
 describe("naming a thing inside a sentence", () => {
@@ -121,7 +121,7 @@ describe("a way through", () => {
 
   it("offers only a look when something is in the way", () => {
     // The reversal of `TravelConfirm`, which offered travel through anything and
-    // let the referee say no. A pill sends immediately, so this would spend a
+    // let the game master say no. A pill sends immediately, so this would spend a
     // turn to be told what the room card already says.
     expect(wayVerb(way({ toUnknown: true, blocked: true }), true)).toEqual({
       label: "Examine?",

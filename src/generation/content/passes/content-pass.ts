@@ -883,7 +883,7 @@ export function renderContentPassPrompt(p: ContentPassPayload): string {
  *
  * Name it "Corridor to the Kennel" and the player standing IN the Kennel reads
  * "Corridor to the Kennel" on the way out — pointing at where they already are.
- * A referee asked to route "go back to the Laboratory" then has two exits both
+ * A game master asked to route "go back to the Laboratory" then has two exits both
  * claiming to lead to the Kennel and picks by coin toss. So the name carries the
  * nature of the crossing and nothing else, and `renderRoom` appends the room on
  * the far side, correct from whichever end is being read.

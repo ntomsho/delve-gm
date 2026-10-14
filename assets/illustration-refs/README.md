@@ -1,6 +1,6 @@
-# Room plate style references
+# Room illustration style references
 
-Sent with every interior room plate, after the guide image, to hold the drawing style:
+Sent with every interior room illustration, after the guide image, to hold the drawing style:
 clean black ink line art, mostly white paper, sparing hatching. See *Illustrations* in
 `docs/BUILD-PLAN.md`.
 
@@ -11,7 +11,7 @@ clean black ink line art, mostly white paper, sparing hatching. See *Illustratio
 | `I9.png` | Overgrown temple: rough-hewn stone taken by roots | FLUX.2 [klein] 4B, no guide, style "sparse" |
 | `I10.png` | Forge cave: a working smithy in raw rock | FLUX.2 [klein] 4B, no guide, style v2 |
 
-All four are our own images, generated for this project in the plate spike (2026-10-13).
+All four are our own images, generated for this project in the illustration spike (2026-10-13).
 Style references must never be someone else's art: not TSR's, and not a model trained on
 a named artist.
 

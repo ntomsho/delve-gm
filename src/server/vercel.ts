@@ -11,7 +11,7 @@
  * object locally.
  *
  * BUILT BY VITE, not by Vercel's bundler — see `npm run build:api`. The
- * referee's playbook is markdown imported with `?raw`, which Vite understands
+ * game master's playbook is markdown imported with `?raw`, which Vite understands
  * and esbuild does not, so the API is bundled to plain JavaScript with the
  * prose already inlined before it is ever deployed.
  *

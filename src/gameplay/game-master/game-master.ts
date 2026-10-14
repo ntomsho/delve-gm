@@ -1,13 +1,13 @@
 /**
- * THE REFEREE, WITH A MODEL BEHIND IT
+ * THE GAME MASTER, WITH A MODEL BEHIND IT
  * ===================================
  *
- * The other implementation of `Referee`. The stub answers from a keyword table;
+ * The other implementation of `Game master`. The stub answers from a keyword table;
  * this one asks the model. Nothing in `turn.ts` changes between them, which was
  * the point of the seam.
  *
  * A TURN IS A CONVERSATION, NOT A QUESTION. The generation passes ask once and
- * validate once. A turn goes: the referee reads the room, asks the dice for
+ * validate once. A turn goes: the game master reads the room, asks the dice for
  * everything it needs in one batch, reads what came back, writes the outcome,
  * and commits. So this file owns a loop, and the loop's stopping rules are the
  * interesting part:
@@ -22,7 +22,7 @@
  *   - A commit that fails validation is handed back as a tool ERROR, in the
  *     same conversation, with the reasons. That is a correction, not a retry:
  *     the model still has everything it just wrote.
- *   - On the last permitted round `commit_state` is forced, so a referee that
+ *   - On the last permitted round `commit_state` is forced, so a game master that
  *     keeps rolling gets closed out rather than looping until the budget is
  *     gone. The dice stay in the tool list — see the loop for why.
  *
@@ -60,7 +60,7 @@ import {
 import { modelFor, type Task } from "../../llm/models.ts";
 import { PLAYER_ID, type Commit } from "../../shared/types/commit.ts";
 import type { RollSpec } from "../../shared/types/turn.ts";
-import type { Referee, RefereeReply, RefereeRequest } from "../turn.ts";
+import type { GameMaster, GameMasterReply, GameMasterRequest } from "../turn.ts";
 import type { GameStore } from "../state/store.ts";
 import { NO_JOURNAL, type Journal } from "../../journal/journal.ts";
 
@@ -96,7 +96,7 @@ const ROLL_TOOL: ToolDefinition = toolFor(
 type ParsedRollRequest = NonNullable<CommitParsed["rollRequest"]>;
 
 /**
- * The referee's roll request becomes the machine's `RollSpec`.
+ * The game master's roll request becomes the machine's `RollSpec`.
  *
  * The one thing that actually changes shape: the playbook speaks of a target's
  * DEFENSE and the machine wants the number to MEET, so the conversion happens
@@ -108,7 +108,7 @@ function toRollSpec(r: ParsedRollRequest): RollSpec {
       ? r.dc ?? ORDINARY_DC
       : r.targetDefense !== undefined
         ? dcFromDefense(r.targetDefense)
-        : // Already converted by a referee that gave a bare dc instead. Taken
+        : // Already converted by a game master that gave a bare dc instead. Taken
           // at face value rather than converted twice.
           r.dc!;
 
@@ -133,7 +133,7 @@ function toRollSpec(r: ParsedRollRequest): RollSpec {
  * The load-bearing rule of the whole system is that the model never generates a
  * number, and this is where a violation of it actually shows up. Observed on
  * the first live run: the player was offered no roll for climbing down a wet
- * rock face, and the referee simply narrated the fall — the slip, the water,
+ * rock face, and the game master simply narrated the fall — the slip, the water,
  * "you are hurt but breathing" — and wrote hit points off the sheet. Every word
  * of it was good. None of it was earned.
  *
@@ -148,7 +148,7 @@ function toRollSpec(r: ParsedRollRequest): RollSpec {
  * is reading a number off the fiction, not inventing one. Damage is the
  * direction that costs the player something they did not agree to risk.
  */
-function unearnedDamage(req: RefereeRequest, commit: Commit): string[] {
+function unearnedDamage(req: GameMasterRequest, commit: Commit): string[] {
   const before = new Map<string, number>([[PLAYER_ID, req.run.pc.hp.current]]);
   for (const c of req.run.entities.creatures) before.set(c.id, c.stats.hp);
 
@@ -183,7 +183,7 @@ function unearnedDamage(req: RefereeRequest, commit: Commit): string[] {
  * A sibling of `unearnedDamage`, and the same shape of failure: the numbers had
  * a provenance, and the player still did not get what they were owed. Observed
  * on a live run — asked whether they could hide inside a forge-stone, the
- * referee worked out a DEX save, wrote "Step 4 — Confirm and roll," and then
+ * game master worked out a DEX save, wrote "Step 4 — Confirm and roll," and then
  * called `roll` for it. The dice were honest. The player never saw the roll
  * offered, never took it, and read the outcome of an attempt they were not
  * asked to commit to. Two turns in a row.
@@ -202,9 +202,9 @@ function unearnedDamage(req: RefereeRequest, commit: Commit): string[] {
  * A bonus can collide by coincidence: a 2HD creature saving against a shove
  * shares +2 with a player who has it. So the refusal names `actor` as the way
  * out — a roll marked as a creature's or the world's is taken at its word, and
- * a referee that meant it costs itself one round rather than the turn.
+ * a game master that meant it costs itself one round rather than the turn.
  */
-function playersOwnDice(req: RefereeRequest, batch: RollBatchParsed): string[] {
+function playersOwnDice(req: GameMasterRequest, batch: RollBatchParsed): string[] {
   // A roll of theirs already in hand: this turn is resolving it, and whatever
   // else it needs is the world's.
   if (req.roll) return [];
@@ -244,7 +244,7 @@ function playersOwnDice(req: RefereeRequest, batch: RollBatchParsed): string[] {
  * A TURN THAT WOULD REACH THE PLAYER AS A BLANK SCREEN.
  *
  * The other half of moving the post onto the commit (§8a A9). Once loose text
- * is no longer narration, a referee that writes its paragraph outside the tool
+ * is no longer narration, a game master that writes its paragraph outside the tool
  * call has written it to nobody — so the absence has to be caught here, where it
  * can be handed back as a correction inside the same conversation, rather than
  * discovered by the player.
@@ -261,7 +261,7 @@ function playersOwnDice(req: RefereeRequest, batch: RollBatchParsed): string[] {
  *     new room in front of it. The machine discards the prose either way, so
  *     requiring it here would be requiring something to throw away.
  */
-function missingPost(req: RefereeRequest, c: CommitParsed): string[] {
+function missingPost(req: GameMasterRequest, c: CommitParsed): string[] {
   if (c.post !== null) return [];
   if (req.step === "room-entry") return [];
   if (c.diffs.some((d) => d.entityId === PLAYER_ID && d.path === "roomId")) return [];
@@ -292,11 +292,11 @@ function missingPost(req: RefereeRequest, c: CommitParsed): string[] {
  *
  * `long` IS A NIGHT'S REST AND THERE IS NO WAY TO SAY SO YET. Rest is Phase 16
  * and arrives as a button, resolved client-side like the player's own d20; until
- * that exists a `long` turn is the referee inventing an hour that nothing in the
+ * that exists a `long` turn is the game master inventing an hour that nothing in the
  * interface offered. It is on the wire so Phase 16 does not have to reopen the
  * schema, and refused here so it cannot be reached early.
  */
-function timeNotSpent(req: RefereeRequest, c: CommitParsed): string[] {
+function timeNotSpent(req: GameMasterRequest, c: CommitParsed): string[] {
   if (c.timeSpent === "long") {
     return [
       `timeSpent "long" is a night's rest, and there is no way to take one yet — ` +
@@ -361,29 +361,29 @@ function problemsWith(c: CommitParsed): string[] {
 
 /**
  * The store, declared by what this file uses of it. Structural on purpose, so
- * the referee never imports zustand — see the note atop `gameplay/state/store.ts`.
+ * the game master never imports zustand — see the note atop `gameplay/state/store.ts`.
  */
 type Store = { getState(): GameStore };
 
-export interface ModelRefereeOptions {
-  /** the run this referee answers for — see `createGameStore` */
+export interface ModelGameMasterOptions {
+  /** the run this game master answers for — see `createGameStore` */
   store: Store;
   /** where the run writes itself down. Omitted means it does not. */
   journal?: Journal;
   /**
    * How many model calls one turn may take. Four is room to narrate, roll,
    * read, and commit, with one spare for a correction — and a hard stop on a
-   * referee that would otherwise keep asking for dice.
+   * game master that would otherwise keep asking for dice.
    */
   maxRounds?: number;
   signal?: AbortSignal;
 }
 
-export function createModelReferee(opts: ModelRefereeOptions): Referee {
+export function createModelGameMaster(opts: ModelGameMasterOptions): GameMaster {
   const { store, journal = NO_JOURNAL } = opts;
   const maxRounds = opts.maxRounds ?? 4;
 
-  return async function referee(req: RefereeRequest): Promise<RefereeReply> {
+  return async function gameMaster(req: GameMasterRequest): Promise<GameMasterReply> {
     const task: Task = req.step === "room-entry" ? "room-entry" : "turn-loop";
     const prompt = assemble(req);
     journal.logSystem(req.step, prompt.system);
@@ -403,11 +403,11 @@ export function createModelReferee(opts: ModelRefereeOptions): Referee {
      * redid it and had to replace what it wrote rather than add to it. Nothing
      * in the text says which, so the loop guessed from tags and from whether
      * dice had been asked for, and A9 is the case where guessing loses: a
-     * referee that changed its mind INSIDE one response wrote two drafts into
+     * game master that changed its mind INSIDE one response wrote two drafts into
      * one block, and no rule about blocks can separate them.
      *
      * The post is a field of the commit now, and there is exactly one commit per
-     * turn. Whatever the referee wrote and thought better of never had anywhere
+     * turn. Whatever the game master wrote and thought better of never had anywhere
      * to go. See `commitSchema.post`.
      */
 
@@ -495,7 +495,7 @@ export function createModelReferee(opts: ModelRefereeOptions): Referee {
     }
 
     throw new Error(
-      `the referee did not commit within ${maxRounds} calls (step ${req.step})`
+      `the game master did not commit within ${maxRounds} calls (step ${req.step})`
     );
   };
 }
@@ -503,12 +503,12 @@ export function createModelReferee(opts: ModelRefereeOptions): Referee {
 /*
  * THE `<post>` TAGS ARE GONE, and so is everything that read them.
  *
- * They existed because the referee has no private place to think: it is a cheap
+ * They existed because the game master has no private place to think: it is a cheap
  * model with no thinking mode, the heuristic is five steps of genuine
  * deliberation, and every word written outside a tool call went straight onto
  * the screen — two hundred words of "## Step 1 — Determine the target" above the
  * actual paragraph, on the first live run. Tagging the post and hiding the rest
- * fixed that, and could not fix A9: a referee that writes two drafts inside the
+ * fixed that, and could not fix A9: a game master that writes two drafts inside the
  * tags has written two tagged posts, and no rule about markers can tell a draft
  * from the thing it was replaced by.
  *
@@ -521,7 +521,7 @@ export function createModelReferee(opts: ModelRefereeOptions): Referee {
 /**
  * WHAT THE PLAYER READS WHEN THEY WALK IN.
  *
- * A room entry that wrote no prose is not a referee that forgot to speak. The
+ * A room entry that wrote no prose is not a game master that forgot to speak. The
  * room's `composed` IS the paragraph the player reads on arrival — room-entry.md
  * says so in as many words — so a model that writes it into the diff and stops
  * has done the work and simply not repeated itself. Observed on the first live
@@ -533,14 +533,14 @@ export function createModelReferee(opts: ModelRefereeOptions): Referee {
  * read for it instead, and the playbook says that is the arrangement.
  *
  * ON ENTRY, `composed` WINS OVER THE POST. The post on a room entry is `null`
- * by the playbook, and when the referee writes one anyway it is the same
+ * by the playbook, and when the game master writes one anyway it is the same
  * paragraph a second time — R4 (2026-10-11) did, and its copy was the one with
  * tool markup run into the end of it. The room's `composed` is the version that
  * is stored, re-read and shown again on the map card; showing the other one
  * means the player reads text the game does not hold. The post is used only
  * when no `composed` was written at all.
  */
-function arrival(req: RefereeRequest, commit: Commit): string {
+function arrival(req: GameMasterRequest, commit: Commit): string {
   if (req.step !== "room-entry") return "";
   const here = req.run.currentRoomId;
   const written = commit.diffs.findLast(
@@ -554,7 +554,7 @@ function arrival(req: RefereeRequest, commit: Commit): string {
  *
  * Seen twice in two runs, months apart: a post ending `…something deliberate
  * and slow.</post>` and then `<parameter name="nextStage">awaiting_action`. The
- * referee closed the field the way it writes tool calls internally, and the closing
+ * game master closed the field the way it writes tool calls internally, and the closing
  * tag and the start of the next parameter landed inside the string. The real
  * `nextStage` was written correctly beside it, so nothing is lost by cutting —
  * everything from the first such tag on is the leak, and none of it was meant
@@ -616,7 +616,7 @@ function withoutPlaceholders(input: unknown): unknown {
  *
  * THE POST COMES BACK BESIDE THE COMMIT rather than on it. `Commit` is what the
  * applier and the store consume, and neither has any business with prose — the
- * post is the referee's answer to the player, and it travels in `RefereeReply`
+ * post is the game master's answer to the player, and it travels in `GameMasterReply`
  * where the machine already expects it.
  */
 function readCommit(
@@ -691,7 +691,7 @@ function answerRoll(
   }
 
   // Checked before the stream is touched: a refused batch must cost no draws,
-  // or the dice the referee is about to ask for properly come out different.
+  // or the dice the game master is about to ask for properly come out different.
   const refused = guard(batch);
   if (refused.length > 0) {
     return {
@@ -708,7 +708,7 @@ function answerRoll(
   const rng = store.getState().rng();
   const outcomes = rollBatch(rng, batch.rolls);
   store.getState().syncRng(rng);
-  journal.log({ kind: "roll", source: "referee", requested: batch.rolls, outcomes, draws: rng.draws });
+  journal.log({ kind: "roll", source: "game-master", requested: batch.rolls, outcomes, draws: rng.draws });
 
   return {
     result: {
@@ -730,7 +730,7 @@ function answerRoll(
  */
 async function call(
   args: Parameters<typeof callWithTools>[0] & {
-    step: RefereeRequest["step"];
+    step: GameMasterRequest["step"];
     store: Store;
     journal: Journal;
     round: number;
@@ -775,7 +775,7 @@ async function call(
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     logCall(NO_USAGE, message);
-    journal.log({ kind: "error", where: `referee:${step}`, message });
+    journal.log({ kind: "error", where: `game master:${step}`, message });
     throw e;
   }
 }

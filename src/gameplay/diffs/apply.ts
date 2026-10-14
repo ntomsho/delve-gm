@@ -2,7 +2,7 @@
  * THE APPLIER
  * ===========
  *
- * The single chokepoint between what the referee says happened and what the
+ * The single chokepoint between what the game master says happened and what the
  * save file contains.
  *
  * ATOMIC BY CONSTRUCTION. The batch is applied to a deep clone; the clone is
@@ -174,13 +174,13 @@ function slayCreature(ctx: Ctx, creature: ICreature): void {
 /**
  * THE PLAYER WALKS. They do not appear.
  *
- * The referee names where the player is going and the world works out how far
+ * The game master names where the player is going and the world works out how far
  * they get, which is the same bargain as everywhere else in this file: state the
  * destination, not the procedure. `routeTo` owns the graph — see travel.ts for
  * what stops a walk and why the destination itself is never checked.
  *
  * Two things are settled here rather than there. A route that does not exist is
- * a REJECTION, so the reasons reach the referee and it gets the one retry §5
+ * a REJECTION, so the reasons reach the game master and it gets the one retry §5
  * allows; a route that ends short is APPLIED, because getting as far as the
  * Torture Room and finding something in it is a real outcome and not an error.
  * The event says so, and the arrival pass describes wherever they actually are.
@@ -231,7 +231,7 @@ function applyProse(ctx: Ctx, entity: IEntity, path: string, value: unknown): bo
     //
     // The one mechanical tell of a whole class of failure, and the reason it
     // needs a guard and not only a rule: the commit that caused it was
-    // *valid*. Asked to reveal something found in the stables, the referee
+    // *valid*. Asked to reveal something found in the stables, the game master
     // needed an entity for a lantern, was told never to invent an id, and so
     // reached for the nearest plausible one — the player's own lantern, which
     // it then described as half-buried in the straw of a room they were only
@@ -291,7 +291,7 @@ function applyToItem(ctx: Ctx, item: IItem, path: string, value: unknown): void 
      *
      * ONLY ON A STATED ZERO. `amountCount` reads the leading integer or nothing,
      * and "a handful" is nothing — an unparseable amount must not delete a
-     * thing. Getting that backwards would erase items on a referee's turn of
+     * thing. Getting that backwards would erase items on a game master's turn of
      * phrase, which is the one failure here that the player could not recover
      * from.
      */
@@ -384,13 +384,13 @@ function applyToCreature(ctx: Ctx, creature: ICreature, path: string, value: unk
      *
      * `walkTo` for creatures, and the same bargain: the destination is what is
      * asked for, and the world answers back with where it actually got to. The
-     * referee holds one room and cannot see the graph; it says "it hears the
+     * game master holds one room and cannot see the graph; it says "it hears the
      * fight and comes" and the applier spends the three rooms of walking, one
      * per turn, in the sweep at the foot of this file.
      *
      * A DESTINATION WITH NO ROUTE IS REFUSED, not quietly dropped. A silently
-     * ignored write is a creature the referee believes is on its way and that
-     * never arrives, and the referee finds out about it never.
+     * ignored write is a creature the game master believes is on its way and that
+     * never arrives, and the game master finds out about it never.
      *
      * Nothing moves here. The write sets the destination; the sweep does the
      * stepping, and it does it for this creature too — so a creature told to
@@ -477,7 +477,7 @@ function applyToPlayer(ctx: Ctx, path: string, raw: string, value: unknown): voi
   //
   // This path used to take null and nothing else, and the refusal read
   // "nothing carried at index 7" — true, and useless. In one playtest the
-  // referee reached for it three times to say "they now have this": twice for
+  // game master reached for it three times to say "they now have this": twice for
   // things found by searching, once for a lockbox lifted by telekinesis. It is
   // the path that most obviously names where a thing ended up, and stating a
   // destination value is precisely what the envelope asks for, so the
@@ -559,7 +559,7 @@ function applyToPlayer(ctx: Ctx, path: string, raw: string, value: unknown): voi
  *
  * Shared by `item.parentId = <player>` and by `inventory[…] = <id>`, which are
  * two ways of saying the same thing and were once two different code paths —
- * one of which worked. Whichever the referee reaches for, the item leaves the
+ * one of which worked. Whichever the game master reaches for, the item leaves the
  * world's list, the equip slots stay coherent, and the slot budget is reported
  * rather than enforced.
  *
@@ -609,7 +609,7 @@ function createEntity(ctx: Ctx, holderId: string, value: unknown): void {
       slots: spec.slots ?? 1,
       ...(spec.amount ? { amount: spec.amount } : {}),
       // Worth nothing until something says otherwise, and the something cannot
-      // be the referee: a price is a number, and the model does not write those.
+      // be the game master: a price is a number, and the model does not write those.
       // Grades are gone with `rollItemValue`, so there is no longer even a
       // judgement it could offer here — what a found thing is worth is decided
       // at generation, from the conserved pot or from the catalog.
@@ -736,15 +736,15 @@ function applyOne(ctx: Ctx, diff: Diff): void {
  * EVERY CREATURE WITH SOMEWHERE TO BE GETS ONE ROOM CLOSER.
  *
  * Run once per applied commit, after the diffs and before anything that reads
- * where things are. The referee names destinations; this is the only thing that
- * spends them, so "three rooms off" is three turns and not a number the referee
+ * where things are. The game master names destinations; this is the only thing that
+ * spends them, so "three rooms off" is three turns and not a number the game master
  * has to keep in its head.
  *
  * TIME SPENT IS THE GATE, and it is the whole of what the applier reads off
  * `timeSpent`. `instant` is a glance or a word — nobody crosses a room in the
  * time it takes to look at something, so nobody moves. Every other category is
  * a turn actually passing, and one room is what passing buys. WHICH creatures
- * are given a destination in the first place is the referee's judgement and is
+ * are given a destination in the first place is the game master's judgement and is
  * described in the step file; this only ever spends what it was handed.
  *
  * The creature that was told to come THIS commit is stepped here too, and once.
@@ -785,13 +785,13 @@ export interface ApplyOutcome extends ApplyResult {
 
 /**
  * Apply a commit. On success the caller adopts `world`; on failure the original
- * is untouched and `rejected` explains why, in terms the referee can act on.
+ * is untouched and `rejected` explains why, in terms the game master can act on.
  */
 export function applyCommit(world: World, commit: Commit): ApplyOutcome {
   const rejected: Rejection[] = [];
 
   // A rejection or a clarification changes nothing. Stated in the playbook and
-  // enforced here, because "the referee was told not to" is not enforcement.
+  // enforced here, because "the game master was told not to" is not enforcement.
   const wouldChange =
     commit.diffs.length > 0 ||
     commit.fictionNote !== undefined ||
@@ -803,7 +803,7 @@ export function applyCommit(world: World, commit: Commit): ApplyOutcome {
     const refusals = commit.diffs.map((diff) => ({ diff, reason }));
     // The fiction is part of the world for this purpose. A turn that turned the
     // player away has not established anything — least of all about the dungeon
-    // — and a note attached to one is the referee writing history out of an
+    // — and a note attached to one is the game master writing history out of an
     // action it just refused.
     if (commit.fictionNote !== undefined) {
       refusals.push({
@@ -847,7 +847,7 @@ export function applyCommit(world: World, commit: Commit): ApplyOutcome {
   };
   const applied: Diff[] = [];
 
-  // The goal LATCHES. A referee that mentions it once and then forgets cannot
+  // The goal LATCHES. A game master that mentions it once and then forgets cannot
   // undo the win, and there is no path back to false.
   if (commit.goalMet === true && !draft.goalMet) {
     draft.goalMet = true;
@@ -859,7 +859,7 @@ export function applyCommit(world: World, commit: Commit): ApplyOutcome {
   }
 
   // What the turn added to the story of the place. Appended rather than merged,
-  // deduplicated so a referee restating the same fact on a retry does not stack
+  // deduplicated so a game master restating the same fact on a retry does not stack
   // it up, and dropped along with everything else if a diff below is refused —
   // the clone is the whole of the atomicity.
   if (commit.fictionNote !== undefined) {
@@ -884,7 +884,7 @@ export function applyCommit(world: World, commit: Commit): ApplyOutcome {
   // AFTER the diffs, so a draw can name an object one of them just created —
   // `entityRef` is resolved through the same ref table `children[]` writes to.
   // Refused rather than warned about: an entry that is not in the reserve, or
-  // has been spent, or belongs to a challenge already resolved, is the referee
+  // has been spent, or belongs to a challenge already resolved, is the game master
   // handing out something the dungeon did not have to give.
   if (commit.draw !== undefined && rejected.length === 0) {
     const entityId = commit.draw.entityRef ? ctx.refs.get(commit.draw.entityRef) : undefined;
@@ -920,7 +920,7 @@ export function applyCommit(world: World, commit: Commit): ApplyOutcome {
   // --- what the player now knows -------------------------------------------
   //
   // Written onto the thing it is true of, in the dungeon's own words rather
-  // than the referee's. A drawn key is usually learned in the same breath, so
+  // than the game master's. A drawn key is usually learned in the same breath, so
   // this runs after the draw and can name what the draw just spent.
   for (const challengeId of commit.learned ?? []) {
     if (rejected.length > 0) break;
@@ -939,7 +939,7 @@ export function applyCommit(world: World, commit: Commit): ApplyOutcome {
 
   // --- coin out of the allowance -------------------------------------------
   //
-  // The referee says they found money; the amount is rolled here, from the run's
+  // The game master says they found money; the amount is rolled here, from the run's
   // own seed. 10% of the dungeon's pot was held back at generation for exactly
   // this, and when it is spent there is no more.
   if (commit.coinGrant !== undefined && rejected.length === 0) {

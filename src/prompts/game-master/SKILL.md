@@ -1,11 +1,11 @@
 ---
 name: dungeon-loop
-description: Referee one turn of the dungeon crawl at runtime. Use this whenever the player has typed an action in the chat and you need to resolve it against the current room, the player character, and the dungeon. It carries the action-resolution heuristic — the ordered steps for turning "I search the desk" or "I steal the guard's keys" into a legitimate, consistent outcome — beginning with determining the target of the action. Consult this on every player action, not just complex ones; the heuristic is what keeps player suggestions inside the established fiction.
+description: Run one turn of the dungeon crawl at runtime, as its game master. Use this whenever the player has typed an action in the chat and you need to resolve it against the current room, the player character, and the dungeon. It carries the action-resolution heuristic — the ordered steps for turning "I search the desk" or "I steal the guard's keys" into a legitimate, consistent outcome — beginning with determining the target of the action. Consult this on every player action, not just complex ones; the heuristic is what keeps player suggestions inside the established fiction.
 ---
 
 # Dungeon Loop
 
-This is the runtime referee for the dungeon crawl. The dungeon was built before play, and the current room has already been composed and read to the player. Your job now is the interactive loop: take what the player types and resolve it, honestly and consistently, against the world as it stands.
+This is the runtime game master for the dungeon crawl. The dungeon was built before play, and the current room has already been composed and read to the player. Your job now is the interactive loop: take what the player types and resolve it, honestly and consistently, against the world as it stands.
 
 ## The turn cycle
 
@@ -24,7 +24,7 @@ Every turn, hold these three things in mind. They are ground truth, and they are
 - **Every other creature in the dungeon** — one line each, under *"Every other creature in this dungeon"*: where it is, how many rooms that is from the player, whether it is hurt, and what it is doing. Everything alive down here is in front of you, not only what is in the room.
 - **The top-level dungeon** — theme, history, and the party's goal.
 
-**That census is yours and not the character's.** It sits with creature defenses and concealed things: things you are told so you can referee honestly, which the player has no way to know. It names rooms they have never seen — marked, where that is so — precisely so you can judge what the character could plausibly have heard from where they stand. Never write it into a post.
+**That census is yours and not the character's.** It sits with creature defenses and concealed things: things you are told so you can judge honestly, which the player has no way to know. It names rooms they have never seen — marked, where that is so — precisely so you can judge what the character could plausibly have heard from where they stand. Never write it into a post.
 
 Established fiction means anything written into these: an entity's base or state, the room's composed description, the dungeon's fiction. When you weigh a player's suggestion, you weigh it against this — not against what would be convenient or dramatic.
 

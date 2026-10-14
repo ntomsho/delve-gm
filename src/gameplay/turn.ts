@@ -5,27 +5,27 @@
  * What happens between the player pressing return and the screen changing.
  *
  * The machine owns none of the rules and none of the prose. It asks a
- * `Referee` what should happen, hands the answer to the applier, and decides
+ * `Game master` what should happen, hands the answer to the applier, and decides
  * where the game goes next. That division is the whole point: in Phase 3 the
- * referee is a fixture returning canned envelopes, in Phase 4 it is the model,
+ * game master is a fixture returning canned envelopes, in Phase 4 it is the model,
  * and nothing in this file changes when they swap.
  *
  * Two axes move together here and are easy to confuse. `stage` is what the
  * PLAYER is being told — it opens and closes the input area. `step` is where
- * the REFEREE is in the heuristic — it selects the step file loaded into the
+ * the GAME MASTER is in the heuristic — it selects the step file loaded into the
  * next call. See shared/types/turn.ts.
  *
- * WHAT THIS FILE DECIDES, as against what the referee decides:
+ * WHAT THIS FILE DECIDES, as against what the game master decides:
  *
  *   - that a refused commit is worth exactly one more ask (§5: no partial
  *     fallback, and a second failure surfaces)
  *   - when a turn has CLOSED, and so when the clock ticks and the exchange is
  *     thrown away
- *   - that the player moving rooms means a room entry, whatever the referee
+ *   - that the player moving rooms means a room entry, whatever the game master
  *     thought `nextStage` should be
  *
  * Everything else — what happened, what changed, what it reads like — is the
- * referee's, and arrives as prose plus a commit.
+ * game master's, and arrives as prose plus a commit.
  *
  * No React. No llm/client. Runs under vitest against the real store and the
  * real applier.
@@ -61,7 +61,7 @@ import type { DiceOutcome } from "../rules/knave/roll-tool.ts";
  */
 export type { RolledOutcome } from "../shared/types/turn.ts";
 
-export interface RefereeRequest {
+export interface GameMasterRequest {
   /** where the heuristic resumes */
   step: Step;
   dungeon: GeneratedDungeon;
@@ -72,25 +72,25 @@ export interface RefereeRequest {
   /** the roll they just made, when this call is a resolution */
   roll?: RolledOutcome;
   /**
-   * Why the last commit was refused. Present only on a retry, and the referee
+   * Why the last commit was refused. Present only on a retry, and the game master
    * is expected to fix what it said rather than say it again.
    */
   rejections?: string[];
 }
 
-export interface RefereeReply {
+export interface GameMasterReply {
   /** prose for the player. May be empty when there is nothing to say. */
   narration: string;
   commit: Commit;
   /**
-   * Every die the referee threw for itself this turn — creature attacks,
+   * Every die the game master threw for itself this turn — creature attacks,
    * damage, morale. The machine shows the player the ones that hurt them; see
    * `foeRolls`.
    */
   rolls?: DiceOutcome[];
 }
 
-export type Referee = (req: RefereeRequest) => Promise<RefereeReply>;
+export type GameMaster = (req: GameMasterRequest) => Promise<GameMasterReply>;
 
 export interface TurnMachine {
   /** describe where the player is standing. On start, and after every move. */
@@ -104,13 +104,13 @@ export interface TurnMachine {
    * nothing else. Leaves the run `resolving` with the outcome in `pending`.
    *
    * SPLIT SO THE PLAYER SEES THE DICE BEFORE THE PROSE. Over the wire `roll`
-   * was one request that held the result until the referee had written about
+   * was one request that held the result until the game master had written about
    * it — ten seconds of a spinner over a number the server already knew. The
    * server now answers this half on its own, the screen shows the die, and
    * `resolve` is a second request.
    */
   throwDice(): void;
-  /** The second half of `roll`: the referee writes what the dice said. */
+  /** The second half of `roll`: the game master writes what the dice said. */
   resolve(): Promise<void>;
   /** after an error: ask again, with the same input */
   retry(): Promise<void>;
@@ -220,14 +220,14 @@ export interface TurnDeps {
 const roomName = (r: RunState, id: string): string =>
   theRoom(r.entities.rooms.find((x) => x.id === id)?.name || id);
 
-export function createTurnMachine(referee: Referee, deps: TurnDeps): TurnMachine {
+export function createTurnMachine(gameMaster: GameMaster, deps: TurnDeps): TurnMachine {
   const { store, journal = NO_JOURNAL } = deps;
   const state = () => store.getState();
   const run = (): RunState | undefined => state().run;
 
   /**
    * Every stage the MACHINE sets goes through here, so the journal sees them
-   * all without five scattered log calls. The ones the referee sets arrive via
+   * all without five scattered log calls. The ones the game master sets arrive via
    * `commit` and are logged there.
    */
   const setStage = (stage: Stage, step: Step) => {
@@ -243,12 +243,12 @@ export function createTurnMachine(referee: Referee, deps: TurnDeps): TurnMachine
    * room-entry commit that somehow moved the player again would otherwise
    * describe rooms forever.
    */
-  async function ask(req: RefereeRequest, entering = false): Promise<void> {
+  async function ask(req: GameMasterRequest, entering = false): Promise<void> {
     const before = req.run;
-    let reply: RefereeReply;
+    let reply: GameMasterReply;
 
     try {
-      reply = await referee(req);
+      reply = await gameMaster(req);
     } catch (e) {
       fail(before.step, e);
       return;
@@ -258,10 +258,10 @@ export function createTurnMachine(referee: Referee, deps: TurnDeps): TurnMachine
     logCommit(journal, reply.commit, result, false, state().lastEvents);
 
     // One more ask, with the reasons in front of it. Beyond that the turn is
-    // unfinishable and the software says so rather than the referee.
+    // unfinishable and the software says so rather than the game master.
     if (!result.ok) {
       try {
-        reply = await referee({ ...req, rejections: result.reasons });
+        reply = await gameMaster({ ...req, rejections: result.reasons });
       } catch (e) {
         fail(before.step, e);
         return;
@@ -284,7 +284,7 @@ export function createTurnMachine(referee: Referee, deps: TurnDeps): TurnMachine
 
     // THE PLAYER MOVED, so this turn says nothing.
     //
-    // A referee resolving a move writes the leaving and, told not to, the
+    // A game master resolving a move writes the leaving and, told not to, the
     // arriving too — three paragraphs of a room it was never handed, invented
     // whole, immediately before the room-entry pass describes the real one. The
     // player reads two incompatible accounts of the same place, and the second
@@ -296,7 +296,7 @@ export function createTurnMachine(referee: Referee, deps: TurnDeps): TurnMachine
     const moved = !entering && after.currentRoomId !== before.currentRoomId;
 
     // THE DICE THAT HURT THEM, ahead of the prose that tells it. Rolled by the
-    // referee while it wrote, so they land with the narration rather than
+    // game master while it wrote, so they land with the narration rather than
     // before it — but above it, so the hit is read before the wound is. Only
     // on a turn that cost hit points: see `foeRolls` for why.
     const foe = foeRolls(
@@ -318,12 +318,12 @@ export function createTurnMachine(referee: Referee, deps: TurnDeps): TurnMachine
         ...(entering ? { roomId: before.currentRoomId } : {}),
       });
       state().pushLog({
-        kind: entering ? "arrival" : "referee",
+        kind: entering ? "arrival" : "game-master",
         text: reply.narration,
         ...(entering ? { roomId: before.currentRoomId } : {}),
         ...(entering && before.arrivedVia ? { via: before.arrivedVia } : {}),
       });
-      state().pushTranscript({ role: "referee", text: reply.narration });
+      state().pushTranscript({ role: "game-master", text: reply.narration });
     }
 
     // WHAT IT COST THEM, as a record under the prose. Off the sheet before and
@@ -352,13 +352,13 @@ export function createTurnMachine(referee: Referee, deps: TurnDeps): TurnMachine
     if (entering) state().showRoom(after.currentRoomId);
 
     // What a move leaves behind for the next turn to read. Written by the
-    // machine rather than kept from the referee: the discarded paragraphs are
+    // machine rather than kept from the game master: the discarded paragraphs are
     // the ones that had the room wrong, and a turn record is read back as fact.
-    // Naming the destination here is also the record that a referee routing
+    // Naming the destination here is also the record that a game master routing
     // "go back the way I came" needs, and did not have.
     // A walk that ended short says so, in the applier's words: they set out for
     // one room and are standing in another, and the next turn has to read that
-    // as what happened rather than as a referee losing track of them.
+    // as what happened rather than as a game master losing track of them.
     const stopped = state().lastEvents.find((e) => e.kind === "movement-stopped");
     const outcome = moved
       ? `They left ${roomName(before, before.currentRoomId)} and are now in ` +
@@ -404,7 +404,7 @@ export function createTurnMachine(referee: Referee, deps: TurnDeps): TurnMachine
       });
     }
 
-    // The player moved. That outranks whatever stage the referee asked for —
+    // The player moved. That outranks whatever stage the game master asked for —
     // somewhere new has to be described before it can be acted in — and it is
     // the only route to `room_entry` during play.
     if (moved && !isTerminal(after.stage)) {
@@ -414,15 +414,15 @@ export function createTurnMachine(referee: Referee, deps: TurnDeps): TurnMachine
 
   /**
    * The turn cannot be finished. Keep the world exactly as it was, put the game
-   * into the one stage where the software rather than the referee is talking,
+   * into the one stage where the software rather than the game master is talking,
    * and leave the player's draft alone so a retry costs them nothing.
    *
    * Nothing is written to `callLog` here: the machine does not know what model
-   * answered or what it cost. Whoever implements the `Referee` does, and logs.
+   * answered or what it cost. Whoever implements the `Game master` does, and logs.
    */
   function fail(step: Step, e: unknown): void {
     const message = e instanceof Error ? e.message : String(e);
-    console.warn("[turn] the referee could not finish:", e);
+    console.warn("[turn] the game master could not finish:", e);
     journal.log({ kind: "error", where: `turn:${step}`, message });
     const from = run()?.stage;
     state().setStage("error", step);
@@ -473,10 +473,10 @@ export function createTurnMachine(referee: Referee, deps: TurnDeps): TurnMachine
         roomId: r.currentRoomId,
         ...(r.arrivedVia ? { via: r.arrivedVia } : {}),
       });
-      // Onto the referee's side of the exchange as well, exactly as a written
+      // Onto the game master's side of the exchange as well, exactly as a written
       // arrival lands there — the next call should not be able to tell which
       // kind of entry it followed.
-      state().pushTranscript({ role: "referee", text: shown });
+      state().pushTranscript({ role: "game-master", text: shown });
       state().showRoom(r.currentRoomId);
       setStage("awaiting_action", "1-target");
       return;

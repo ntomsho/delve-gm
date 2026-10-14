@@ -1,7 +1,7 @@
 /**
- * A room plate's GUIDE IMAGE: the composition as plain line work.
+ * A room illustration's GUIDE IMAGE: the composition as plain line work.
  *
- * The same `PlateView` the prompt is written from, projected through a pinhole
+ * The same `IllustrationView` the prompt is written from, projected through a pinhole
  * at the chosen eye. It is drawn to be handed to an image model as a reference,
  * and a reference gets copied — so it carries only what should be copied:
  *
@@ -9,9 +9,9 @@
  *     corner, doorways as outlined openings. No floor grid and no seam every
  *     five feet of wall; the grid is how the room was built, not how it looks.
  *   - each FEATURE as a dashed outline of its footprint on the floor with a
- *     numbered tag, and each doorway with a lettered tag (`plateTags`). Never a
+ *     numbered tag, and each doorway with a lettered tag (`illustrationTags`). Never a
  *     solid: a box drawn where the altar goes comes back as a box. The prompt
- *     says what each tag is and that no mark is to be drawn (`PLATE_GUIDE_NOTE`, src/illustrations/prompt.ts).
+ *     says what each tag is and that no mark is to be drawn (`ILLUSTRATION_GUIDE_NOTE`, src/illustrations/prompt.ts).
  *
  * `marks: false` draws the architecture alone, for comparing against a model
  * that copies the marks anyway.
@@ -23,16 +23,16 @@
 import { CELL_FEET } from "../generation/floorplan/geometry.ts";
 import {
   connectedCells,
-  PLATE_ASPECT,
-  PLATE_DOOR_FT,
-  PLATE_EYE_FT,
-  PLATE_HALF_FOV_DEG,
-  PLATE_WALL_FT,
-  plateSight,
+  ILLUSTRATION_ASPECT,
+  ILLUSTRATION_DOOR_FT,
+  ILLUSTRATION_EYE_FT,
+  ILLUSTRATION_HALF_FOV_DEG,
+  ILLUSTRATION_WALL_FT,
+  illustrationSight,
 } from "./view.ts";
 import { type Point } from "../generation/floorplan/floorplan.ts";
 import { traceOutline } from "../generation/floorplan/map-layout.ts";
-import { plateTags, type RoomPlate } from "./room-illustration.ts";
+import { illustrationTags, type RoomIllustration } from "./room-illustration.ts";
 
 const INK = "#000000";
 const PAPER = "#FFFFFF";
@@ -74,8 +74,8 @@ function strokeText(text: string, cx: number, cy: number): string {
   return `<g data-tag="${text}">${strokes}</g>`;
 }
 
-const WALL_FT = PLATE_WALL_FT;
-const DOOR_FT = PLATE_DOOR_FT;
+const WALL_FT = ILLUSTRATION_WALL_FT;
+const DOOR_FT = ILLUSTRATION_DOOR_FT;
 /** Nothing nearer the eye than this is drawn; polygons are cut at it. */
 const NEAR_FT = 0.3;
 /** How far a footprint outline is drawn inside its cells, so it clears the wall line. */
@@ -90,25 +90,25 @@ interface P3 {
 }
 
 export interface SketchOptions {
-  /** the height follows from PLATE_ASPECT, so the frame is the one the search scored */
+  /** the height follows from ILLUSTRATION_ASPECT, so the frame is the one the search scored */
   width?: number;
   /** footprints and tags; on by default */
   marks?: boolean;
 }
 
-export function plateSketchSvg(p: RoomPlate, opts: SketchOptions = {}): string {
+export function illustrationSketchSvg(p: RoomIllustration, opts: SketchOptions = {}): string {
   const W = opts.width ?? 480;
-  const H = Math.round(W / PLATE_ASPECT);
+  const H = Math.round(W / ILLUSTRATION_ASPECT);
   const marks = opts.marks ?? true;
   const { eye } = p.view;
-  const focal = W / 2 / Math.tan((PLATE_HALF_FOV_DEG * Math.PI) / 180);
-  const tags = plateTags(p);
+  const focal = W / 2 / Math.tan((ILLUSTRATION_HALF_FOV_DEG * Math.PI) / 180);
+  const tags = illustrationTags(p);
 
   /** World feet to camera space: ahead, across, up. */
   const cam = (q: P3) => ({
     a: (q.x - eye.x) * eye.forward.x + (q.y - eye.y) * eye.forward.y,
     c: (q.x - eye.x) * eye.right.x + (q.y - eye.y) * eye.right.y,
-    u: q.z - PLATE_EYE_FT,
+    u: q.z - ILLUSTRATION_EYE_FT,
   });
   type C = ReturnType<typeof cam>;
   const screen = (q: C) => ({ x: W / 2 + (q.c / q.a) * focal, y: H / 2 - (q.u / q.a) * focal });
@@ -251,7 +251,7 @@ export function plateSketchSvg(p: RoomPlate, opts: SketchOptions = {}): string {
   // kept or dropped on that test. No painter's ordering can get this right for
   // an outline that is half round a corner; the test does.
   if (marks) {
-    const sees = plateSight(p.input, eye);
+    const sees = illustrationSight(p.input, eye);
     p.input.features.forEach((f, i) => {
       if (!p.view.features[i].visible || p.features[i].presence !== "object") return;
       for (const piece of connectedCells(f.cells)) {

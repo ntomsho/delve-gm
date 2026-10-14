@@ -274,7 +274,7 @@ export interface EquipOutcome extends EquipCheck {
  *
  * This is what the diff applier calls. A diff states the destination — "the
  * halberd is now in their hands" — and it is this function's job to work out
- * everything that has to be true for that, rather than the referee's job to
+ * everything that has to be true for that, rather than the game master's job to
  * remember to put the shield away first and lose a round trip when it forgets.
  *
  * `canEquip` stays strict and is still the right question for a UI asking

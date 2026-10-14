@@ -33,7 +33,7 @@ import { acceptsInput, isTerminal } from "../../shared/types/turn.ts";
 import { characterView, mapView, roomView, shownRoom } from "../../gameplay/view/selectors.ts";
 import type { GeneratedDungeon } from "../../generation/generate.ts";
 import type { RunState } from "../../gameplay/state/store.ts";
-import type { PlateAnswer } from "../../illustrations/room-illustration.ts";
+import type { IllustrationAnswer } from "../../illustrations/room-illustration.ts";
 import { PHONE, TOUCH, useMediaQuery } from "../shared/media.ts";
 
 export interface PlayScreenProps {
@@ -43,7 +43,7 @@ export interface PlayScreenProps {
   onSubmit(text: string): void;
   onRoll(): void;
   onRetry(): void;
-  /** End the run where it stands. No referee, no dice, no world change. */
+  /** End the run where it stands. No game master, no dice, no world change. */
   onAbandon(): void;
   /** Back to the roster once it is over. Absent on a local run — see `InputArea`. */
   onLeave?: () => void;
@@ -52,10 +52,10 @@ export interface PlayScreenProps {
    * local run, which has no roster to go back to.
    */
   onMainMenu?: () => void;
-  /** a room's plate for its first arrival. Absent on a local run, which never asks. */
-  plate?: (roomId: string) => Promise<PlateAnswer>;
+  /** a room's illustration for its first arrival. Absent on a local run, which never asks. */
+  illustration?: (roomId: string) => Promise<IllustrationAnswer>;
   /** the dungeon's cover, above the opening. Absent on a local run. */
-  cover?: () => Promise<PlateAnswer>;
+  cover?: () => Promise<IllustrationAnswer>;
 }
 
 export function PlayScreen({
@@ -68,7 +68,7 @@ export function PlayScreen({
   onAbandon,
   onLeave,
   onMainMenu,
-  plate,
+  illustration,
   cover,
 }: PlayScreenProps) {
   const [draft, setDraft] = useState("");
@@ -125,7 +125,7 @@ export function PlayScreen({
   const pc = useMemo(() => characterView(run), [run]);
   /**
    * The rooms this screen came up with already arrived in: on a resumed run,
-   * every room behind the player. Read once, at mount. Their plates are not
+   * every room behind the player. Read once, at mount. Their illustrations are not
    * asked for; only the room they are in gets its picture.
    */
   const [resumed] = useState(
@@ -207,7 +207,7 @@ export function PlayScreen({
         busy={busy}
         resolving={run.stage === "resolving"}
         compact={phone}
-        {...(plate ? { plate } : {})}
+        {...(illustration ? { illustration } : {})}
         {...(cover ? { cover } : {})}
         map={map}
         resumed={resumed}
@@ -344,7 +344,7 @@ export function PlayScreen({
 /**
  * Which of the four endings this is, or nothing for a run still being played.
  *
- * `departed` is deliberately absent: the referee writes it and the store
+ * `departed` is deliberately absent: the game master writes it and the store
  * resolves it into `goal_met` or `escaped` before anything is saved, so no
  * stored run is ever standing in it. See the note on `Stage`.
  */

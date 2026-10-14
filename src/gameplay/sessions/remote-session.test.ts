@@ -209,7 +209,7 @@ describe("a turn", () => {
  * WHAT THE SCREEN DOES WHILE THE SERVER THINKS.
  *
  * The whole interface reads `run.stage`, and this file used not to move it until
- * the reply landed — so for the length of a referee call the input stayed open,
+ * the reply landed — so for the length of a game master call the input stayed open,
  * the sweep never ran, and the player's own line was not on the page. It read as
  * a game that had not noticed them. These pin the stage DURING the request,
  * which is the only place the bug ever existed.
@@ -460,7 +460,7 @@ describe("trying again", () => {
     const session = createRemoteSession();
     await begin(session);
 
-    // The referee failed on the server: it caught that itself, stored what it
+    // The game master failed on the server: it caught that itself, stored what it
     // was doing, and answered normally with the run in `error`.
     const broken = run(3, "error", {
       step: "3-standard",

@@ -6,8 +6,8 @@
  * walking. This works out which rooms those are, and — more usefully — where
  * the walk actually ends, which is often not where they meant.
  *
- * WHY THIS IS NOT THE REFEREE'S JOB. It is a graph question with one right
- * answer, and the referee is handed only the room it is standing in: it can see
+ * WHY THIS IS NOT THE GAME MASTER'S JOB. It is a graph question with one right
+ * answer, and the game master is handed only the room it is standing in: it can see
  * one step, has to infer the rest from turn records, and was observed inferring
  * it wrong three times in a row. Nothing about routing needs judgement, so
  * nothing about it should be guessed.
@@ -48,7 +48,7 @@ export interface Route {
   /** Where they actually are when the walk ends. */
   endsAt: string;
   /**
-   * Why it ended early, phrased for the referee. Absent when they arrived.
+   * Why it ended early, phrased for the game master. Absent when they arrived.
    * Present means the player is standing in front of something.
    */
   stoppedBy?: string;
@@ -141,7 +141,7 @@ function stepBefore(world: World, cameBy: Map<string, Leg>, at: string, from: st
  * What does NOT stop them is a hazard already spent — sprung, and no longer
  * doing anything. That is scenery, and a collapsed pit is a hole you step round.
  *
- * The player does not read this. It goes to the referee, and only about a room
+ * The player does not read this. It goes to the game master, and only about a room
  * they are now standing in, which is a room the arrival pass is about to show
  * them anyway.
  */
@@ -160,7 +160,7 @@ const hazardOf = (world: World, id: string | undefined) =>
  * What is in this room that a person could not simply walk past.
  *
  * A creature is anything still standing there — the applier removes the slain,
- * so presence is the whole test and the referee decides what it does about it.
+ * so presence is the whole test and the game master decides what it does about it.
  * Effects are fires and gas, which are exactly walls.
  */
 function obstacleIn(world: World, roomId: string): string | undefined {
@@ -270,7 +270,7 @@ function roomName(world: World, id: string): string {
  * OBSTACLES ARE NOT CONSULTED. `routeTo` runs its clear-then-blocked two-pass
  * because the player's walk stops in front of whatever is in the way and the
  * turn resolves it. A creature crossing its own home is not that, and what it
- * does about a fire in the next room is the referee's to say.
+ * does about a fire in the next room is the game master's to say.
  */
 export function roomDistances(
   // NARROWER THAN `World` on purpose. This walks the connector graph and reads

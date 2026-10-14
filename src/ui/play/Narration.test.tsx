@@ -1,5 +1,5 @@
 /**
- * The narration column's records — the lines the referee did not write.
+ * The narration column's records — the lines the game master did not write.
  */
 
 import { describe, expect, it } from "vitest";
@@ -11,7 +11,7 @@ describe("what a turn cost, under the prose", () => {
   it("states the wound and the broken thing as their own marks", () => {
     const items = toItems(
       [
-        { kind: "referee", text: "The ledge gives.", turn: 1 },
+        { kind: "game-master", text: "The ledge gives.", turn: 1 },
         {
           kind: "effects",
           text: "",
@@ -70,7 +70,7 @@ describe("a creature's roll against them", () => {
   });
 });
 
-describe("a room's plate", () => {
+describe("a room's illustration", () => {
   const log = [
     { kind: "arrival" as const, text: "A hall.", roomId: "r1", turn: 1 },
     { kind: "arrival" as const, text: "A cell.", roomId: "r2", turn: 2 },
@@ -79,25 +79,25 @@ describe("a room's plate", () => {
 
   it("is asked for once per room, at its first arrival", () => {
     const asked: string[] = [];
-    const plate = async (roomId: string) => {
+    const illustration = async (roomId: string) => {
       asked.push(roomId);
       return { status: "pending" as const };
     };
-    const { container } = renderDom(h(Narration, { items: toItems(log, (id) => id), plate }));
+    const { container } = renderDom(h(Narration, { items: toItems(log, (id) => id), illustration }));
     expect(asked).toEqual(["r1", "r2"]);
     expect(container.querySelectorAll('[aria-label$="still being drawn"]').length).toBe(2);
   });
 
   it("on a resumed run, is asked for only in the room the player is in", () => {
     const asked: string[] = [];
-    const plate = async (roomId: string) => {
+    const illustration = async (roomId: string) => {
       asked.push(roomId);
       return { status: "pending" as const };
     };
     renderDom(
       h(Narration, {
         items: toItems(log, (id) => id),
-        plate,
+        illustration,
         here: { roomId: "r2" },
         resumed: new Set(["r1", "r2"]),
       })
@@ -132,7 +132,7 @@ describe("the dungeon's cover", () => {
   });
 });
 
-describe("a plate's buttons", () => {
+describe("an illustration's buttons", () => {
   const log = [
     { kind: "arrival" as const, text: "A hall.", roomId: "r1", turn: 1 },
     { kind: "arrival" as const, text: "A cell.", roomId: "r2", turn: 2 },
@@ -156,13 +156,13 @@ describe("a plate's buttons", () => {
     })),
   };
 
-  it("are drawn only on the plate of the room the player is in", async () => {
-    const plate = async (roomId: string) => ({ status: "ready" as const, url: `u/${roomId}`, spots: spots(roomId) });
+  it("are drawn only on the illustration of the room the player is in", async () => {
+    const illustration = async (roomId: string) => ({ status: "ready" as const, url: `u/${roomId}`, spots: spots(roomId) });
     const { container } = renderDom(
-      h(Narration, { items: toItems(log, (id) => id), plate, map, here: { roomId: "r2" } })
+      h(Narration, { items: toItems(log, (id) => id), illustration, map, here: { roomId: "r2" } })
     );
     await act(async () => {});
-    const ids = [...container.querySelectorAll("[data-plate-spot]")].map((e) => e.getAttribute("data-plate-spot"));
+    const ids = [...container.querySelectorAll("[data-illustration-spot]")].map((e) => e.getAttribute("data-illustration-spot"));
     expect(ids).toEqual(["door-r2"]);
   });
 });

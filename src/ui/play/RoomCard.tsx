@@ -52,7 +52,7 @@ const UNLIT_COMPACT = "border-l-transparent";
  * named, and marked: deciding when to leave is most of the game, and it cannot
  * be decided by somebody who has lost track of the door.
  *
- * Its hover is the wall it cuts — the same phrase the referee was handed, so a
+ * Its hover is the wall it cuts — the same phrase the game master was handed, so a
  * player checking "is the ramp really at the north wall's eastern end" is
  * reading the map's own answer rather than the narration's.
  */
@@ -143,7 +143,7 @@ export function RoomCard({ room, compact = false }: { room: RoomView; compact?: 
   const creatures = room.contents.filter((c) => c.kind === "Creature");
   const things = room.contents.filter((c) => c.kind !== "Creature");
   // Already sorted — the way they came, then the known, then the unexplored.
-  // Split rather than re-sorted, so the panel and the referee's prompt cannot
+  // Split rather than re-sorted, so the panel and the game master's prompt cannot
   // end up reading the room's exits in two different orders.
   const behind = room.exits.filter((e) => e.cameFrom);
   const ahead = room.exits.filter((e) => !e.cameFrom);

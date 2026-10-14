@@ -214,7 +214,7 @@ const MONSTER_ABILITIES = t(
 );
 
 const MONSTER_FEATURES = t(
-  "Antlers|Beak|Carapace|Claws|Compound eyes|Eye Stalks|Fangs|Fins|Fur|Gills|Hooves|Horns|Legless|Long tongue|Many-eyed|Many-limbed|Mucus|Pincers|Plates|Plumage|Proboscis|Scales|Segments|Shaggy hair|Shell|Spikes|Spinnerets|Spines|Stinger|Suction cups|Tail|Talons|Tentacles|Trunk|Tusks|Wings"
+  "Antlers|Beak|Carapace|Claws|Compound eyes|Eye Stalks|Fangs|Fins|Fur|Gills|Hooves|Horns|Legless|Long tongue|Many-eyed|Many-limbed|Mucus|Pincers|Illustrations|Plumage|Proboscis|Scales|Segments|Shaggy hair|Shell|Spikes|Spinnerets|Spines|Stinger|Suction cups|Tail|Talons|Tentacles|Trunk|Tusks|Wings"
 );
 
 const MUTATIONS = t(
@@ -409,7 +409,7 @@ const MISC_ITEMS = t(
 );
 
 const WORN_ITEMS = t(
-  "Belt|Blouse|Boots|Bracelet|Breastplate|Brigandine|Cincture|Cloak|Coat|Dress|Earring|Eyepatch|Gambeson|Gauntlets|Glove|Gown|Hat|Helmet|Hose|Leathers|Locket|Mail shirt|Mask|Necklace|Plate mail|Ring|Robe|Sandals|Scarf|Shirt|Shoes|Skirt|Slippers|Socks|Trousers|Veil"
+  "Belt|Blouse|Boots|Bracelet|Breastplate|Brigandine|Cincture|Cloak|Coat|Dress|Earring|Eyepatch|Gambeson|Gauntlets|Glove|Gown|Hat|Helmet|Hose|Leathers|Locket|Mail shirt|Mask|Necklace|Illustration mail|Ring|Robe|Sandals|Scarf|Shirt|Shoes|Skirt|Slippers|Socks|Trousers|Veil"
 );
 
 const TOOL_ITEMS = t(
@@ -438,7 +438,7 @@ const POTIONS = t(
  * how much is in it is not decided here but found out by reading it, one d6 at
  * a time. See `BookFacts` and `consultRoll`.
  *
- * The referee reads the subject generously — a heading, not a boundary — which
+ * The game master reads the subject generously — a heading, not a boundary — which
  * is what makes a book worth the slot it costs. Step 3 of the playbook owns
  * that rule.
  */

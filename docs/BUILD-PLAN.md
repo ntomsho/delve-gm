@@ -1,6 +1,6 @@
 # Dungeon Crawler — Build Plan
 
-A single-player, LLM-refereed dungeon crawl built on Knave 1.0 and Maze Rats tables.
+A single-player dungeon crawl, run by an LLM game master, built on Knave 1.0 and Maze Rats tables.
 The generation engine is framework-free TypeScript; the app around it is Vite + React,
 served by Vercel functions against Postgres, and it is deployed and playable.
 
@@ -184,13 +184,13 @@ rule is independently enforced by the applier — rejections never mutate.
 
 **The prose is a field of the commit, not loose text.** There is one commit per turn, a
 field cannot be written twice, and the last accepted call is the only one that counts —
-so a referee that writes a draft, thinks better of it and writes another cannot publish
+so a game master that writes a draft, thinks better of it and writes another cannot publish
 both. Loose text is working-out by definition. `post` is optional, because a room entry
 (where the room's own `composed` IS the paragraph) and a commit that moves the player
 legitimately write none; anything else committing without one is handed back inside the
 same conversation (`missingPost` in `game-master.ts`).
 
-Rules stated to the referee in `SKILL.md` and enforced in code:
+Rules stated to the game master in `SKILL.md` and enforced in code:
 
 1. **Ids are quoted, never invented** — *and an id names that exact object and nothing
    else*. A thing just discovered is a new entity via `children[]`, even when something
@@ -259,7 +259,7 @@ Never writable on any type: `id`, `type`, `base`, `name`, `keywords`, `blueprint
   has no positions to hold open.
 - **`isHidden` is refused on anything the player was carrying *when the turn began*** —
   `Ctx.carriedAtStart`, snapshotted off the world before the first diff runs, not read
-  off the draft. It is the one mechanical tell that the referee has reused a sheet id for
+  off the draft. It is the one mechanical tell that the game master has reused a sheet id for
   something it has just invented in the room. Asked of the draft instead, it refuses a
   pickup that also reveals, which is a legal pair and must go through; the refusal says
   so, because a refusal that does not name the way through sends the retry off.
@@ -324,7 +324,7 @@ Rebuild the messages array **fresh each call**. Never append-and-grow.
   body is unconditional; a retry prompt is a **superset** of the ask it retries, asserted
   line by line in `assemble.test.ts`. A retry that substituted was how a refused commit
   threw the player's roll away.
-- **The player's roll reaches the referee through two channels**, `renderRoll` in the
+- **The player's roll reaches the game master through two channels**, `renderRoll` in the
   instruction (authoritative) and a `role: "roll"` entry in the transcript (a record that
   survives however the instruction is built). One channel was not enough.
 
@@ -363,11 +363,11 @@ Entry composes bottom-up, contents then room. It never rolls, starts combat, spr
 hazard, or changes anything but prose. **Hidden features stay hidden** — they surface
 only as clues, and a directed look is what turns a clue into the thing itself.
 
-**A concealed way out is shown to the referee three times and must read the same way in
+**A concealed way out is shown to the game master three times and must read the same way in
 all three.** It is in the ways-out list under `includeHidden` — marked `NOT YET FOUND BY
 THE PLAYER`, the same words a concealed thing standing in the room carries — it is left
 out of the geometry sentence's count entirely, and it is not drawn on the map. The
-referee has to know it is there to be found, and must not be able to mention it without
+game master has to know it is there to be found, and must not be able to mention it without
 noticing that it is doing so.
 
 ### 2.10 The map, and what it may show
@@ -397,9 +397,9 @@ noticing that it is doing so.
   geometry.
 - **Only the current room's doors are clickable**, through a confirmation, then
   dispatched as ordinary text through the normal turn path so it is identical to typing
-  it. A blocked door stays clickable, so the referee gets to be the one that says no.
+  it. A blocked door stays clickable, so the game master gets to be the one that says no.
 - **The map may know more than the fiction but never differently.** Nothing is drawn
-  that the referee has not been told about.
+  that the game master has not been told about.
 
 ### 2.11 Geometry and fixtures
 
@@ -409,7 +409,7 @@ noticing that it is doing so.
   rotates, nothing knows which way the player is facing. "Left", "right", "ahead" and
   "behind" are forbidden outright, and a test asserts `describeGeometry` never emits
   one. A relative direction is a lie the moment the player walks back through.
-- **The referee and the content pass read the same sentence, from the same function.**
+- **The game master and the content pass read the same sentence, from the same function.**
   `describeGeometry` → the content pass's `ContentRoomBrief.geometry` and the runtime's
   `RoomView.geometry`. One derivation behind both; that is the whole of the feedback loop.
 - `describeGeometry` takes `{ omit }` and `roomView` hands it every concealed connector
@@ -487,7 +487,7 @@ Restated from CLAUDE.md, plus the mechanisms that enforce them.
   rule being soft, it is there being no browser to keep it out of.
 - Skill markdown loads via `?raw`. A test asserts every `steps/…` path named in
   `SKILL.md` resolves to a real file. **`?raw` is a bundler feature** — Vite and vitest
-  understand it, plain `node` does not, so anything reaching the referee outside a
+  understand it, plain `node` does not, so anything reaching the game master outside a
   bundler registers the hook in `dev/lib/raw-md.ts` first.
 - **No module holds one of anything a run owns.** The store, the journal and the turn
   machine are made per run and carried, never imported: `createGameStore`,
@@ -525,9 +525,65 @@ otherwise assume none of them do.
 
 ---
 
+### Prompts in one place
+
+**Every instruction to a model lives in `src/prompts/`, as markdown.** Today only the
+game master's playbook does (`src/prompts/game-master/`). The rest are TypeScript
+strings beside the code that sends them:
+
+| Instructions | Where now | Fills in values from code |
+|---|---|---|
+| `DUNGEON_PASS_INSTRUCTIONS` (99 lines) | `generation/content/passes/dungeon-pass.ts` | none |
+| `CONTENT_PASS_INSTRUCTIONS` (169 lines) | `generation/content/passes/content-pass.ts` | 5 |
+| `SEAMS_PASS_INSTRUCTIONS` (24 lines) | `generation/content/passes/seams-pass.ts` | 2 |
+| `KEYS_PASS_INSTRUCTIONS` (33 lines) | `generation/content/passes/keys-pass.ts` | none |
+| `TALLY_INSTRUCTIONS` (33 lines) | `gameplay/tally/tally-pass.ts` | none |
+| `ILLUSTRATION_STYLE`, the guide notes, the visual / setting / exterior systems | `illustrations/prompt.ts` | none |
+
+Destinations: `prompts/generation/`, `prompts/tally/`, `prompts/illustrations/`, all loaded
+through `prompts/loader.ts`.
+
+- **Byte-identical, and tested so.** The text-only ones move as they are. The two that
+  interpolate (the fixture menu and position words, §2.11) need a `{{name}}` fill in the
+  loader, and the filled result must equal today's string exactly.
+- **The illustration cache key hashes this text** (`illustrationKey`,
+  `src/server/illustrations/serve.ts`). One changed character — a trailing newline the
+  markdown adds — misses every stored image and redraws it. Snapshot the keys of a fixed
+  dungeon before the move and assert they are unchanged after; the reorganisation that
+  created this folder did exactly that (28 keys, seed 4201).
+
+---
+
+### The ruleset seam
+
+**Knave is one ruleset, and it should be replaceable.** `src/rules/knave/` holds the code
+that is plainly Knave's: tables, rolls, the roll tool, the character sheet, creation,
+levelling, equipment and the shop. Two halves are still mixed in with the general game.
+
+**The prompts.** Most of the game master's playbook is not about Knave — finding the
+target, judging validity, information actions, room entry, the commit, `state` and
+`composed`. Measured by lines that mention rules terms: steps 1, 2, `3-information` and
+`room-entry` are nearly free of them; `3-standard.md` is 44 of 128, `4-confirm-and-roll.md`
+12 of 31, `5-resolution.md` 17 of 68, and `SKILL.md` carries the `rollRequest` shape, the
+`roll` tool's kinds, crits and quality, and the six-ability sheet. Split those into
+`prompts/rules/knave/` and have the loader assemble a call from the general step plus the
+ruleset's part. **This changes what the model reads, so it needs a playtest**, not only a
+snapshot.
+
+**The code.** Knave assumptions are built into files that are otherwise general:
+`gameplay/diffs/paths.ts` (the sheet's writable fields), `gameplay/game-master/render.ts`
+(how the sheet is shown to the model), the roll-request schema in `llm/schemas.ts`,
+`resolveSpec` in `gameplay/turn.ts`, creature stats in `shared/world/entities.ts`, and the
+content pass's stat blocks. **Decide in session** what `rules/ruleset.ts` has to declare
+for those to read through it — dice kinds, the sheet's shape and writable paths, how a roll
+is specified and resolved, how a creature's numbers are derived — and whether one interface
+or several small ones.
+
+---
+
 ### Prose discipline
 
-**The referee writes from the prose it was handed rather than from the geometry the
+**The game master writes from the prose it was handed rather than from the geometry the
 floorplan actually has.** The room block has walls, positions and exits with sides; the
 step files have not caught up with it. Mostly a prompt change, and it is one feature
 because every item shares that cause.
@@ -555,7 +611,7 @@ because every item shares that cause.
 **Reuse and register**
 
 - **Room descriptions are being reproduced verbatim.** The `composed` field binds the
-  referee and it is being satisfied by quotation. Two candidate fixes, to be tried in
+  game master and it is being satisfied by quotation. Two candidate fixes, to be tried in
   this order: (1) instruct explicitly that `composed` is what the player has *already
   read* and must be built on rather than repeated; (2) if that does not hold, render the
   room block's prose fields in a deliberately **non-prose form** — fragments, keyword
@@ -584,7 +640,7 @@ model **the drawing** instead of a sentence about it.
 **The proposal: an ASCII plan of the room's cells** — not an image, not the SVG. One
 character per cell, doors marked, north up. A 10×8 room is 88 characters, it is
 deterministic, it diffs in a snapshot test, it costs no vision tokens, and it is the same
-artefact for the content pass and the referee, which is the §2.11 feedback-loop rule. An
+artefact for the content pass and the game master, which is the §2.11 feedback-loop rule. An
 image would have to be rasterised somewhere, cannot be asserted on, and buys nothing a
 grid does not.
 
@@ -604,7 +660,7 @@ a grid the model narrates cell by cell would be a worse failure than a vague sen
 no grey wash. The precedent is exact: the 1e modules shipped illustration booklets for
 the DM to hold up as the players entered particular rooms (S1's is the famous one). This
 is for the **player**, never the model, so it does not reopen [Room plans](#room-plans)'
-"not an image" — that was about what the referee reads.
+"not an image" — that was about what the game master reads.
 
 Four kinds, in the order they should be built. Assessed, not built; **nothing here is
 committed to until the spike below has been looked at.**
@@ -626,31 +682,31 @@ committed to until the spike below has been looked at.**
 - **Post-processing is code, and it is what makes the style hold.** Every image is
   thresholded to **1-bit** on the server: it guarantees black and white (the commonest
   way these models drift), pulls different models and calls toward one look, shrinks a
-  PNG to ~50–150 KB, and lets the white become the app's paper colour so the plate sits
+  PNG to ~50–150 KB, and lets the white become the app's paper colour so the illustration sits
   on the page rather than in a box.
 - **No image ever blocks a turn.** Prose first, picture when it lands. Nothing in game
   state depends on one existing, and a failed call is a missing picture, never an error.
 - **Paid out of the same budget.** Every image call writes the `spend` ledger and is
   gated by `DAILY_BUDGET_USD` like any other start; see
   [Paying for strangers](#paying-for-strangers),
-  which comes first. Over the budget, a room simply has no plate. The curated shelf's
-  plates are drawn ahead of time by the author, so a guest never causes an image call.
+  which comes first. Over the budget, a room simply has no illustration. The curated shelf's
+  illustrations are drawn ahead of time by the author, so a guest never causes an image call.
 - **Lettering only in a fantasy script.** Where something should carry text — an
   inscription, a sign — ask for it in an invented script of roughly the real text's
   length, never in a readable alphabet. These models write nonsense into readable text.
 
-**Composition: settled in code, by a camera search.** *Built:* `plateView` /
-`viewFrom` (`src/illustrations/view.ts`), `roomPlate` / `plateBrief` / `plateTags`
+**Composition: settled in code, by a camera search.** *Built:* `illustrationView` /
+`viewFrom` (`src/illustrations/view.ts`), `roomIllustration` / `illustrationBrief` / `illustrationTags`
 (`src/illustrations/room-illustration.ts`), the guide image (`src/illustrations/sketch.ts`), and a contact
 sheet checking all of them against the map (`node src/dev/cli-illustration-views.ts [--dungeon
-<json> | --seed N --size S]`, written to `out/plates/`).
+<json> | --seed N --size S]`, written to `out/illustrations/`).
 
 - **The camera is chosen by score.** Nine spots per floor cell, each tried at 36 headings
   (100° field of view, 3:2 frame, eye at 5.5 ft). The camera never stands in a doorway,
   only on the floor in front of one. A doorway view showed the room from somewhere the
   player had not been, sometimes through a sealed door.
-  `PLATE_SCORE`: floor cell 1, feature 100, exit 20, the way in 5. A tie keeps the first, so
-  the view is deterministic. Sight lines are an exact grid walk. A thing counts only once it is past `PLATE_MIN_AHEAD_FT`
+  `ILLUSTRATION_SCORE`: floor cell 1, feature 100, exit 20, the way in 5. A tie keeps the first, so
+  the view is deterministic. Sight lines are an exact grid walk. A thing counts only once it is past `ILLUSTRATION_MIN_AHEAD_FT`
   (~6.9 ft), where the floor enters the bottom of the frame.
 - **Measured (seed 4201, 43 views):** **95% of features and 70% of other exits** are in the
   picture. Before the search, standing in the entry door, it was 74% and 28%. All three
@@ -658,13 +714,13 @@ sheet checking all of them against the map (`node src/dev/cli-illustration-views
   floor is far enough back to frame everything; doorway spots had recovered them at 98%.
   Search time is under 10 ms per view.
 - **The view barely depends on the way in.** At 5 points the entry only breaks ties, so
-  most rooms get the same camera whichever door the player used. The plate is still keyed
+  most rooms get the same camera whichever door the player used. The illustration is still keyed
   by its prompt; it just mostly comes out one per room.
 - **The guide image is architecture plus placement marks, never solids.** A reference gets
   copied, so it carries only what should be: continuous walls with a vertical only at
   corners, outlined doorways, no floor grid. Each visible feature is a dashed footprint
   outline (one per connected piece) with a numbered tag; each visible doorway has a
-  lettered tag. The brief uses the same tags, and `PLATE_GUIDE_NOTE` tells the model the
+  lettered tag. The brief uses the same tags, and `ILLUSTRATION_GUIDE_NOTE` tells the model the
   marks are not to be drawn. `marks: false` draws the architecture alone. **The first
   image test decides** whether models leave the marks out, and which variant to use.
 - **Feature presence, from the rolled table entry** (`featurePresence`,
@@ -679,8 +735,8 @@ sheet checking all of them against the map (`node src/dev/cli-illustration-views
 - **Outlines stop at walls.** A footprint outline is cut into 0.25 ft pieces and only the
   pieces in line of sight are drawn. Walls run floor to ceiling, so seeing a floor
   point is a 2D test.
-- **Hotspots for the page's buttons** (`plateHotspots`, `src/illustrations/hotspots.ts`;
-  `RoomPlate.hotspots`). Positions are fractions of the plate from its top-left, from
+- **Hotspots for the page's buttons** (`illustrationHotspots`, `src/illustrations/hotspots.ts`;
+  `RoomIllustration.hotspots`). Positions are fractions of the illustration from its top-left, from
   the same projection as the guide, so a button sits on the doorway the model was told
   to draw. Each door (the way in carries `role: "entry"`) and each drawable feature is
   one of:
@@ -701,9 +757,15 @@ sheet checking all of them against the map (`node src/dev/cli-illustration-views
 dungeon, because `base` is never written at runtime. It cannot go in the run's `state`
 either, because then only that run could see it and every copy would pay again.
 
+**The database still says "plates".** Everywhere else the word is *illustration*, but
+the Supabase names predate the rename and were kept: the `plates` and `plate_words`
+tables, the public `plates` storage bucket, and its object URLs. Renaming them buys
+nothing a player sees and costs a migration plus a bucket copy (Supabase cannot rename a
+bucket).
+
 ```sql
 create table public.plates (
-  key        text primary key,   -- sha256 of what the plate is drawn from (`plateKey`)
+  key        text primary key,   -- sha256 of what the illustration is drawn from (`illustrationKey`)
   status     text not null check (status in ('pending', 'ready', 'failed')),
   path       text,               -- object path in the storage bucket
   model      text not null,
@@ -713,19 +775,19 @@ create table public.plates (
 );
 ```
 
-- **The key is a hash of what the plate is drawn from, and that gives sharing for
+- **The key is a hash of what the illustration is drawn from, and that gives sharing for
   free.** Not of the final prompt: that carries words Haiku wrote, which differ every
-  call, so a key made from it would never be found again. `plateKey`
+  call, so a key made from it would never be found again. `illustrationKey`
   (`src/server/illustrations/serve.ts`) hashes the Haiku requests, the layout half of the prompt, the
   guide SVG, the style version, the model and quality, and the number of references.
   All of it is a pure function of the room's `base` as generated. A copy of a dungeon builds the same
   prompt and so finds the same image. Two worlds from one seed have different prose, so
   they get different images, which is correct (13a: a seed is a skeleton, not a world).
-  Bumping `PLATE_STYLE_VERSION` or changing the model redraws everything from then on,
+  Bumping `ILLUSTRATION_STYLE_VERSION` or changing the model redraws everything from then on,
   rather than mixing two styles in one dungeon.
 - **Concealment is judged as generated, not as played.** The prompt reads `isHidden`
   from the dungeon doc, never from the run, so a room's key never changes. A secret
-  door the player has found stays out of the plate; drawing it is a state plate
+  door the player has found stays out of the illustration; drawing it is a state illustration
   (kind 4 below), not this.
 - **Files go in a public Supabase Storage bucket**, at `plates/<key>.png`, served by its
   CDN. A public bucket is safe because the key is a hash nobody can work out without the
@@ -734,9 +796,9 @@ create table public.plates (
   - Rejected: `bytea` in Postgres served through the API. That needs no new secret, but
     every image then passes through the function and fills the 500 MB database tier,
     which the curated-shelf decision is already protecting.
-- **One route:** `GET /api/runs/:id/plates/:roomId`.
+- **One route:** `GET /api/runs/:id/illustrations/:roomId`.
   1. Check ownership, as every route does.
-  2. Refuse a room the run has not entered. A plate of an unentered room shows the
+  2. Refuse a room the run has not entered. An illustration of an unentered room shows the
      player that room.
   3. Build the prompt from the dungeon, hash it, and look up the key.
      - `ready`: return the URL.
@@ -746,49 +808,49 @@ create table public.plates (
        `maxDuration` has plenty of room.
      - `pending` under someone else's claim: `202`, and the client asks again in a few
        seconds. A claim older than a named timeout is treated as abandoned.
-     - `failed`: retry while `attempts` is under `PLATE_MAX_ATTEMPTS`; past it, no plate.
-- **`?offline` and `?stub` never request a plate.** The fixture pages stay free.
+     - `failed`: retry while `attempts` is under `ILLUSTRATION_MAX_ATTEMPTS`; past it, no illustration.
+- **`?offline` and `?stub` never request an illustration.** The fixture pages stay free.
 - **Images outlive their dungeons.** Shared by key, so no one dungeon owns one, and at
   ~100 KB each an orphan costs too little to be worth a sweep.
 
-**Room plates are BUILT (2026-10-13)** as described here:
+**Room illustrations are BUILT (2026-10-13)** as described here:
 - migration `20261013120000_plates.sql`, with `plates`, `plate_words` and the public
   `plates` bucket;
-- `servePlate` / `livePlateWork` in `src/server/illustrations/serve.ts`;
+- `serveIllustration` / `liveIllustrationWork` in `src/server/illustrations/serve.ts`;
 - the sharp steps in `src/server/illustrations/image.ts`;
 - the route in `src/server/app.ts`;
 - `Illustration.tsx` in the narration.
 
 Differences from the design above:
 - **The way in is the run's.** Each arrival in the log records `via`, the connector it
-  came in by. `plateEntryFor` draws from the first arrival's door, so the client names
+  came in by. `illustrationEntryFor` draws from the first arrival's door, so the client names
   only the room.
 - **The drawing starts on the server, the moment a turn puts the player in a room
   they have not arrived in** (`playTurn`, kept alive with `waitUntil`), alongside the
-  arrival prose. The page's own ask then finds the plate pending, then ready. Asking
+  arrival prose. The page's own ask then finds the illustration pending, then ready. Asking
   only from the page put the ~25 s drawing behind the prose.
-- **`plate_words`** keeps the per-dungeon SETTING line, so every plate in a dungeon is
+- **`plate_words`** keeps the per-dungeon SETTING line, so every illustration in a dungeon is
   drawn against the same line.
 - **Three paid calls in one request:** the setting (once per dungeon), the room's words
   and the image. That is about 25–35 s.
 - **No budget check yet.** The `spend` ledger and `DAILY_BUDGET_USD` do not exist (see
-  [Paying for strangers](#paying-for-strangers)). The gate today is that a plate is
-  only drawn for an entered room, at most `PLATE_MAX_ATTEMPTS` (3) tries per key.
-  When the ledger lands, the claim in `servePlate` is where the check goes.
+  [Paying for strangers](#paying-for-strangers)). The gate today is that an illustration is
+  only drawn for an entered room, at most `ILLUSTRATION_MAX_ATTEMPTS` (3) tries per key.
+  When the ledger lands, the claim in `serveIllustration` is where the check goes.
 - **The off switch is configuration.** Without `FAL_KEY`, `SUPABASE_URL` and
   `SUPABASE_SERVICE_ROLE_KEY`, every room answers `none`.
 - **Guide tags are stroked paths, not `<text>`.** A serverless function has no fonts,
   so sharp would rasterise `<text>` as nothing.
-- **The plate's buttons are BUILT, as white dots only.** A ready answer carries
-  `spots` (`plateSpots`, `src/illustrations/room-illustration.ts`): one per point of each `shown` hotspot
+- **The illustration's buttons are BUILT, as white dots only.** A ready answer carries
+  `spots` (`illustrationSpots`, `src/illustrations/room-illustration.ts`): one per point of each `shown` hotspot
   that has a guide tag, so a dot sits where the guide's marker was. They are recomputed
   from the dungeon on every ask, not stored with the image. Each dot is the map's marker
   for that thing (`doorHover` / `fixtureHover` in `DungeonMap.tsx`): the same card, the
-  same verb, and the same `lit` id, so the plate, the map and the room card light
+  same verb, and the same `lit` id, so the illustration, the map and the room card light
   together. A thing the map does not show has no dot. The way out of the dungeon is
   torch, as on the map. Dots have a 3 px ink rim. The door they came in by
-  (`ExitView.cameFrom`) carries a U-turn. Only the plate of the room the player is in has
-  buttons. A resumed run asks only for the current room's plate; rooms already arrived in
+  (`ExitView.cameFrom`) carries a U-turn. Only the illustration of the room the player is in has
+  buttons. A resumed run asks only for the current room's illustration; rooms already arrived in
   at mount (`resumed` in `PlayScreen`) are skipped. Not built yet: the `around`, `behind-wall` and `off-frame` arrows.
 
 **Dungeon covers are BUILT (2026-10-13).** A cover is the dungeon's exterior: the picture
@@ -799,32 +861,32 @@ on its library card, beside it in run setup, and above its opening.
   a run starts. So a new dungeon's cover lands a few seconds after its opening, and the
   run never waits for it.
 - **From:** `coverDescription`, which is the opening prose plus the surface connector
-  into the first room, condensed by `requestPlateExterior` and drawn by `COVER_MODEL`
+  into the first room, condensed by `requestIllustrationExterior` and drawn by `COVER_MODEL`
   (klein 4B, prompt only, seeded with the dungeon seed). It is stored in `plates` like a
-  room plate.
+  room illustration.
 - **Copies** carry the key, so they share the picture. Dungeons finished before covers
   have none and are never drawn.
 
 **Presentation: inline, at the arrival, in the page's own ink.**
 
-- **The plate sits in the room's arrival section in the narration**, between the room
+- **The illustration sits in the room's arrival section in the narration**, between the room
   name and its prose (`Narration.tsx`, the `arrival` branch). That is the module-booklet
   moment, and it makes the scrollback an illustrated record of the run.
   - Rejected: the room card, which is 320px wide and has no room for a picture.
   - Rejected: the map area, which is for the map.
 - **Space is reserved at a fixed 3:2 the moment the player arrives**, with a faint
-  pencil placeholder, so a plate landing a few seconds later fills the space rather than
+  pencil placeholder, so an illustration landing a few seconds later fills the space rather than
   shoving the text the player is reading. The space collapses only on `failed`, which
   is rare.
-- **The plate is drawn as ink, not shown as a photograph.** The server stores the 1-bit
+- **The illustration is drawn as ink, not shown as a photograph.** The server stores the 1-bit
   image as black on transparent, and the page uses it as a CSS `mask-image` over a
   `--color-ink` fill. The lines are exactly the text's ink, the paper is the page's
   paper, and there is no box edge.
 - **Width is the prose measure (62ch).** A click opens it full size: the booklet held up.
-- **First arrival only.** Re-entering a room does not repeat its plate; the scrollback
+- **First arrival only.** Re-entering a room does not repeat its illustration; the scrollback
   already has it.
 
-**1. Room plates — lazily, on first entry.** Generating every room at generation time
+**1. Room illustrations — lazily, on first entry.** Generating every room at generation time
 pays for rooms nobody reaches (R2 saw 3 of 12). The image call fires alongside the
 room-entry call and arrives a few seconds after the prose. Architecture, fixtures and
 atmosphere only: **no creatures and no loose items** — they move, die and get picked up,
@@ -847,12 +909,12 @@ first time the kind is met.
   with grey fringing), and fal's background removers are ~$0.01–0.025 per image.
 - **Removing a sprite is free**, so a death, a creature leaving and a creature arriving
   cost nothing to show.
-- **Compositing into the plate is the risk, not the generation.** A figure dropped into
+- **Compositing into the illustration is the risk, not the generation.** A figure dropped into
   a scene drawn without it reads as collage — wrong scale, wrong perspective, no ground
-  contact — and code does not know where the plate's floor is. **Two layouts to compare
-  in the spike:** in-scene (plates prompted with an open foreground floor, sprites placed
+  contact — and code does not know where the illustration's floor is. **Two layouts to compare
+  in the spike:** in-scene (illustrations prompted with an open foreground floor, sprites placed
   along a bottom band and scaled by size), and **spot art** beside or overlapping the
-  plate's edge the way the Monster Manual set its figures. Spot art cannot look wrong and
+  illustration's edge the way the Monster Manual set its figures. Spot art cannot look wrong and
   is the default unless in-scene is convincingly better.
 - **Interacts with [First impressions](#first-impressions)**: a sprite shows a stranger
   without naming her, which is the point of that feature.
@@ -865,25 +927,25 @@ first time the kind is met.
   Shop, sheet and inventory all get it.
 - **Unique items** — loot, keys, the objective — lazily, the first time one is taken or
   closely inspected. Dungeon-scoped when the item is in the generated dungeon; run-scoped
-  when the referee created it mid-run.
+  when the game master created it mid-run.
 
-**4. State plates — redrawing a room that has changed.** Feasible with the image *edit*
+**4. State illustrations — redrawing a room that has changed.** Feasible with the image *edit*
 models (FLUX.2 edit, FLUX Kontext, Nano Banana, GPT Image), which take the existing image
 plus an instruction — *"the brazier lies overturned, the floor is ankle-deep in water"* —
 and keep everything else. ~$0.015–0.045 per edit.
 
-- **Always edit from the `base` plate**, with the current visible description. Never
+- **Always edit from the `base` illustration**, with the current visible description. Never
   chain edits on edits: each pass degrades, and the drawing drifts away from the style.
 - **The trigger is the gate that already exists.** Room entry recomposes the room only
   when the staleness sweep finds `needUpdate` on the room itself (§2.9); a redraw rides
   that and nothing else, so it costs at most one edit per re-entry of a changed room, and
   never one per turn.
-- **A cap per run, as a named constant.** Past it the room keeps its last plate. A
+- **A cap per run, as a named constant.** Past it the room keeps its last illustration. A
   changed room drawn as it was is a stale picture — tolerable, because the prose and the
   room card are what bind, and the cap is what keeps a long run's cost bounded.
-- **Open: is every room recomposition worth a redraw**, or does the referee mark the
+- **Open: is every room recomposition worth a redraw**, or does the game master mark the
   changes that are *visible*? A flag on the commit is a judgement rather than a number, so
-  §2.1 allows it — but it is another thing the referee can get wrong. Decide from the spike.
+  §2.1 allows it — but it is another thing the game master can get wrong. Decide from the spike.
 
 **Cost.** Aggregator prices, Aug–Oct 2026; verify before committing.
 
@@ -931,15 +993,15 @@ It writes a contact sheet to `out/illustrate/index.html`.
     content-pass length. Footprints are relabelled only where the shape suits.
   - Single things (an altar, a desk) only take one-piece footprints.
 - **What the image model gets**:
-  - a fixed style text (`PLATE_STYLE`, versioned by `PLATE_STYLE_VERSION`);
+  - a fixed style text (`ILLUSTRATION_STYLE`, versioned by `ILLUSTRATION_STYLE_VERSION`);
   - the guide image's role;
   - a per-dungeon SETTING line;
   - the room's shell;
   - every thing in the frame, with a short look and where it goes.
 
-  The looks and shell come from one Haiku call per plate (`plate-visual` task,
+  The looks and shell come from one Haiku call per illustration (`illustration-visual` task,
   `src/illustrations/visual.ts`; request text in `src/illustrations/prompt.ts`), which is
-  forbidden numbers and positions. The WHERE is `plateView`'s.
+  forbidden numbers and positions. The WHERE is `illustrationView`'s.
   - Out-of-frame things and senses are not mentioned at all; naming something only to
     say "don't draw it" invites it.
   - Exteriors are built from their description alone: a dungeon's THEME is about its
@@ -955,22 +1017,22 @@ It writes a contact sheet to `out/illustrate/index.html`.
 **Spike outcome — DECIDED (2026-10-13, about $8 in all).** Judged on the 1-bit versions.
 
 - **Interiors: GPT Image 2 at low quality, with the marked guide plus style references.**
-  About $0.015 and 20 s a plate.
+  About $0.015 and 20 s an illustration.
   - Of everything tried, GPT followed the prompt and the guide most closely. Medium
     quality was no better than low.
   - The marked guide fits the layout a little more closely than the unmarked one (the
     author's call), so marks stay. GPT never drew them; klein always did.
   - Canny was useless: it returned the wireframe with nothing on the walls.
-- **Style: PLATE_STYLE v2, "sparse"**: mostly white paper, shading only in the deepest
+- **Style: ILLUSTRATION_STYLE v2, "sparse"**: mostly white paper, shading only in the deepest
   shadows. v1 asked for cross-hatching and stippling and got dense engraving that went
   busy or black at 1-bit.
-- **Style references: klein [4B] no-guide plates of I7, I8, I9 and I10** (barracks, flooded
+- **Style references: klein [4B] no-guide illustrations of I7, I8, I9 and I10** (barracks, flooded
   nave, overgrown temple, forge cave), in the sparse style.
   - They are sent as 1-bit at 768×512, after the guide, with a role note
-    (`plateReferenceNote`). Any frame klein drew is cropped off first.
-  - Klein had the best line art of any model but follows content loosely. Its plates as
+    (`illustrationReferenceNote`). Any frame klein drew is cropped off first.
+  - Klein had the best line art of any model but follows content loosely. Its illustrations as
     references gave GPT's content klein's look.
-  - The references are kept in the repo at `assets/plate-refs/` (with a README saying
+  - The references are kept in the repo at `assets/illustration-refs/` (with a README saying
     where each came from). The server route has to bundle them; on Vercel that means
     listing them in the function's included files.
 - **Exteriors: klein [4B], prompt only, sparse style.** It was best on the castle and tied
@@ -1009,14 +1071,14 @@ obstacles should be beatable with a single roll."*
 
 A connector's `conditional` is **one string** describing one obstacle — the grate's was
 *"locked from this side, the chains wrapped through the bars, the mechanism seized with
-rust and brine"*. The referee read that clause list as three **separate obstacles** and
+rust and brine"*. The game master read that clause list as three **separate obstacles** and
 charged a roll for each. Nothing told it otherwise, and its reading is not unreasonable:
 the prose does describe three things.
 
 Two halves, both needed:
 
 1. **The rule, in `3-standard.md`:** a `conditional` is a single obstacle. One successful
-   roll clears it and the diff that follows is `conditional = null`. A referee that wants
+   roll clears it and the diff that follows is `conditional = null`. A game master that wants
    to charge a second roll needs a reason from the fiction that arose **after** the first
    — a new fact the player uncovered — not a second noun in the same sentence.
 2. **The prose, in the content pass:** stop writing `conditional` as a pile of clauses.
@@ -1044,7 +1106,7 @@ questions:
    of how many are in the room. The fiction carries the rest as pressing in, waiting for
    an opening, blocking the way — which is what a real melee looks like and what a crowded
    doorway does. The cap is a number in code that the resolution step is told about, not a
-   judgement the referee makes. **Suggest 3.** It also bounds the batched `roll` call,
+   judgement the game master makes. **Suggest 3.** It also bounds the batched `roll` call,
    which would otherwise roll thirteen attacks in one go.
 
 (3) needs no measurement, is the cheapest, and is the one the player feels. It can ship
@@ -1056,7 +1118,7 @@ alone.
 
 **The magnetic field did nothing.** The player walked through it wearing chain, carrying a
 sword and a helmet, and nothing happened. An effect with no mechanical consequence written
-for it is an effect the referee has no way to apply.
+for it is an effect the game master has no way to apply.
 
 **Decide in session:** either effects need a consequence field the content pass fills in,
 or the resolution step needs to be told that walking into an effect is an event. The open
@@ -1070,7 +1132,7 @@ question is how an effect with no written consequence reaches the resolution ste
 response."* And generally: *"Creatures need more guidance to make NPCs act more normal
 when the player talks to them."*
 
-The referee's own R2 traces say what is missing. It reasons about **Wendy's position** and
+The game master's own R2 traces say what is missing. It reasons about **Wendy's position** and
 **Zora's position** as two separate one-on-one relationships with the player, and closes
 with *"No other creatures act"* — written about a room holding exactly the creature that
 had just been insulted. It is not ignoring Zora; it is handed the player's action and one
@@ -1150,7 +1212,7 @@ what to build, not what to reconsider.
 - **`Commit.takeOffers?: TakeOffer[]`**, attached to a commit whose `nextStage` is
   `awaiting_action`. An offer is either an item that already exists (`itemId`), or one
   that is part of something else (`from: { sourceId, sourceState, item: EntitySpec }`) —
-  the gem in the statue's eye, where the referee has already written both the new thing
+  the gem in the statue's eye, where the game master has already written both the new thing
   and what the statue looks like without it.
 - **Clicking costs no model call**, which is the point. The offer already carries
   everything the applier needs: `{itemId, "parentId", "player"}` for the first case;
@@ -1168,7 +1230,7 @@ what to build, not what to reconsider.
 
 ### An Rng inside the applier
 
-**An item the referee creates mid-run is worth 0.** The grade-rolled value needs an `Rng`
+**An item the game master creates mid-run is worth 0.** The grade-rolled value needs an `Rng`
 inside the applier, which is the same plumbing [Take Item](#take-item) wants. Until then
 `createEntity` writes `value: 0` and says so at the site.
 
@@ -1226,14 +1288,14 @@ detail tables and wrong for this one.
 down to better represent first impressions."*
 
 R2, on first sight: *"One is a wiry woman with intricate braids—Wendy, you think, though
-you have never seen her in the flesh."* The referee is patching around a name it was handed
+you have never seen her in the flesh."* The game master is patching around a name it was handed
 and had no way to withhold. `entity.name` is identity and is **not runtime writable**
 (§2.4), the room card renders it, and the prompt renders it — so a stranger across a dark
 room is labelled.
 
 **The proposal: a `properNamed` flag, false at first.** While false, the name is a
 description the player would arrive at — *"a wiry woman with braids"* — the room card shows
-that, the prompt shows that, and the referee may **write the true name in** the moment the
+that, the prompt shows that, and the game master may **write the true name in** the moment the
 fiction earns it, flipping the flag. That makes `name` writable exactly once, through one
 path, which is a narrow enough exception to §2.4 to be worth stating there rather than a
 hole in it.
@@ -1335,7 +1397,7 @@ dungeon is ~1500cp against a Knave starting purse of 60–360.
   same commit created.
 - **The resolution write.** `commit.learned` names challenges whose fact the player now
   knows, and `recordFact` writes it into `state` **on the thing it is true of, in the
-  dungeon's own words** rather than the referee's. It FANS OUT to every entity the
+  dungeon's own words** rather than the game master's. It FANS OUT to every entity the
   challenge anchors to — the spec named that as the fix if the single-entity version bit,
   and it costs one loop.
 - **`mapped`.** A region challenge carries `roomIds`, and drawing it puts them on the
@@ -1641,7 +1703,7 @@ create index spend_owner_idx on public.spend (owner_id, at);
 ledger data rather than guessed now:
 
 - **`DAILY_BUDGET_USD` gates starting things**: generating a dungeon, starting a run,
-  drawing a plate. Once today's ledger sum passes it, the app stays open for anything
+  drawing an illustration. Once today's ledger sum passes it, the app stays open for anything
   free (the roster, the shop, the library, finished runs) and says plainly that the
   dungeon is closed until tomorrow (UTC).
 - **`HARD_CEILING_USD` gates every call**, turns included. It is set above the budget,
@@ -1722,7 +1784,7 @@ Input is about 72% of play's cost: ~9.3K input tokens per call against ~0.7K out
     rather than capping the worst one.
 - **A curated shelf of finished dungeons** is what a guest plays. **Not for the token
   saving, which is small:** generation is 3–15% of a run. It is worth having anyway:
-  - **The plates are the real money**, roughly 10 rooms at $0.014–0.075 each, which is
+  - **The illustrations are the real money**, roughly 10 rooms at $0.014–0.075 each, which is
     5–20× a dungeon's generation cost. Drawn once ahead of time, a guest never pays for
     them.
   - **The first click plays immediately.** Generation takes about a minute, which is
@@ -1738,7 +1800,7 @@ Input is about 72% of play's cost: ~9.3K input tokens per call against ~0.7K out
   altered by playing it.
 **Builds on** [Dungeons as a generation cache](#dungeons-as-a-generation-cache). A
 guest's shelf and a member's cache hit are the same idea: a world somebody already
-built. Like the shelf, that cache is worth more for latency and plates than for tokens.
+built. Like the shelf, that cache is worth more for latency and illustrations than for tokens.
 
 ---
 
@@ -1750,19 +1812,19 @@ badge.
 
 ---
 
-### Telling the referee it got something wrong
+### Telling the game master it got something wrong
 
 **Deferred on purpose, and recorded so the next reader does not re-derive it.** The author
 raised it after R1 and was unsure of the shape. R2 was the playtest that was to decide it
 and it says: still deferred, and now we know what it would have been for — the ledger took
-three attempts and the referee published a discarded draft, and a "that's wrong" button
+three attempts and the game master published a discarded draft, and a "that's wrong" button
 would have been the player patching over both. Both have real fixes and both shipped.
 
-**Revisit after a run in which the machine is behaving and the referee is still wrong.**
+**Revisit after a run in which the machine is behaving and the game master is still wrong.**
 
 Three shapes were considered: a *"that's wrong"* button opening a correction turn that may
 rewrite `state` and `composed`; a persistent out-of-character input channel addressed to
-the referee as a referee; and nothing at all, on the theory that a referee which cannot be
+the game master as a game master; and nothing at all, on the theory that a game master which cannot be
 argued with is part of the genre. No decision.
 
 ---

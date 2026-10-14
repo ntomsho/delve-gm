@@ -2,7 +2,7 @@
  * The two axes of where a turn is.
  *
  * `Stage` is what the PLAYER is being told — it drives the input area and
- * nothing else. `Step` is where the REFEREE is in the heuristic — it drives
+ * nothing else. `Step` is where the GAME MASTER is in the heuristic — it drives
  * which step files load into the next call.
  *
  * They are not the same shape and cannot be collapsed. One stage arises from
@@ -18,7 +18,7 @@ export type Stage =
   /** "What do you do?" */
   | "awaiting_action"
   /**
-   * The action has been sent and the referee is working.
+   * The action has been sent and the game master is working.
    *
    * Not in BUILD-PLAN §4.1, and needed because of the narration decision: prose
    * is held back until the commit validates and applies, so the player is not
@@ -27,7 +27,7 @@ export type Stage =
    * not the exception.
    */
   | "thinking"
-  /** the referee needs the player to disambiguate or justify */
+  /** the game master needs the player to disambiguate or justify */
   | "clarifying"
   /** action turned away; no state changed */
   | "rejected"
@@ -35,22 +35,22 @@ export type Stage =
   | "roll_offered"
   /** dice in flight — client-side, no model call */
   | "rolling"
-  /** the referee is writing the outcome */
+  /** the game master is writing the outcome */
   | "resolving"
   /**
    * The call failed, or came back unusable twice. The player's text is kept so
    * a retry costs them nothing. Also not in BUILD-PLAN: a turn that cannot be
    * completed is a state the game can be in, and it is the software talking
-   * rather than the referee.
+   * rather than the game master.
    */
   | "error"
   | "dead"
   /**
    * The player walked out through a way to the surface.
    *
-   * WRITTEN BY THE REFEREE, NEVER STORED. Which ending a departure is depends on
+   * WRITTEN BY THE GAME MASTER, NEVER STORED. Which ending a departure is depends on
    * whether the goal was accomplished, and that is world state rather than
-   * something the referee should be trusted to remember — so the store resolves
+   * something the game master should be trusted to remember — so the store resolves
    * this into `goal_met` or `escaped` the moment the commit lands, the same way
    * hit points at zero override whatever came next. The player is never told
    * "departed"; they are told which one it was.
@@ -63,7 +63,7 @@ export type Stage =
   /**
    * The player walked away from the run rather than out of the dungeon.
    *
-   * THE ONE TERMINAL STAGE NO REFEREE CAN WRITE. Every other ending is something
+   * THE ONE TERMINAL STAGE NO GAME MASTER CAN WRITE. Every other ending is something
    * that happened in the fiction and arrives on a commit; this one is the player
    * closing the book, so it is set by an endpoint of its own and costs no model
    * call, no dice, and no turn. The character is freed and the run keeps
@@ -83,7 +83,7 @@ export type Step =
 /**
  * Stages that end the run.
  *
- * `departed` is here because a referee that writes it has ended the run whatever
+ * `departed` is here because a game master that writes it has ended the run whatever
  * the store resolves it to, and anything asking `isTerminal` of a commit rather
  * than of stored state must get the same answer.
  */
@@ -97,7 +97,7 @@ export const TERMINAL_STAGES: readonly Stage[] = [
 
 /**
  * Stages in which the world must not change. Enforced by the applier, not by
- * trusting the referee to have read the rule.
+ * trusting the game master to have read the rule.
  */
 export const NO_CHANGE_STAGES: readonly Stage[] = ["clarifying", "rejected"];
 
@@ -138,7 +138,7 @@ export interface RollSpec {
   /** attacks with advantage: spend it normally, or on stunt-and-damage */
   advantageUse?: "normal" | "stunt-and-damage";
 
-  // --- referee-side, never rendered ---
+  // --- game-master-side, never rendered ---
   /**
    * The number to meet. Hidden from the player.
    *
@@ -156,7 +156,7 @@ export interface RollSpec {
 }
 
 /**
- * A roll the player has already made. The referee reads it; it never rolls.
+ * A roll the player has already made. The game master reads it; it never rolls.
  *
  * Here rather than in `turn.ts` — where it was until the pending request below
  * needed it — because a machine is not the only thing entitled to know what a

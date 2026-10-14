@@ -1729,7 +1729,7 @@ export function generateFloorplanValid(
 
 /**
  * The equivalent of `dungeon.valid`, and what makes topological accuracy a
- * guarantee rather than a hope. The map is planning information the referee has
+ * guarantee rather than a hope. The map is planning information the game master has
  * to be able to agree with, so this is not optional.
  */
 export function validateFloorplan(fp: Floorplan, graph: Dungeon, sd: StockedDungeon): string[] {

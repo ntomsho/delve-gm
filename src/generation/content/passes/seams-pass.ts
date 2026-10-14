@@ -195,7 +195,7 @@ const SEAMS_PASS_SCHEMA = `Return JSON only, no prose outside it:
  *
  * A seam that never comes back is the worst-placed gap in the dungeon: it is by
  * definition a way between two regions, so a player meets it while crossing from
- * one to the other, and it has no form for the referee to describe.
+ * one to the other, and it has no form for the game master to describe.
  */
 export function seamsPassOmissions(payload: SeamsPassPayload, res: SeamsPassResponse): Omission[] {
   const written = new Set((res.connectors ?? []).map((c) => c.ref));

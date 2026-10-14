@@ -1,5 +1,5 @@
 /**
- * The buttons on a room's plate: each dot is the map's marker for the same
+ * The buttons on a room's illustration: each dot is the map's marker for the same
  * thing — the same card, the same question, the same highlight.
  *
  * A hand-built `MapView` with one door and one bench, for the reason
@@ -11,10 +11,10 @@ import { act } from "react";
 import { describe, expect, it } from "vitest";
 import { DungeonMap } from "./DungeonMap.tsx";
 import { ActionPill, HoverProvider } from "./hover.tsx";
-import { Plate } from "./Illustration.tsx";
+import { Illustration } from "./Illustration.tsx";
 import { color } from "../shared/theme.ts";
 import { hover, press, renderDom, unhover } from "../test-utils/dom.ts";
-import type { PlateAnswer } from "../../illustrations/room-illustration.ts";
+import type { IllustrationAnswer } from "../../illustrations/room-illustration.ts";
 import type { MapConnectorView, MapFixtureView, MapView } from "../../gameplay/view/selectors.ts";
 
 const door: MapConnectorView = {
@@ -61,13 +61,13 @@ const map: MapView = {
   fixtures: [bench],
 };
 
-const ready: PlateAnswer = {
+const ready: IllustrationAnswer = {
   status: "ready",
-  url: "https://cdn.example/plates/a.png",
+  url: "https://cdn.example/illustrations/a.png",
   spots: [
     { id: "c1", x: 0.25, y: 0.5 },
     { id: "f1", x: 0.6, y: 0.8 },
-    // Not on the map yet, so not on the plate either.
+    // Not on the map yet, so not on the illustration either.
     { id: "f-unseen", x: 0.9, y: 0.9 },
   ],
 };
@@ -79,12 +79,12 @@ async function shown(el: React.ReactElement) {
 }
 
 const spot = (r: { container: HTMLElement }, id: string) =>
-  r.container.querySelector(`[data-plate-spot="${id}"]`) as HTMLElement | null;
+  r.container.querySelector(`[data-illustration-spot="${id}"]`) as HTMLElement | null;
 const pill = () => document.querySelector(".react-tooltip__show [data-sends]");
 
-describe("a plate's buttons", () => {
+describe("an illustration's buttons", () => {
   it("puts a dot where each spot is, for what the map shows and nothing else", async () => {
-    const r = await shown(<Plate id="here" subject="The here" load={async () => ready} map={map} />);
+    const r = await shown(<Illustration id="here" subject="The here" load={async () => ready} map={map} />);
     expect(spot(r, "c1")!.style.left).toBe("25%");
     expect(spot(r, "c1")!.style.top).toBe("50%");
     expect(spot(r, "f1")).not.toBeNull();
@@ -92,7 +92,7 @@ describe("a plate's buttons", () => {
   });
 
   it("marks the way they came in by with a U-turn, and only that one", async () => {
-    const r = await shown(<Plate id="here" subject="The here" load={async () => ready} map={map} cameFrom="c1" />);
+    const r = await shown(<Illustration id="here" subject="The here" load={async () => ready} map={map} cameFrom="c1" />);
     expect(spot(r, "c1")!.hasAttribute("data-came-from")).toBe(true);
     expect(spot(r, "c1")!.querySelector("svg")).not.toBeNull();
     expect(spot(r, "f1")!.hasAttribute("data-came-from")).toBe(false);
@@ -100,14 +100,14 @@ describe("a plate's buttons", () => {
   });
 
   it("is only a picture without a map", async () => {
-    const r = await shown(<Plate id="here" subject="The here" load={async () => ready} />);
-    expect(r.container.querySelector("[data-plate-spot]")).toBeNull();
+    const r = await shown(<Illustration id="here" subject="The here" load={async () => ready} />);
+    expect(r.container.querySelector("[data-illustration-spot]")).toBeNull();
   });
 
   it("asks the map's question, and a click on a dot does not open the full size", async () => {
     const r = await shown(
       <HoverProvider acting onAct={() => {}} reachable={new Set(["c1"])}>
-        <Plate id="here" subject="The here" load={async () => ready} map={map} />
+        <Illustration id="here" subject="The here" load={async () => ready} map={map} />
         <ActionPill />
       </HoverProvider>
     );
@@ -120,7 +120,7 @@ describe("a plate's buttons", () => {
   it("lights with the map, both ways", async () => {
     const r = await shown(
       <HoverProvider>
-        <Plate id="here" subject="The here" load={async () => ready} map={map} />
+        <Illustration id="here" subject="The here" load={async () => ready} map={map} />
         <DungeonMap map={map} />
       </HoverProvider>
     );

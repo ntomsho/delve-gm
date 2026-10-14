@@ -11,7 +11,7 @@
  * `base` is identity — what a thing IS, as against how it currently stands. If
  * something changed enough that its base would need rewriting, that is not an
  * edit, it is a new entity. `name` goes with it: names were written once
- * alongside base, and a referee renaming things mid-run makes the transcript
+ * alongside base, and a game master renaming things mid-run makes the transcript
  * and the map disagree about what happened.
  */
 
@@ -58,9 +58,9 @@ const WRITABLE: Record<EntityKind, readonly string[]> = {
   // whether a thing IS the puzzle was settled at generation.
   RoomFeature: [...COMMON, "roomId", "resolved"],
   // `value` is deliberately absent: what a thing is worth is a number, and the
-  // referee does not write numbers. The two book fields are not the same kind
+  // game master does not write numbers. The two book fields are not the same kind
   // of thing — they are a reading being recorded, and both come back off the
-  // `consult` roll rather than out of the referee's head.
+  // `consult` roll rather than out of the game master's head.
   Item: [...COMMON, "currentQuality", "amount", "parentId", "book.uses", "book.exhausted"],
   MobileEffect: [...COMMON, "roomIds"],
   Hazard: [...COMMON, "sprung", "active"],

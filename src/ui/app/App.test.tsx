@@ -8,7 +8,7 @@
  * checked that the thing in the middle still starts.
  *
  * It runs on `?offline=1`, which means the fixture dungeon AND the fixture
- * referee — no network, no key, no model. Everything here is free and fast, and
+ * game master — no network, no key, no model. Everything here is free and fast, and
  * a failure means the wiring broke rather than that a model said something
  * unexpected.
  */
@@ -68,7 +68,7 @@ describe("?offline=1", () => {
     });
     await settle();
 
-    // The stub referee's search branch. What matters is that a turn went all
+    // The stub game master's search branch. What matters is that a turn went all
     // the way through the session and back onto the page.
     expect(text()).toContain("I search the floor");
     expect(text()).toContain("tin box");

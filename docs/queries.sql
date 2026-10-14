@@ -8,7 +8,7 @@
 -- forever, and the dashboard already exists and is already behind your login.
 --
 -- WHAT COMES BACK IS ALREADY COMPACT. A `system` journal event used to carry
--- 25-45 kB of playbook and carried it again on every referee call. The text now
+-- 25-45 kB of playbook and carried it again on every game master call. The text now
 -- lives once in `prompt_blocks` and the event names it by hash, so `select
 -- payload from journal_events` is the turn and not the instructions wrapped
 -- around it. Read `journal_events_full` instead when the PROMPT is the question.
@@ -81,7 +81,7 @@ select 'generation', d.id::text, u.email,
 --
 -- Swap `journal_events` → `journal_events_full` and `dungeon_events` →
 -- `dungeon_events_full` to get the playbook text back. That is a 40 kB row per
--- referee call and you almost never want it.
+-- game master call and you almost never want it.
 
 with j as (
   select at, kind, payload from dungeon_events

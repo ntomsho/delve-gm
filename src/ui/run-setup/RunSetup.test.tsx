@@ -267,9 +267,9 @@ describe("the daily allowance", () => {
 
 describe("a world's cover", () => {
   it("is drawn small beside a world that has one", () => {
-    const { page } = setup([world({ cover: "https://cdn.example/plates/a.png" }), world({ id: "d-2", name: "Bare" })]);
+    const { page } = setup([world({ cover: "https://cdn.example/illustrations/a.png" }), world({ id: "d-2", name: "Bare" })]);
     const inks = [...page.container.querySelectorAll("div")].filter((d) =>
-      (d as HTMLElement).style.maskImage.includes("https://cdn.example/plates/a.png")
+      (d as HTMLElement).style.maskImage.includes("https://cdn.example/illustrations/a.png")
     );
     expect(inks).toHaveLength(1);
   });

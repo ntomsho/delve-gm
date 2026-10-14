@@ -4,7 +4,7 @@
  *
  * Pure and seeded, like all of the domain code outside the shells. Every number a
  * character is made of comes from an `Rng` passed in — the same rule the
- * referee lives under at runtime, applied here so that a character is a
+ * game master lives under at runtime, applied here so that a character is a
  * function of a seed and a handful of choices rather than of when it was made.
  *
  * The tables are in `tables.ts`. This file is the dice and the rules.

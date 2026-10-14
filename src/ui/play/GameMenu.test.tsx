@@ -21,7 +21,7 @@ describe("the game menu", () => {
     expect(left).toBe(1);
   });
 
-  it("waits while the referee is working, because the turn is still being saved", async () => {
+  it("waits while the game master is working, because the turn is still being saved", async () => {
     let left = 0;
     const r = renderDom(h(GameMenu, { onMainMenu: () => left++, busy: true }));
     expect(button(r.container).disabled).toBe(true);

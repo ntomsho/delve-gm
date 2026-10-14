@@ -166,12 +166,12 @@ Level does not move money.
 
 Held back from the partition:
 
-- **10% of the pot**, as the referee's ad-hoc allowance (§7.1).
+- **10% of the pot**, as the game master's ad-hoc allowance (§7.1).
 - **A goal slice**, released or redistributed after the content pass (§6).
 
 `VALUE_BANDS`, `rollItemValue`, and `gradeFor` all go. Three call sites break:
 `entities-pass.ts:428`, `content-pass.ts:1518` (the goal item),
-and `equipment.test.ts`. The note at `apply.ts:610` about a grade the referee
+and `equipment.test.ts`. The note at `apply.ts:610` about a grade the game master
 might name goes with them.
 
 ### 3.4 What a key is worth
@@ -231,12 +231,12 @@ Consequences worth stating:
 - The keys pass shrinks to the *placed* set only, roughly four entries at size 5
   rather than thirty.
 - A drawn key's fiction is invented under a turn's time pressure, so the draw
-  payload hands the referee the target's `base` even when the player has never
+  payload hands the game master the target's `base` even when the player has never
   seen the target, plus the rolled fact. Prompt assembly already runs `roomView`
   with `includeHidden: true`, so this is the existing norm rather than a new
   leak.
 
-The referee picks from the offered list; the applier refuses any id not in the
+The game master picks from the offered list; the applier refuses any id not in the
 pool, already drawn, or already resolved. The prompt encourages picking something
 nearby or thematically tied to what the player is doing. If that produces weird
 results, the fallback is trimming the offered list in code — not moving the
@@ -387,7 +387,7 @@ low 50    moderate 100    high 200        level at 1000
 ```
 
 Judging risk after the fact is strictly better than judging it in the heat of the
-turn, and it takes the XP call off the referee entirely.
+turn, and it takes the XP call off the game master entirely.
 
 **A run that ends in death does not tally.** The ledger is still written, for the
 journal and for the record.

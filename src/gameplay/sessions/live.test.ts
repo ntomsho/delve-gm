@@ -2,7 +2,7 @@
  * THE ONE TEST THAT SPENDS MONEY
  * ==============================
  *
- * Everything else in this repo proves the referee behaves correctly when the
+ * Everything else in this repo proves the game master behaves correctly when the
  * model answers the way the test says it does. That is most of what is worth
  * checking, and it is not the same as knowing a real model can play the game.
  * A tool schema the API rejects, a prompt that produces a commit naming ids
@@ -53,7 +53,7 @@ function apiKey(): string {
   return value;
 }
 
-describe.skipIf(!LIVE)("a real model refereeing a real turn", () => {
+describe.skipIf(!LIVE)("a real model running a real turn", () => {
   beforeAll(() => {
     configureTransport({
       baseUrl: "https://api.anthropic.com",
@@ -63,7 +63,7 @@ describe.skipIf(!LIVE)("a real model refereeing a real turn", () => {
 
   /**
    * A whole run in one object, exactly as the app and the CLI build one: the
-   * fixture dungeon so only the turns cost anything, the real referee, and the
+   * fixture dungeon so only the turns cost anything, the real game master, and the
    * journal on disk — which is also the only automated check that the journal
    * survives a real turn.
    */
@@ -115,8 +115,8 @@ describe.skipIf(!LIVE)("a real model refereeing a real turn", () => {
     expect(state().log.length).toBeGreaterThan(before);
 
     // --- something with stakes ------------------------------------------
-    // The whole roll cycle: the referee puts terms on the table, the interface
-    // throws the dice, and the referee resolves what they said. This is the
+    // The whole roll cycle: the game master puts terms on the table, the interface
+    // throws the dice, and the game master resolves what they said. This is the
     // path with the most moving parts and the one worth spending a call on.
     const beforeRoll = state().log.length;
     await session.submit("I climb down into the chasm, as far as I can get.");

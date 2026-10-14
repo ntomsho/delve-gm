@@ -45,14 +45,14 @@ import * as repo from "./db/repo.ts";
 import { allowanceOf, hasRunLeft, mayStartRunIn, refusal } from "./allowance.ts";
 import {
   coverKey,
-  livePlateWork,
-  plateUrl,
+  liveIllustrationWork,
+  illustrationUrl,
   serveCover,
-  servePlate,
-  type PlateAnswer,
-  type PlateWork,
+  serveIllustration,
+  type IllustrationAnswer,
+  type IllustrationWork,
 } from "./illustrations/serve.ts";
-import { plateEntryFor } from "../illustrations/room-illustration.ts";
+import { illustrationEntryFor } from "../illustrations/room-illustration.ts";
 import { waitUntil } from "@vercel/functions";
 
 // ---------------------------------------------------------------------------
@@ -475,7 +475,7 @@ export function createApp(): Hono<AuthEnv> {
   /**
    * WALK AWAY. The one ending that costs nothing.
    *
-   * Not a turn and not routed through `playTurn`: there is no referee to ask, no
+   * Not a turn and not routed through `playTurn`: there is no game master to ask, no
    * dice to throw and no world to change — the player is closing the book, not
    * doing something in the fiction. So it skips the lock (a turn in flight will
    * simply lose the compare-and-swap, which is the correct outcome for a turn
@@ -526,7 +526,7 @@ export function createApp(): Hono<AuthEnv> {
   app.post("/api/runs/:id/enter", (c) => playTurn(c, (s) => s.enterRoom()));
   // TWO REQUESTS FOR ONE ROLL, so the dice reach the screen before the prose.
   // `/roll` throws them and saves — no model call, back in milliseconds — and
-  // `/resolve` asks the referee what they meant. A run left between the two is
+  // `/resolve` asks the game master what they meant. A run left between the two is
   // `resolving` with the roll in `pending`, and `/retry` picks it up from there.
   app.post("/api/runs/:id/roll", (c) => playTurn(c, async (s) => s.throwDice()));
   app.post("/api/runs/:id/resolve", (c) => playTurn(c, (s) => s.resolve()));
@@ -540,29 +540,29 @@ export function createApp(): Hono<AuthEnv> {
   );
 
   // -------------------------------------------------------------------------
-  // PLATES
+  // ILLUSTRATIONS
   // -------------------------------------------------------------------------
 
   /**
-   * A room's picture, for the arrival in the scrollback. See `plates.ts`.
+   * A room's picture, for the arrival in the scrollback. See `illustrations.ts`.
    *
-   * Only a room this run has entered: a plate of anywhere else is a look at a
+   * Only a room this run has entered: an illustration of anywhere else is a look at a
    * room the player has not reached. The way in is the run's, read off its
-   * log (`plateEntryFor`); the client names only the room.
+   * log (`illustrationEntryFor`); the client names only the room.
    *
    * `202` while somebody else's request is drawing it; the page asks again.
    * Not a turn and not locked: it reads the run and writes nothing to it.
    */
-  app.get("/api/runs/:id/plates/:roomId", async (c) => {
+  app.get("/api/runs/:id/illustrations/:roomId", async (c) => {
     const user = currentUser(c);
     const run = await mustGetRun(c.req.param("id"), user.id);
     const dungeon = await mustGetDungeon(run.dungeonId, user.id);
     const roomId = c.req.param("roomId");
-    const entryId = plateEntryFor(dungeon.doc, run.state, roomId);
-    if (!entryId) throw new HTTPException(404, { message: "no plate for a room this run has not entered" });
-    const work = plateWorker();
-    if (!work) return c.json({ status: "none" } satisfies PlateAnswer);
-    const answer = await servePlate(dungeon.doc, roomId, entryId, work);
+    const entryId = illustrationEntryFor(dungeon.doc, run.state, roomId);
+    if (!entryId) throw new HTTPException(404, { message: "no illustration for a room this run has not entered" });
+    const work = illustrationWorker();
+    if (!work) return c.json({ status: "none" } satisfies IllustrationAnswer);
+    const answer = await serveIllustration(dungeon.doc, roomId, entryId, work);
     return c.json(answer, answer.status === "pending" ? 202 : 200);
   });
 
@@ -578,8 +578,8 @@ export function createApp(): Hono<AuthEnv> {
     const user = currentUser(c);
     const run = await mustGetRun(c.req.param("id"), user.id);
     const dungeon = await mustGetDungeon(run.dungeonId, user.id);
-    const work = plateWorker();
-    if (!work || !dungeon.cover) return c.json({ status: "none" } satisfies PlateAnswer);
+    const work = illustrationWorker();
+    if (!work || !dungeon.cover) return c.json({ status: "none" } satisfies IllustrationAnswer);
     const answer = await serveCover(dungeon.doc, dungeon.cover, work);
     return c.json(answer, answer.status === "pending" ? 202 : 200);
   });
@@ -620,7 +620,7 @@ type Action = (session: ReturnType<typeof createGameSession>, body: unknown) => 
  * The order matters and each step earns its place:
  *
  *   1. the version, checked BEFORE anything is spent. A stale tab is turned
- *      away for free rather than after a referee conversation.
+ *      away for free rather than after a game master conversation.
  *   2. the lock, which is not a correctness mechanism — `commitTurn` is — but
  *      stops a double-click paying for a turn that would be rejected anyway.
  *   3. the journal's starting sequence, so this request's events carry on from
@@ -664,26 +664,26 @@ async function playTurn(c: Context<AuthEnv>, act: Action): Promise<Response> {
   });
   session.restore({ dungeon: dungeon.doc, run: run.state }, runId(dungeon.doc.seeds.dungeonSeed));
 
-  // A ROOM'S PLATE STARTS THE MOMENT THE PLAYER IS IN IT, alongside the prose
+  // A ROOM'S ILLUSTRATION STARTS THE MOMENT THE PLAYER IS IN IT, alongside the prose
   // describing it rather than after. The client only learns of the new room
   // when this whole turn comes back, arrival prose included; asking from there
   // put the ~25 s drawing behind the writing. Not awaited: the turn answers when
-  // the prose is done, and the page's own ask for the plate finds it pending,
+  // the prose is done, and the page's own ask for the illustration finds it pending,
   // then ready. `waitUntil` keeps the function alive for it on Vercel.
-  const plateStarted = new Set<string>();
-  const startPlate = (r: RunState) => {
+  const illustrationStarted = new Set<string>();
+  const startIllustration = (r: RunState) => {
     const room = r.currentRoomId;
-    if (plateStarted.has(room) || r.log.some((e) => e.kind === "arrival" && e.roomId === room)) return;
-    plateStarted.add(room);
-    const work = plateWorker();
-    const entryId = work && plateEntryFor(dungeon.doc, r, room);
+    if (illustrationStarted.has(room) || r.log.some((e) => e.kind === "arrival" && e.roomId === room)) return;
+    illustrationStarted.add(room);
+    const work = illustrationWorker();
+    const entryId = work && illustrationEntryFor(dungeon.doc, r, room);
     if (!work || !entryId) return;
     waitUntil(
-      servePlate(dungeon.doc, room, entryId, work).catch((e) => console.error("[plate] early start failed", e))
+      serveIllustration(dungeon.doc, room, entryId, work).catch((e) => console.error("[illustration] early start failed", e))
     );
   };
-  startPlate(run.state);
-  const stopWatching = session.store.subscribe((s) => s.run && startPlate(s.run as RunState));
+  startIllustration(run.state);
+  const stopWatching = session.store.subscribe((s) => s.run && startIllustration(s.run as RunState));
 
   try {
     await act(session, body);
@@ -692,7 +692,7 @@ async function playTurn(c: Context<AuthEnv>, act: Action): Promise<Response> {
     // Nothing is written, and the events go with it. They would take sequence
     // numbers a retry then could not reuse — `on conflict do nothing` would
     // drop the retry's events instead, which is the worse failure. The turn
-    // machine catches referee errors itself and lands on `error` with the
+    // machine catches game master errors itself and lands on `error` with the
     // journal intact, so reaching here at all is a bug rather than a bad call.
     await repo.releaseRun(id, owner);
     throw e;
@@ -739,14 +739,14 @@ async function mustGetDungeon(id: string, owner: string) {
 }
 
 /**
- * The plate worker, made on the first plate asked for rather than at start-up:
+ * The illustration worker, made on the first illustration asked for rather than at start-up:
  * it reads the reference files, and an app that never draws should not need
- * them. `null` is "not set up", and every room then has no plate.
+ * them. `null` is "not set up", and every room then has no illustration.
  */
-let plateWork: PlateWork | null | undefined;
-function plateWorker(): PlateWork | undefined {
-  if (plateWork === undefined) plateWork = livePlateWork() ?? null;
-  return plateWork ?? undefined;
+let illustrationWork: IllustrationWork | null | undefined;
+function illustrationWorker(): IllustrationWork | undefined {
+  if (illustrationWork === undefined) illustrationWork = liveIllustrationWork() ?? null;
+  return illustrationWork ?? undefined;
 }
 
 async function mustGetRun(id: string, owner: string) {
@@ -757,6 +757,6 @@ async function mustGetRun(id: string, owner: string) {
 
 /** A summary as the client gets it: the cover as a URL, never a storage path. */
 function withCover({ coverPath, ...summary }: repo.DungeonSummary): repo.DungeonSummary & { cover?: string } {
-  const cover = coverPath ? plateUrl(coverPath) : undefined;
+  const cover = coverPath ? illustrationUrl(coverPath) : undefined;
   return cover ? { ...summary, cover } : summary;
 }

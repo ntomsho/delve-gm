@@ -1,5 +1,5 @@
 /**
- * The model referee, with canned API responses in place of a model.
+ * The model game master, with canned API responses in place of a model.
  *
  * What is worth testing here is the LOOP and its stopping rules — everything
  * that decides how a turn ends when the answer is not the one expected. The
@@ -7,16 +7,16 @@
  *
  * The transport is stubbed at `fetch`, which means the real client, the real
  * schemas and the real tool definitions are all in the path. A canned response
- * that the referee would reject is a canned response the model's would be too.
+ * that the game master would reject is a canned response the model's would be too.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createModelReferee } from "./game-master.ts";
+import { createModelGameMaster } from "./game-master.ts";
 import { generateOffline, testCharacter } from "../../fixtures/offline.ts";
 import { createGameStore } from "../state/store.ts";
 import { dcFromDefense } from "../../rules/knave/rolls.ts";
 import { armorDefense as pcArmorDefense } from "../../rules/knave/character.ts";
-import type { RefereeRequest } from "../turn.ts";
+import type { GameMasterRequest } from "../turn.ts";
 import type { Step } from "../../shared/types/turn.ts";
 
 const dungeon = generateOffline(1005, 1);
@@ -41,10 +41,10 @@ const reply = (...content: unknown[]) => ({
  * A commit, with a post on it unless the test is about not having one.
  *
  * The post is a FIELD now (§8a A9), so an ordinary commit carrying none is the
- * unusual case rather than the default — and a referee that writes one is what
+ * unusual case rather than the default — and a game master that writes one is what
  * these tests are mostly standing in for. Pass `post: null` to build the
  * blank-screen case on purpose — the key is required, so null is how a
- * referee says it wrote none.
+ * game master says it wrote none.
  */
 const commit = (input: Record<string, unknown>) =>
   use("c1", "commit_state", {
@@ -79,14 +79,14 @@ beforeEach(() => {
 
 afterEach(() => vi.unstubAllGlobals());
 
-const request = (over: Partial<RefereeRequest> = {}): RefereeRequest => ({
+const request = (over: Partial<GameMasterRequest> = {}): GameMasterRequest => ({
   step: "1-target" as Step,
   dungeon,
   run: useGame.getState().run!,
   ...over,
 });
 
-const referee = (maxRounds = 4) => createModelReferee({ store: useGame, maxRounds });
+const gameMaster = (maxRounds = 4) => createModelGameMaster({ store: useGame, maxRounds });
 
 // ---------------------------------------------------------------------------
 
@@ -94,7 +94,7 @@ const referee = (maxRounds = 4) => createModelReferee({ store: useGame, maxRound
  * THE POST IS A FIELD OF THE COMMIT (§8a A9).
  *
  * It was loose assistant text, gathered across rounds and separated from the
- * working-out by `<post>` tags. That could not survive a referee changing its
+ * working-out by `<post>` tags. That could not survive a game master changing its
  * mind INSIDE one response — two drafts in one block, both printed, the second
  * in a different tense and ending in a roll offer. A field cannot be written
  * twice, so a draft is not narration by construction.
@@ -116,7 +116,7 @@ describe("what the player reads", () => {
         })
       )
     );
-    const out = await referee()(request());
+    const out = await gameMaster()(request());
     expect(out.narration).toBe("Something deliberate and slow.");
     expect(sent).toHaveLength(1);
   });
@@ -124,14 +124,14 @@ describe("what the player reads", () => {
   it("refuses a post that was nothing but markup, as the blank it is", async () => {
     queue.push(reply(commit({ post: "</post>" })));
     queue.push(reply(commit({ post: "The door gives." })));
-    const out = await referee()(request());
+    const out = await gameMaster()(request());
     expect(sent[1].messages.at(-1).content[0].content).toContain("blank screen");
     expect(out.narration).toBe("The door gives.");
   });
 
   it("leaves angle brackets that are not call markup alone", async () => {
     queue.push(reply(commit({ post: "The sign reads <KEEP OUT> in red." })));
-    const out = await referee()(request());
+    const out = await gameMaster()(request());
     expect(out.narration).toBe("The sign reads <KEEP OUT> in red.");
   });
 
@@ -153,7 +153,7 @@ describe("what the player reads", () => {
       )
     );
 
-    const out = await referee()(request());
+    const out = await gameMaster()(request());
     expect(sent).toHaveLength(1);
     expect(out.commit.coinGrant).toBeUndefined();
     expect(out.commit.learned).toBeUndefined();
@@ -164,13 +164,13 @@ describe("what the player reads", () => {
   it("still refuses a coin grant with a reason, if that is all that is wrong", async () => {
     // Only BLANK is forgiven. A grant with words in it is a grant.
     queue.push(reply(commit({ coinGrant: { why: "in the drain" } })));
-    const out = await referee()(request());
+    const out = await gameMaster()(request());
     expect(out.commit.coinGrant).toEqual({ why: "in the drain" });
   });
 
   it("puts post on the wire as a required field that may be null", async () => {
     queue.push(reply(commit({})));
-    await referee()(request());
+    await gameMaster()(request());
     const schema = sent[0].tools.find((t: { name: string }) => t.name === "commit_state").input_schema;
     expect(schema.required).toContain("post");
   });
@@ -183,28 +183,28 @@ describe("what the player reads", () => {
       )
     );
 
-    const out = await referee()(request());
+    const out = await gameMaster()(request());
     expect(out.narration).toBe("The desk is oak, and someone has been through the drawers already.");
   });
 
   it("ignores loose prose entirely, however much it looks like a post", async () => {
-    // A referee that writes the paragraph in the open has written it to nobody.
+    // A game master that writes the paragraph in the open has written it to nobody.
     // No tags, no heuristic headings, nothing to tell it from a real post — and
     // it still does not reach the player, because the field is the only channel.
     queue.push(reply(text("The door gives, and the smell comes out to meet you."), commit({})));
 
-    const out = await referee()(request());
+    const out = await gameMaster()(request());
     expect(out.narration).toBe("The turn passes.");
   });
 
   /**
-   * A9 ITSELF. The referee wrote a draft, thought better of it mid-response, and
+   * A9 ITSELF. The game master wrote a draft, thought better of it mid-response, and
    * wrote another — its own trace saying *"Wait, I should not write that post
    * yet… Let me rewrite."* Both reached the player, one after the other.
    *
    * There is nowhere for the first one to go now.
    */
-  it("cannot print a draft the referee thought better of", async () => {
+  it("cannot print a draft the game master thought better of", async () => {
     queue.push(
       reply(
         text(
@@ -217,7 +217,7 @@ describe("what the player reads", () => {
       )
     );
 
-    const out = await referee()(request());
+    const out = await gameMaster()(request());
     expect(out.narration).toBe("The slab is heavier than it looks. You could get a shoulder under it.");
     expect(out.narration).not.toContain("grinds aside");
   });
@@ -226,7 +226,7 @@ describe("what the player reads", () => {
     queue.push(reply(text("The door gives."), commit({ post: null })));
     queue.push(reply(commit({ post: "The door gives." })));
 
-    const out = await referee()(request());
+    const out = await gameMaster()(request());
 
     const refusal = sent[1].messages.at(-1).content[0];
     expect(refusal.is_error).toBe(true);
@@ -244,7 +244,7 @@ describe("an ordinary turn", () => {
       )
     );
 
-    const out = await referee()(request());
+    const out = await gameMaster()(request());
 
     expect(out.narration).toBe("The door gives, and the smell comes out to meet you.");
     // The post is NOT on the commit the applier sees. `Commit` is what the
@@ -260,14 +260,14 @@ describe("an ordinary turn", () => {
 
   it("puts the dice and the commit on the table, and leaves the model free to write", () => {
     queue.push(reply(commit({})));
-    return referee()(request()).then(() => {
+    return gameMaster()(request()).then(() => {
       expect(sent[0].tools.map((t: { name: string }) => t.name)).toEqual(["roll", "commit_state"]);
       // NOT `any`. Forcing a tool call suppresses the prose, and the prose is
       // what the player is here for — see the note in game-master.ts.
       expect(sent[0].tool_choice).toEqual({ type: "auto" });
 
       // `actor` is the way out of a refused batch, so it has to be on the wire
-      // for the referee to know it exists — and "player" must not be, because
+      // for the game master to know it exists — and "player" must not be, because
       // the player's roll is offered rather than thrown.
       const roll = sent[0].tools[0].input_schema.properties.rolls.items.properties;
       expect(roll.actor.enum).toEqual(["creature", "world"]);
@@ -284,7 +284,7 @@ describe("an ordinary turn", () => {
 
   it("logs what the call cost, which the turn machine cannot know", async () => {
     queue.push(reply(commit({})));
-    await referee()(request());
+    await gameMaster()(request());
 
     const [entry] = useGame.getState().run!.callLog;
     expect(entry.step).toBe("1-target");
@@ -306,7 +306,7 @@ describe("an ordinary turn", () => {
         cache_read_input_tokens: 7000,
       },
     });
-    await referee()(request());
+    await gameMaster()(request());
 
     const [entry] = useGame.getState().run!.callLog;
     expect(entry).toMatchObject({
@@ -326,13 +326,13 @@ describe("an ordinary turn", () => {
       )
     );
 
-    const out = await referee()(request());
+    const out = await gameMaster()(request());
     expect(out.commit?.fictionNote).toBe("The gaol was built over a salt mine.");
   });
 
   it("sends the step's own files and no others", async () => {
     queue.push(reply(commit({})));
-    await referee()(request({ step: "5-resolution" }));
+    await gameMaster()(request({ step: "5-resolution" }));
 
     // The step files are the last block. SKILL.md names every step in its
     // overview, so the check has to be against that block and not the whole
@@ -347,7 +347,7 @@ describe("an ordinary turn", () => {
 // ---------------------------------------------------------------------------
 
 describe("walking into a room", () => {
-  it("shows the room's own description when the referee wrote no post", async () => {
+  it("shows the room's own description when the game master wrote no post", async () => {
     // Observed live: a full description written onto the room, and an empty
     // screen. The composed paragraph IS the arrival — see arrival() in
     // game-master.ts.
@@ -367,7 +367,7 @@ describe("walking into a room", () => {
       )
     );
 
-    const out = await referee()(request({ step: "room-entry" }));
+    const out = await gameMaster()(request({ step: "room-entry" }));
     expect(out.narration).toBe("A chasm opens at your feet.");
     expect(sent).toHaveLength(1);
   });
@@ -388,13 +388,13 @@ describe("walking into a room", () => {
       )
     );
 
-    const out = await referee()(request({ step: "room-entry" }));
+    const out = await gameMaster()(request({ step: "room-entry" }));
     expect(out.narration).toBe("A chasm opens at your feet.");
   });
 
   it("falls back to the post when the room wrote no paragraph", async () => {
     queue.push(reply(commit({ post: "You have been here before, and it has not improved." })));
-    const out = await referee()(request({ step: "room-entry" }));
+    const out = await gameMaster()(request({ step: "room-entry" }));
     expect(out.narration).toBe("You have been here before, and it has not improved.");
   });
 
@@ -409,7 +409,7 @@ describe("walking into a room", () => {
       )
     );
 
-    const out = await referee()(request({ step: "1-target" }));
+    const out = await gameMaster()(request({ step: "1-target" }));
     expect(out.narration).toBe("You wipe the dust off it.");
   });
 
@@ -424,7 +424,7 @@ describe("walking into a room", () => {
       reply(commit({ post: null, diffs: [{ entityId: "player", path: "roomId", value: to }] }))
     );
 
-    const out = await referee()(request({ step: "5-resolution" }));
+    const out = await gameMaster()(request({ step: "5-resolution" }));
     expect(out.narration).toBe("");
     expect(sent).toHaveLength(1);
   });
@@ -437,7 +437,7 @@ describe("the dice", () => {
     );
     queue.push(reply(commit({ post: "It comes at you." })));
 
-    const out = await referee()(request({ step: "5-resolution" }));
+    const out = await gameMaster()(request({ step: "5-resolution" }));
 
     expect(out.narration).toBe("It comes at you.");
     expect(sent).toHaveLength(2);
@@ -454,17 +454,17 @@ describe("the dice", () => {
     queue.push(reply(commit({})));
 
     expect(useGame.getState().run!.rngDraws).toBe(0);
-    await referee()(request());
+    await gameMaster()(request());
     // 2d6, recorded — dice that were rolled but not counted would be rolled
     // again after a reload.
     expect(useGame.getState().run!.rngDraws).toBe(2);
   });
 
-  it("tells the referee when a request could not be rolled", async () => {
+  it("tells the game master when a request could not be rolled", async () => {
     queue.push(reply(use("r1", "roll", { rolls: [{ id: "a", kind: "attack", bonus: 1 }] })));
     queue.push(reply(commit({})));
 
-    await referee()(request());
+    await gameMaster()(request());
 
     const answer = sent[1].messages.at(-1);
     expect(answer.content[0].is_error).toBe(true);
@@ -479,7 +479,7 @@ describe("a commit that will not do", () => {
     queue.push(reply(text("Something happens."), use("c1", "commit_state", { diffs: [] })));
     queue.push(reply(text("Something happens."), commit({})));
 
-    const out = await referee()(request());
+    const out = await gameMaster()(request());
 
     expect(out.commit.nextStage).toBe("awaiting_action");
     const correction = sent[1].messages.at(-1);
@@ -506,7 +506,7 @@ describe("a commit that will not do", () => {
       )
     );
 
-    const out = await referee()(request());
+    const out = await gameMaster()(request());
 
     expect(sent[1].messages.at(-1).content[0].content).toContain("nothing to roll");
     // And the defense became a number to meet, exactly once.
@@ -523,7 +523,7 @@ describe("a commit that will not do", () => {
     );
     queue.push(reply(commit({})));
 
-    await referee()(request());
+    await gameMaster()(request());
     expect(sent[1].messages.at(-1).content[0].content).toContain("only legal when");
   });
 
@@ -538,7 +538,7 @@ describe("a commit that will not do", () => {
       )
     );
 
-    const out = await referee()(request());
+    const out = await gameMaster()(request());
     expect(out.commit.rollRequest?.dc).toBe(16);
   });
 });
@@ -553,7 +553,7 @@ describe("damage nobody rolled for", () => {
     queue.push(reply(hurt(2)));
     queue.push(reply(commit({ post: "You edge back from the lip." })));
 
-    const out = await referee()(request());
+    const out = await gameMaster()(request());
 
     const refusal = sent[1].messages.at(-1).content[0];
     expect(refusal.is_error).toBe(true);
@@ -565,14 +565,14 @@ describe("damage nobody rolled for", () => {
     queue.push(reply(use("r1", "roll", { rolls: [{ id: "fall", kind: "damage", expr: "1d6" }] })));
     queue.push(reply(hurt(3)));
 
-    const out = await referee()(request());
+    const out = await gameMaster()(request());
     expect(out.commit.diffs).toHaveLength(1);
   });
 
   it("allows it when the player's own roll is what this turn is resolving", async () => {
     queue.push(reply(hurt(3)));
 
-    const out = await referee()(
+    const out = await gameMaster()(
       request({
         step: "5-resolution",
         roll: {
@@ -595,20 +595,20 @@ describe("damage nobody rolled for", () => {
       reply(commit({ diffs: [{ entityId: "player", path: "hp.current", value: testCharacter().hp.max }] }))
     );
 
-    const out = await referee()(request());
+    const out = await gameMaster()(request());
     expect(out.commit.diffs).toHaveLength(1);
     expect(sent).toHaveLength(1);
   });
 });
 
-describe("a referee that will not stop", () => {
+describe("a game master that will not stop", () => {
   const rolling = () => reply(use("r1", "roll", { rolls: [{ id: "a", kind: "morale" }] }));
 
   it("forces the commit on the last round, without changing the tool list", async () => {
     queue.push(rolling(), rolling(), rolling());
     queue.push(reply(commit({})));
 
-    await referee(4)(request());
+    await gameMaster(4)(request());
 
     expect(sent).toHaveLength(4);
     expect(sent[3].tool_choice).toEqual({ type: "tool", name: "commit_state" });
@@ -620,14 +620,14 @@ describe("a referee that will not stop", () => {
   it("gives up rather than looping, and says so", async () => {
     queue.push(rolling(), rolling(), rolling(), rolling());
 
-    await expect(referee(4)(request())).rejects.toThrow(/did not commit within 4/);
+    await expect(gameMaster(4)(request())).rejects.toThrow(/did not commit within 4/);
   });
 
   it("asks again when a turn ends on prose alone", async () => {
     queue.push({ content: [text("I think I will stop here.")], stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } });
     queue.push(reply(commit({})));
 
-    await referee()(request());
+    await gameMaster()(request());
 
     expect(sent[1].messages.at(-1).content).toContain("without calling `commit_state`");
   });
@@ -644,15 +644,15 @@ describe("a referee that will not stop", () => {
    * every round before the committing one contributes nothing whatever it wrote.
    */
 
-  // OBSERVED LIVE: the referee wrote its post, forgot the tool, was nudged, and
+  // OBSERVED LIVE: the game master wrote its post, forgot the tool, was nudged, and
   // wrote the same post again alongside the call. Both rounds were accumulated
   // and the player read the paragraph twice, back to back.
-  it("does not say it twice when a nudge makes the referee write it again", async () => {
+  it("does not say it twice when a nudge makes the game master write it again", async () => {
     const said = "You take a breath and step into the corridor.";
     queue.push({ content: [text(said)], stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } });
     queue.push(reply(text(`You are right, I did not commit.\n${said}`), commit({ post: said })));
 
-    const { narration } = await referee()(request());
+    const { narration } = await gameMaster()(request());
 
     expect(narration).toBe(said);
   });
@@ -660,7 +660,7 @@ describe("a referee that will not stop", () => {
   // The other half of the same problem: a redo that answers with an apology and
   // no prose of its own still says the thing, because the post rides on the
   // call rather than on whichever round happened to write it.
-  it("keeps the post when the referee answers a nudge with an apology", async () => {
+  it("keeps the post when the game master answers a nudge with an apology", async () => {
     queue.push({
       content: [text("The door gives.")],
       stop_reason: "end_turn",
@@ -668,17 +668,17 @@ describe("a referee that will not stop", () => {
     });
     queue.push(reply(text("You're right. Let me commit properly:"), commit({ post: "The door gives." })));
 
-    expect((await referee()(request())).narration).toBe("The door gives.");
+    expect((await gameMaster()(request())).narration).toBe("The door gives.");
   });
 
-  // Same rule for a commit the referee refuses before the applier sees it: only
+  // Same rule for a commit the game master refuses before the applier sees it: only
   // the commit that is finally accepted carries a post anywhere.
   it("says it once when a refused commit is rewritten", async () => {
     const said = "The ghoul reels back.";
     queue.push(reply(commit({ post: said, nextStage: "roll_offered" })));
     queue.push(reply(commit({ post: said })));
 
-    expect((await referee()(request())).narration).toBe(said);
+    expect((await gameMaster()(request())).narration).toBe(said);
   });
 
   /**
@@ -697,7 +697,7 @@ describe("a referee that will not stop", () => {
     );
     queue.push(reply(commit({ post: "It breaks and runs." })));
 
-    expect((await referee()(request())).narration).toBe("It breaks and runs.");
+    expect((await gameMaster()(request())).narration).toBe("It breaks and runs.");
   });
 
   // OBSERVED LIVE: the heuristic worked through in the open and the `roll` call
@@ -712,7 +712,7 @@ describe("a referee that will not stop", () => {
     );
     queue.push(reply(commit({ post: "It breaks and runs." })));
 
-    const { narration } = await referee()(request());
+    const { narration } = await gameMaster()(request());
     expect(narration).toBe("It breaks and runs.");
     expect(narration).not.toContain("Step 1");
   });
@@ -734,7 +734,7 @@ describe("the roll that was never offered", () => {
     queue.push(reply(text("Step 4 — confirm and roll."), asks({ id: "hide", kind: "save", bonus: 3 })));
     queue.push(reply(offered));
 
-    const out = await referee()(request());
+    const out = await gameMaster()(request());
 
     const refusal = sent[1].messages.at(-1).content[0];
     expect(refusal.is_error).toBe(true);
@@ -749,7 +749,7 @@ describe("the roll that was never offered", () => {
   });
 
   it("still refuses damage written off a batch that never landed", async () => {
-    // The turn has no dice behind it, whatever the referee asked for.
+    // The turn has no dice behind it, whatever the game master asked for.
     queue.push(reply(asks({ id: "hide", kind: "save", bonus: 3 })));
     queue.push(
       reply(
@@ -758,7 +758,7 @@ describe("the roll that was never offered", () => {
     );
     queue.push(reply(commit({ post: "You catch yourself." })));
 
-    const out = await referee()(request());
+    const out = await gameMaster()(request());
 
     expect(sent[2].messages.at(-1).content[0].content).toContain("no dice were rolled this turn");
     expect(out.commit.diffs).toEqual([]);
@@ -769,17 +769,17 @@ describe("the roll that was never offered", () => {
     queue.push(reply(asks({ id: "ghoul", kind: "attack", bonus: 3, targetDefense: armor, damage: "1d6" })));
     queue.push(reply(commit({ post: "It lands." })));
 
-    await referee()(request({ step: "5-resolution" }));
+    await gameMaster()(request({ step: "5-resolution" }));
 
     expect(sent[1].messages.at(-1).content[0].is_error).toBeUndefined();
     expect(useGame.getState().run!.rngDraws).toBeGreaterThan(0);
   });
 
-  it("takes a referee at its word when it marks whose roll it is", async () => {
+  it("takes a game master at its word when it marks whose roll it is", async () => {
     queue.push(reply(asks({ id: "ghoul-holds-on", kind: "save", bonus: 3, actor: "creature" })));
     queue.push(reply(commit({ post: "It clings on." })));
 
-    await referee()(request());
+    await gameMaster()(request());
 
     expect(sent[1].messages.at(-1).content[0].content).toMatch(/^ghoul-holds-on: save — d20/);
   });
@@ -788,7 +788,7 @@ describe("the roll that was never offered", () => {
     queue.push(reply(asks({ id: "nerve", kind: "morale", rating: 7 }, { id: "roof", kind: "damage", expr: "1d6" })));
     queue.push(reply(commit({ post: "The ceiling comes down." })));
 
-    await referee()(request());
+    await gameMaster()(request());
     expect(useGame.getState().run!.rngDraws).toBeGreaterThan(0);
   });
 
@@ -796,7 +796,7 @@ describe("the roll that was never offered", () => {
     queue.push(reply(asks({ id: "second-save", kind: "save", bonus: 3 })));
     queue.push(reply(commit({ post: "And then the floor goes." })));
 
-    await referee()(
+    await gameMaster()(
       request({
         step: "5-resolution",
         roll: {
@@ -823,7 +823,7 @@ describe("what the model is shown", () => {
     useGame.getState().pushTranscript({ role: "player", text: "I open the door" });
     queue.push(reply(commit({})));
 
-    await referee()(request({ input: "I open the door" }));
+    await gameMaster()(request({ input: "I open the door" }));
 
     const messages = sent[0].messages;
     expect(messages[0].content).toContain("# The world as it stands");
@@ -833,7 +833,7 @@ describe("what the model is shown", () => {
 
   it("puts the cache breakpoint after the fiction and before the step", async () => {
     queue.push(reply(commit({})));
-    await referee()(request());
+    await gameMaster()(request());
 
     const system = sent[0].system;
     expect(system).toHaveLength(3);
@@ -841,9 +841,9 @@ describe("what the model is shown", () => {
     expect(system[2].cache_control).toEqual({ type: "ephemeral" });
   });
 
-  it("tells the referee what it got wrong when the applier refused the last one", async () => {
+  it("tells the game master what it got wrong when the applier refused the last one", async () => {
     queue.push(reply(commit({})));
-    await referee()(request({ rejections: ["name: that field is never writable"] }));
+    await gameMaster()(request({ rejections: ["name: that field is never writable"] }));
 
     expect(sent[0].messages.at(-1).content).toContain("REFUSED");
     expect(sent[0].messages.at(-1).content).toContain("never writable");
@@ -870,7 +870,7 @@ describe("timeSpent", () => {
       queue.push(reply(commit({ nextStage, nextStep: "4-confirm-roll", timeSpent: "short", ...offer(nextStage) })));
       queue.push(reply(commit({})));
 
-      const out = await referee()(request());
+      const out = await gameMaster()(request());
 
       expect(refusal().is_error).toBe(true);
       expect(refusal().content).toContain("has not happened yet");
@@ -884,7 +884,7 @@ describe("timeSpent", () => {
     queue.push(reply(commit({ timeSpent: "round" })));
     queue.push(reply(commit({})));
 
-    await referee()(request({ step: "room-entry" as Step }));
+    await gameMaster()(request({ step: "room-entry" as Step }));
 
     expect(refusal().is_error).toBe(true);
     expect(refusal().content).toContain("not a turn");
@@ -894,7 +894,7 @@ describe("timeSpent", () => {
     queue.push(reply(commit({ timeSpent: "long" })));
     queue.push(reply(commit({ timeSpent: "short" })));
 
-    const out = await referee()(request());
+    const out = await gameMaster()(request());
 
     expect(refusal().is_error).toBe(true);
     expect(refusal().content).toContain("Rest button");
@@ -903,7 +903,7 @@ describe("timeSpent", () => {
 
   it("takes an ordinary turn that spent time, and carries it to the applier", async () => {
     queue.push(reply(commit({ timeSpent: "short" })));
-    expect((await referee()(request())).commit.timeSpent).toBe("short");
+    expect((await gameMaster()(request())).commit.timeSpent).toBe("short");
   });
 });
 

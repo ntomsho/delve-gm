@@ -576,7 +576,7 @@ export const SPELLS: readonly Spell[] = [
   "Phobia: L creatures become terrified of an object of your choice.",
   "Pit: A pit 10ft wide and L×5ft deep opens in the ground.",
   "Primeval Surge: An object grows to the size of an elephant. If it is an animal, it is enraged.",
-  "Psychometry: The referee answers L yes or no questions about a touched object.",
+  "Psychometry: The game master answers L yes or no questions about a touched object.",
   "Pull: An object of any size is pulled directly towards you with the strength of L men for one round.",
   "Push: An object of any size is pushed directly away from you with the strength of L men for one round.",
   "Raise Dead: L skeletons rise from the ground to serve you. They are incredibly stupid and can only obey simple orders.",

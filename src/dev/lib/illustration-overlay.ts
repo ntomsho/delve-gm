@@ -1,4 +1,4 @@
-import type { RoomPlate } from "../../illustrations/room-illustration.ts";
+import type { RoomIllustration } from "../../illustrations/room-illustration.ts";
 
 const INK = "#22201C";
 const TORCH = "#B4521E";
@@ -6,14 +6,14 @@ const TORCH = "#B4521E";
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 /**
- * The page's buttons as SVG marks over a plate W x H: what the final image
+ * The page's buttons as SVG marks over an illustration W x H: what the final image
  * would carry. Solid: shown. Orange: the way in. Dashed: behind a wall. A
  * curved arrow: the corner to go round. Edge arrows: off the frame.
  *
  * Dev only — the real page will draw its own controls from the same
- * `hotspots`. Shared by the plate-views and illustrate contact sheets.
+ * `hotspots`. Shared by the illustration-views and illustrate contact sheets.
  */
-export function hotspotMarks(p: RoomPlate, W: number, H: number): string {
+export function hotspotMarks(p: RoomIllustration, W: number, H: number): string {
   const name = (id: string) =>
     [...p.exits, p.entry, ...p.features].find((x) => x.id === id)?.name || "the way in";
   const short = (t: string) => esc(t.length > 16 ? t.slice(0, 15) + "…" : t);

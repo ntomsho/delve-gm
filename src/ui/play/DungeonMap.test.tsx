@@ -257,7 +257,7 @@ describe("the fixture layer", () => {
     expect(cells).toBeGreaterThan(map.fixtures.length);
   });
 
-  it("says where a thing stands in the words the referee was given", async () => {
+  it("says where a thing stands in the words the game master was given", async () => {
     const map = showing();
     const f = map.fixtures.find((x) => x.id === biggest.id)!;
     const stored = dungeon.entities.features.find((x) => x.id === biggest.id)!.place!.position;
@@ -531,7 +531,7 @@ describe("clicking a door", () => {
     expect(r.one("rect").getAttribute("stroke")).toBe(color.torch);
 
     // This is the one reversal of `TravelConfirm`, which offered travel through
-    // anything and let the referee say no. The pill sends immediately, so
+    // anything and let the game master say no. The pill sends immediately, so
     // "go through the barred door" would spend a turn on an answer the card has
     // already given them; the bar is the thing to look at.
     await press(r.one("rect"));

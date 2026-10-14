@@ -2,14 +2,14 @@
  * THE DICE TOOL
  * =============
  *
- * The referee's half of the split described in BUILD-PLAN §4.2. The player's
+ * The game master's half of the split described in BUILD-PLAN §4.2. The player's
  * roll is thrown by the interface and arrives with their next message; every
  * other roll in the game — the creature that strikes back, the nerve that
  * breaks, the ceiling that comes down — is asked for here.
  *
  * IT TAKES A LIST, AND THAT IS THE WHOLE DESIGN. A resolution with three
  * creatures in it costs ONE extra exchange rather than three, so the playbook
- * can tell the referee to roll wide and discard rather than go back for more.
+ * can tell the game master to roll wide and discard rather than go back for more.
  * A morale check it did not end up needing is a rounding error; a second round
  * trip is not.
  *
@@ -39,10 +39,10 @@ import {
 import type { RollRequestParsed } from "../../llm/schemas.ts";
 
 export interface DiceOutcome {
-  /** the referee's own label for this roll */
+  /** the game master's own label for this roll */
   id: string;
   kind: RollRequestParsed["kind"];
-  /** the result, as the referee will read it */
+  /** the result, as the game master will read it */
   line: string;
   /** the request could not be rolled as stated */
   failed: boolean;
@@ -51,7 +51,7 @@ export interface DiceOutcome {
    * creature's attack on them as dice (see `FoeRolls`), and a screen that
    * parsed `line` would be one rewording away from showing nothing. The number
    * the d20 had to meet is deliberately not here: `line` carries it for the
-   * referee, and nothing the player can be shown does.
+   * game master, and nothing the player can be shown does.
    */
   d20?: { rolled: number[]; kept: number; bonus: number; total: number; success: boolean; nat20: boolean; nat1: boolean };
   damage?: { expr: string; rolls: number[]; total: number };
@@ -72,7 +72,7 @@ function d20Line(o: { rolled: number[]; kept: number; bonus: number; total: numb
   return `d20 ${dice} ${sign(o.bonus)} = ${o.total} vs ${o.dc}`;
 }
 
-/** Crits report themselves; spending the quality point is the referee's diff. */
+/** Crits report themselves; spending the quality point is the game master's diff. */
 function critNote(o: { nat20: boolean; nat1: boolean }): string {
   if (o.nat20) return " · NATURAL 20 — the defender's armour loses 1 currentQuality";
   if (o.nat1) return " · NATURAL 1 — the attacker's weapon loses 1 currentQuality";
@@ -81,7 +81,7 @@ function critNote(o: { nat20: boolean; nat1: boolean }): string {
 
 /**
  * Roll one request. Draws from `rng` in call order, so the batch is
- * deterministic in the order the referee listed it.
+ * deterministic in the order the game master listed it.
  */
 function one(rng: RollRng, r: RollRequestParsed): DiceOutcome {
   const edge: Edge = r.edge ?? "none";
@@ -155,7 +155,7 @@ function one(rng: RollRng, r: RollRequestParsed): DiceOutcome {
 
     case "consult": {
       const o = consultRoll(rng, r.uses ?? 0);
-      // Says what to write, for the same reason a crit does: the referee is
+      // Says what to write, for the same reason a crit does: the game master is
       // reporting a number it was given, never choosing one.
       const verdict = o.exhausted
         ? `THE LAST OF IT · write book.uses ${o.uses} and book.exhausted true`
@@ -191,7 +191,7 @@ export function rollBatch(rng: RollRng, rolls: RollRequestParsed[]): DiceOutcome
   return rolls.map((r) => one(rng, r));
 }
 
-/** The batch's results, keyed by the referee's own ids. */
+/** The batch's results, keyed by the game master's own ids. */
 export function renderOutcomes(outcomes: DiceOutcome[]): string {
   return outcomes.map((o) => `${o.id}: ${o.line}`).join("\n");
 }

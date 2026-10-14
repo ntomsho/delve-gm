@@ -7,7 +7,7 @@
  *
  *   THE DRAW        a challenge with no placed key can still be answered in
  *                   play — the reserve is thirty entries deep and the placed set
- *                   is four. `offerDraws` builds the list the referee chooses
+ *                   is four. `offerDraws` builds the list the game master chooses
  *                   from; `applyDraw` refuses everything it should not pick.
  *
  *   THE RECORD      what a key reveals is a fact about the WORLD, not about the
@@ -323,12 +323,12 @@ export function noteResolutions(
 // THE DRAW
 // ---------------------------------------------------------------------------
 
-/** One thing the referee may hand over this turn. */
+/** One thing the game master may hand over this turn. */
 export interface DrawOffer {
   challengeId: string;
   /** how it would reach the player */
   kind: "information" | "object";
-  /** the mechanical fact, verbatim. The referee writes the fiction around it. */
+  /** the mechanical fact, verbatim. The game master writes the fiction around it. */
   fact: string;
   /** what the fact is about, in words */
   about: string;
@@ -398,7 +398,7 @@ export type DrawOutcome = { ok: true; drawn: DrawnKey } | { ok: false; reason: s
  *
  * REFUSES ANYTHING NOT ON THE LIST. An id that is not in the reserve, one
  * already drawn, or one whose challenge is already resolved — all three are the
- * referee handing out something the dungeon did not have to give, and all three
+ * game master handing out something the dungeon did not have to give, and all three
  * are refused rather than warned about.
  */
 export function applyDraw(
@@ -463,7 +463,7 @@ export type RecordOutcome =
  * worded as the fact and nothing else, at the precision of the property it
  * answers. Exact wording is the entire point: it is what stops the fact drifting
  * between calls, which is why the value written is the challenge's `property`
- * rather than anything the referee typed.
+ * rather than anything the game master typed.
  *
  * It goes in `state`, which is already writable on every entity kind and already
  * marks `needUpdate` — so the target's description is rewritten to account for
@@ -616,7 +616,7 @@ export type GrantOutcome = { ok: true; amount: number } | { ok: false; reason: s
  * Hand over coin out of the dungeon's allowance.
  *
  * THE AMOUNT IS ROLLED HERE, from the run's own seed, because the model does not
- * write numbers and a referee inventing them is how a dungeon's total take stops
+ * write numbers and a game master inventing them is how a dungeon's total take stops
  * being a number anybody chose. The 10% held back at generation is the whole of
  * what play may give away, and when it is gone it is gone.
  *

@@ -60,7 +60,7 @@ export function render(r: JournalRecord): string | undefined {
     case "roll":
       return r.source === "player"
         ? `\n\`${playerRoll(r)}\``
-        : `\n${r.outcomes.map((o) => `\`referee · ${o.id}: ${o.line}\``).join("\n")}`;
+        : `\n${r.outcomes.map((o) => `\`game master · ${o.id}: ${o.line}\``).join("\n")}`;
 
     case "commit":
       return commit(r);
@@ -153,7 +153,7 @@ function commit(r: Extract<JournalRecord, { kind: "commit" }>): string | undefin
     );
   }
 
-  // Consequences the referee did not state and the applier performed anyway.
+  // Consequences the game master did not state and the applier performed anyway.
   // Worth reading every time: this is where an item quietly stopped existing.
   for (const e of r.events ?? []) out.push(`\n*${e.kind}: ${e.detail}*`);
 
@@ -163,7 +163,7 @@ function commit(r: Extract<JournalRecord, { kind: "commit" }>): string | undefin
 function working(text: string): string | undefined {
   const outside = text.replace(/<post>[\s\S]*?<\/post>/gi, "").trim();
   if (outside === "") return undefined;
-  return `\n<details><summary>referee working</summary>\n\n\`\`\`\n${outside}\n\`\`\`\n\n</details>`;
+  return `\n<details><summary>game master working</summary>\n\n\`\`\`\n${outside}\n\`\`\`\n\n</details>`;
 }
 
 /**

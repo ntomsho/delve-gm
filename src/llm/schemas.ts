@@ -211,7 +211,7 @@ const edge = z.enum(["none", "advantage", "disadvantage"]);
 // ---------------------------------------------------------------------------
 
 /**
- * The stages a REFEREE may name — a strict subset of `Stage`.
+ * The stages a GAME MASTER may name — a strict subset of `Stage`.
  *
  * `thinking`, `rolling`, `room_entry` and `error` are the software talking, and
  * `resolving` is the machine's own marker for the call it is making right now.
@@ -219,7 +219,7 @@ const edge = z.enum(["none", "advantage", "disadvantage"]);
  * input area with nothing running. Narrowing the enum makes that unsayable
  * rather than merely discouraged.
  */
-const refereeStage = z.enum([
+const gameMasterStage = z.enum([
   "awaiting_action",
   "clarifying",
   "rejected",
@@ -227,7 +227,7 @@ const refereeStage = z.enum([
   "dead",
   // The player walked out. NOT which ending that was — the store settles that
   // from whether the goal was met, so `goal_met` and `escaped` are unsayable
-  // here and the referee cannot award itself a win it did not earn.
+  // here and the game master cannot award itself a win it did not earn.
   "departed",
 ]);
 
@@ -236,12 +236,12 @@ const refereeStage = z.enum([
  * step 1 through step 3 without stopping — so they are not resume points and
  * naming one would only cost a retry.
  */
-const refereeStep = z.enum(["1-target", "4-confirm-roll", "5-resolution"]);
+const gameMasterStep = z.enum(["1-target", "4-confirm-roll", "5-resolution"]);
 
 /**
  * HOW LONG THE ACTION TOOK, which is how the rest of the dungeon finds out that
  * a turn has passed. Not a duration — see `TimeSpent` for why there is no clock
- * — but the four cases named so the referee reads what each one covers.
+ * — but the four cases named so the game master reads what each one covers.
  *
  * `long` is on the wire and is refused on the way back in until Phase 16 exists
  * to produce it; the description says so, because a model offered a value it
@@ -259,11 +259,11 @@ const timeSpent = z.enum(["instant", "round", "short", "long"]).describe(
 
 /**
  * What goes on the table. The player-facing terms sit alongside the two
- * referee-side numbers, and the interface renders only the former — see
+ * game-master-side numbers, and the interface renders only the former — see
  * RollSpec, and `InputArea` which never reads `dc`.
  *
  * A save carries `dc`; an attack or a stunt carries `targetDefense`, which the
- * referee converts through `dcFromDefense`. That keeps the vocabulary the
+ * game master converts through `dcFromDefense`. That keeps the vocabulary the
  * playbook uses on the wire and the one `+1` in the codebase in one function.
  */
 const rollRequest = z.object({
@@ -324,7 +324,7 @@ export const commitSchema = z.object({
    *
    * It was loose assistant text until Phase 12 (CODING-PLAN 8a A9): narration
    * was the concatenation of every text block in the response, and nothing
-   * distinguished a draft from the post. A referee that thought better of a
+   * distinguished a draft from the post. A game master that thought better of a
    * paragraph mid-response — *"Wait, I should not write that post yet… Let me
    * rewrite"* — had BOTH drafts printed, one after the other, the second in a
    * different tense and ending in a roll offer. No streaming rule catches that;
@@ -332,7 +332,7 @@ export const commitSchema = z.object({
    *
    * A field cannot be written twice. The last `commit_state` call is the only
    * one that counts, so a draft is not narration BY CONSTRUCTION rather than by
-   * the loop guessing which block the referee meant — and the rule that a player
+   * the loop guessing which block the game master meant — and the rule that a player
    * reads nothing until the commit has validated gets its second guarantee,
    * because the prose now travels inside the thing being validated.
    *
@@ -344,7 +344,7 @@ export const commitSchema = z.object({
    *
    * It was `.optional()`, and optional is a key the model can simply not write.
    * It did, a quarter of the time: R3 (2026-10-11) had 4 of 19 calls spent on
-   * "this commit has no `post`", the referee filling `coinGrant` and `learned`
+   * "this commit has no `post`", the game master filling `coinGrant` and `learned`
    * with blank placeholders and skipping the one field that mattered. `commit_state`
    * goes out strict, so a required key is one the API will not let it leave out —
    * and `null` keeps the exempt turns to four tokens rather than a paragraph
@@ -352,8 +352,8 @@ export const commitSchema = z.object({
    * entries carried a post duplicating `composed`).
    */
   post: z.string().trim().min(1).nullable(),
-  nextStage: refereeStage,
-  nextStep: refereeStep,
+  nextStage: gameMasterStage,
+  nextStep: gameMasterStep,
   timeSpent,
   rollRequest: rollRequest.optional(),
   diffs: z.array(diff),
@@ -417,7 +417,7 @@ const rollSpecRequest = z.object({
    * Whose roll this is — and `"player"` is deliberately unsayable, because the
    * player's own roll is offered rather than thrown (see `playersOwnDice`).
    * Optional, and read only when a roll made at one of the player's bonuses
-   * would otherwise be refused: saying it is the ghoul's is how a referee gets
+   * would otherwise be refused: saying it is the ghoul's is how a game master gets
    * a genuine coincidence past the guard.
    */
   actor: z.enum(["creature", "world"]).optional(),
@@ -484,7 +484,7 @@ export type OmissionIsAnIssue = Assignable<Omission, ValidationIssue>;
 export type CommitParsed = z.infer<typeof commitSchema>;
 
 // A parsed commit is not itself a `Commit` — its `rollRequest` carries a
-// `targetDefense` the referee converts and a `dc` the referee defaults, so the
+// `targetDefense` the game master converts and a `dc` the game master defaults, so the
 // two differ by exactly that normalisation (see game-master.ts). What must hold is
 // that everything the applier and the store consume lines up: the stage, the
 // step, and the diffs go through untouched.

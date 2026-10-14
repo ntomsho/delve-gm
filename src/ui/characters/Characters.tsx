@@ -7,7 +7,7 @@
  *
  * A row is a person, not a record: the name, one sentence of who they are, and
  * the four numbers that decide whether they come back. The prose line is built
- * from the same eleven traits the referee reads, by the same function the
+ * from the same eleven traits the game master reads, by the same function the
  * confirm step used — so the character you approved and the character listed
  * here describe themselves the same way.
  *

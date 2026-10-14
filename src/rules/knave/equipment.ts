@@ -897,7 +897,7 @@ export function armorFacts(key: EquipmentKey): ArmorFacts | undefined {
  * HOW MANY ARE LEFT, WHERE THE STRING SAYS SO.
  *
  * `amount` is prose — "2 days", "6 doses", "50 feet", "a handful" — because that
- * is how a player and a referee talk about a measure, and none of it is a number
+ * is how a player and a game master talk about a measure, and none of it is a number
  * the game does arithmetic on. The one question anything asks of it is whether
  * it has run out, and this is the whole of the parsing: the leading integer, or
  * nothing.
@@ -1074,4 +1074,4 @@ export function mintSpellbook(spell: Spell, parentId: string): ISpellbook {
 // Money is a conserved pot now, partitioned across the placed treasure before
 // anything reaches the LLM. See `rewards.ts`. What a found thing is
 // worth arrives WITH it, from the share it drew or from the catalog above, and
-// the referee still never names a number.
+// the game master still never names a number.

@@ -1,8 +1,8 @@
 /**
- * PLATE PROMPTS
+ * ILLUSTRATION PROMPTS
  * =============
  *
- * The words a room plate is drawn from, assembled by code. Two prompts live
+ * The words a room illustration is drawn from, assembled by code. Two prompts live
  * here, both pure:
  *
  *   the VISUAL REQUEST  what Haiku is asked, to cut a room's fiction down to
@@ -16,20 +16,20 @@
  *                       and every thing in the frame with WHERE it goes.
  *
  * WHERE is never the model's: positions, distances and counts all come from
- * `plateView` as words, and the visual request forbids numbers outright. What
+ * `illustrationView` as words, and the visual request forbids numbers outright. What
  * Haiku contributes is what each thing LOOKS like.
  *
  * Nothing the player could not see reaches either prompt: the caller passes
- * only what `roomPlate` kept — concealment filtered, senses dropped, and only
+ * only what `roomIllustration` kept — concealment filtered, senses dropped, and only
  * what is in the frame.
  */
 
 /**
- * Bumped whenever the style text changes. It is part of a plate's cache key,
+ * Bumped whenever the style text changes. It is part of an illustration's cache key,
  * so a new style redraws everything from then on rather than mixing two looks
  * in one dungeon.
  */
-export const PLATE_STYLE_VERSION = 2;
+export const ILLUSTRATION_STYLE_VERSION = 2;
 
 /**
  * Version 2, "sparse". Version 1 asked for cross-hatching and stippling and got
@@ -37,7 +37,7 @@ export const PLATE_STYLE_VERSION = 2;
  * asks for mostly white paper and shading only where a shadow is deepest, and
  * says "no border" more than one way because klein drew one anyway.
  */
-export const PLATE_STYLE =
+export const ILLUSTRATION_STYLE =
   "Clean black ink line art in the manner of a 1970s-80s fantasy adventure module's illustration " +
   "booklet. Mostly white paper. Crisp, confident outlines define every form. Shading is sparing: a few " +
   "hatched strokes only in the deepest shadows, no dense cross-hatching, no stippled texture, no large " +
@@ -52,7 +52,7 @@ export type GuideMode = "marks" | "plain" | "none";
  * What the marks in the guide image mean. The marks say WHERE; the prose says
  * WHAT; and none of them may survive into the drawing.
  */
-export const PLATE_GUIDE_NOTE =
+export const ILLUSTRATION_GUIDE_NOTE =
   "The guide image fixes the room's walls and the camera. Each dashed outline on the floor, " +
   "tagged with a number, marks where the numbered feature stands; each lettered tag marks a " +
   "doorway. Draw the thing described in place of each mark. Do not draw the dashed outlines, " +
@@ -63,7 +63,7 @@ export const PLATE_GUIDE_NOTE =
  * guide, so the prompt says which image is which and that only the manner of
  * drawing may be taken from the references — never their rooms or framing.
  */
-export function plateReferenceNote(count: number, afterGuide: boolean): string {
+export function illustrationReferenceNote(count: number, afterGuide: boolean): string {
   const which = afterGuide
     ? `The first image is the guide. The other ${count} images are style references only`
     : `The ${count} images are style references only`;
@@ -74,7 +74,7 @@ export function plateReferenceNote(count: number, afterGuide: boolean): string {
 }
 
 /** The same, for a guide drawn with no marks: architecture only. */
-export const PLATE_PLAIN_GUIDE_NOTE =
+export const ILLUSTRATION_PLAIN_GUIDE_NOTE =
   "The guide image fixes the room's walls, doorways and the camera: follow its perspective " +
   "and wall layout exactly. It shows no objects; draw the features listed below where stated.";
 
@@ -93,7 +93,7 @@ export interface VisualSubject {
   base: string;
 }
 
-export const PLATE_VISUAL_SYSTEM = [
+export const ILLUSTRATION_VISUAL_SYSTEM = [
   "You turn a room's written description into notes for an illustrator who draws in black ink.",
   "",
   "Write only what can be SEEN: materials, shapes, surfaces, condition, light and shadow.",
@@ -105,14 +105,14 @@ export const PLATE_VISUAL_SYSTEM = [
   "`things` gives each listed thing a look: a noun phrase of at most 14 words saying what it looks like, with no name, no position and no number.",
 ].join("\n");
 
-export const PLATE_SETTING_SYSTEM = [
+export const ILLUSTRATION_SETTING_SYSTEM = [
   "You turn a dungeon's written theme into one line for an illustrator who draws in black ink.",
   "Write one sentence of at most 25 words: what the place is built from or carved out of, its condition, and its light.",
   "Only what can be seen. No sounds, smells, history, people or creatures. No numbers.",
 ].join("\n");
 
 /** The user message for the per-room visual request. */
-export function plateVisualMessage(roomName: string, roomBase: string, subjects: VisualSubject[]): string {
+export function illustrationVisualMessage(roomName: string, roomBase: string, subjects: VisualSubject[]): string {
   const L = [`ROOM: ${roomName}`, roomBase, "", "THINGS IN VIEW (give each a look, keyed by ref):"];
   for (const s of subjects) L.push(`- ref ${s.ref} (${s.kind}) ${s.name}: ${s.base}`);
   if (!subjects.length) L.push("(none)");
@@ -120,7 +120,7 @@ export function plateVisualMessage(roomName: string, roomBase: string, subjects:
 }
 
 /** The user message for the per-dungeon setting request. */
-export function plateSettingMessage(theme: string): string {
+export function illustrationSettingMessage(theme: string): string {
   return `THEME:\n${theme}`;
 }
 
@@ -133,7 +133,7 @@ export interface DrawnThing {
   /** the guide's tag for it; absent when the guide carries no marks */
   tag?: string;
   look: string;
-  /** where it is, as words from `plateView` */
+  /** where it is, as words from `illustrationView` */
   where: string;
   doorway: boolean;
 }
@@ -142,9 +142,9 @@ export interface RoomPromptParts {
   guide: GuideMode;
   /** how many style reference images ride along after the guide; 0 or absent for none */
   references?: number;
-  /** the style text; PLATE_STYLE unless a trial is comparing another */
+  /** the style text; ILLUSTRATION_STYLE unless a trial is comparing another */
   style?: string;
-  /** the dungeon's look, one line, shared by every plate in it */
+  /** the dungeon's look, one line, shared by every illustration in it */
   setting: string;
   /** the room's shell, one line */
   room: string;
@@ -155,11 +155,11 @@ export interface RoomPromptParts {
   surfaces: { look: string; where: string }[];
 }
 
-export function roomPlatePrompt(p: RoomPromptParts): string {
-  const L: string[] = ["STYLE", p.style ?? PLATE_STYLE, ""];
-  if (p.references) L.push("STYLE REFERENCES", plateReferenceNote(p.references, p.guide !== "none"), "");
-  if (p.guide === "marks") L.push("GUIDE", PLATE_GUIDE_NOTE, "");
-  if (p.guide === "plain") L.push("GUIDE", PLATE_PLAIN_GUIDE_NOTE, "");
+export function roomIllustrationPrompt(p: RoomPromptParts): string {
+  const L: string[] = ["STYLE", p.style ?? ILLUSTRATION_STYLE, ""];
+  if (p.references) L.push("STYLE REFERENCES", illustrationReferenceNote(p.references, p.guide !== "none"), "");
+  if (p.guide === "marks") L.push("GUIDE", ILLUSTRATION_GUIDE_NOTE, "");
+  if (p.guide === "plain") L.push("GUIDE", ILLUSTRATION_PLAIN_GUIDE_NOTE, "");
   L.push("SETTING", p.setting, "", "ROOM", p.room, "", "VIEW", p.viewpoint);
   if (p.drawn.length) {
     L.push("", "MUST BE DRAWN, EACH WHERE STATED");
@@ -176,16 +176,16 @@ export function roomPlatePrompt(p: RoomPromptParts): string {
 }
 
 export interface ExteriorPromptParts {
-  /** the style text; PLATE_STYLE unless a trial is comparing another */
+  /** the style text; ILLUSTRATION_STYLE unless a trial is comparing another */
   style?: string;
   /** the place and its way in, seen from outside */
   scene: string;
 }
 
-export function exteriorPlatePrompt(p: ExteriorPromptParts): string {
+export function exteriorIllustrationPrompt(p: ExteriorPromptParts): string {
   return [
     "STYLE",
-    p.style ?? PLATE_STYLE,
+    p.style ?? ILLUSTRATION_STYLE,
     "",
     "VIEW",
     "An exterior view of the place from outside, at a distance, with its way in clearly visible.",
@@ -196,7 +196,7 @@ export function exteriorPlatePrompt(p: ExteriorPromptParts): string {
 }
 
 /** What Haiku is asked for an exterior: the place and its entrance, from outside. */
-export const PLATE_EXTERIOR_SYSTEM = [
+export const ILLUSTRATION_EXTERIOR_SYSTEM = [
   "You turn a written description of a dungeon's surroundings and entrance into notes for an illustrator who draws in black ink.",
   "Write two or three sentences, at most 60 words, describing what someone approaching would SEE: the landscape, the structure, its condition, and the entrance.",
   "If the description gives the time of day, the sky or the weather, open with them in plain words (\"At night, under a full moon, ...\"): they change the whole picture.",

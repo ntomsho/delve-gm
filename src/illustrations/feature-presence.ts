@@ -2,7 +2,7 @@
  * FEATURE PRESENCE
  * ================
  *
- * What KIND of thing a feature is to the eye, which decides how a room plate
+ * What KIND of thing a feature is to the eye, which decides how a room illustration
  * treats it:
  *
  *   object   a thing standing somewhere — an altar, a lever, a heap of tablets.

@@ -3,7 +3,7 @@
  * ================================
  *
  * The same four verbs as `GameSession`, and the same store underneath — but
- * nothing here decides anything. The turn machine, the referee, the applier and
+ * nothing here decides anything. The turn machine, the game master, the applier and
  * the dice all live on the server now; this posts what the player did and
  * replaces the store with what came back.
  *
@@ -31,7 +31,7 @@
  * and *then* awaits the model, so the screen reacts instantly.
  *
  * This file did none of that. It posted, awaited, and only touched the store
- * when the answer came back — so for the forty seconds a referee takes, the
+ * when the answer came back — so for the forty seconds a game master takes, the
  * stage was still `awaiting_action`: no line in the scrollback, no sweep, and an
  * open box that accepted three more actions the server then refused as `busy`.
  * The interface was intact; nothing was telling it anything.
@@ -47,7 +47,7 @@
 import { createGameStore, type RunState } from "../state/store.ts";
 import { acceptsInput, isTerminal, type Stage, type Step } from "../../shared/types/turn.ts";
 import type { GeneratedDungeon, GenerationProgress } from "../../generation/generate.ts";
-import type { PlateAnswer } from "../../illustrations/room-illustration.ts";
+import type { IllustrationAnswer } from "../../illustrations/room-illustration.ts";
 import type { PlayableSession, RunRequest } from "./session.ts";
 import type { PlayerCharacter } from "../../rules/knave/character.ts";
 
@@ -97,7 +97,7 @@ export function createRemoteSession(opts: RemoteOptions = {}): PlayableSession {
    * The request the server never got.
    *
    * A turn can fail in two places and they need different repairs. If the
-   * REFEREE failed, the server's own machine caught it, landed on `error` with
+   * GAME MASTER failed, the server's own machine caught it, landed on `error` with
    * its `pending` recorded, and answered 200 — the run really is in `error` and
    * `POST /retry` will repeat the ask. If the REQUEST failed — the network, a
    * 500, a function that timed out — the server committed nothing and is still
@@ -153,7 +153,7 @@ export function createRemoteSession(opts: RemoteOptions = {}): PlayableSession {
   /**
    * The request could not be made. The machine's `fail`, on this side of the
    * wire: the world is left exactly as it was, the run goes to the one stage
-   * where the software rather than the referee is talking, and what was being
+   * where the software rather than the game master is talking, and what was being
    * sent is kept so the retry card can send it again.
    *
    * Deliberately does NOT throw. `App` calls these as `void session.submit(…)`,
@@ -228,24 +228,24 @@ export function createRemoteSession(opts: RemoteOptions = {}): PlayableSession {
   }
 
   /**
-   * Plates asked for, by room. The promise is kept, not the answer, so a second
+   * Illustrations asked for, by room. The promise is kept, not the answer, so a second
    * ask while the first is still drawing (a re-mount, a second panel) waits on
    * the same request instead of being told "pending" by its own claim.
    */
-  const plates = new Map<string, Promise<PlateAnswer>>();
+  const illustrations = new Map<string, Promise<IllustrationAnswer>>();
 
-  /** One ask of a plate-like route, kept until it is an answer. See `plates`. */
-  function askOnce(key: string, path: string): Promise<PlateAnswer> {
-    let asked = plates.get(key);
+  /** One ask of an illustration-like route, kept until it is an answer. See `plates`. */
+  function askOnce(key: string, path: string): Promise<IllustrationAnswer> {
+    let asked = illustrations.get(key);
     if (!asked) {
-      asked = (async (): Promise<PlateAnswer> => {
+      asked = (async (): Promise<IllustrationAnswer> => {
         const res = await http(`${base}${path}`);
         // A picture is never worth an error on the page: anything but an answer is none.
-        return res.ok ? ((await res.json()) as PlateAnswer) : { status: "none" };
-      })().catch((): PlateAnswer => ({ status: "none" }));
-      plates.set(key, asked);
+        return res.ok ? ((await res.json()) as IllustrationAnswer) : { status: "none" };
+      })().catch((): IllustrationAnswer => ({ status: "none" }));
+      illustrations.set(key, asked);
       // "Ask again later" is not an answer to keep.
-      void asked.then((a) => a.status === "pending" && plates.delete(key));
+      void asked.then((a) => a.status === "pending" && illustrations.delete(key));
     }
     return asked;
   }
@@ -255,7 +255,7 @@ export function createRemoteSession(opts: RemoteOptions = {}): PlayableSession {
    * this is the ask that draws it, so it starts now rather than when the
    * opening renders: the picture is then seconds behind the prose, not more.
    */
-  function cover(): Promise<PlateAnswer> {
+  function cover(): Promise<IllustrationAnswer> {
     if (!runId) return Promise.resolve({ status: "none" });
     return askOnce("cover", `/api/runs/${runId}/cover`);
   }
@@ -263,9 +263,9 @@ export function createRemoteSession(opts: RemoteOptions = {}): PlayableSession {
   return {
     store,
 
-    plate(roomId: string): Promise<PlateAnswer> {
+    illustration(roomId: string): Promise<IllustrationAnswer> {
       if (!runId) return Promise.resolve({ status: "none" });
-      return askOnce(`room:${roomId}`, `/api/runs/${runId}/plates/${encodeURIComponent(roomId)}`);
+      return askOnce(`room:${roomId}`, `/api/runs/${runId}/illustrations/${encodeURIComponent(roomId)}`);
     },
 
     cover,
@@ -382,7 +382,7 @@ export function createRemoteSession(opts: RemoteOptions = {}): PlayableSession {
      * The player's line goes up the moment they press return, as it does in
      * process — the scrollback is the record of the conversation and their half
      * of it is not in doubt. The reply carries the server's own copy of the log
-     * and replaces this one, so it lands once however slow the referee is.
+     * and replaces this one, so it lands once however slow the game master is.
      */
     submit(text: string) {
       const r = store.getState().run;
@@ -399,7 +399,7 @@ export function createRemoteSession(opts: RemoteOptions = {}): PlayableSession {
      *
      * The dice are the server's — the run's RNG is seeded and its draw count is
      * state, so a client that rolled would be inventing a number and desyncing
-     * the stream. They used to come back in the same request as the referee's
+     * the stream. They used to come back in the same request as the game master's
      * prose, so the player watched a spinner for ten seconds over a number the
      * server already had. Now `/roll` throws and saves and returns at once —
      * `rolling` is as brief as it sounds — the die lands in the log and the
@@ -421,7 +421,7 @@ export function createRemoteSession(opts: RemoteOptions = {}): PlayableSession {
     /**
      * Ask again — and which "again" depends on where it broke.
      *
-     * A request that never landed is sent again as itself. A referee that failed
+     * A request that never landed is sent again as itself. A game master that failed
      * on the server left its `pending` in the run, so the stage to show is read
      * from that: the same three-way the machine makes in `turn.ts`, off the same
      * field, which is why they cannot drift apart. Neither is available on a run

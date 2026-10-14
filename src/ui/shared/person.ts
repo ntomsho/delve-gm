@@ -6,7 +6,7 @@
  * approved a description should meet the same description in the list.
  *
  * Distinct from `renderPc` in `gameplay/game-master/render.ts`, which lists the same
- * traits as `key value` pairs for the referee. That one is for a machine to
+ * traits as `key value` pairs for the game master. That one is for a machine to
  * parse and this one is for a person to read; they are the same data twice on
  * purpose, not a duplication to collapse.
  */

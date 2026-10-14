@@ -23,13 +23,13 @@ export type Task =
   | "tally-pass"
   /** describing a room the player has just walked into */
   | "room-entry"
-  /** the runtime referee: triage, roll confirmation, resolution */
+  /** the runtime game master: triage, roll confirmation, resolution */
   | "turn-loop"
   /**
-   * a room plate's words: the room's fiction cut down to what an illustrator
+   * a room illustration's words: the room's fiction cut down to what an illustrator
    * would draw — its shell, and a short look for each thing in the frame
    */
-  | "plate-visual";
+  | "illustration-visual";
 
 /**
  * Everything is on Haiku 4.5 while the pipeline is being built: it is the
@@ -59,7 +59,7 @@ export const MODELS: Record<Task, string> = {
   "tally-pass": "claude-haiku-4-5",
   "room-entry": "claude-haiku-4-5",
   "turn-loop": "claude-haiku-4-5",
-  "plate-visual": "claude-haiku-4-5",
+  "illustration-visual": "claude-haiku-4-5",
 };
 
 /**
@@ -81,7 +81,7 @@ export const MAX_TOKENS: Record<Task, number> = {
   "room-entry": 4096,
   "turn-loop": 4096,
   // A sentence for the room and a short phrase per thing in the picture.
-  "plate-visual": 1024,
+  "illustration-visual": 1024,
 };
 
 export function modelFor(task: Task): string {
@@ -93,10 +93,10 @@ export function modelFor(task: Task): string {
 // ---------------------------------------------------------------------------
 
 /**
- * The image models under trial for room plates, as fal endpoint ids. Same rule
+ * The image models under trial for room illustrations, as fal endpoint ids. Same rule
  * as the text models: no endpoint string anywhere else in the repo.
  *
- * Each has two endpoints because a plate is drawn either FROM the guide image
+ * Each has two endpoints because an illustration is drawn either FROM the guide image
  * (`guided`: an edit or control endpoint that takes it) or from the prompt
  * alone (`unguided`: plain text-to-image — exteriors, and the no-guide
  * control). FLUX.1 [pro] Canny only exists guided: it is a structure lock and
@@ -116,11 +116,11 @@ export const IMAGE_MODELS: Record<ImageModel, { guided: string; unguided?: strin
 };
 
 /**
- * What draws a room plate in the game: GPT Image 2 at low quality, from the
+ * What draws a room illustration in the game: GPT Image 2 at low quality, from the
  * marked guide and the style references (BUILD-PLAN, *Illustrations*, "Spike
- * outcome"). Part of every plate's key, so changing it redraws from then on.
+ * outcome"). Part of every illustration's key, so changing it redraws from then on.
  */
-export const PLATE_MODEL: ImageModel = "gpt-image-2";
+export const ILLUSTRATION_MODEL: ImageModel = "gpt-image-2";
 
 /**
  * What draws a dungeon's cover, its exterior: FLUX.2 [klein] 4B from the

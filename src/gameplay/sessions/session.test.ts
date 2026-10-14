@@ -13,21 +13,21 @@
  * stream, and — quietly, which is the bad part — they would share a draw count
  * on the dice.
  *
- * Free: the offline fixture for the dungeon, the stub referee for the turns.
+ * Free: the offline fixture for the dungeon, the stub game master for the turns.
  */
 
 import { describe, expect, it } from "vitest";
 import { createGameSession, describeFailure } from "./session.ts";
 import { ResponseFormatError } from "../../llm/json.ts";
 import { generateOffline, testCharacter } from "../../fixtures/offline.ts";
-import { stubReferee } from "../../fixtures/stub-game-master.ts";
+import { stubGameMaster } from "../../fixtures/stub-game-master.ts";
 import type { JournalRecord } from "../../journal/journal.ts";
 
-/** A session that costs nothing: fixture dungeon, fixture referee. */
+/** A session that costs nothing: fixture dungeon, fixture game master. */
 function offlineSession(events?: JournalRecord[]) {
   return createGameSession({
     offline: true,
-    referee: () => stubReferee,
+    gameMaster: () => stubGameMaster,
     generate: async ({ seed, size }) => generateOffline(seed, size),
     ...(events ? { sink: () => ({ write: (r: JournalRecord) => events.push(r) }) } : {}),
   });

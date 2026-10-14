@@ -1,8 +1,8 @@
 /**
- * PLATE VIEW
+ * ILLUSTRATION VIEW
  *
  * Two halves. `viewFrom` is a derivation — one camera, where everything lands —
- * tested on hand-built floors where the answer is obvious by eye. `plateView`
+ * tested on hand-built floors where the answer is obvious by eye. `illustrationView`
  * is a search, tested on what it must achieve: every feature in the picture
  * wherever that is possible, the room's corners and doorways used to get it.
  */
@@ -11,12 +11,12 @@ import { describe, expect, it } from "vitest";
 import { CELL_FEET } from "../generation/floorplan/geometry.ts";
 import {
   featureWhere,
-  PLATE_MIN_AHEAD_FT,
-  PLATE_SCORE,
-  plateView,
+  ILLUSTRATION_MIN_AHEAD_FT,
+  ILLUSTRATION_SCORE,
+  illustrationView,
   unseenReason,
   viewFrom,
-  type PlateViewInput,
+  type IllustrationViewInput,
 } from "./view.ts";
 import { type Point } from "../generation/floorplan/floorplan.ts";
 
@@ -33,7 +33,7 @@ function plan(rows: string[]): Point[] {
 }
 
 /** A 5x5 room, entered from the middle of its south wall. North is up. */
-const square = (extra: Partial<PlateViewInput> = {}): PlateViewInput => ({
+const square = (extra: Partial<IllustrationViewInput> = {}): IllustrationViewInput => ({
   floor: box(0, 0, 5, 5),
   entry: { id: "in", inside: { x: 2, y: 4 }, outside: { x: 2, y: 5 } },
   exits: [],
@@ -103,7 +103,7 @@ describe("viewFrom", () => {
 
   it("does not count what is at the viewer's feet: the frame's bottom edge cuts it off", () => {
     const v = viewFrom(square({ features: [{ id: "feet", cells: [{ x: 2, y: 4 }] }] }), SOUTH_DOOR, NORTH);
-    expect(v.features[0].ahead).toBeLessThan(PLATE_MIN_AHEAD_FT);
+    expect(v.features[0].ahead).toBeLessThan(ILLUSTRATION_MIN_AHEAD_FT);
     expect(unseenReason(v.features[0])).toBe("outside the frame");
   });
 
@@ -125,15 +125,15 @@ describe("viewFrom", () => {
   });
 });
 
-describe("plateView", () => {
+describe("illustrationView", () => {
   it("weighs a feature above any floor, a way out above a little floor, and the way in below other ways out", () => {
-    expect(PLATE_SCORE.feature).toBeGreaterThan(PLATE_SCORE.exit);
-    expect(PLATE_SCORE.exit).toBeGreaterThan(PLATE_SCORE.entry);
-    expect(PLATE_SCORE.entry).toBeGreaterThan(PLATE_SCORE.tile);
+    expect(ILLUSTRATION_SCORE.feature).toBeGreaterThan(ILLUSTRATION_SCORE.exit);
+    expect(ILLUSTRATION_SCORE.exit).toBeGreaterThan(ILLUSTRATION_SCORE.entry);
+    expect(ILLUSTRATION_SCORE.entry).toBeGreaterThan(ILLUSTRATION_SCORE.tile);
   });
 
   it("frames every feature in an open room", () => {
-    const v = plateView(
+    const v = illustrationView(
       square({
         features: [
           { id: "nw", cells: [{ x: 0, y: 0 }] },
@@ -153,7 +153,7 @@ describe("plateView", () => {
     //   ..
     //   ..
     //   ..      <- entered from the south
-    const v = plateView({
+    const v = illustrationView({
       floor: [...box(0, 0, 6, 2), ...box(0, 2, 2, 3)],
       entry: { id: "in", inside: { x: 0, y: 4 }, outside: { x: 0, y: 5 } },
       exits: [{ id: "far-east", inside: { x: 5, y: 1 }, outside: { x: 6, y: 1 } }],
@@ -170,7 +170,7 @@ describe("plateView", () => {
     // 10 ft square, both features against the north wall. Nowhere on the floor
     // is far enough back for the frame's bottom edge to clear them both, and
     // the doorway behind is off limits: the camera stays on the room's floor.
-    const input: PlateViewInput = {
+    const input: IllustrationViewInput = {
       floor: box(0, 0, 2, 2),
       entry: { id: "in", inside: { x: 0, y: 1 }, outside: { x: 0, y: 2 } },
       exits: [],
@@ -179,18 +179,18 @@ describe("plateView", () => {
         { id: "b", cells: [{ x: 1, y: 0 }] },
       ],
     };
-    const v = plateView(input);
+    const v = illustrationView(input);
     const cell = { x: Math.floor(v.eye.x / CELL_FEET), y: Math.floor(v.eye.y / CELL_FEET) };
     expect(input.floor).toContainEqual(cell);
   });
 
   it("is the same view every time", () => {
     const input = square({ features: [{ id: "x", cells: [{ x: 1, y: 1 }] }] });
-    expect(plateView(input)).toEqual(plateView(input));
+    expect(illustrationView(input)).toEqual(illustrationView(input));
   });
 
   it("keeps an unplaced feature in the list, in view", () => {
-    const v = plateView(square({ features: [{ id: "loose", cells: [] }] }));
+    const v = illustrationView(square({ features: [{ id: "loose", cells: [] }] }));
     expect(v.features[0]).toMatchObject({ placed: false, visible: true });
   });
 });

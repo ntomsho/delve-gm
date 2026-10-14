@@ -1,12 +1,12 @@
 /**
- * PLATE HOTSPOTS
+ * ILLUSTRATION HOTSPOTS
  * ==============
  *
- * Where each way out and each feature lands in a room plate, so the page can
+ * Where each way out and each feature lands in a room illustration, so the page can
  * lay buttons over the finished image — and, for the ones the picture cannot
  * show, which way the player would have to go.
  *
- * Every position is a fraction of the plate's width and height from its
+ * Every position is a fraction of the illustration's width and height from its
  * top-left (`projectToFrame`), so the same numbers fit the image at any size.
  * They come from the same camera the guide image was drawn from, so a button
  * sits on the doorway the image model was told to draw there.
@@ -20,13 +20,13 @@
  *   behind-wall  in the frame's field of view but walled off, and no corner in
  *                the picture leads to it. A dashed button where it would be.
  *   off-frame    beside or behind the camera. An arrow on the left, right or
- *                bottom edge of the plate.
+ *                bottom edge of the illustration.
  *
  * Each outcome is exactly one control: buttons, a corner arrow, a dashed
  * button, or an edge arrow. The arrow is the way to the thing, so it is also
  * the thing's button.
  *
- * Pure geometry, like `plateView`; it knows ids and cells, not entities.
+ * Pure geometry, like `illustrationView`; it knows ids and cells, not entities.
  */
 
 import { CELL_FEET } from "../generation/floorplan/geometry.ts";
@@ -37,13 +37,13 @@ import {
   connectedCells,
   doorPoint,
   doorTarget,
-  PLATE_DOOR_FT,
-  PLATE_HALF_FOV_DEG,
-  plateSight,
+  ILLUSTRATION_DOOR_FT,
+  ILLUSTRATION_HALF_FOV_DEG,
+  illustrationSight,
   projectToFrame,
   type Eye,
-  type PlateView,
-  type PlateViewInput,
+  type IllustrationView,
+  type IllustrationViewInput,
   type ViewDoor,
 } from "./view.ts";
 
@@ -61,7 +61,7 @@ export interface Hotspot {
   points: Point[];
   /** around: the corner to go round, and which way the path turns there */
   around?: { x: number; y: number; turn: "left" | "right" };
-  /** off-frame: the edge of the plate to put the arrow on */
+  /** off-frame: the edge of the illustration to put the arrow on */
   edge?: HotspotEdge;
 }
 
@@ -85,7 +85,7 @@ const inFrame = (q: Point | null): q is Point => q !== null && q.x >= 0 && q.x <
 function inFieldOfView(eye: Eye, p: Point): boolean {
   const ahead = (p.x - eye.x) * eye.forward.x + (p.y - eye.y) * eye.forward.y;
   const across = (p.x - eye.x) * eye.right.x + (p.y - eye.y) * eye.right.y;
-  return ahead > 0 && Math.abs(across) <= ahead * Math.tan((PLATE_HALF_FOV_DEG * Math.PI) / 180);
+  return ahead > 0 && Math.abs(across) <= ahead * Math.tan((ILLUSTRATION_HALF_FOV_DEG * Math.PI) / 180);
 }
 
 function edgeToward(eye: Eye, p: Point, z: number): HotspotEdge {
@@ -95,7 +95,7 @@ function edgeToward(eye: Eye, p: Point, z: number): HotspotEdge {
   if (deg > HOTSPOT_BEHIND_DEG) return "bottom";
   // Straight ahead but under the frame — a thing at the viewer's feet — is
   // down, not to one side.
-  if (deg <= PLATE_HALF_FOV_DEG) {
+  if (deg <= ILLUSTRATION_HALF_FOV_DEG) {
     const q = projectToFrame(eye, { ...p, z });
     if (!q || q.y > 1) return "bottom";
   }
@@ -135,10 +135,10 @@ function cornersOf(floor: readonly Point[]): Point[] {
  * joined wherever a straight line between them stays on the floor — the taut
  * string a walk round the room's corners makes.
  */
-function route(input: PlateViewInput, eye: Point, target: Point, corners: Point[]): Point[] | null {
+function route(input: IllustrationViewInput, eye: Point, target: Point, corners: Point[]): Point[] | null {
   const on = new Set(input.floor.map((c) => key(c.x, c.y)));
   const onFloor = (x: number, y: number) => on.has(key(x, y));
-  const fromEye = plateSight(input, eye);
+  const fromEye = illustrationSight(input, eye);
   const nodes = [eye, ...corners, target];
   const last = nodes.length - 1;
   const clear = (a: number, b: number) =>
@@ -176,11 +176,11 @@ function turnAt(from: Point, corner: Point, next: Point): "left" | "right" {
 }
 
 /**
- * Where something not in the picture is, as the plate can say it: round a
+ * Where something not in the picture is, as the illustration can say it: round a
  * corner in view, walled off where it stands, or off one edge.
  */
 function unseen(
-  input: PlateViewInput,
+  input: IllustrationViewInput,
   eye: Eye,
   sighted: Point,
   anchor: { x: number; y: number; z: number },
@@ -205,18 +205,18 @@ function unseen(
 
 /**
  * Every way out (the way in among them) and every placed feature, as the page
- * should show it on the plate. Features with no footprint are left out: there
+ * should show it on the illustration. Features with no footprint are left out: there
  * is nowhere to put their button.
  */
-export function plateHotspots(input: PlateViewInput, view: PlateView): Hotspot[] {
+export function illustrationHotspots(input: IllustrationViewInput, view: IllustrationView): Hotspot[] {
   const { eye } = view;
   const corners = cornersOf(input.floor);
-  const sees = plateSight(input, eye);
+  const sees = illustrationSight(input, eye);
   const out: Hotspot[] = [];
 
   const door = (d: ViewDoor, role: HotspotRole, visible: boolean) => {
     const at = doorPoint(d);
-    const anchor = { ...at, z: PLATE_DOOR_FT / 2 };
+    const anchor = { ...at, z: ILLUSTRATION_DOOR_FT / 2 };
     if (visible) {
       const q = projectToFrame(eye, anchor);
       if (q) {

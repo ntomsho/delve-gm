@@ -38,7 +38,7 @@
  * without charge. The ordering costs nothing and is right whenever it does.)
  *
  * WHAT IS NOT HERE. The scrollback. `run.log` is what the player reads and it
- * grows for the whole run; the referee gets the exchange for the action in
+ * grows for the whole run; the game master gets the exchange for the action in
  * progress and structured records for the two turns before it, and everything
  * older reaches it through the entities' own `state`. That is the point of the
  * three prose lifetimes.
@@ -160,7 +160,7 @@ function fiction(run: RunState): SystemBlock[] {
 function brief(req: PromptInput): Message {
   const { run, dungeon } = req;
 
-  // Hidden things and creature numbers are both included: the referee has to
+  // Hidden things and creature numbers are both included: the game master has to
   // know what is there to be found, and somebody has to set a difficulty.
   // Neither reaches the screen — see RoomViewOptions.
   const room = roomView(run, dungeon, run.currentRoomId, {
@@ -192,7 +192,7 @@ function brief(req: PromptInput): Message {
       renderCharacter(characterView(run)),
       ``,
       room ? renderRoom(room) : `## The room the player is standing in\n\n(missing — this is a bug)`,
-      // AFTER THE ROOM, AND EVERY CALL. Until this existed the referee held one
+      // AFTER THE ROOM, AND EVERY CALL. Until this existed the game master held one
       // room and nothing in the dungeon did anything until the player walked in
       // on it. Sending all of them every time was measured rather than assumed —
       // see `censusView` — and it costs about a twentieth of a resolution turn.
@@ -227,12 +227,12 @@ function brief(req: PromptInput): Message {
  *
  * A roll is the player's, so it goes on their side of the exchange — but they
  * did not *say* it, and a die result introduced as speech is a die result the
- * referee may argue with. See `turn.ts`: the transcript entry is defence in
+ * game master may argue with. See `turn.ts`: the transcript entry is defence in
  * depth behind `renderRoll`, not the authoritative copy.
  */
 function exchange(run: RunState): Message[] {
   return run.transcript.slice(-MAX_EXCHANGE).map((e) => ({
-    role: e.role === "referee" ? ("assistant" as const) : ("user" as const),
+    role: e.role === "game-master" ? ("assistant" as const) : ("user" as const),
     content: spoken(e),
   }));
 }
@@ -243,7 +243,7 @@ function spoken(e: TranscriptEntry): string {
       return `The player says: ${e.text}`;
     case "roll":
       return `The player rolled: ${e.text}`;
-    case "referee":
+    case "game-master":
       return e.text;
   }
 }
@@ -256,7 +256,7 @@ function spoken(e: TranscriptEntry): string {
  * THIS SAID `<post>` TAGS FOR TWO MONTHS AFTER THE TAGS WERE GONE.
  *
  * The post moved into `commit_state` (§8a A9) and SKILL.md and the tool's own
- * description were rewritten for it; this line, the last thing the referee
+ * description were rewritten for it; this line, the last thing the game master
  * reads on every call, was not. So the final instruction was to finish with
  * the prose in the open and THEN commit — which is a turn that can end on the
  * prose. That is the shape of the "you ended your turn without calling
@@ -287,9 +287,9 @@ function instruction(req: PromptInput): Message {
  * them, unchanged. They are never a substitute for it.
  *
  * This was an if/else chain whose rejection branch returned early, and the
- * cost was not obvious: the roll reaches the referee through exactly one line
+ * cost was not obvious: the roll reaches the game master through exactly one line
  * — `renderRoll`, in the body below — so a retry after a roll was a prompt
- * with the roll missing from it. A referee at step 5 with a rejection notice,
+ * with the roll missing from it. A game master at step 5 with a rejection notice,
  * no number, and an action it has not resolved does the only coherent thing
  * left and restarts the heuristic, which means offering the same roll a second
  * time. In the 2026-08-10 playtest the player won a DEX save at 20, had the
@@ -297,7 +297,7 @@ function instruction(req: PromptInput): Message {
  * and lost what they had already taken.
  *
  * That one defect also produced the duplicated establishing paragraph — a
- * restarted heuristic re-narrates — and the report that the referee "got
+ * restarted heuristic re-narrates — and the report that the game master "got
  * completely messed up". It was not confused. It was told nothing.
  */
 function task(req: PromptInput): string {
@@ -316,7 +316,7 @@ function refused(reasons: string[]): string {
     `Ids must appear verbatim in the sheet or the room above, or have been created earlier in the same commit; \`base\`, \`name\`, \`id\` and \`type\` are never writable; a \`clarifying\` or \`rejected\` commit must carry no diffs at all.`,
     ``,
     // Narration is held back until the commit applies, so a refused attempt
-    // reached nobody. A referee that thinks it half-published will write the
+    // reached nobody. A game master that thinks it half-published will write the
     // second attempt as a continuation of prose the player never read.
     `**This is the same turn, not a new one.** What you were asked for follows, unchanged — the same step, the same action, the same roll if there was one. Write it again with the reasons above fixed. The player has not seen any of your last attempt: the narration was held back with the commit, so write the whole turn, not a correction to it.`,
   ].join("\n");

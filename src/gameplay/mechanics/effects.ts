@@ -2,7 +2,7 @@
  * WHAT A TURN DID TO THE CHARACTER.
  *
  * Read off the sheet before and after the commit, not off the diffs. Damage
- * reaches the sheet three ways — a diff the referee wrote, a creature's dice,
+ * reaches the sheet three ways — a diff the game master wrote, a creature's dice,
  * and consequences the applier performs on its own (an item destroyed at zero
  * quality, armour that came off because it became illegal) — and only the
  * before-and-after sees all three. The applier's events are consulted for the
@@ -122,17 +122,17 @@ export function describeEffects(effects: readonly Effect[]): string {
 
 /** A creature's or the world's roll against the player, as the screen may show it. */
 export interface FoeRoll {
-  /** from the referee's own id for the roll — "wretched-2-attack" reads "Wretched 2 attack" */
+  /** from the game master's own id for the roll — "wretched-2-attack" reads "Wretched 2 attack" */
   label: string;
   d20?: NonNullable<DiceOutcome["d20"]>;
   damage?: NonNullable<DiceOutcome["damage"]>;
 }
 
 /**
- * WHICH OF THE REFEREE'S DICE THE PLAYER SEES: the ones that hurt them, and only
+ * WHICH OF THE GAME MASTER'S DICE THE PLAYER SEES: the ones that hurt them, and only
  * on a turn they were hurt.
  *
- * The referee is told to ask for everything a turn MIGHT need in one batch and
+ * The game master is told to ask for everything a turn MIGHT need in one batch and
  * discard what it does not use (see the `roll` tool), so a batch can hold a
  * creature attack that never happened in the fiction. Showing every roll would
  * sometimes show a hit with no wound behind it. On a turn where hit points

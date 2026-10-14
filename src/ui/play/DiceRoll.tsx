@@ -1,7 +1,7 @@
 /**
  * THE PLAYER'S ROLL, DRAWN.
  *
- * The dice reach the screen before the referee has written a word about them —
+ * The dice reach the screen before the game master has written a word about them —
  * `/roll` and `/resolve` are two requests for exactly this — so the player
  * watches their own die land and reads success or failure while the prose is
  * still being written, rather than learning the result from it.

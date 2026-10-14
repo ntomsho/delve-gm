@@ -2,7 +2,7 @@
 
 ## The product
 
-A single-player dungeon crawl where an LLM acts as referee. The player types what they want to do in plain language; the referee decides what happens, rolls the dice, and narrates the result. Underneath it is **Knave 1.0** — a lean OSR tabletop game where characters are fragile, inventory is measured in slots you will run out of, and cleverness beats combat because combat kills you.
+A single-player dungeon crawl where an LLM acts as game master. The player types what they want to do in plain language; the game master decides what happens, rolls the dice, and narrates the result. Underneath it is **Knave 1.0** — a lean OSR tabletop game where characters are fragile, inventory is measured in slots you will run out of, and cleverness beats combat because combat kills you.
 
 The whole dungeon is generated before play begins: rooms, monsters, treasure, the thing you came for. Nothing is improvised on the fly. The player's job is to get in, find it, and get out alive.
 
@@ -133,7 +133,7 @@ Design this as a real screen with something to look at, not a modal. It's the pl
 
 The main screen. Three regions:
 
-**Narration column (primary).** The conversation. Referee prose and the player's own typed actions, distinguishable but not styled like a chat app with bubbles and avatars. Room arrivals deserve a stronger visual break than ordinary exchanges. Narration streams in token by token — design for text that arrives progressively.
+**Narration column (primary).** The conversation. Game master prose and the player's own typed actions, distinguishable but not styled like a chat app with bubbles and avatars. Room arrivals deserve a stronger visual break than ordinary exchanges. Narration streams in token by token — design for text that arrives progressively.
 
 **Map (secondary).** SVG. Rooms as nodes, connectors as edges, current position marked. **Fog of war:** unvisited rooms are unknown and should not be shown as anything but blank space or an inferred exit. Visited rooms stay drawn. Some connectors are *gated* — locked, blocked, flooded, concealed — and that state matters to the player's planning, so it needs a visual language. Design so this can later become a real dungeon map with room shapes rather than dots; don't build a visual grammar that only works for circles.
 
@@ -153,16 +153,16 @@ The main screen. Three regions:
 |---|---|---|
 | `room_entry` | New room being described | Input disabled, narration streaming |
 | `awaiting_action` | Game is waiting | Open. **"What do you do?"** |
-| `clarifying` | Referee needs to know which thing you meant | Open, framed as answering a question |
+| `clarifying` | Game master needs to know which thing you meant | Open, framed as answering a question |
 | `rejected` | The action won't work; nothing changed | Open, framed as try something else |
 | `roll_offered` | A roll is on the table — what's being rolled, against what, with what edge | **Roll button live, input still open** so the player can argue or change approach |
 | `rolling` | Dice in flight | Disabled |
-| `resolving` | Referee writing the outcome | Disabled, narration streaming |
+| `resolving` | Game master writing the outcome | Disabled, narration streaming |
 | `dead` / `goal_met` | Run over | Closed |
 
 `roll_offered` is the one that carries the most design weight. It has to show the player the terms of the bet — which ability, against what defense, whether they have advantage or disadvantage — and make clear that they can still talk instead of rolling. Renegotiating the terms is a legitimate move in this kind of game, and the interface should say so.
 
-`rejected` deserves care too. The referee turning an action away is a normal, frequent event, not an error. It should never read as a system failure or an apology. It should read like a person across the table saying "there's no window in here."
+`rejected` deserves care too. The game master turning an action away is a normal, frequent event, not an error. It should never read as a system failure or an apology. It should read like a person across the table saying "there's no window in here."
 
 ---
 

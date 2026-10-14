@@ -1,5 +1,5 @@
 /**
- * ROOM PLATE SPIKE — THE SUBJECTS
+ * ROOM ILLUSTRATION SPIKE — THE SUBJECTS
  * ===============================
  *
  * What the first image test draws: 3 exteriors and 12 interiors chosen to

@@ -17,7 +17,7 @@
  * screen (`← Characters` on the library, the run setup, character creation) is
  * a back link in the top-left corner in this same type.
  *
- * DISABLED WHILE THE REFEREE IS WORKING. A turn in flight finishes on the
+ * DISABLED WHILE THE GAME MASTER IS WORKING. A turn in flight finishes on the
  * server whether or not anyone is watching, and a resume that loaded the run
  * before that save landed would be a version behind it. The error stage is
  * not working, so a stuck run can always be left.
@@ -46,7 +46,7 @@ export function GameMenu({ onMainMenu, busy, compact = false }: GameMenuProps) {
           compact
             ? undefined
             : busy
-              ? "Waiting on the referee — your run is saved either way"
+              ? "Waiting on the game master — your run is saved either way"
               : "Your run is saved; resume it from your characters"
         }
         className={`font-mono text-[10px] uppercase tracking-[0.14em] text-graphite transition-colors hover:text-ink active:text-torch disabled:text-pencil ${

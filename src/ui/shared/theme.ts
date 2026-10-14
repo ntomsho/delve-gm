@@ -59,7 +59,7 @@ export const color = {
  * numbers: the character sheet, room titles, the things you read at a glance.
  */
 export const font = {
-  /** referee prose and player actions — the reading column */
+  /** game master prose and player actions — the reading column */
   prose: "'Source Serif 4', Georgia, serif",
   /** labels, stage names, stat blocks, anything the software says */
   mono: "'JetBrains Mono', ui-monospace, monospace",
@@ -113,8 +113,8 @@ export const STAGE_TONE: Record<Stage, StageTone> = {
 export const STAGE_NAME: Record<Stage, string> = {
   room_entry: "ARRIVING",
   awaiting_action: "YOUR MOVE",
-  thinking: "REFEREE THINKING",
-  clarifying: "REFEREE ASKING",
+  thinking: "GAME MASTER THINKING",
+  clarifying: "GAME MASTER ASKING",
   rejected: "ACTION TURNED AWAY",
   roll_offered: "ROLL OFFERED",
   rolling: "DICE IN FLIGHT",

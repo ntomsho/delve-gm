@@ -4,7 +4,7 @@
  * The point of a snapshot here is that a prompt change becomes a visible diff
  * in review. Prompts are the part of this system with no type checker and no
  * compiler; a line quietly dropped from the character sheet is the sort of
- * thing that shows up three sessions later as "the referee keeps forgetting
+ * thing that shows up three sessions later as "the game master keeps forgetting
  * what I'm carrying". This makes it show up in the diff instead.
  *
  * Only the messages are snapshotted. The system blocks are SKILL.md and the
@@ -147,7 +147,7 @@ describe("the system prompt", () => {
 
   it("ends every call on the commit, with the words inside it", () => {
     // The `<post>` tags outlived the tags by two months here, telling the
-    // referee to finish in the open and THEN commit. See CLOSE.
+    // game master to finish in the open and THEN commit. See CLOSE.
     const { messages } = assemble({ step: "1-target", dungeon, run: fresh(), input: "look" });
     const last = messages.at(-1)!.content as string;
     expect(last).not.toContain("<post>");
@@ -227,7 +227,7 @@ describe("the messages", () => {
 /**
  * The reasons are a preamble. They were a substitute, and the substitution
  * dropped the only line carrying the player's roll — so a retry at step 5 was
- * a resolution with no number in it, and the referee restarted the heuristic
+ * a resolution with no number in it, and the game master restarted the heuristic
  * and offered the same roll again. Seed 15341: a save won at 20, re-rolled to
  * a 9, and the objective lost with it.
  *
@@ -258,7 +258,7 @@ describe("a retry is the original ask, plus the reasons", () => {
     }
   });
 
-  it("still puts the roll and its total in front of the referee", () => {
+  it("still puts the roll and its total in front of the game master", () => {
     const run = fresh();
     const retry = last(
       assemble({
@@ -296,7 +296,7 @@ describe("the budget", () => {
     fresh();
     for (let i = 0; i < 30; i++) {
       useGame.getState().pushTranscript({ role: "player", text: `argument ${i}` });
-      useGame.getState().pushTranscript({ role: "referee", text: `answer ${i}` });
+      useGame.getState().pushTranscript({ role: "game-master", text: `answer ${i}` });
     }
 
     const { messages } = assemble({ step: "4-confirm-roll", dungeon, run: useGame.getState().run! });
@@ -327,7 +327,7 @@ describe("the budget", () => {
   });
 
   // Defence in depth behind `renderRoll`: the dice should not reach the
-  // referee through one line of one branch of one function ever again.
+  // game master through one line of one branch of one function ever again.
   it("carries a roll on the player's side without making it something they said", () => {
     fresh();
     useGame.getState().pushTranscript({ role: "roll", text: "DEX save: 17 +3 = 20 — success" });
@@ -341,14 +341,14 @@ describe("the budget", () => {
 
   it("does not send the scrollback", () => {
     fresh();
-    useGame.getState().pushLog({ kind: "referee", text: "something from an hour ago" });
+    useGame.getState().pushLog({ kind: "game-master", text: "something from an hour ago" });
 
     const { messages } = assemble({ step: "1-target", dungeon, run: useGame.getState().run! });
     expect(JSON.stringify(messages)).not.toContain("an hour ago");
   });
 });
 
-describe("what the referee is told that the player is not", () => {
+describe("what the game master is told that the player is not", () => {
   it("lists concealed things, and marks them", () => {
     const run = fresh();
     const hidden = run.entities.items.find((i) => i.isHidden === true);
@@ -360,7 +360,7 @@ describe("what the referee is told that the player is not", () => {
   });
 
   // A bare uuid on the far side of an exit is unroutable: asked to send the
-  // player back to the Laboratory, a referee holding only ids guesses, and it
+  // player back to the Laboratory, a game master holding only ids guesses, and it
   // guesses wrong. Named once they have been through — which is also when the
   // player can ask for it by name, so the two sets match.
   it("names the room beyond a way out they have used, and not one they have not", () => {
@@ -383,7 +383,7 @@ describe("what the referee is told that the player is not", () => {
 
     beyond.composed = "they have stood in it";
     expect(brief()).toContain(`${beyond.name}, which they have been to`);
-    // The label the panel shows, repeated verbatim, so the referee can match
+    // The label the panel shows, repeated verbatim, so the game master can match
     // the player's words to it.
     const label = exitLabel(
       roomView(run, dungeon, run.currentRoomId, { includeHidden: true })!.exits.find(
@@ -397,9 +397,9 @@ describe("what the referee is told that the player is not", () => {
   /*
    * THE CENSUS BREAKS THAT RULE ON PURPOSE.
    *
-   * The ways-out list withholds a far room's name so that what the referee can
+   * The ways-out list withholds a far room's name so that what the game master can
    * route to and what the player can say are the same set. The census does not,
-   * and the departure is the point: the referee is being asked to judge what the
+   * and the departure is the point: the game master is being asked to judge what the
    * CHARACTER plausibly knows — what could be heard from here, what would come
    * if it heard — and it cannot make that call off a redacted page. The marker
    * is what keeps both things true at once.
@@ -420,7 +420,7 @@ describe("what the referee is told that the player is not", () => {
 
   // 8f. A concealed WAY OUT used to arrive here dressed exactly like an open
   // one: `renderEntity` marks a concealed thing standing in a room, and nothing
-  // marked a door. The referee then counted it among the ways out and described
+  // marked a door. The game master then counted it among the ways out and described
   // it, which is the one thing a secret door must not survive.
   it("marks a concealed way out, and does not count it in the drawing", () => {
     const run = fresh();
@@ -432,7 +432,7 @@ describe("what the referee is told that the player is not", () => {
 
     const brief = assemble({ step: "1-target", dungeon, run }).messages[0].content as string;
 
-    // Listed, because the referee has to know it is there to be found...
+    // Listed, because the game master has to know it is there to be found...
     expect(brief).toContain(secret!.id);
     // ...marked, so it knows not to say so...
     const line = brief.split("\n").find((l) => l.includes(secret!.id))!;

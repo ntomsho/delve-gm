@@ -7,7 +7,7 @@
  * The through-line of every test below is the same claim: NOTHING HERE ASKS THE
  * MODEL TO JUDGE. A challenge is resolved because the world changed in a way the
  * applier can see, a fact is written in the dungeon's own words rather than the
- * referee's, and the one genuinely uncertain case — the creature talked past —
+ * game master's, and the one genuinely uncertain case — the creature talked past —
  * is two timestamps compared at the end.
  */
 
@@ -87,7 +87,7 @@ describe("drawing from the reserve", () => {
     expect(offers.length).toBeGreaterThan(0);
     expect(offers.length).toBeLessThanOrEqual(8);
 
-    // Nearest first, so the referee's easiest pick is also the best one.
+    // Nearest first, so the game master's easiest pick is also the best one.
     const firstFar = offers.findIndex((o) => !o.here);
     if (firstFar >= 0) expect(offers.slice(firstFar).every((o) => !o.here)).toBe(true);
 
@@ -188,7 +188,7 @@ describe("recording what a key revealed", () => {
   let world: World;
   beforeEach(() => { world = aWorld(); });
 
-  it("writes the dungeon's words, not the referee's, onto the thing itself", () => {
+  it("writes the dungeon's words, not the game master's, onto the thing itself", () => {
     const c = pick(world, "creature-weakness");
     const out = recordFact(world, world.challenges, c.id, world.challengeState);
     expect(out.ok).toBe(true);
@@ -544,7 +544,7 @@ describe("a run saved before any of this existed", () => {
 // ===========================================================================
 
 describe("coin out of the dungeon's allowance", () => {
-  it("rolls the amount in code and never takes one from the referee", () => {
+  it("rolls the amount in code and never takes one from the game master", () => {
     const world = aWorld();
     const before = world.challengeState.allowanceLeft;
     expect(before).toBeGreaterThan(0);

@@ -1,19 +1,19 @@
 /**
  * The turn machine, driven against the real store and the real applier.
  *
- * Two kinds of referee here, and the split is deliberate:
+ * Two kinds of game master here, and the split is deliberate:
  *
- *   a SCRIPTED referee — a queue of replies — for the transitions, because a
- *   transition test should say what the referee answered and nothing else;
+ *   a SCRIPTED game master — a queue of replies — for the transitions, because a
+ *   transition test should say what the game master answered and nothing else;
  *
- *   the STUB referee, for the branches a player actually reaches, because that
+ *   the STUB game master, for the branches a player actually reaches, because that
  *   is the thing App.tsx runs and a fixture nobody exercises rots.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createTurnMachine as machineFor, type Referee, type RefereeReply, type RefereeRequest } from "./turn.ts";
+import { createTurnMachine as machineFor, type GameMaster, type GameMasterReply, type GameMasterRequest } from "./turn.ts";
 import { generateOffline, testCharacter } from "../fixtures/offline.ts";
-import { respond, stubReferee } from "../fixtures/stub-game-master.ts";
+import { respond, stubGameMaster } from "../fixtures/stub-game-master.ts";
 import { PLAYER_ID, type Commit, type Diff } from "../shared/types/commit.ts";
 import { farSide, isSurfaceExit, touches } from "../shared/world/entities.ts";
 import { armorDefense as pcArmorDefense } from "../rules/knave/character.ts";
@@ -32,7 +32,7 @@ const dungeon = generateOffline(SEED, 1);
 const useGame = createGameStore();
 
 /** The machine under test always drives that store, and is not journalled. */
-const createTurnMachine = (referee: Referee) => machineFor(referee, { store: useGame });
+const createTurnMachine = (gameMaster: GameMaster) => machineFor(gameMaster, { store: useGame });
 
 const state = () => useGame.getState().run!;
 
@@ -47,7 +47,7 @@ beforeEach(fresh);
 // SCRIPTING
 // ---------------------------------------------------------------------------
 
-const say = (narration: string, commit: Commit): RefereeReply => ({ narration, commit });
+const say = (narration: string, commit: Commit): GameMasterReply => ({ narration, commit });
 
 const open = (diffs: Diff[] = []): Commit => ({
   nextStage: "awaiting_action",
@@ -66,17 +66,17 @@ const describeRoom = (): Commit =>
   ]);
 
 interface Script {
-  referee: (req: RefereeRequest) => Promise<RefereeReply>;
-  calls: RefereeRequest[];
+  gameMaster: (req: GameMasterRequest) => Promise<GameMasterReply>;
+  calls: GameMasterRequest[];
 }
 
 /** A queue of replies. Each may be a value or a function of the request. */
-function script(...replies: (RefereeReply | ((req: RefereeRequest) => RefereeReply))[]): Script {
-  const calls: RefereeRequest[] = [];
+function script(...replies: (GameMasterReply | ((req: GameMasterRequest) => GameMasterReply))[]): Script {
+  const calls: GameMasterRequest[] = [];
   let i = 0;
   return {
     calls,
-    referee: async (req) => {
+    gameMaster: async (req) => {
       calls.push(req);
       const next = replies[i++];
       if (!next) throw new Error(`the script ran out after ${i - 1} replies`);
@@ -116,7 +116,7 @@ const describeAll = (): Commit =>
 describe("re-entering a room that has not changed", () => {
   it("costs no call at all, and re-shows what they last read", async () => {
     const s = script(say("You are somewhere.", describeAll()));
-    const m = createTurnMachine(s.referee);
+    const m = createTurnMachine(s.gameMaster);
 
     await m.enterRoom();
     expect(s.calls).toHaveLength(1);
@@ -149,7 +149,7 @@ describe("re-entering a room that has not changed", () => {
       say("It stirs.", open([{ entityId: target.id, path: "state", value: "changed since" }])),
       say("Here it is again.", describeAll())
     );
-    const m = createTurnMachine(s.referee);
+    const m = createTurnMachine(s.gameMaster);
 
     await m.enterRoom();
     await m.submit("watch it");
@@ -163,24 +163,24 @@ describe("re-entering a room that has not changed", () => {
 
   it("does not skip the first entry, when nothing has been described at all", async () => {
     const s = script(say("You are somewhere.", describeAll()));
-    const m = createTurnMachine(s.referee);
+    const m = createTurnMachine(s.gameMaster);
 
     expect(theRoomNow().composed).toBeUndefined();
     await m.enterRoom();
     expect(s.calls).toHaveLength(1);
   });
 
-  // The free path has to leave the referee's next call indistinguishable from
+  // The free path has to leave the game master's next call indistinguishable from
   // the paid one — same log, same exchange, same stage.
   it("puts the re-shown description in the exchange, as a written arrival would", async () => {
     const s = script(say("You are somewhere.", describeAll()));
-    const m = createTurnMachine(s.referee);
+    const m = createTurnMachine(s.gameMaster);
 
     await m.enterRoom();
     await m.enterRoom();
 
     expect(state().transcript.at(-1)).toEqual({
-      role: "referee",
+      role: "game-master",
       text: theRoomNow().composed,
     });
   });
@@ -189,7 +189,7 @@ describe("re-entering a room that has not changed", () => {
 describe("stage transitions", () => {
   it("room_entry -> awaiting_action, and an entry is not a turn", async () => {
     const s = script(say("You are somewhere.", describeRoom()));
-    const m = createTurnMachine(s.referee);
+    const m = createTurnMachine(s.gameMaster);
 
     expect(state().stage).toBe("room_entry");
     await m.enterRoom();
@@ -207,7 +207,7 @@ describe("stage transitions", () => {
     const s = script(say("You are somewhere.", describeRoom()), say("You do it.", open([
       { entityId: state().currentRoomId, path: "state", value: "kicked" },
     ])));
-    const m = createTurnMachine(s.referee);
+    const m = createTurnMachine(s.gameMaster);
     await m.enterRoom();
 
     await m.submit("kick the wall");
@@ -218,9 +218,9 @@ describe("stage transitions", () => {
     expect(state().turnRecords[0].action).toBe("kick the wall");
   });
 
-  it("shows `thinking` while the referee is working", async () => {
-    let release!: (r: RefereeReply) => void;
-    const pending = new Promise<RefereeReply>((r) => { release = r; });
+  it("shows `thinking` while the game master is working", async () => {
+    let release!: (r: GameMasterReply) => void;
+    const pending = new Promise<GameMasterReply>((r) => { release = r; });
 
     const m = createTurnMachine(async (req) =>
       req.step === "room-entry" ? say("Here.", describeRoom()) : pending
@@ -254,7 +254,7 @@ describe("stage transitions", () => {
           { entityId: state().currentRoomId, path: "state", value: "forced" },
         ]))
     );
-    const m = createTurnMachine(s.referee);
+    const m = createTurnMachine(s.gameMaster);
     await m.enterRoom();
 
     await m.submit("force the grate");
@@ -283,12 +283,12 @@ describe("stage transitions", () => {
       say("Here.", describeRoom()),
       say("The ledge gives and you land hard.", open([{ entityId: PLAYER_ID, path: "hp.current", value: 11 }]))
     );
-    const m = createTurnMachine(s.referee);
+    const m = createTurnMachine(s.gameMaster);
     await m.enterRoom();
     await m.submit("climb the ledge");
 
     const log = state().log;
-    expect(log.at(-2)).toMatchObject({ kind: "referee" });
+    expect(log.at(-2)).toMatchObject({ kind: "game-master" });
     expect(log.at(-1)).toMatchObject({
       kind: "effects",
       effects: [{ kind: "hp", from: 15, to: 11 }],
@@ -307,12 +307,12 @@ describe("stage transitions", () => {
         },
       ],
     });
-    const m = createTurnMachine(s.referee);
+    const m = createTurnMachine(s.gameMaster);
     await m.enterRoom();
     await m.submit("stand my ground");
 
     const kinds = state().log.slice(-3).map((l) => l.kind);
-    expect(kinds).toEqual(["foe", "referee", "effects"]);
+    expect(kinds).toEqual(["foe", "game-master", "effects"]);
     expect(state().log.at(-3)!.foe).toEqual([
       expect.objectContaining({ label: "Ghoul attack", damage: { expr: "1d6", rolls: [5], total: 5 } }),
     ]);
@@ -332,7 +332,7 @@ describe("stage transitions", () => {
       }),
       (req) => say(`Rolled ${req.roll!.total}.`, open([{ entityId: state().currentRoomId, path: "state", value: "forced" }]))
     );
-    const m = createTurnMachine(s.referee);
+    const m = createTurnMachine(s.gameMaster);
     await m.enterRoom();
     await m.submit("force the grate");
     await m.roll();
@@ -342,7 +342,7 @@ describe("stage transitions", () => {
 
   it("writes nothing extra for a turn that cost nothing", async () => {
     const s = script(say("Here.", describeRoom()), say("Nothing stirs.", open()));
-    const m = createTurnMachine(s.referee);
+    const m = createTurnMachine(s.gameMaster);
     await m.enterRoom();
     await m.submit("listen");
     expect(state().log.some((l) => l.kind === "effects")).toBe(false);
@@ -350,7 +350,7 @@ describe("stage transitions", () => {
 
   /*
    * THE DICE BEFORE THE PROSE. Over the wire the throw and the resolution are
-   * two requests, so the player sees the die while the referee writes. The
+   * two requests, so the player sees the die while the game master writes. The
    * first half must leave everything the second needs in the run itself —
    * the server builds a fresh machine per request.
    */
@@ -371,9 +371,9 @@ describe("stage transitions", () => {
         (req) => say(`Rolled ${req.roll!.total}.`, open())
       );
 
-    it("throws the dice onto the log without asking the referee anything", async () => {
+    it("throws the dice onto the log without asking the game master anything", async () => {
       const s = offer();
-      const m = createTurnMachine(s.referee);
+      const m = createTurnMachine(s.gameMaster);
       await m.enterRoom();
       await m.submit("force the grate");
 
@@ -388,14 +388,14 @@ describe("stage transitions", () => {
 
     it("resolves from what the run kept, in a machine that never saw the throw", async () => {
       const s = offer();
-      const first = createTurnMachine(s.referee);
+      const first = createTurnMachine(s.gameMaster);
       await first.enterRoom();
       await first.submit("force the grate");
       first.throwDice();
       const thrown = state().pending!.roll!.total;
 
       // A fresh machine, as the server builds one per request.
-      await createTurnMachine(s.referee).resolve();
+      await createTurnMachine(s.gameMaster).resolve();
       expect(s.calls[2].step).toBe("5-resolution");
       expect(s.calls[2].roll!.total).toBe(thrown);
       expect(state().stage).toBe("awaiting_action");
@@ -403,19 +403,19 @@ describe("stage transitions", () => {
 
     it("picks up a run left between the two as a retry, with the same dice", async () => {
       const s = offer();
-      const m = createTurnMachine(s.referee);
+      const m = createTurnMachine(s.gameMaster);
       await m.enterRoom();
       await m.submit("force the grate");
       m.throwDice();
       const thrown = state().pending!.roll!.total;
 
-      await createTurnMachine(s.referee).retry();
+      await createTurnMachine(s.gameMaster).retry();
       expect(s.calls[2].roll!.total).toBe(thrown);
       expect(state().stage).toBe("awaiting_action");
     });
   });
 
-  // 8a A1, the second half. The roll used to reach the referee through exactly
+  // 8a A1, the second half. The roll used to reach the game master through exactly
   // one line of `assemble`, and a retry that did not render that line was a
   // retry with no roll in it. It goes in the exchange as well now, so the
   // number survives however the instruction is built.
@@ -434,27 +434,27 @@ describe("stage transitions", () => {
       }),
       (req) => say(`Rolled ${req.roll!.total}.`, open())
     );
-    const m = createTurnMachine(s.referee);
+    const m = createTurnMachine(s.gameMaster);
     await m.enterRoom();
     await m.submit("force the grate");
 
     expect(state().transcript.some((e) => e.role === "roll")).toBe(false);
     await m.roll();
 
-    // The referee saw the roll on the request AND in the exchange it was
+    // The game master saw the roll on the request AND in the exchange it was
     // handed — the second is what a rebuilt retry prompt cannot drop.
     const entry = s.calls[2].run.transcript.find((e) => e.role === "roll");
     expect(entry).toBeDefined();
     expect(entry!.text).toContain(`= ${s.calls[2].roll!.total}`);
   });
 
-  it("-> dead, whatever the referee thought came next", async () => {
+  it("-> dead, whatever the game master thought came next", async () => {
     const s = script(
       say("Here.", describeRoom()),
-      // The referee says the floor is open; the hit points say otherwise.
+      // The game master says the floor is open; the hit points say otherwise.
       say("It does not stop.", open([{ entityId: PLAYER_ID, path: "hp.current", value: 0 }]))
     );
-    const m = createTurnMachine(s.referee);
+    const m = createTurnMachine(s.gameMaster);
     await m.enterRoom();
     await m.submit("drink it");
 
@@ -473,7 +473,7 @@ describe("stage transitions", () => {
         diffs: [{ entityId: state().currentRoomId, path: "state", value: "left behind" }],
       })
     );
-    const m = createTurnMachine(s.referee);
+    const m = createTurnMachine(s.gameMaster);
     await m.enterRoom();
     await m.submit("carry it out");
 
@@ -483,7 +483,7 @@ describe("stage transitions", () => {
 
   it("closes the input while it works and reopens it after", async () => {
     const s = script(say("Here.", describeRoom()));
-    const m = createTurnMachine(s.referee);
+    const m = createTurnMachine(s.gameMaster);
 
     // Busy at the start of the run, so typing goes nowhere. The briefing is
     // already on the page — it belongs to no turn and is there from the start.
@@ -505,7 +505,7 @@ describe("rejections and clarifications", () => {
       say("Here.", describeRoom()),
       say("Which door?", { timeSpent: "instant", nextStage: "clarifying", nextStep: "1-target", diffs: [] })
     );
-    const m = createTurnMachine(s.referee);
+    const m = createTurnMachine(s.gameMaster);
     await m.enterRoom();
 
     const before = structuredClone(state().entities);
@@ -524,7 +524,7 @@ describe("rejections and clarifications", () => {
       say("Here.", describeRoom()),
       say("There is no window.", { timeSpent: "instant", nextStage: "rejected", nextStep: "1-target", diffs: [] })
     );
-    const m = createTurnMachine(s.referee);
+    const m = createTurnMachine(s.gameMaster);
     await m.enterRoom();
     await m.submit("look out the window");
 
@@ -533,7 +533,7 @@ describe("rejections and clarifications", () => {
   });
 
   it("refuses a clarifying reply that carries diffs, and says so twice", async () => {
-    const bad = (): RefereeReply =>
+    const bad = (): GameMasterReply =>
       say("Which door?", {
         nextStage: "clarifying",
         timeSpent: "instant",
@@ -542,7 +542,7 @@ describe("rejections and clarifications", () => {
       });
 
     const s = script(say("Here.", describeRoom()), bad(), bad());
-    const m = createTurnMachine(s.referee);
+    const m = createTurnMachine(s.gameMaster);
     await m.enterRoom();
 
     const before = structuredClone(state().entities);
@@ -567,7 +567,7 @@ describe("rejections and clarifications", () => {
       }),
       say("You think better of it.", open([]))
     );
-    const m = createTurnMachine(s.referee);
+    const m = createTurnMachine(s.gameMaster);
     await m.enterRoom();
     await m.submit("jump the gap");
     await m.submit("never mind");
@@ -591,7 +591,7 @@ describe("a refused commit", () => {
       say("...", open([{ entityId: state().currentRoomId, path: "name", value: "Elsewhere" }])),
       say("You do it.", open([{ entityId: state().currentRoomId, path: "state", value: "second time" }]))
     );
-    const m = createTurnMachine(s.referee);
+    const m = createTurnMachine(s.gameMaster);
     await m.enterRoom();
     await m.submit("do the thing");
 
@@ -606,7 +606,7 @@ describe("a refused commit", () => {
   it("twice refused lands on error with the world untouched", async () => {
     const bad = () => say("...", open([{ entityId: state().currentRoomId, path: "name", value: "Elsewhere" }]));
     const s = script(say("Here.", describeRoom()), bad(), bad());
-    const m = createTurnMachine(s.referee);
+    const m = createTurnMachine(s.gameMaster);
     await m.enterRoom();
 
     const before = structuredClone(state().entities);
@@ -619,10 +619,10 @@ describe("a refused commit", () => {
     expect(acceptsInput("error")).toBe(true);
   });
 
-  it("a referee that throws lands on error too", async () => {
+  it("a game master that throws lands on error too", async () => {
     const s = script(say("Here.", describeRoom()));
     const m = createTurnMachine(async (req) => {
-      if (req.step === "room-entry") return s.referee(req);
+      if (req.step === "room-entry") return s.gameMaster(req);
       throw new Error("the network is out");
     });
     await m.enterRoom();
@@ -732,7 +732,7 @@ describe("moving between rooms", () => {
     expect(state().log.filter((l) => l.kind === "arrival")).toHaveLength(2);
   });
 
-  // A referee resolving a move writes the room beyond out of nothing, and the
+  // A game master resolving a move writes the room beyond out of nothing, and the
   // arrival pass then describes the real one. Two accounts of one place, a
   // moment apart. Discarding the first is the only fix that cannot be ignored.
   it("throws away the moving turn's prose and lets the arrival speak", async () => {
@@ -764,7 +764,7 @@ describe("moving between rooms", () => {
     expect(said.filter((t) => t.includes("standing in it"))).toHaveLength(2);
     // Nor does it survive as the turn's outcome, which is read back as fact.
     // What replaces it names both ends — which is the movement history a
-    // referee routing "go back the way I came" needs, and did not have.
+    // game master routing "go back the way I came" needs, and did not have.
     const name = (id: string) =>
       theRoom(state().entities.rooms.find((r) => r.id === id)!.name);
     const record = state().turnRecords.at(-1)!;
@@ -838,7 +838,7 @@ describe("moving between rooms", () => {
     const creature = dungeon.entities.creatures[0]!;
     const bad = () => say("...", open([{ entityId: PLAYER_ID, path: "roomId", value: creature.id }]));
     const s = script(say("Here.", describeRoom()), bad(), bad());
-    const m = createTurnMachine(s.referee);
+    const m = createTurnMachine(s.gameMaster);
     await m.enterRoom();
 
     const was = state().currentRoomId;
@@ -848,7 +848,7 @@ describe("moving between rooms", () => {
     expect(state().currentRoomId).toBe(was);
   });
 
-  // The failure this whole change is about: a referee guessing between two exits
+  // The failure this whole change is about: a game master guessing between two exits
   // and picking the far one. It is now a rejection with the reason attached, and
   // the one retry §5 allows is enough to walk it back.
   it("refuses a room the current one does not connect to, and recovers on the retry", async () => {
@@ -911,7 +911,7 @@ describe("walking out of the dungeon", () => {
 
   it("without the goal is an escape, and ends the run", async () => {
     const s = script(say("Here.", describeRoom()), say("You climb out.", leave()));
-    const m = createTurnMachine(s.referee);
+    const m = createTurnMachine(s.gameMaster);
     await m.enterRoom();
     await m.submit("climb out");
 
@@ -921,7 +921,7 @@ describe("walking out of the dungeon", () => {
 
   it("with it is the win", async () => {
     const s = script(say("Here.", describeRoom()), say("You climb out.", leave(true)));
-    const m = createTurnMachine(s.referee);
+    const m = createTurnMachine(s.gameMaster);
     await m.enterRoom();
     await m.submit("climb out");
 
@@ -929,7 +929,7 @@ describe("walking out of the dungeon", () => {
   });
 
   // The goal LATCHES. It is set on the turn it happens, which may be twenty
-  // turns before the player reaches the surface, and a referee that stops
+  // turns before the player reaches the surface, and a game master that stops
   // mentioning it cannot take the win back.
   it("counts a goal met turns earlier, without it being said again", async () => {
     const s = script(
@@ -938,7 +938,7 @@ describe("walking out of the dungeon", () => {
       say("You walk.", open()),
       say("You climb out.", leave())
     );
-    const m = createTurnMachine(s.referee);
+    const m = createTurnMachine(s.gameMaster);
     await m.enterRoom();
 
     await m.submit("take the idol");
@@ -988,7 +988,7 @@ describe("the scrollback and the exchange", () => {
   // file and never the player, who arrived in the first room with no idea what
   // they were doing there.
   it("opens on the briefing, above the first room", async () => {
-    const m = createTurnMachine(script(say("Here.", describeRoom())).referee);
+    const m = createTurnMachine(script(say("Here.", describeRoom())).gameMaster);
 
     expect(state().log[0]).toMatchObject({
       kind: "opening",
@@ -1007,7 +1007,7 @@ describe("the scrollback and the exchange", () => {
       say("Which door?", { timeSpent: "instant", nextStage: "clarifying", nextStep: "1-target", diffs: [] }),
       say("You open it.", open([{ entityId: state().currentRoomId, path: "state", value: "opened" }]))
     );
-    const m = createTurnMachine(s.referee);
+    const m = createTurnMachine(s.gameMaster);
     await m.enterRoom();
 
     await m.submit("open the door");
@@ -1016,11 +1016,11 @@ describe("the scrollback and the exchange", () => {
 
     await m.submit("the west one");
 
-    // The exchange the referee is shown is thrown away with the turn...
+    // The exchange the game master is shown is thrown away with the turn...
     expect(state().transcript).toHaveLength(0);
     // ...and the page the player reads is not.
     expect(state().log.map((l) => l.kind)).toEqual([
-      "opening", "arrival", "player", "referee", "player", "referee",
+      "opening", "arrival", "player", "game-master", "player", "game-master",
     ]);
     expect(state().log.at(-1)!.turn).toBe(1);
   });
@@ -1031,12 +1031,12 @@ describe("the scrollback and the exchange", () => {
       say("One.", open([{ entityId: state().currentRoomId, path: "state", value: "a" }])),
       say("Two.", open([{ entityId: state().currentRoomId, path: "state", value: "b" }]))
     );
-    const m = createTurnMachine(s.referee);
+    const m = createTurnMachine(s.gameMaster);
     await m.enterRoom();
     await m.submit("first");
     await m.submit("second");
 
-    expect(state().log.filter((l) => l.turn === 1)).toHaveLength(3); // arrival + player + referee
+    expect(state().log.filter((l) => l.turn === 1)).toHaveLength(3); // arrival + player + game master
     expect(state().log.filter((l) => l.turn === 2)).toHaveLength(2);
   });
 });
@@ -1067,7 +1067,7 @@ describe("the dice", () => {
   async function play() {
     fresh();
     const s = offerAndResolve();
-    const m = createTurnMachine(s.referee);
+    const m = createTurnMachine(s.gameMaster);
     await m.enterRoom();
     await m.submit("attack");
     await m.roll();
@@ -1096,7 +1096,7 @@ describe("the dice", () => {
 
   it("will not roll when there is nothing on the table", async () => {
     const s = script(say("Here.", describeRoom()));
-    const m = createTurnMachine(s.referee);
+    const m = createTurnMachine(s.gameMaster);
     await m.enterRoom();
 
     await m.roll();
@@ -1109,9 +1109,9 @@ describe("the dice", () => {
 // THE STUB, END TO END
 // ===========================================================================
 
-describe("the stub referee", () => {
+describe("the stub game master", () => {
   it("plays a run through every branch it offers", async () => {
-    const m = createTurnMachine(stubReferee);
+    const m = createTurnMachine(stubGameMaster);
     await m.enterRoom();
     expect(state().stage).toBe("awaiting_action");
     expect(state().entities.rooms.find((r) => r.id === state().currentRoomId)!.composed).toBeDefined();
@@ -1128,7 +1128,7 @@ describe("the stub referee", () => {
 
     // children[] with a ref, addressed twice in the same commit. The stub asks
     // for "brass key" and gets "Brass key" — a name is capitalised at the mint
-    // (8f), and this is the whole of what the referee sees of that rule.
+    // (8f), and this is the whole of what the game master sees of that rule.
     await m.submit("search the floor");
     expect(state().pc.inventory.some((i) => i.name === "Brass key")).toBe(true);
     expect(state().entities.items.some((i) => i.name === "Tin box")).toBe(true);
@@ -1144,7 +1144,7 @@ describe("the stub referee", () => {
   });
 
   it("offers a roll for an attack and spends the dice on the target", async () => {
-    const m = createTurnMachine(stubReferee);
+    const m = createTurnMachine(stubGameMaster);
     await m.enterRoom();
 
     // Stand where something lives.
@@ -1174,7 +1174,7 @@ describe("the stub referee", () => {
 
   it("reaches error on a commit it cannot make good", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const m = createTurnMachine(stubReferee);
+    const m = createTurnMachine(stubGameMaster);
     await m.enterRoom();
 
     const before = structuredClone(state().entities);
@@ -1186,7 +1186,7 @@ describe("the stub referee", () => {
   });
 
   it("answers a room entry with nothing to say when nothing is owed prose", async () => {
-    const m = createTurnMachine(stubReferee);
+    const m = createTurnMachine(stubGameMaster);
     await m.enterRoom();
 
     const first = respond({ step: "room-entry", dungeon, run: state() });

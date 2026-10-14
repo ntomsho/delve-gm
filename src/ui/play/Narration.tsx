@@ -1,7 +1,7 @@
 /**
  * The narration column — the conversation, and the primary medium.
  *
- * Not a chat app: no bubbles, no avatars. The referee's prose is the page; the
+ * Not a chat app: no bubbles, no avatars. The game master's prose is the page; the
  * player's own words are set apart by a marker and a different ink, the way a
  * transcript distinguishes speakers without boxing them.
  *
@@ -12,9 +12,9 @@
 
 import { useEffect, useRef } from "react";
 import { D20, Die, DiceRoll } from "./DiceRoll.tsx";
-import { Plate } from "./Illustration.tsx";
-import { PLATE_TIP, ThingTooltip } from "./hover.tsx";
-import type { PlateAnswer } from "../../illustrations/room-illustration.ts";
+import { Illustration } from "./Illustration.tsx";
+import { ILLUSTRATION_TIP, ThingTooltip } from "./hover.tsx";
+import type { IllustrationAnswer } from "../../illustrations/room-illustration.ts";
 import type { MapView } from "../../gameplay/view/selectors.ts";
 import type { LogEntry } from "../../gameplay/state/store.ts";
 import type { RolledOutcome } from "../../shared/types/turn.ts";
@@ -26,9 +26,9 @@ export interface Arrival {
   /** e.g. "ROOM 14 · DESCENT III" */
   label?: string;
   prose: string;
-  /** which room, for its plate */
+  /** which room, for its illustration */
   roomId?: string;
-  /** the first arrival in this room: the only one that carries its plate */
+  /** the first arrival in this room: the only one that carries its illustration */
   first?: boolean;
 }
 
@@ -51,7 +51,7 @@ export interface Opening {
 export type NarrationItem =
   | Opening
   | Arrival
-  | { kind: "referee"; prose: string }
+  | { kind: "game-master"; prose: string }
   | { kind: "player"; text: string }
   /** `outcome` is absent on rolls logged before it was kept; those stay text */
   | { kind: "roll"; text: string; outcome?: RolledOutcome }
@@ -61,7 +61,7 @@ export type NarrationItem =
 /**
  * Turn the stored scrollback into something renderable.
  *
- * From `log`, not `transcript`: the transcript is what the referee is shown and
+ * From `log`, not `transcript`: the transcript is what the game master is shown and
  * is cleared every time a turn closes. `roomName` has to be looked up because
  * the log stores an id — names are never writable, so the current one is always
  * the right one.
@@ -96,14 +96,14 @@ export function toItems(
       case "roll":
         return { kind: "roll", text: e.text, ...(e.outcome ? { outcome: e.outcome } : {}) } as const;
       default:
-        return { kind: "referee", prose: e.text } as const;
+        return { kind: "game-master", prose: e.text } as const;
     }
   });
 }
 
 function Prose({ children }: { children: string }) {
   // A measure that stays readable for an hour. Paragraphs split on blank lines
-  // so the referee can pace its own prose.
+  // so the game master can pace its own prose.
   return (
     <>
       {children.split(/\n{2,}/).map((para, i) => (
@@ -216,28 +216,28 @@ export function Narration({
   busy,
   resolving,
   compact = false,
-  plate,
+  illustration,
   cover,
   map,
   here,
   resumed,
 }: {
   items: NarrationItem[];
-  /** a room's plate; absent on a local run, which never asks for one */
-  plate?: (roomId: string) => Promise<PlateAnswer>;
+  /** a room's illustration; absent on a local run, which never asks for one */
+  illustration?: (roomId: string) => Promise<IllustrationAnswer>;
   /** the dungeon's cover, above the opening; absent on a local run */
-  cover?: () => Promise<PlateAnswer>;
-  /** what the plates' buttons are: each one is the map's marker for the same thing */
+  cover?: () => Promise<IllustrationAnswer>;
+  /** what the illustrations' buttons are: each one is the map's marker for the same thing */
   map?: MapView;
   /**
    * The room the player is standing in, and the way they came into it. Only
-   * its plate carries buttons: a button on a room they have left offers
+   * its illustration carries buttons: a button on a room they have left offers
    * actions from somewhere they are not.
    */
   here?: { roomId: string; cameFrom?: string };
   /**
-   * Rooms already arrived in when the run was resumed. Their plates are not
-   * asked for: a resumed run shows only the plate of the room it is in.
+   * Rooms already arrived in when the run was resumed. Their illustrations are not
+   * asked for: a resumed run shows only the illustration of the room it is in.
    */
   resumed?: ReadonlySet<string>;
   busy?: boolean;
@@ -275,7 +275,7 @@ export function Narration({
                   {item.dungeonName}
                 </h1>
               )}
-              {cover && <Plate id="cover" subject={item.dungeonName || "the dungeon"} load={cover} />}
+              {cover && <Illustration id="cover" subject={item.dungeonName || "the dungeon"} load={cover} />}
               <Prose>{item.prose}</Prose>
               {item.objective && (
                 // The one line they will come back to. Kept legible from across
@@ -308,14 +308,14 @@ export function Narration({
               >
                 {item.roomName}
               </h2>
-              {plate &&
+              {illustration &&
                 item.first &&
                 item.roomId &&
                 (item.roomId === here?.roomId || !resumed?.has(item.roomId)) && (
-                  <Plate
+                  <Illustration
                     id={item.roomId}
                     subject={item.roomName}
-                    load={() => plate(item.roomId!)}
+                    load={() => illustration(item.roomId!)}
                     {...(map && item.roomId === here?.roomId
                       ? { map, ...(here.cameFrom ? { cameFrom: here.cameFrom } : {}) }
                       : {})}
@@ -340,7 +340,7 @@ export function Narration({
 
         if (item.kind === "roll") {
           // The dice, set as a record rather than as prose — it is the one
-          // thing on the page the referee did not write.
+          // thing on the page the game master did not write.
           return (
             <p
               key={i}
@@ -384,8 +384,8 @@ export function Narration({
           />
         </div>
       )}
-      {/* One mount for every plate's buttons. Portalled, so the scroller cannot clip it. */}
-      {map && <ThingTooltip id={PLATE_TIP} float />}
+      {/* One mount for every illustration's buttons. Portalled, so the scroller cannot clip it. */}
+      {map && <ThingTooltip id={ILLUSTRATION_TIP} float />}
     </div>
   );
 }

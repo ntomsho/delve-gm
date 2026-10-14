@@ -1,13 +1,13 @@
 /**
- * ROOM PLATES — what goes into one
+ * ROOM ILLUSTRATIONS — what goes into one
  * ================================
  *
- * The join between a generated dungeon and `plateView`. This is where a room's
+ * The join between a generated dungeon and `illustrationView`. This is where a room's
  * entities become cells and doors, and where CONCEALMENT IS FILTERED OUT: a
- * plate is a picture for the player, and a hidden feature or a secret door fed
+ * illustration is a picture for the player, and a hidden feature or a secret door fed
  * to an image model is a picture of the secret (BUILD-PLAN, Illustrations).
  *
- * Reads the dungeon as GENERATED, never the run, so a room's plate does not
+ * Reads the dungeon as GENERATED, never the run, so a room's illustration does not
  * depend on what one player has found — it is the dungeon's, and every player
  * entering by the same door gets the same one.
  *
@@ -18,10 +18,10 @@
 import {
   exitWhere,
   featureWhere,
-  plateView,
+  illustrationView,
   unseenReason,
-  type PlateView,
-  type PlateViewInput,
+  type IllustrationView,
+  type IllustrationViewInput,
   type ViewDoor,
 } from "./view.ts";
 import { featurePresence, type Presence } from "./feature-presence.ts";
@@ -31,12 +31,12 @@ import {
   touches,
   type IRoomConnector,
 } from "../shared/world/entities.ts";
-import { plateHotspots, type Hotspot } from "./hotspots.ts";
+import { illustrationHotspots, type Hotspot } from "./hotspots.ts";
 import { type Point } from "../generation/floorplan/floorplan.ts";
 import type { GeneratedDungeon } from "../generation/generate.ts";
 
 /** A way out or a feature, with what the prompt needs to name it. */
-export interface PlateSubject {
+export interface IllustrationSubject {
   id: string;
   name: string;
   /** the entity's base prose — what it looks like, as generated */
@@ -51,25 +51,25 @@ export interface PlateSubject {
   position?: string;
 }
 
-export interface RoomPlate {
+export interface RoomIllustration {
   roomId: string;
   roomName: string;
   roomBase: string;
   /** the connector the viewer came in by */
   entryId: string;
   /** that connector, which may be in the picture when the camera turns back toward it */
-  entry: PlateSubject;
-  input: PlateViewInput;
-  view: PlateView;
-  exits: PlateSubject[];
+  entry: IllustrationSubject;
+  input: IllustrationViewInput;
+  view: IllustrationView;
+  exits: IllustrationSubject[];
   /**
    * Features that can be drawn — objects and surfaces — in the same order as
    * `input.features` and `view.features`.
    */
-  features: PlateSubject[];
+  features: IllustrationSubject[];
   /** features that are heard or smelled, not seen: not in the view, the guide or the hotspots */
-  senses: PlateSubject[];
-  /** where every way out and drawable feature lands on the plate, for the page's buttons */
+  senses: IllustrationSubject[];
+  /** where every way out and drawable feature lands on the illustration, for the page's buttons */
   hotspots: Hotspot[];
 }
 
@@ -102,7 +102,7 @@ function doorOf(d: GeneratedDungeon, c: IRoomConnector, roomIndex: number): View
  * The ways in a viewer could arrive by: every connector touching the room that
  * is not concealed and that the plan drew.
  */
-export function plateEntries(d: GeneratedDungeon, roomId: string): string[] {
+export function illustrationEntries(d: GeneratedDungeon, roomId: string): string[] {
   const i = d.graph.rooms.findIndex((r) => r.entityId === roomId);
   if (i < 0) return [];
   return d.entities.connectors
@@ -115,7 +115,7 @@ export function plateEntries(d: GeneratedDungeon, roomId: string): string[] {
  * The room as seen from `entryId`, or undefined when it cannot be drawn: no
  * block plan, an unknown room, or a door the plan does not have.
  */
-export function roomPlate(d: GeneratedDungeon, roomId: string, entryId: string): RoomPlate | undefined {
+export function roomIllustration(d: GeneratedDungeon, roomId: string, entryId: string): RoomIllustration | undefined {
   const i = d.graph.rooms.findIndex((r) => r.entityId === roomId);
   const room = d.entities.rooms.find((r) => r.id === roomId);
   const floor = d.blockplan?.rooms[i];
@@ -129,7 +129,7 @@ export function roomPlate(d: GeneratedDungeon, roomId: string, entryId: string):
   const exitConns = d.entities.connectors.filter(
     (c) => c.id !== entryId && touches(c, roomId) && c.isHidden !== true
   );
-  const exits: PlateSubject[] = [];
+  const exits: IllustrationSubject[] = [];
   const exitDoors: ViewDoor[] = [];
   for (const c of exitConns) {
     const door = doorOf(d, c, i);
@@ -138,7 +138,7 @@ export function roomPlate(d: GeneratedDungeon, roomId: string, entryId: string):
     exits.push({ id: c.id, name: c.name, base: resolveBase(c, registry) ?? "", surface: isSurfaceExit(c) });
   }
 
-  const subjects: PlateSubject[] = d.entities.features
+  const subjects: IllustrationSubject[] = d.entities.features
     .filter((f) => f.roomId === roomId && f.isHidden !== true)
     .map((f) => ({
       id: f.id,
@@ -153,13 +153,13 @@ export function roomPlate(d: GeneratedDungeon, roomId: string, entryId: string):
   const senses = subjects.filter((x) => x.presence === "sense");
   const cellsOf = new Map(d.entities.features.map((f) => [f.id, f.place?.cells ?? []]));
 
-  const input: PlateViewInput = {
+  const input: IllustrationViewInput = {
     floor: floor as Point[],
     entry,
     exits: exitDoors,
     features: features.map((f) => ({ id: f.id, cells: cellsOf.get(f.id) ?? [] })),
   };
-  const view = plateView(input);
+  const view = illustrationView(input);
 
   return {
     roomId,
@@ -177,7 +177,7 @@ export function roomPlate(d: GeneratedDungeon, roomId: string, entryId: string):
     exits,
     features,
     senses,
-    hotspots: plateHotspots(input, view),
+    hotspots: illustrationHotspots(input, view),
   };
 }
 
@@ -187,7 +187,7 @@ export function roomPlate(d: GeneratedDungeon, roomId: string, entryId: string):
  * are tagged — a tag on something the camera cannot see would be a promise the
  * picture cannot keep.
  */
-export function plateTags(p: RoomPlate): Map<string, string> {
+export function illustrationTags(p: RoomIllustration): Map<string, string> {
   const tags = new Map<string, string>();
   const doors = [...p.view.exits, p.view.entry].filter((s) => s.visible);
   doors.forEach((s, i) => tags.set(s.id, String.fromCharCode(65 + i)));
@@ -200,10 +200,10 @@ export function plateTags(p: RoomPlate): Map<string, string> {
 
 /** A thing in the picture, with where the camera put it. */
 export interface InView {
-  subject: PlateSubject;
+  subject: IllustrationSubject;
   /** the guide's tag; surfaces have none */
   tag?: string;
-  /** where it is, as words from `plateView` */
+  /** where it is, as words from `illustrationView` */
   where: string;
   doorway: boolean;
 }
@@ -216,9 +216,9 @@ export interface InView {
  * draw this" tends to get drawn, so what the camera cannot see is left out
  * entirely; the page still has a hotspot for it.
  */
-export function plateInView(p: RoomPlate): { viewpoint: string; drawn: InView[]; surfaces: InView[] } {
+export function illustrationInView(p: RoomIllustration): { viewpoint: string; drawn: InView[]; surfaces: InView[] } {
   const v = p.view;
-  const tags = plateTags(p);
+  const tags = illustrationTags(p);
   const viewpoint =
     `Standing ${v.standing} of the room at eye height, looking ${v.facing}. ` +
     `The floor runs about ${Math.round(v.deep / 5) * 5} ft ahead and ${Math.round(v.wide / 5) * 5} ft across.`;
@@ -239,12 +239,12 @@ export function plateInView(p: RoomPlate): { viewpoint: string; drawn: InView[];
 }
 
 /**
- * The spatial half of the prompt, as text for reading: what `plateInView`
+ * The spatial half of the prompt, as text for reading: what `illustrationInView`
  * keeps, plus — for the person checking it, never the model — what was left
  * out and why.
  */
-export function plateBrief(p: RoomPlate): string {
-  const { viewpoint, drawn, surfaces } = plateInView(p);
+export function illustrationBrief(p: RoomIllustration): string {
+  const { viewpoint, drawn, surfaces } = illustrationInView(p);
   const L = [`Viewpoint: ${viewpoint}`];
   const name = (x: InView) =>
     x.subject.surface ? `${x.subject.name} (the way out to daylight)` : x.subject.kind ? `${x.subject.name} (${x.subject.kind})` : x.subject.name;
@@ -273,16 +273,16 @@ export function plateBrief(p: RoomPlate): string {
 }
 
 /**
- * Which way in a run's plate of `roomId` is drawn from, or undefined when the
- * run has not been there (a plate of an unentered room shows the player that
+ * Which way in a run's illustration of `roomId` is drawn from, or undefined when the
+ * run has not been there (an illustration of an unentered room shows the player that
  * room) or the room cannot be drawn.
  *
- * The door is the one the FIRST arrival was logged with, since the plate sits
+ * The door is the one the FIRST arrival was logged with, since the illustration sits
  * at that arrival. An arrival logged before `via` was kept falls back to the
  * run's `arrivedVia` while they are still in the room, then to the way out of
  * the dungeon if the room has it, then to the first door the plan drew.
  */
-export function plateEntryFor(
+export function illustrationEntryFor(
   d: GeneratedDungeon,
   run: { log: { kind: string; roomId?: string; via?: string }[]; currentRoomId: string; arrivedVia?: string },
   roomId: string
@@ -290,40 +290,40 @@ export function plateEntryFor(
   const first = run.log.find((e) => e.kind === "arrival" && e.roomId === roomId);
   const here = run.currentRoomId === roomId;
   if (!first && !here) return undefined;
-  const entries = plateEntries(d, roomId);
+  const entries = illustrationEntries(d, roomId);
   const wanted = first?.via ?? (here ? run.arrivedVia : undefined);
   if (wanted && entries.includes(wanted)) return wanted;
   const surface = d.entities.connectors.find((c) => entries.includes(c.id) && isSurfaceExit(c));
   return surface?.id ?? entries[0];
 }
 
-/** One button on a plate: what it is, and where, as fractions of the plate from its top-left. */
-export interface PlateSpot {
+/** One button on an illustration: what it is, and where, as fractions of the illustration from its top-left. */
+export interface IllustrationSpot {
   id: string;
   x: number;
   y: number;
 }
 
 /**
- * The plate's buttons: one at each point where the guide put a tag, and nowhere
+ * The illustration's buttons: one at each point where the guide put a tag, and nowhere
  * else — so a button sits on the thing the image model was told to draw there.
- * The same test as `plateSketchSvg`'s tags: shown, and tagged (a door or an
+ * The same test as `illustrationSketchSvg`'s tags: shown, and tagged (a door or an
  * object; surfaces have none).
  */
-export function plateSpots(p: RoomPlate): PlateSpot[] {
-  const tags = plateTags(p);
+export function illustrationSpots(p: RoomIllustration): IllustrationSpot[] {
+  const tags = illustrationTags(p);
   return p.hotspots
     .filter((h) => h.status === "shown" && tags.has(h.id))
     .flatMap((h) => h.points.map((q) => ({ id: h.id, x: q.x, y: q.y })));
 }
 
 /**
- * What the server says about a room's plate. `pending`: somebody's request is
+ * What the server says about a room's illustration. `pending`: somebody's request is
  * drawing it, ask again shortly. `none`: there is not going to be one. A room's
- * ready plate carries its buttons; a cover has none.
+ * ready illustration carries its buttons; a cover has none.
  */
-export type PlateAnswer =
-  | { status: "ready"; url: string; spots?: PlateSpot[] }
+export type IllustrationAnswer =
+  | { status: "ready"; url: string; spots?: IllustrationSpot[] }
   | { status: "pending" }
   | { status: "none" };
 

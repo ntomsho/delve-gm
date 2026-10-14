@@ -1,7 +1,7 @@
 /**
  * THE COMMIT
  *
- * One uniform diff shape. The referee states what is now TRUE — a destination
+ * One uniform diff shape. The game master states what is now TRUE — a destination
  * value — and the applier works out what that means and does it properly.
  *
  *   { entityId: "<player>", path: "inventory[1]", value: null }
@@ -70,7 +70,7 @@ export interface Commit {
   diffs: Diff[];
   /**
    * The dungeon's objective has been accomplished. A LATCH: once true it stays
-   * true, so a referee that stops mentioning it cannot take the win back.
+   * true, so a game master that stops mentioning it cannot take the win back.
    *
    * Not a stage, because accomplishing the goal does not end the run — walking
    * out with it does, and the two can be many turns apart. Not a diff either: it
@@ -86,7 +86,7 @@ export interface Commit {
    * it is gone by the turn after next: the transcript is cleared when the action
    * closes, the records carry two turns, and an entity's `state` can only hold
    * what is true of that entity. So a fact about the whole place has nowhere to
-   * live, and the referee invents the history again, differently, three rooms
+   * live, and the game master invents the history again, differently, three rooms
    * later.
    *
    * Appended to the run's fiction, never merged into `dungeonContext` — that was
@@ -98,7 +98,7 @@ export interface Commit {
    *
    * The dungeon places about four keys and holds thirty in reserve, because a
    * key written into a room before play cannot be about what the player turned
-   * out to be doing. This is the other thirty: the referee names one challenge
+   * out to be doing. This is the other thirty: the game master names one challenge
    * the reserve still holds, and the applier spends it.
    *
    * A GRANT MUST BE JUSTIFIED BY THE ACTION THAT EARNED IT — found in the rubble
@@ -126,18 +126,18 @@ export interface Commit {
   /**
    * The player found money.
    *
-   * THE REFEREE SAYS THAT THEY DID; CODE SAYS HOW MUCH. A dungeon's wealth is a
+   * THE GAME MASTER SAYS THAT THEY DID; CODE SAYS HOW MUCH. A dungeon's wealth is a
    * conserved pot settled at generation, and 10% of it is held back for exactly
    * this — coin handed over in play, when the fiction puts some in front of
    * them. `why` is one line for the record and is not spent on anything else.
    *
    * Refused when the allowance is spent: the dungeon does not have infinite
-   * money and a referee cannot mint any.
+   * money and a game master cannot mint any.
    */
   coinGrant?: { why: string };
 }
 
-/** The id the referee uses for the player character. */
+/** The id the game master uses for the player character. */
 export const PLAYER_ID = "player";
 
 /**
@@ -145,7 +145,7 @@ export const PLAYER_ID = "player";
  * appending to a holder's `children[]`.
  *
  * `ref` is optional and exists so later diffs in the SAME commit can address
- * the new entity: the referee cannot know the id, because the applier mints it.
+ * the new entity: the game master cannot know the id, because the applier mints it.
  */
 export interface EntitySpec {
   type: "Item" | "RoomFeature";
@@ -172,7 +172,7 @@ export interface Rejection {
 }
 
 /**
- * Consequences the referee did not state but the applier performed — an item
+ * Consequences the game master did not state but the applier performed — an item
  * destroyed at zero quality, a creature slain, armour that fell off because it
  * became illegal. The narration should be able to acknowledge these, and the
  * retry prompt should be able to mention them.
@@ -220,7 +220,7 @@ export interface World {
   /**
    * The way they came in by: the last connector the walk actually crossed.
    *
-   * Written by the applier rather than by the referee, because the applier is
+   * Written by the applier rather than by the game master, because the applier is
    * what routes the walk and so is the only thing that knows which of several
    * ways into a room was used. Absent only before the first move.
    */

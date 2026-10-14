@@ -1,5 +1,5 @@
 /**
- * A REFEREE WITH NO MODEL BEHIND IT
+ * A GAME MASTER WITH NO MODEL BEHIND IT
  * =================================
  *
  * Canned envelopes, chosen by keyword on what the player typed. It exists so
@@ -9,15 +9,15 @@
  * quotes are the ids the applier will look up, so a stub commit fails exactly
  * where a model's would.
  *
- * ONE THING IT DOES THAT A REFEREE MUST NOT. Where a creature strikes back, the
+ * ONE THING IT DOES THAT A GAME MASTER MUST NOT. Where a creature strikes back, the
  * stub subtracts a flat point of damage, because it has no dice of its own: the
  * player's roll is made by the machine and handed over, but a creature's turn
- * happens inside the resolution, where the referee would call the dice tool.
+ * happens inside the resolution, where the game master would call the dice tool.
  * That tool is Phase 4. Until it exists this is the one number in the game not
  * drawn from the RNG, and it is marked at both call sites so it cannot quietly
  * become the pattern.
  *
- * It is NOT a simulation of the referee's judgement. Each branch exists to
+ * It is NOT a simulation of the game master's judgement. Each branch exists to
  * exercise one shape of answer:
  *
  *   look / window   rejected, and must therefore change nothing
@@ -47,13 +47,13 @@ import { creatureDefense, needsComposition } from "../gameplay/view/selectors.ts
 import { directContents } from "../gameplay/mechanics/occupancy.ts";
 import { PLAYER_ID, type Commit, type Diff } from "../shared/types/commit.ts";
 import type { RollSpec } from "../shared/types/turn.ts";
-import type { Referee, RefereeReply, RefereeRequest } from "../gameplay/turn.ts";
+import type { GameMaster, GameMasterReply, GameMasterRequest } from "../gameplay/turn.ts";
 
 // ---------------------------------------------------------------------------
 // HELPERS
 // ---------------------------------------------------------------------------
 
-const reply = (narration: string, commit: Commit): RefereeReply => ({ narration, commit });
+const reply = (narration: string, commit: Commit): GameMasterReply => ({ narration, commit });
 
 /** Where an ordinary turn leaves the game: open floor, top of the heuristic. */
 const open = (diffs: Diff[]): Commit => ({
@@ -63,11 +63,11 @@ const open = (diffs: Diff[]): Commit => ({
   diffs,
 });
 
-function creatureHere(req: RefereeRequest): ICreature | undefined {
+function creatureHere(req: GameMasterRequest): ICreature | undefined {
   return req.run.entities.creatures.find((c) => c.roomId === req.run.currentRoomId);
 }
 
-function looseItemHere(req: RefereeRequest) {
+function looseItemHere(req: GameMasterRequest) {
   return req.run.entities.items.find(
     (i) => i.parentId === req.run.currentRoomId && i.isHidden !== true
   );
@@ -81,7 +81,7 @@ function looseItemHere(req: RefereeRequest) {
  * rooms forever — which makes the stub useless for finding a fight by hand.
  * A room nobody has described yet is one nobody has stood in.
  */
-function wayOut(req: RefereeRequest): { connectorId: string; toRoomId: string } | undefined {
+function wayOut(req: GameMasterRequest): { connectorId: string; toRoomId: string } | undefined {
   const here = req.run.currentRoomId;
   const rooms = req.run.entities.rooms;
 
@@ -108,7 +108,7 @@ function wayOut(req: RefereeRequest): { connectorId: string; toRoomId: string } 
  * nothing at all, when the player walks back into a room they have already seen
  * and nothing has moved.
  */
-function roomEntry(req: RefereeRequest): RefereeReply {
+function roomEntry(req: GameMasterRequest): GameMasterReply {
   const room = req.run.entities.rooms.find((r) => r.id === req.run.currentRoomId);
   const owed = needsComposition(req.run);
 
@@ -141,7 +141,7 @@ function roomEntry(req: RefereeRequest): RefereeReply {
 // ROLLS
 // ---------------------------------------------------------------------------
 
-function offerAttack(req: RefereeRequest): RefereeReply {
+function offerAttack(req: GameMasterRequest): GameMasterReply {
   const target = creatureHere(req);
   if (!target) {
     return reply("There is nothing in here to fight.", {
@@ -161,7 +161,7 @@ function offerAttack(req: RefereeRequest): RefereeReply {
     description: `Strike at ${target.name}.`,
     weapon: weapon?.id ?? "unarmed",
     mode: "damage",
-    // Already converted: the referee holds the defense, the machine does not.
+    // Already converted: the game master holds the defense, the machine does not.
     dc: dcFromDefense(creatureDefense(target, "str")),
     damage: weapon && isWeapon(weapon) ? weapon.weapon.damage : "1d4",
     targetId: target.id,
@@ -176,7 +176,7 @@ function offerAttack(req: RefereeRequest): RefereeReply {
   });
 }
 
-function offerSave(req: RefereeRequest, input: string): RefereeReply {
+function offerSave(req: GameMasterRequest, input: string): GameMasterReply {
   const spec: RollSpec = {
     kind: "save",
     ability: "str",
@@ -196,7 +196,7 @@ function offerSave(req: RefereeRequest, input: string): RefereeReply {
 }
 
 /** The dice have come back. Spend them. */
-function resolveRoll(req: RefereeRequest): RefereeReply {
+function resolveRoll(req: GameMasterRequest): GameMasterReply {
   const rolled = req.roll!;
   const spec = rolled.spec;
 
@@ -263,10 +263,10 @@ function resolveRoll(req: RefereeRequest): RefereeReply {
 // THE STUB
 // ---------------------------------------------------------------------------
 
-export const stubReferee: Referee = async (req) => respond(req);
+export const stubGameMaster: GameMaster = async (req) => respond(req);
 
 /** Synchronous, so tests can reason about it without a clock. */
-export function respond(req: RefereeRequest): RefereeReply {
+export function respond(req: GameMasterRequest): GameMasterReply {
   if (req.step === "room-entry") return roomEntry(req);
   if (req.roll) return resolveRoll(req);
 
@@ -323,7 +323,7 @@ export function respond(req: RefereeRequest): RefereeReply {
     // `name` is never writable. The applier refuses it, the machine asks once
     // more, this branch says the same thing again, and the game lands on
     // `error` with the world untouched.
-    return reply("Something goes wrong that the referee cannot describe.", {
+    return reply("Something goes wrong that the game master cannot describe.", {
       nextStage: "awaiting_action",
       timeSpent: "instant",
       nextStep: "1-target",

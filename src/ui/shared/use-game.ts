@@ -9,7 +9,7 @@
  *
  * So the hook lives here, alone, and this is the only module below `src/ui` and
  * `App.tsx` that imports React. Keeping it to one file is what lets the turn
- * machine, the referee, and their tests stay renderer-free — and what will let
+ * machine, the game master, and their tests stay renderer-free — and what will let
  * the same runtime run on a server without dragging React along.
  */
 

@@ -11,7 +11,7 @@
  * BUILD-PLAN §4.4 says to load the current step's file and not the whole
  * playbook, and that is the rule this implements — but the unit is the ENTRY
  * POINT, not the single file. A fresh action runs steps 1, 2 and 3 inside one
- * call: the referee finds the target, judges it, classifies it, and either lets
+ * call: the game master finds the target, judges it, classifies it, and either lets
  * it happen or puts a roll on the table, all before the player is spoken to
  * again. Handing it step 1 alone would leave it at the end of that file with
  * nowhere to go.

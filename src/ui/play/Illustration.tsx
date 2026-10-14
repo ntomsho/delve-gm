@@ -1,38 +1,38 @@
 /**
- * A ROOM'S PLATE, at its first arrival — the module booklet held up.
+ * A ROOM'S ILLUSTRATION, at its first arrival — the module booklet held up.
  *
  * The space is held at 3:2 from the moment the arrival is on the page, with a
- * faint pencil frame, so a plate landing a few seconds later fills it rather
- * than shoving the text being read. It closes only when there will be no plate.
+ * faint pencil frame, so an illustration landing a few seconds later fills it rather
+ * than shoving the text being read. It closes only when there will be no illustration.
  *
  * DRAWN AS INK, NOT SHOWN AS A PHOTOGRAPH. The server stores black on
  * transparent, and the page uses it as a mask over its own ink colour: the
  * lines are exactly the text's ink, the paper is the page's paper, and there is
  * no box edge. A click opens it full size.
  *
- * THE BUTTONS. A room's plate carries a white dot at each place the guide image
+ * THE BUTTONS. A room's illustration carries a white dot at each place the guide image
  * put a tag — every doorway and object the image model was told to draw — and
  * each dot is the same control as the map's marker for that thing: the same
  * hover card, the same question on a click, and the same `lit` id, so pointing
  * at a dot lights the map and the room card and pointing at either lights the
- * dot. A thing the map does not show yet gets no dot, so the plate is fogged
+ * dot. A thing the map does not show yet gets no dot, so the illustration is fogged
  * exactly as the map is.
  */
 
 import { useEffect, useRef, useState } from "react";
-import type { PlateAnswer, PlateSpot } from "../../illustrations/room-illustration.ts";
+import type { IllustrationAnswer, IllustrationSpot } from "../../illustrations/room-illustration.ts";
 import type { MapView } from "../../gameplay/view/selectors.ts";
 import { doorHover, fixtureHover } from "./DungeonMap.tsx";
-import { PLATE_TIP, useAnchor, useHover, type HoverCard } from "./hover.tsx";
+import { ILLUSTRATION_TIP, useAnchor, useHover, type HoverCard } from "./hover.tsx";
 import type { Verb } from "./verbs.ts";
 
 /** How long between asks while somebody else's request is drawing it. */
-const PLATE_POLL_MS = 4000;
-/** Asks before giving up on a pending plate: past the server's stale-claim timeout. */
-const PLATE_POLL_TRIES = 50;
+const ILLUSTRATION_POLL_MS = 4000;
+/** Asks before giving up on a pending illustration: past the server's stale-claim timeout. */
+const ILLUSTRATION_POLL_TRIES = 50;
 
 /**
- * A stored plate or cover laid down as ink: the page's ink colour, masked by
+ * A stored illustration or cover laid down as ink: the page's ink colour, masked by
  * the picture. No box, no paper of its own. `className` sets the size.
  */
 export function Ink({ url, className = "", label }: { url: string; className?: string; label?: string }) {
@@ -84,13 +84,13 @@ function Spot({
   surface,
   cameFrom,
 }: {
-  spot: PlateSpot;
+  spot: IllustrationSpot;
   card: HoverCard;
   verb: Verb;
   surface: boolean;
   cameFrom: boolean;
 }) {
-  const anchor = useAnchor(PLATE_TIP);
+  const anchor = useAnchor(ILLUSTRATION_TIP);
   const lit = useHover().lit === spot.id;
   const size = cameFrom ? (lit ? "h-7 w-7" : "h-6 w-6") : lit ? "h-[22px] w-[22px]" : "h-[18px] w-[18px]";
   return (
@@ -99,7 +99,7 @@ function Spot({
     <span
       className="absolute flex h-9 w-9 -translate-x-1/2 -translate-y-1/2 items-center justify-center"
       style={{ left: `${spot.x * 100}%`, top: `${spot.y * 100}%` }}
-      data-plate-spot={spot.id}
+      data-illustration-spot={spot.id}
       {...(cameFrom ? { "data-came-from": "" } : {})}
       {...anchor(spot.id, card, verb)}
     >
@@ -120,10 +120,10 @@ function Spot({
 }
 
 /**
- * The plate's dots, each looked up on the map: no entry there, no dot.
+ * The illustration's dots, each looked up on the map: no entry there, no dot.
  * `cameFrom` is the connector they walked in by, which carries the U-turn.
  */
-function Spots({ spots, map, cameFrom }: { spots: PlateSpot[]; map: MapView; cameFrom?: string }) {
+function Spots({ spots, map, cameFrom }: { spots: IllustrationSpot[]; map: MapView; cameFrom?: string }) {
   const { reachable } = useHover();
   return (
     <>
@@ -147,10 +147,10 @@ function Spots({ spots, map, cameFrom }: { spots: PlateSpot[]; map: MapView; cam
 /**
  * `id` names what is being drawn — a room, or the dungeon's cover — and a new
  * one restarts the asking. `subject` is said to a screen reader: "A drawing of …".
- * `map` turns the plate's spots into buttons; without it, it is only a picture.
+ * `map` turns the illustration's spots into buttons; without it, it is only a picture.
  * The caller passes it only for the room the player is standing in.
  */
-export function Plate({
+export function Illustration({
   id,
   subject,
   load,
@@ -159,12 +159,12 @@ export function Plate({
 }: {
   id: string;
   subject: string;
-  load: () => Promise<PlateAnswer>;
+  load: () => Promise<IllustrationAnswer>;
   map?: MapView;
   /** the connector they walked in by, marked with a U-turn */
   cameFrom?: string;
 }) {
-  const [answer, setAnswer] = useState<PlateAnswer>({ status: "pending" });
+  const [answer, setAnswer] = useState<IllustrationAnswer>({ status: "pending" });
   const [open, setOpen] = useState(false);
   // Read through a ref so a parent that hands over a new function every render
   // does not restart the asking.
@@ -175,10 +175,10 @@ export function Plate({
     let live = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const ask = async (tries: number) => {
-      const got = await loadRef.current().catch((): PlateAnswer => ({ status: "none" }));
+      const got = await loadRef.current().catch((): IllustrationAnswer => ({ status: "none" }));
       if (!live) return;
-      if (got.status === "pending" && tries < PLATE_POLL_TRIES) {
-        timer = setTimeout(() => void ask(tries + 1), PLATE_POLL_MS);
+      if (got.status === "pending" && tries < ILLUSTRATION_POLL_TRIES) {
+        timer = setTimeout(() => void ask(tries + 1), ILLUSTRATION_POLL_MS);
         return;
       }
       setAnswer(got.status === "pending" ? { status: "none" } : got);

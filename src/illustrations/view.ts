@@ -1,5 +1,5 @@
 /**
- * PLATE VIEW
+ * ILLUSTRATION VIEW
  * ==========
  *
  * A room as an illustrator would frame it — where the camera stands, which way
@@ -51,7 +51,7 @@ export interface ViewThing {
   cells: Point[];
 }
 
-export interface PlateViewInput {
+export interface IllustrationViewInput {
   /** every floor cell the room owns */
   floor: Point[];
   /** the way the viewer came in. Scored below every other way out. */
@@ -107,7 +107,7 @@ export interface Eye {
   right: Point;
 }
 
-export interface PlateView {
+export interface IllustrationView {
   eye: Eye;
   facing: Compass;
   /** where in the room the eye stands, as words: "in the south-west corner" */
@@ -133,7 +133,7 @@ export interface PlateView {
  * than a lens, about what an illustrator gives a room interior so the side
  * walls show.
  */
-export const PLATE_HALF_FOV_DEG = 50;
+export const ILLUSTRATION_HALF_FOV_DEG = 50;
 
 /**
  * What a view is worth. A feature outweighs any amount of floor a room can
@@ -142,20 +142,20 @@ export const PLATE_HALF_FOV_DEG = 50;
  * other way out, which tips a tie toward looking somewhere the player has not
  * just been.
  */
-export const PLATE_SCORE = { tile: 1, feature: 100, exit: 20, entry: 5 } as const;
+export const ILLUSTRATION_SCORE = { tile: 1, feature: 100, exit: 20, entry: 5 } as const;
 
 /** Headings tried at each standing spot: every 10 degrees. */
-export const PLATE_HEADINGS = 36;
+export const ILLUSTRATION_HEADINGS = 36;
 
 /** Eye height, in feet. Nothing stores a ceiling or a viewer's height; this is a guess. */
-export const PLATE_EYE_FT = 5.5;
+export const ILLUSTRATION_EYE_FT = 5.5;
 
 /** Wall and doorway heights, in feet. Guesses like the eye height; the drawing and the buttons share them. */
-export const PLATE_WALL_FT = 11;
-export const PLATE_DOOR_FT = 7.5;
+export const ILLUSTRATION_WALL_FT = 11;
+export const ILLUSTRATION_DOOR_FT = 7.5;
 
-/** The plate's width over its height. 3:2, the space the page reserves for it. */
-export const PLATE_ASPECT = 1.5;
+/** The illustration's width over its height. 3:2, the space the page reserves for it. */
+export const ILLUSTRATION_ASPECT = 1.5;
 
 /**
  * Nothing nearer the eye than this, in feet, counts as in the picture: the
@@ -163,8 +163,8 @@ export const PLATE_ASPECT = 1.5;
  * rather than chosen — a guess of four feet counted things at the viewer's
  * feet that the frame then cut off.
  */
-export const PLATE_MIN_AHEAD_FT =
-  PLATE_EYE_FT / (Math.tan((PLATE_HALF_FOV_DEG * Math.PI) / 180) / PLATE_ASPECT);
+export const ILLUSTRATION_MIN_AHEAD_FT =
+  ILLUSTRATION_EYE_FT / (Math.tan((ILLUSTRATION_HALF_FOV_DEG * Math.PI) / 180) / ILLUSTRATION_ASPECT);
 
 /**
  * Standing spots within each floor cell, in feet from its corner on each axis:
@@ -254,7 +254,7 @@ export function doorTarget(d: ViewDoor): Point {
 }
 
 /** Lines of sight from `eye` in this room: clear when every cell crossed is floor. */
-export function plateSight(input: PlateViewInput, eye: Point): (p: Point) => boolean {
+export function illustrationSight(input: IllustrationViewInput, eye: Point): (p: Point) => boolean {
   const floor = new Set(input.floor.map((c) => key(c.x, c.y)));
   const onFloor = (x: number, y: number) => floor.has(key(x, y));
   return (p) => clearLine(eye, p, onFloor);
@@ -268,7 +268,7 @@ export interface Point3 {
 }
 
 /**
- * Where a point lands in the plate, as fractions of its width and height from
+ * Where a point lands in the illustration, as fractions of its width and height from
  * the top-left — so it maps onto the final image at any resolution. Null when
  * the point is behind the eye. A point beside the frame comes back outside
  * 0..1 rather than null; whether that matters is the caller's question.
@@ -277,9 +277,9 @@ export function projectToFrame(eye: Eye, p: Point3): Point | null {
   const ahead = (p.x - eye.x) * eye.forward.x + (p.y - eye.y) * eye.forward.y;
   if (ahead < 0.3) return null;
   const across = (p.x - eye.x) * eye.right.x + (p.y - eye.y) * eye.right.y;
-  const up = p.z - PLATE_EYE_FT;
-  const t = 2 * Math.tan((PLATE_HALF_FOV_DEG * Math.PI) / 180);
-  return { x: 0.5 + across / ahead / t, y: 0.5 - (up / ahead / t) * PLATE_ASPECT };
+  const up = p.z - ILLUSTRATION_EYE_FT;
+  const t = 2 * Math.tan((ILLUSTRATION_HALF_FOV_DEG * Math.PI) / 180);
+  return { x: 0.5 + across / ahead / t, y: 0.5 - (up / ahead / t) * ILLUSTRATION_ASPECT };
 }
 
 /**
@@ -288,7 +288,7 @@ export function projectToFrame(eye: Eye, p: Point3): Point | null {
  * one, even back from the room, is a view of the room from somewhere the player
  * has not been: through a door they have not opened, or a sealed one.
  */
-function standingSpots(input: PlateViewInput): Point[] {
+function standingSpots(input: IllustrationViewInput): Point[] {
   const spots: Point[] = [];
   for (const c of input.floor) {
     for (const ox of SPOT_OFFSETS_FT) {
@@ -337,26 +337,26 @@ function compass(v: Point): Compass {
 // ---------------------------------------------------------------------------
 
 /**
- * The room as seen from one eye looking one way. `plateView` calls this on the
+ * The room as seen from one eye looking one way. `illustrationView` calls this on the
  * camera it chose; it is exported so a test, or a dev sheet, can ask about any
  * other camera directly.
  */
-export function viewFrom(input: PlateViewInput, at: Point, heading: Point): PlateView {
+export function viewFrom(input: IllustrationViewInput, at: Point, heading: Point): IllustrationView {
   const len = Math.hypot(heading.x, heading.y) || 1;
   const forward = { x: heading.x / len, y: heading.y / len };
   // Turning the forward vector a quarter clockwise, with y pointing south.
   const right = { x: -forward.y, y: forward.x };
   const eye: Eye = { x: at.x, y: at.y, forward, right };
 
-  const sees = plateSight(input, eye);
+  const sees = illustrationSight(input, eye);
 
   const toView = (p: Point) => ({
     ahead: (p.x - eye.x) * forward.x + (p.y - eye.y) * forward.y,
     across: (p.x - eye.x) * right.x + (p.y - eye.y) * right.y,
   });
-  const tanFov = Math.tan((PLATE_HALF_FOV_DEG * Math.PI) / 180);
+  const tanFov = Math.tan((ILLUSTRATION_HALF_FOV_DEG * Math.PI) / 180);
   const framed = (v: { ahead: number; across: number }) =>
-    v.ahead >= PLATE_MIN_AHEAD_FT && Math.abs(v.across) <= v.ahead * tanFov;
+    v.ahead >= ILLUSTRATION_MIN_AHEAD_FT && Math.abs(v.across) <= v.ahead * tanFov;
 
   // The floor's extent in the viewer's frame, from cell corners.
   let deep = 0;
@@ -466,10 +466,10 @@ export function viewFrom(input: PlateViewInput, at: Point, heading: Point): Plat
   const entry = door(input.entry);
   const exits = input.exits.map(door);
   const score =
-    tiles * PLATE_SCORE.tile +
-    features.filter((f) => f.placed && f.visible).length * PLATE_SCORE.feature +
-    exits.filter((x) => x.visible).length * PLATE_SCORE.exit +
-    (entry.visible ? PLATE_SCORE.entry : 0);
+    tiles * ILLUSTRATION_SCORE.tile +
+    features.filter((f) => f.placed && f.visible).length * ILLUSTRATION_SCORE.feature +
+    exits.filter((x) => x.visible).length * ILLUSTRATION_SCORE.exit +
+    (entry.visible ? ILLUSTRATION_SCORE.entry : 0);
 
   return {
     eye,
@@ -508,19 +508,19 @@ function standingPhrase(floor: Point[], eye: Point): string {
 
 /**
  * The best view of the room: every standing spot on the floor, every heading,
- * scored by PLATE_SCORE.
+ * scored by ILLUSTRATION_SCORE.
  *
  * Deterministic: spots and headings are tried in a fixed order and a tie keeps
- * the first, so a room's view — and with it the plate's cache key — never
+ * the first, so a room's view — and with it the illustration's cache key — never
  * changes between calls.
  *
  * The expensive part, sight lines, depends on the spot and not the heading, so
  * it is worked out once per spot and every heading reuses it.
  */
-export function plateView(input: PlateViewInput): PlateView {
+export function illustrationView(input: IllustrationViewInput): IllustrationView {
   const floor = new Set(input.floor.map((c) => key(c.x, c.y)));
   const onFloor = (x: number, y: number) => floor.has(key(x, y));
-  const tanFov = Math.tan((PLATE_HALF_FOV_DEG * Math.PI) / 180);
+  const tanFov = Math.tan((ILLUSTRATION_HALF_FOV_DEG * Math.PI) / 180);
 
   /** What can score, each with where it is, what it is worth, and which group it counts in. */
   interface Target {
@@ -539,12 +539,12 @@ export function plateView(input: PlateViewInput): PlateView {
   let group = 0;
   for (const c of input.floor) {
     const m = cellMiddle(c);
-    targets.push({ at: m, frame: m, worth: PLATE_SCORE.tile, group: group++ });
+    targets.push({ at: m, frame: m, worth: ILLUSTRATION_SCORE.tile, group: group++ });
   }
   for (const f of input.features) {
     for (const c of f.cells) {
       const m = cellMiddle(c);
-      targets.push({ at: m, frame: m, worth: PLATE_SCORE.feature, group });
+      targets.push({ at: m, frame: m, worth: ILLUSTRATION_SCORE.feature, group });
     }
     group++;
   }
@@ -558,12 +558,12 @@ export function plateView(input: PlateViewInput): PlateView {
       normal: { x: d.inside.x - d.outside.x, y: d.inside.y - d.outside.y },
     });
   };
-  for (const d of input.exits) doorTargets(d, PLATE_SCORE.exit);
-  doorTargets(input.entry, PLATE_SCORE.entry);
+  for (const d of input.exits) doorTargets(d, ILLUSTRATION_SCORE.exit);
+  doorTargets(input.entry, ILLUSTRATION_SCORE.entry);
 
   const headings: Point[] = [];
-  for (let k = 0; k < PLATE_HEADINGS; k++) {
-    const a = (k / PLATE_HEADINGS) * 2 * Math.PI;
+  for (let k = 0; k < ILLUSTRATION_HEADINGS; k++) {
+    const a = (k / ILLUSTRATION_HEADINGS) * 2 * Math.PI;
     headings.push({ x: Math.cos(a), y: Math.sin(a) });
   }
 
@@ -583,7 +583,7 @@ export function plateView(input: PlateViewInput): PlateView {
         const dy = t.frame.y - at.y;
         const ahead = dx * h.x + dy * h.y;
         const across = -dx * h.y + dy * h.x;
-        if (ahead < PLATE_MIN_AHEAD_FT || Math.abs(across) > ahead * tanFov) continue;
+        if (ahead < ILLUSTRATION_MIN_AHEAD_FT || Math.abs(across) > ahead * tanFov) continue;
         seenGroups.add(t.group);
         score += t.worth;
       }

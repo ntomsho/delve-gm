@@ -1,39 +1,39 @@
 /**
- * ROOM PLATES — the claim, the cache and the failure path, against an
+ * ROOM ILLUSTRATIONS — the claim, the cache and the failure path, against an
  * in-memory table and a fake model. No database, no network, no spend.
  */
 
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 import { generateOffline } from "../../fixtures/offline.ts";
-import { coverDescription, plateEntries, plateTags, roomPlate } from "../../illustrations/room-illustration.ts";
-import type { PlateRow } from "../db/repo.ts";
+import { coverDescription, illustrationEntries, illustrationTags, roomIllustration } from "../../illustrations/room-illustration.ts";
+import type { IllustrationRow } from "../db/repo.ts";
 import { inkPng } from "./image.ts";
 import {
   coverKey,
-  PLATE_CLAIM_STALE_MS,
-  PLATE_MAX_ATTEMPTS,
-  plateKey,
+  ILLUSTRATION_CLAIM_STALE_MS,
+  ILLUSTRATION_MAX_ATTEMPTS,
+  illustrationKey,
   serveCover,
-  servePlate,
-  type PlateStore,
-  type PlateWork,
+  serveIllustration,
+  type IllustrationStore,
+  type IllustrationWork,
 } from "./serve.ts";
 
 const d = generateOffline(1005, 1);
-const roomId = d.graph.rooms.map((r) => r.entityId).find((id) => plateEntries(d, id).length > 0)!;
-const entryId = plateEntries(d, roomId)[0];
+const roomId = d.graph.rooms.map((r) => r.entityId).find((id) => illustrationEntries(d, id).length > 0)!;
+const entryId = illustrationEntries(d, roomId)[0];
 
 function memoryStore() {
-  const rows = new Map<string, PlateRow & { at: number }>();
+  const rows = new Map<string, IllustrationRow & { at: number }>();
   const words = new Map<string, string>();
   let clock = 0;
-  const store: PlateStore = {
-    async getPlate(key) {
+  const store: IllustrationStore = {
+    async getIllustration(key) {
       const r = rows.get(key);
       return r && { ...r, ageMs: clock - r.at };
     },
-    async claimPlate(key, _model, opts) {
+    async claimIllustration(key, _model, opts) {
       const r = rows.get(key);
       if (!r) {
         rows.set(key, { key, status: "pending", path: null, attempts: 1, ageMs: 0, at: clock });
@@ -45,16 +45,16 @@ function memoryStore() {
       rows.set(key, { ...r, status: "pending", attempts: r.attempts + 1, at: clock });
       return true;
     },
-    async finishPlate(key, path) {
+    async finishIllustration(key, path) {
       rows.set(key, { ...rows.get(key)!, status: "ready", path, at: clock });
     },
-    async failPlate(key) {
+    async failIllustration(key) {
       rows.set(key, { ...rows.get(key)!, status: "failed", at: clock });
     },
-    async getPlateWords(key) {
+    async getIllustrationWords(key) {
       return words.get(key);
     },
-    async savePlateWords(key, value) {
+    async saveIllustrationWords(key, value) {
       if (!words.has(key)) words.set(key, value);
       return words.get(key)!;
     },
@@ -70,7 +70,7 @@ const picture = () =>
 
 function fakeWork(opts: { fail?: boolean } = {}) {
   const calls = { setting: 0, visual: 0, draw: 0, scenes: [] as string[], prompts: [] as string[], uploads: [] as string[] };
-  const work: PlateWork = {
+  const work: IllustrationWork = {
     references: 4,
     async setting() {
       calls.setting++;
@@ -99,21 +99,21 @@ function fakeWork(opts: { fail?: boolean } = {}) {
     async upload(path) {
       calls.uploads.push(path);
     },
-    urlOf: (path) => `https://cdn.example/plates/${path}`,
+    urlOf: (path) => `https://cdn.example/illustrations/${path}`,
   };
   return { work, calls };
 }
 
-describe("servePlate", () => {
-  it("draws once, then serves the stored plate to every later ask", async () => {
+describe("serveIllustration", () => {
+  it("draws once, then serves the stored illustration to every later ask", async () => {
     const m = memoryStore();
     const { work, calls } = fakeWork();
-    const first = await servePlate(d, roomId, entryId, work, m.store);
+    const first = await serveIllustration(d, roomId, entryId, work, m.store);
     expect(first.status).toBe("ready");
-    const again = await servePlate(d, roomId, entryId, work, m.store);
+    const again = await serveIllustration(d, roomId, entryId, work, m.store);
     expect(again).toEqual(first);
     expect(calls.draw).toBe(1);
-    expect(calls.uploads).toEqual([`${plateKey(roomPlate(d, roomId, entryId)!, d.pass.theme, 4)}.png`]);
+    expect(calls.uploads).toEqual([`${illustrationKey(roomIllustration(d, roomId, entryId)!, d.pass.theme, 4)}.png`]);
     expect(calls.prompts[0]).toContain("Dressed grey stone, dim.");
     expect(calls.prompts[0]).toContain("4 images are style references");
   });
@@ -121,9 +121,9 @@ describe("servePlate", () => {
   it("carries a button at each of the guide's tags, and nowhere else", async () => {
     const m = memoryStore();
     const { work } = fakeWork();
-    const got = await servePlate(d, roomId, entryId, work, m.store);
-    const p = roomPlate(d, roomId, entryId)!;
-    const tags = plateTags(p);
+    const got = await serveIllustration(d, roomId, entryId, work, m.store);
+    const p = roomIllustration(d, roomId, entryId)!;
+    const tags = illustrationTags(p);
     const tagged = p.hotspots.filter((h) => h.status === "shown" && tags.has(h.id));
     expect(got.status === "ready" && got.spots).toEqual(
       tagged.flatMap((h) => h.points.map((q) => ({ id: h.id, x: q.x, y: q.y })))
@@ -135,8 +135,8 @@ describe("servePlate", () => {
     const m = memoryStore();
     const { work, calls } = fakeWork();
     for (const id of d.graph.rooms.map((r) => r.entityId)) {
-      const via = plateEntries(d, id)[0];
-      if (via) await servePlate(d, id, via, work, m.store);
+      const via = illustrationEntries(d, id)[0];
+      if (via) await serveIllustration(d, id, via, work, m.store);
     }
     expect(calls.visual).toBeGreaterThan(1);
     expect(calls.setting).toBe(1);
@@ -144,29 +144,29 @@ describe("servePlate", () => {
 
   it("answers pending while another request holds a fresh claim, and takes over a stale one", async () => {
     const m = memoryStore();
-    const key = plateKey(roomPlate(d, roomId, entryId)!, d.pass.theme, 4);
-    await m.store.claimPlate(key, "x", { staleMs: PLATE_CLAIM_STALE_MS, maxAttempts: PLATE_MAX_ATTEMPTS });
+    const key = illustrationKey(roomIllustration(d, roomId, entryId)!, d.pass.theme, 4);
+    await m.store.claimIllustration(key, "x", { staleMs: ILLUSTRATION_CLAIM_STALE_MS, maxAttempts: ILLUSTRATION_MAX_ATTEMPTS });
     const { work, calls } = fakeWork();
-    expect(await servePlate(d, roomId, entryId, work, m.store)).toEqual({ status: "pending" });
-    m.tick(PLATE_CLAIM_STALE_MS + 1);
-    expect((await servePlate(d, roomId, entryId, work, m.store)).status).toBe("ready");
+    expect(await serveIllustration(d, roomId, entryId, work, m.store)).toEqual({ status: "pending" });
+    m.tick(ILLUSTRATION_CLAIM_STALE_MS + 1);
+    expect((await serveIllustration(d, roomId, entryId, work, m.store)).status).toBe("ready");
     expect(calls.draw).toBe(1);
   });
 
   it("is a missing picture on failure, retried until the attempts run out", async () => {
     const m = memoryStore();
     const { work, calls } = fakeWork({ fail: true });
-    for (let i = 0; i < PLATE_MAX_ATTEMPTS + 2; i++) {
-      expect(await servePlate(d, roomId, entryId, work, m.store)).toEqual({ status: "none" });
+    for (let i = 0; i < ILLUSTRATION_MAX_ATTEMPTS + 2; i++) {
+      expect(await serveIllustration(d, roomId, entryId, work, m.store)).toEqual({ status: "none" });
     }
-    expect(calls.draw).toBe(PLATE_MAX_ATTEMPTS);
+    expect(calls.draw).toBe(ILLUSTRATION_MAX_ATTEMPTS);
   });
 
-  it("keys by what the plate is drawn from: a copy of the dungeon finds the same key", () => {
-    const p = roomPlate(d, roomId, entryId)!;
-    expect(plateKey(p, d.pass.theme, 4)).toBe(plateKey(roomPlate(structuredClone(d), roomId, entryId)!, d.pass.theme, 4));
-    expect(plateKey(p, d.pass.theme, 4)).not.toBe(plateKey(p, d.pass.theme + " Wet.", 4));
-    expect(plateKey(p, d.pass.theme, 4)).not.toBe(plateKey(p, d.pass.theme, 3));
+  it("keys by what the illustration is drawn from: a copy of the dungeon finds the same key", () => {
+    const p = roomIllustration(d, roomId, entryId)!;
+    expect(illustrationKey(p, d.pass.theme, 4)).toBe(illustrationKey(roomIllustration(structuredClone(d), roomId, entryId)!, d.pass.theme, 4));
+    expect(illustrationKey(p, d.pass.theme, 4)).not.toBe(illustrationKey(p, d.pass.theme + " Wet.", 4));
+    expect(illustrationKey(p, d.pass.theme, 4)).not.toBe(illustrationKey(p, d.pass.theme, 3));
   });
 });
 
@@ -176,7 +176,7 @@ describe("serveCover", () => {
     const { work, calls } = fakeWork();
     const key = coverKey(d)!;
     const first = await serveCover(d, key, work, m.store);
-    expect(first).toEqual({ status: "ready", url: `https://cdn.example/plates/${key}.png` });
+    expect(first).toEqual({ status: "ready", url: `https://cdn.example/illustrations/${key}.png` });
     expect(await serveCover(d, key, work, m.store)).toEqual(first);
     expect(calls.draw).toBe(1);
     expect(calls.scenes[0]).toContain(d.pass.openingProse);

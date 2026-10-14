@@ -1,5 +1,5 @@
 /**
- * ROOM PLATES — the join with a generated dungeon
+ * ROOM ILLUSTRATIONS — the join with a generated dungeon
  *
  * The contract that matters is concealment: nothing hidden at generation ever
  * reaches the brief, whichever door the viewer came in by. Swept over real
@@ -9,12 +9,12 @@
 import { describe, expect, it } from "vitest";
 import { isSurfaceExit, touches } from "../shared/world/entities.ts";
 import { generateOffline } from "../fixtures/offline.ts";
-import { plateSketchSvg } from "./sketch.ts";
-import { plateBrief, plateEntries, plateEntryFor, plateTags, roomPlate } from "./room-illustration.ts";
+import { illustrationSketchSvg } from "./sketch.ts";
+import { illustrationBrief, illustrationEntries, illustrationEntryFor, illustrationTags, roomIllustration } from "./room-illustration.ts";
 
 const SEEDS = [1005, 42, 4201];
 
-describe("roomPlate", () => {
+describe("roomIllustration", () => {
   for (const seed of SEEDS) {
     it(`seed ${seed}: every visible door is a way in, and nothing hidden is in a brief`, () => {
       const d = generateOffline(seed, 1);
@@ -22,8 +22,8 @@ describe("roomPlate", () => {
       let views = 0;
       for (const gr of d.graph.rooms) {
         const roomId = gr.entityId;
-        for (const entryId of plateEntries(d, roomId)) {
-          const p = roomPlate(d, roomId, entryId)!;
+        for (const entryId of illustrationEntries(d, roomId)) {
+          const p = roomIllustration(d, roomId, entryId)!;
           expect(p).toBeDefined();
           views++;
 
@@ -51,10 +51,10 @@ describe("roomPlate", () => {
     for (const seed of SEEDS) {
       const d = generateOffline(seed, 2);
       for (const gr of d.graph.rooms) {
-        for (const entryId of plateEntries(d, gr.entityId)) {
-          const p = roomPlate(d, gr.entityId, entryId)!;
-          const svg = plateSketchSvg(p);
-          for (const [id, t] of plateTags(p)) {
+        for (const entryId of illustrationEntries(d, gr.entityId)) {
+          const p = roomIllustration(d, gr.entityId, entryId)!;
+          const svg = illustrationSketchSvg(p);
+          for (const [id, t] of illustrationTags(p)) {
             if (!svg.includes(`data-tag="${t}"`)) missing.push(`seed ${seed} ${p.roomName} via ${entryId}: ${t} (${id})`);
           }
         }
@@ -63,12 +63,12 @@ describe("roomPlate", () => {
     expect(missing).toEqual([]);
   });
 
-  it("gives every way out and drawable feature something to put on the plate", () => {
+  it("gives every way out and drawable feature something to put on the illustration", () => {
     for (const seed of SEEDS) {
       const d = generateOffline(seed, 2);
       for (const gr of d.graph.rooms) {
-        for (const entryId of plateEntries(d, gr.entityId)) {
-          const p = roomPlate(d, gr.entityId, entryId)!;
+        for (const entryId of illustrationEntries(d, gr.entityId)) {
+          const p = roomIllustration(d, gr.entityId, entryId)!;
           const ids = p.hotspots.map((h) => h.id);
           // Every door, the way in among them, has a hotspot.
           for (const x of [...p.exits, p.entry]) expect(ids).toContain(x.id);
@@ -90,7 +90,7 @@ describe("roomPlate", () => {
             }
           }
           // A sound has no button and no tag; a surface has a button but no tag.
-          const tags = plateTags(p);
+          const tags = illustrationTags(p);
           for (const x of p.senses) {
             expect(ids).not.toContain(x.id);
             expect(tags.has(x.id)).toBe(false);
@@ -106,33 +106,33 @@ describe("roomPlate", () => {
     const roomId = d.graph.rooms[0].entityId;
     const feature = d.entities.features.find((f) => f.roomId === roomId);
     const door = d.entities.connectors.find((c) => touches(c, roomId) && !isSurfaceExit(c));
-    const entryId = plateEntries(d, roomId).find((id) => id !== door?.id)!;
+    const entryId = illustrationEntries(d, roomId).find((id) => id !== door?.id)!;
     if (feature) (feature as { isHidden?: boolean }).isHidden = true;
     if (door) (door as { isHidden?: boolean }).isHidden = true;
 
-    const p = roomPlate(d, roomId, entryId)!;
-    const brief = plateBrief(p);
+    const p = roomIllustration(d, roomId, entryId)!;
+    const brief = illustrationBrief(p);
     if (feature) expect(brief).not.toContain(feature.name);
     if (door) expect(p.exits.map((x) => x.id)).not.toContain(door.id);
-    expect(plateEntries(d, roomId)).not.toContain(door?.id);
+    expect(illustrationEntries(d, roomId)).not.toContain(door?.id);
   });
 
   it("is undefined for a door that is not this room's", () => {
     const d = generateOffline(1005, 1);
     const roomId = d.graph.rooms[0].entityId;
     const elsewhere = d.entities.connectors.find((c) => !touches(c, roomId))!;
-    expect(roomPlate(d, roomId, elsewhere.id)).toBeUndefined();
+    expect(roomIllustration(d, roomId, elsewhere.id)).toBeUndefined();
   });
 });
 
-describe("plateEntryFor", () => {
+describe("illustrationEntryFor", () => {
   const d = generateOffline(1005, 1);
   const entrance = d.stocked.entranceRoomId;
-  const other = d.graph.rooms.map((r) => r.entityId).find((id) => id !== entrance && plateEntries(d, id).length > 1)!;
-  const [first, second] = plateEntries(d, other);
+  const other = d.graph.rooms.map((r) => r.entityId).find((id) => id !== entrance && illustrationEntries(d, id).length > 1)!;
+  const [first, second] = illustrationEntries(d, other);
 
   it("refuses a room the run has not been in", () => {
-    expect(plateEntryFor(d, { log: [], currentRoomId: entrance }, other)).toBeUndefined();
+    expect(illustrationEntryFor(d, { log: [], currentRoomId: entrance }, other)).toBeUndefined();
   });
 
   it("draws from the door the first arrival was logged with", () => {
@@ -140,12 +140,12 @@ describe("plateEntryFor", () => {
       { kind: "arrival", roomId: other, via: second },
       { kind: "arrival", roomId: other, via: first },
     ];
-    expect(plateEntryFor(d, { log, currentRoomId: entrance }, other)).toBe(second);
+    expect(illustrationEntryFor(d, { log, currentRoomId: entrance }, other)).toBe(second);
   });
 
   it("falls back to arrivedVia, then the way out of the dungeon", () => {
-    expect(plateEntryFor(d, { log: [], currentRoomId: other, arrivedVia: second }, other)).toBe(second);
-    const out = plateEntryFor(d, { log: [{ kind: "arrival", roomId: entrance }], currentRoomId: other }, entrance)!;
+    expect(illustrationEntryFor(d, { log: [], currentRoomId: other, arrivedVia: second }, other)).toBe(second);
+    const out = illustrationEntryFor(d, { log: [{ kind: "arrival", roomId: entrance }], currentRoomId: other }, entrance)!;
     expect(isSurfaceExit(d.entities.connectors.find((c) => c.id === out)!)).toBe(true);
   });
 });

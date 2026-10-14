@@ -174,8 +174,8 @@ export function SlotMeter({ used, capacity }: { used: number; capacity: number }
       <p className="mt-2.5 font-prose text-[14px] leading-snug text-graphite">
         Capacity is your CON defense, {capacity}.{" "}
         {over > 0
-          ? "You are over it. You may still carry, and the referee will notice."
-          : "Past the rule you may still carry, and the referee will notice."}
+          ? "You are over it. You may still carry, and the game master will notice."
+          : "Past the rule you may still carry, and the game master will notice."}
       </p>
     </div>
   );

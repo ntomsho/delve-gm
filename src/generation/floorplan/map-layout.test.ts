@@ -121,7 +121,7 @@ describe("floorplanLayout", () => {
 
   it("encloses exactly the floor the plan gave each room", () => {
     // The drawing and the plan must agree about where the floor is, because
-    // the referee is answering from the plan and the player is reading the
+    // the game master is answering from the plan and the player is reading the
     // drawing. A room drawn one cell too generous is a room they will try to
     // walk into.
     for (const { graph, plan } of CASES) {

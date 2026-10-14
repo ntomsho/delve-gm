@@ -14,7 +14,7 @@
  * prose.
  *
  * `callWithTools` is the third, and it is the runtime's. The generation passes
- * ask one question and get one answer; a turn is a conversation — the referee
+ * ask one question and get one answer; a turn is a conversation — the game master
  * narrates, asks the dice for a batch, reads what came back, and only then
  * commits. So this one hands back the raw turn (text, tool calls, and the
  * assistant content verbatim for echoing) and lets the caller drive the loop.

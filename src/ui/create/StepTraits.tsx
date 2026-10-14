@@ -1,7 +1,7 @@
 /**
  * STEP 2 — WHO IS THIS.
  *
- * Eleven rolls, none of them mechanical, all of them read by the referee every
+ * Eleven rolls, none of them mechanical, all of them read by the game master every
  * turn. The design plan asks for more room than a form deserves, and gives it
  * two columns of a single ruled sheet.
  *
@@ -42,7 +42,7 @@ export function StepTraits({
     <div>
       <StepHeading title="Who is this?">
         Eleven rolls. None of them do anything mechanically, and all of them will
-        change how the referee answers you. Reroll any one you don't believe — these
+        change how the game master answers you. Reroll any one you don't believe — these
         cost nothing.
       </StepHeading>
 

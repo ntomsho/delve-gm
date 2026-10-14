@@ -1,7 +1,7 @@
 /**
  * ROUTING — the graph half of "go back to the Laboratory".
  *
- * The failure this exists to prevent is silent: a referee guessing between two
+ * The failure this exists to prevent is silent: a game master guessing between two
  * exits and putting the player somewhere they did not choose. So the assertions
  * are about where a walk ENDS, which is the only part the player experiences.
  */
@@ -332,7 +332,7 @@ describe("roomDistances", () => {
   });
 
   // A creature does not stop at a fire the way the player does — what it does
-  // about one is the referee's to say, so the graph does not pre-empt it.
+  // about one is the game master's to say, so the graph does not pre-empt it.
   it("ignores what would stop a player's walk", () => {
     const w = corridor({ creatures: [ghoul("b")] });
     w.entities.connectors.find((c) => c.id === "bc")!.conditional = "barred";

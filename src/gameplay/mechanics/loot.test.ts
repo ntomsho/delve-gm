@@ -197,7 +197,7 @@ describe("how it happened", () => {
     expect(report.lastAction).toBe("swing at it again");
   });
 
-  // A turn that threw no dice — a hazard the referee resolved outright — leaves
+  // A turn that threw no dice — a hazard the game master resolved outright — leaves
   // this absent, and the screen says where they died rather than inventing who.
   it("accuses nobody when the fatal turn had no target", () => {
     const run = died();

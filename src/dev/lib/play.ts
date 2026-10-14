@@ -32,7 +32,7 @@ import { createInterface } from "node:readline/promises";
 import { configureTransport } from "../../llm/client.ts";
 import { createGameSession } from "../../gameplay/sessions/session.ts";
 import { generateOffline, testCharacter } from "../../fixtures/offline.ts";
-import { stubReferee } from "../../fixtures/stub-game-master.ts";
+import { stubGameMaster } from "../../fixtures/stub-game-master.ts";
 import { isTerminal, type Stage } from "../../shared/types/turn.ts";
 import type { GenerationProgress } from "../../generation/generate.ts";
 import type { LogEntry } from "../../gameplay/state/store.ts";
@@ -47,9 +47,9 @@ interface Args {
   seed: number;
   size: Size;
   level: number;
-  /** the fixture dungeon AND the fixture referee — spends nothing, calls nothing */
+  /** the fixture dungeon AND the fixture game master — spends nothing, calls nothing */
   offline: boolean;
-  /** the stub referee on a real dungeon. Generation still costs. */
+  /** the stub game master on a real dungeon. Generation still costs. */
   stub: boolean;
 }
 
@@ -201,7 +201,7 @@ async function main(): Promise<void> {
   let lastStage = "";
   const session = createGameSession({
     sink: (id) => fileSink((dir = dirFor(id))),
-    ...(args.stub ? { referee: () => stubReferee } : {}),
+    ...(args.stub ? { gameMaster: () => stubGameMaster } : {}),
     ...(args.offline
       ? { offline: true, generate: async ({ seed, size }) => generateOffline(seed, size) }
       : {}),
@@ -218,7 +218,7 @@ async function main(): Promise<void> {
 
   console.error(
     `seed ${args.seed}, size ${args.size}, level ${args.level}` +
-      `${args.offline ? " — OFFLINE, nothing will be called" : args.stub ? " — stub referee" : ""}`
+      `${args.offline ? " — OFFLINE, nothing will be called" : args.stub ? " — stub game master" : ""}`
   );
 
   const state = () => session.store.getState();

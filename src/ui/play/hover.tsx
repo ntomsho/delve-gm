@@ -44,8 +44,8 @@ import type { Verb } from "./verbs.ts";
  */
 export const MAP_TIP = "dungeon-map-hover";
 export const CARD_TIP = "dungeon-card-hover";
-/** The buttons on a room's plate: follows the cursor, like the map's. One mount for every plate. */
-export const PLATE_TIP = "dungeon-plate-hover";
+/** The buttons on a room's illustration: follows the cursor, like the map's. One mount for every illustration. */
+export const ILLUSTRATION_TIP = "dungeon-illustration-hover";
 
 /**
  * The pill's mount, and there is only one of it for both panels.
@@ -76,7 +76,7 @@ export interface HoverCard {
  *
  * The verb is kept even while the game is not acting. Whether it may be PRESSED
  * is asked again at render, so a sheet opened during a model call turns into a
- * button the moment the referee is done, instead of having to be tapped again.
+ * button the moment the game master is done, instead of having to be tapped again.
  */
 export interface Selection {
   id: string;
@@ -561,7 +561,7 @@ export function InspectSheet({ className, onActed }: { className?: string; onAct
             </button>
           ) : (
             <div className="flex h-12 items-center justify-center font-mono text-[10px] uppercase tracking-[0.14em] text-pencil">
-              Wait for the referee to act
+              Wait for the game master to act
             </div>
           )}
           <div className="mt-2 font-mono text-[9px] uppercase tracking-[0.12em] text-pencil">

@@ -1,5 +1,5 @@
 /**
- * ROOM PLATE SPIKE — ROUND 1
+ * ROOM ILLUSTRATION SPIKE — ROUND 1
  * ==========================
  *
  *   node src/dev/cli-illustrate.ts --dry               # bind, guides, Haiku, prompts; no images
@@ -8,7 +8,7 @@
  *   node src/dev/cli-illustrate.ts --force             # redo images already on disk
  *   node src/dev/cli-illustrate.ts --style sparse --only I4,E1 --modes gpt2-low=marks,klein-4b=plain+none
  *
- * --style picks one of STYLES below in place of PLATE_STYLE, and draws into
+ * --style picks one of STYLES below in place of ILLUSTRATION_STYLE, and draws into
  * out/illustrate-<style>/ so its sheet sits beside round 1's. The room words
  * are copied from round 1's cache when they are there, so a style trial
  * changes the style and nothing else.
@@ -26,7 +26,7 @@
  * out/illustrate/<subject>/ and reused, so a rerun after a failure only pays
  * for what is missing. --force redraws images; delete visual.json to re-ask.
  *
- * COSTS ARE ESTIMATES from fal's listed prices as of 2026-10-13, per plate at
+ * COSTS ARE ESTIMATES from fal's listed prices as of 2026-10-13, per illustration at
  * 1536x1024. fal's own billing is the truth.
  */
 
@@ -37,10 +37,10 @@ import sharp from "sharp";
 import { fal } from "@fal-ai/client";
 import { connectedCells } from "../illustrations/view.ts";
 import {
-  PLATE_EXTERIOR_SYSTEM,
-  PLATE_STYLE,
-  PLATE_VISUAL_SYSTEM,
-  plateVisualMessage,
+  ILLUSTRATION_EXTERIOR_SYSTEM,
+  ILLUSTRATION_STYLE,
+  ILLUSTRATION_VISUAL_SYSTEM,
+  illustrationVisualMessage,
   type GuideMode,
 } from "../illustrations/prompt.ts";
 import { touches } from "../shared/world/entities.ts";
@@ -48,17 +48,17 @@ import { generateOffline } from "../fixtures/offline.ts";
 import type { GeneratedDungeon } from "../generation/generate.ts";
 import { configureTransport } from "../llm/client.ts";
 import { IMAGE_MODELS, type ImageModel } from "../llm/models.ts";
-import { guidePng, oneBitPng, PLATE_H, PLATE_THRESHOLD, PLATE_W } from "../server/illustrations/image.ts";
+import { guidePng, oneBitPng, ILLUSTRATION_H, ILLUSTRATION_THRESHOLD, ILLUSTRATION_W } from "../server/illustrations/image.ts";
 import {
-  exteriorPlatePrompt,
-  plateImagePrompt,
-  requestPlateExterior,
+  exteriorIllustrationPrompt,
+  illustrationImagePrompt,
+  requestIllustrationExterior,
   visualSubjects,
-  requestPlateSetting,
-  requestPlateVisual,
-  type PlateVisual,
+  requestIllustrationSetting,
+  requestIllustrationVisual,
+  type IllustrationVisual,
 } from "../illustrations/visual.ts";
-import { plateBrief, plateEntries, roomPlate, type RoomPlate } from "../illustrations/room-illustration.ts";
+import { illustrationBrief, illustrationEntries, roomIllustration, type RoomIllustration } from "../illustrations/room-illustration.ts";
 import { hotspotMarks } from "./lib/illustration-overlay.ts";
 import { EXTERIORS, INTERIORS, THEMES, type Candidate, type InteriorSubject } from "./lib/illustration-subjects.ts";
 
@@ -66,7 +66,7 @@ import { EXTERIORS, INTERIORS, THEMES, type Candidate, type InteriorSubject } fr
 // SETUPS
 // ---------------------------------------------------------------------------
 
-const SIZE = { width: PLATE_W, height: PLATE_H };
+const SIZE = { width: ILLUSTRATION_W, height: ILLUSTRATION_H };
 
 interface Setup {
   id: string;
@@ -76,7 +76,7 @@ interface Setup {
   modes: GuideMode[];
   /** run on the exteriors (prompt only) */
   exteriors: boolean;
-  /** estimated USD per plate */
+  /** estimated USD per illustration */
   usd: number;
   /** most images the endpoint takes at once, guide and references together */
   maxImages?: number;
@@ -148,13 +148,13 @@ const SETUPS: Setup[] = [
 ];
 
 /**
- * Style texts, for comparing. `v2` is PLATE_STYLE, the default. `v1` was round
+ * Style texts, for comparing. `v2` is ILLUSTRATION_STYLE, the default. `v1` was round
  * 1's: the ink was right but too heavy — dense cross-hatching that turned busy
  * or black at 1-bit. `sparse` and `outline` were the trial that answered it;
  * sparse won and became v2, with a firmer "no border" for klein.
  */
 const STYLES: Record<string, string> = {
-  v2: PLATE_STYLE,
+  v2: ILLUSTRATION_STYLE,
   v1:
     "Black-and-white pen-and-ink illustration in the manner of a 1970s-80s fantasy " +
     "adventure module's illustration booklet. Pure black ink on white paper: confident " +
@@ -197,7 +197,7 @@ interface Args {
   maxUsd: number;
   out: string;
   /**
-   * Interior subjects whose klein no-guide plate (1-bit) is sent as a style
+   * Interior subjects whose klein no-guide illustration (1-bit) is sent as a style
    * reference after the guide. A subject is never given its own: it would
    * just copy it. Interiors only — the exteriors' endpoint takes no images.
    */
@@ -250,15 +250,15 @@ function envKey(name: string): string | undefined {
 
 /** The door the viewer comes in by: any but the way out, so the way out can be in the picture. */
 function entryFor(d: GeneratedDungeon, roomId: string): string | undefined {
-  const entries = plateEntries(d, roomId);
+  const entries = illustrationEntries(d, roomId);
   const surface = new Set(d.entities.connectors.filter((c) => c.endpointB === null).map((c) => c.id));
   return entries.find((id) => !surface.has(id)) ?? entries[0];
 }
 
-function candidateOf(d: GeneratedDungeon, roomId: string): { c: Candidate; p: RoomPlate } | undefined {
+function candidateOf(d: GeneratedDungeon, roomId: string): { c: Candidate; p: RoomIllustration } | undefined {
   const entry = entryFor(d, roomId);
   if (!entry) return undefined;
-  const p = roomPlate(d, roomId, entry);
+  const p = roomIllustration(d, roomId, entry);
   if (!p) return undefined;
   const i = d.graph.rooms.findIndex((r) => r.entityId === roomId);
   const f = p.input.floor;
@@ -354,7 +354,7 @@ function dress(source: GeneratedDungeon, roomId: string, s: InteriorSubject): Ge
 interface Bound {
   subject: InteriorSubject;
   d: GeneratedDungeon;
-  plate: RoomPlate;
+  illustration: RoomIllustration;
   from: string;
 }
 
@@ -387,14 +387,14 @@ function bindAll(subjects: InteriorSubject[]): Bound[] {
         const after = candidateOf(dressed, gr.entityId);
         if (!after || !s.pick(after.c)) continue;
         taken.add(key);
-        found = { subject: s, d: dressed, plate: after.p, from: `${label}, room ${d.graph.rooms.indexOf(gr)}` };
+        found = { subject: s, d: dressed, illustration: after.p, from: `${label}, room ${d.graph.rooms.indexOf(gr)}` };
         break search;
       }
     }
     if (!found) console.error(`[bind] ${s.id} ${s.title}: no room in the pool fits`);
     else {
       out.push(found);
-      console.error(`[bind] ${s.id} ${s.title} <- ${found.from} (${found.plate.input.floor.length} cells, standing ${found.plate.view.standing})`);
+      console.error(`[bind] ${s.id} ${s.title} <- ${found.from} (${found.illustration.input.floor.length} cells, standing ${found.illustration.view.standing})`);
     }
   }
   return out;
@@ -417,25 +417,25 @@ function writeJson(path: string, value: unknown): void {
   writeFileSync(path, JSON.stringify(value, null, 2));
 }
 
-async function writeGuide(p: RoomPlate, marks: boolean, path: string): Promise<void> {
+async function writeGuide(p: RoomIllustration, marks: boolean, path: string): Promise<void> {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, await guidePng(p, marks));
 }
 
-/** Where a reference's source plate can be: the runs it was drawn in, newest style first. */
+/** Where a reference's source illustration can be: the runs it was drawn in, newest style first. */
 const REF_SOURCES = ["out/illustrate-v2", "out/illustrate-sparse"];
 /** A reference is sent at about a quarter of a megapixel: style survives, input cost does not. */
 const REF_SIZE = { width: 768, height: 512 };
 
 /**
- * A subject's klein no-guide plate, ready to send as a style reference:
+ * A subject's klein no-guide illustration, ready to send as a style reference:
  * any drawn frame cut away (a reference is copied, border and all), then
  * shrunk. Klein sometimes rules a box round the picture; it shows as an edge
  * row or column that is nearly all ink, a little way in from the image edge.
  */
 async function prepareRef(id: string, outDir: string): Promise<string> {
   const src = REF_SOURCES.map((d) => resolve(d, id, "klein-4b-none.1bit.png")).find((p) => existsSync(p));
-  if (!src) throw new Error(`no klein-4b-none plate for reference ${id} in ${REF_SOURCES.join(" or ")}`);
+  if (!src) throw new Error(`no klein-4b-none illustration for reference ${id} in ${REF_SOURCES.join(" or ")}`);
   const { data, info } = await sharp(src).greyscale().raw().toBuffer({ resolveWithObject: true });
   const { width: w, height: h } = info;
   const inkRow = (y: number) => {
@@ -605,7 +605,7 @@ async function main(): Promise<void> {
   const settings = readJson<Record<string, string>>(settingsPath) ?? (cached("settings.json") as Record<string, string> | undefined) ?? {};
   for (const [key, text] of interiors.map((b) => [b.subject.theme, THEMES[b.subject.theme]] as const)) {
     if (settings[key]) continue;
-    settings[key] = (await requestPlateSetting(text)).value;
+    settings[key] = (await requestIllustrationSetting(text)).value;
     writeJson(settingsPath, settings);
   }
 
@@ -620,18 +620,18 @@ async function main(): Promise<void> {
     const refs = [...refPaths].filter(([id]) => id !== b.subject.id).map(([, path]) => path);
     const sdir = join(dir, b.subject.id);
     const visualPath = join(sdir, "visual.json");
-    const visualSource = sourceOf(PLATE_VISUAL_SYSTEM + plateVisualMessage(b.plate.roomName, b.plate.roomBase, visualSubjects(b.plate).subjects));
+    const visualSource = sourceOf(ILLUSTRATION_VISUAL_SYSTEM + illustrationVisualMessage(b.illustration.roomName, b.illustration.roomBase, visualSubjects(b.illustration).subjects));
     let visual =
-      fresh<PlateVisual>(readJson(visualPath), visualSource) ?? fresh<PlateVisual>(cached(`${b.subject.id}/visual.json`), visualSource);
+      fresh<IllustrationVisual>(readJson(visualPath), visualSource) ?? fresh<IllustrationVisual>(cached(`${b.subject.id}/visual.json`), visualSource);
     if (!visual) {
-      visual = (await requestPlateVisual(b.plate)).value;
+      visual = (await requestIllustrationVisual(b.illustration)).value;
       writeJson(visualPath, { source: visualSource, value: visual });
     }
-    await writeGuide(b.plate, true, join(sdir, "guide-marks.png"));
-    await writeGuide(b.plate, false, join(sdir, "guide-plain.png"));
+    await writeGuide(b.illustration, true, join(sdir, "guide-marks.png"));
+    await writeGuide(b.illustration, false, join(sdir, "guide-plain.png"));
     const setting = settings[b.subject.theme];
     const prompts = Object.fromEntries(
-      (["marks", "plain", "none"] as GuideMode[]).map((m) => [m, plateImagePrompt(b.plate, m, setting, visual!, style, refs.length)])
+      (["marks", "plain", "none"] as GuideMode[]).map((m) => [m, illustrationImagePrompt(b.illustration, m, setting, visual!, style, refs.length)])
     ) as Record<GuideMode, string>;
     writeJson(join(sdir, "prompts.json"), prompts);
     for (const s of setups) {
@@ -653,13 +653,13 @@ async function main(): Promise<void> {
   for (const e of exteriors) {
     const sdir = join(dir, e.id);
     const scenePath = join(sdir, "scene.json");
-    const sceneSource = sourceOf(PLATE_EXTERIOR_SYSTEM + e.description);
+    const sceneSource = sourceOf(ILLUSTRATION_EXTERIOR_SYSTEM + e.description);
     let scene = fresh<string>(readJson(scenePath), sceneSource) ?? fresh<string>(cached(`${e.id}/scene.json`), sceneSource);
     if (!scene) {
-      scene = (await requestPlateExterior(e.description)).value;
+      scene = (await requestIllustrationExterior(e.description)).value;
       writeJson(scenePath, { source: sceneSource, value: scene });
     }
-    const prompt = exteriorPlatePrompt({ scene, style });
+    const prompt = exteriorIllustrationPrompt({ scene, style });
     writeJson(join(sdir, "prompts.json"), { none: prompt });
     for (const s of setups.filter((x) => x.exteriors)) {
       jobs.push({ subject: e.id, setup: s, mode: "none", prompt, refPaths: [], file: `${e.id}/${s.id}-none.png` });
@@ -704,12 +704,12 @@ const MODE_LABEL: Record<GuideMode, string> = { marks: "Guide with marks", plain
 /** Image cells are filled in at write time from the manifest; this leaves a token per cell. */
 const cellToken = (file: string) => `<!--cell:${file}-->`;
 
-function overlay(p: RoomPlate | undefined): string {
+function overlay(p: RoomIllustration | undefined): string {
   if (!p) return "";
   return `<svg class="buttons" viewBox="0 0 480 320" preserveAspectRatio="none">${hotspotMarks(p, 480, 320)}</svg>`;
 }
 
-function grid(subject: string, setups: Setup[], modes: GuideMode[], p?: RoomPlate): string {
+function grid(subject: string, setups: Setup[], modes: GuideMode[], p?: RoomIllustration): string {
   const head = modes.map((m) => `<th>${MODE_LABEL[m]}</th>`).join("");
   const rows = setups
     .map((s) => {
@@ -722,14 +722,14 @@ function grid(subject: string, setups: Setup[], modes: GuideMode[], p?: RoomPlat
   return `<table class="grid"><tr><th></th>${head}</tr>${rows}</table>`;
 }
 
-function interiorSection(b: Bound, visual: PlateVisual, setting: string, prompts: Record<GuideMode, string>, setups: Setup[]): string {
+function interiorSection(b: Bound, visual: IllustrationVisual, setting: string, prompts: Record<GuideMode, string>, setups: Setup[]): string {
   const s = b.subject;
   const v = s.vibe;
   return `
 <section id="${s.id}">
   <h2>${s.id} · ${esc(s.title)} <small>${esc(s.tests)}</small></h2>
   <p class="meta">${[v.walls, v.condition, v.moisture, v.life].map((x) => `<span class="chip">${esc(x)}</span>`).join("")}
-    bound to ${esc(b.from)} · ${b.plate.input.floor.length} cells · standing ${esc(b.plate.view.standing)}, facing ${b.plate.view.facing}</p>
+    bound to ${esc(b.from)} · ${b.illustration.input.floor.length} cells · standing ${esc(b.illustration.view.standing)}, facing ${b.illustration.view.facing}</p>
   <div class="top">
     <figure><img src="${s.id}/guide-marks.png"><figcaption>Guide with marks</figcaption></figure>
     <figure><img src="${s.id}/guide-plain.png"><figcaption>Guide, no marks</figcaption></figure>
@@ -738,13 +738,13 @@ function interiorSection(b: Bound, visual: PlateVisual, setting: string, prompts
       <p><b>Room</b> ${esc(visual.room)}</p>
       <ul>${Object.entries(visual.looks).map(([k, l]) => `<li><b>${esc(k)}</b> ${esc(l)}</li>`).join("")}</ul>
       <details><summary>Prompt (marks)</summary><pre>${esc(prompts.marks)}</pre></details>
-      <details><summary>Brief, with what was left out</summary><pre>${esc(plateBrief(b.plate))}</pre></details>
+      <details><summary>Brief, with what was left out</summary><pre>${esc(illustrationBrief(b.illustration))}</pre></details>
       <details><summary>Written fiction</summary><p>${esc(s.room.base)}</p>${[...s.exits, ...(s.wayOut ? [s.wayOut] : []), ...s.features]
         .map((x) => `<p><b>${esc(x.name)}</b> ${esc(x.base)}</p>`)
         .join("")}</details>
     </div>
   </div>
-  ${grid(s.id, setups, ["marks", "plain", "none"], b.plate)}
+  ${grid(s.id, setups, ["marks", "plain", "none"], b.illustration)}
 </section>`;
 }
 
@@ -785,7 +785,7 @@ function writeSheet(dir: string, sections: string[], jobs: Job[], manifest: Reco
     body = body.replace(cellToken(j.file), cell);
   }
   const html = `<!doctype html>
-<html><head><meta charset="utf-8"><title>Plate spike, style ${styleName}</title>
+<html><head><meta charset="utf-8"><title>Illustration spike, style ${styleName}</title>
 <style>
   body { font: 14px/1.45 Georgia, serif; background: #F6F2E8; color: #22201C; margin: 20px; }
   h1 { font-size: 22px; margin: 0 0 6px; } h2 { font-size: 17px; margin: 28px 0 4px; } h2 small { font-weight: normal; color: #6b655a; font-size: 13px; }
@@ -808,10 +808,10 @@ function writeSheet(dir: string, sections: string[], jobs: Job[], manifest: Reco
   body:has(#show-raw:checked) table.grid td img.raw { display: block; } body:has(#show-raw:checked) table.grid td img.bw { display: none; }
   body:has(#show-buttons:checked) td svg.buttons { display: block; }
 </style></head><body>
-<h1>Room plate spike — style: ${styleName}</h1>
+<h1>Room illustration spike — style: ${styleName}</h1>
 <p class="meta">${esc(STYLES[styleName])}</p>
 <div class="controls">
-  <label><input type="checkbox" id="show-raw"> Show raw output (default: converted to 1-bit at ${PLATE_THRESHOLD})</label>
+  <label><input type="checkbox" id="show-raw"> Show raw output (default: converted to 1-bit at ${ILLUSTRATION_THRESHOLD})</label>
   &nbsp; <label><input type="checkbox" id="show-buttons"> Show the page's buttons</label>
   &nbsp; <span class="meta">${jobs.length} images · ~$${spent.toFixed(2)} spent so far (estimate) · click an image for full size</span>
 </div>

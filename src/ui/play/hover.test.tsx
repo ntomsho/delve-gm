@@ -115,7 +115,7 @@ describe("the room card entries hover like the map markers", () => {
     expect(shown()).toContain(thing.composed!);
   });
 
-  it("gives a way out the wall it cuts, in the words the referee was given", async () => {
+  it("gives a way out the wall it cuts, in the words the game master was given", async () => {
     const { r, room } = panels();
     const exit = room.exits.find((e) => e.wall !== undefined)!;
 
@@ -205,7 +205,7 @@ describe("clicking a room card row", () => {
 
     await press(pill()!);
     // The name as the game holds it, with an article a sentence can carry. The
-    // player never has to guess which of two similar things the referee will take
+    // player never has to guess which of two similar things the game master will take
     // them to mean, because the words came off the thing they clicked.
     // Whatever article the name arrived with, `definite` normalises; the words
     // that distinguish this thing from the next one survive intact.
@@ -438,11 +438,11 @@ describe("tapping, on a touch screen", () => {
     expect(sheet()).toBeNull();
   });
 
-  it("offers no button while the referee is working, and says why", async () => {
+  it("offers no button while the game master is working, and says why", async () => {
     const { r } = tapping([], { acting: false });
     await press(row(r, biggest.id));
     expect(sheet()!.querySelector("[data-sends]")).toBeNull();
-    expect(sheet()!.textContent).toContain("Wait for the referee to act");
+    expect(sheet()!.textContent).toContain("Wait for the game master to act");
   });
 
   // Through the map's own pointer handlers, as *Markers answer a click* asks:

@@ -530,7 +530,7 @@ const NEIGHBOURS: Array<[number, number]> = [[1, 0], [-1, 0], [0, 1], [0, -1]];
  *
  * Exactly one per connector. Two rooms often run alongside each other for
  * several cells and any of those would serve, so one is picked at random — but
- * it is picked, and recorded, because the referee describes a door and the
+ * it is picked, and recorded, because the game master describes a door and the
  * player walks through it, and "somewhere along that wall" is not a place.
  */
 export interface BlockDoor {

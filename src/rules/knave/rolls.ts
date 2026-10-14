@@ -6,7 +6,7 @@
  * not receive from these functions.
  *
  * ONE THRESHOLD CONVENTION. Knave phrases success as "greater than" a target;
- * the referee's playbook phrases it as a DC of 16. They are the same rule, and
+ * the game master's playbook phrases it as a DC of 16. They are the same rule, and
  * the model reads the playbook — so the code takes a DC and succeeds on
  * `total >= dc`. The one place the two meet is `dcFromDefense`: a *contest*
  * must exceed the opposing defense, so attacks and stunts convert internally

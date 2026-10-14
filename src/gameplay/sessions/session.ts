@@ -2,7 +2,7 @@
  * A RUN, AS ONE OBJECT
  * ====================
  *
- * Everything a single run needs to exist: its store, its journal, its referee,
+ * Everything a single run needs to exist: its store, its journal, its game master,
  * its turn machine, and the sequence that gets it from a seed to a player
  * standing in the first room.
  *
@@ -29,14 +29,14 @@
 import { createGameStore, type GameStoreApi, type SavedGame } from "../state/store.ts";
 import { createJournal, runId, type Journal, type Sink } from "../../journal/journal.ts";
 import { ResponseFormatError } from "../../llm/json.ts";
-import { createModelReferee } from "../game-master/game-master.ts";
-import { createTurnMachine, type Referee, type TurnMachine } from "../turn.ts";
+import { createModelGameMaster } from "../game-master/game-master.ts";
+import { createTurnMachine, type GameMaster, type TurnMachine } from "../turn.ts";
 import { isTerminal } from "../../shared/types/turn.ts";
 import { tallyRun } from "../tally/tally.ts";
 import { challengeStateOf } from "../mechanics/challenges.ts";
 import { generateDungeon, type GeneratedDungeon, type GenerateOptions } from "../../generation/generate.ts";
 import { MODELS } from "../../llm/models.ts";
-import type { PlateAnswer } from "../../illustrations/room-illustration.ts";
+import type { IllustrationAnswer } from "../../illustrations/room-illustration.ts";
 import type { PlayerCharacter } from "../../rules/knave/character.ts";
 import type { Size } from "../../generation/content/blueprint.ts";
 
@@ -49,16 +49,16 @@ export interface RunRequest {
 }
 
 /**
- * A referee, built once the session's store and journal exist.
+ * A game master, built once the session's store and journal exist.
  *
- * A factory rather than a `Referee` because the real one needs both of those,
+ * A factory rather than a `Game master` because the real one needs both of those,
  * and they belong to the session. A fixture that needs neither is `() => stub`.
  */
-export type RefereeFactory = (deps: { store: GameStoreApi; journal: Journal }) => Referee;
+export type GameMasterFactory = (deps: { store: GameStoreApi; journal: Journal }) => GameMaster;
 
 export interface SessionOptions {
-  /** defaults to the model referee, which is the only one that plays for real */
-  referee?: RefereeFactory;
+  /** defaults to the model game master, which is the only one that plays for real */
+  gameMaster?: GameMasterFactory;
   /**
    * Where this run writes itself down, chosen once the run id is known — it is
    * derived from the seed, and the seed does not arrive until `begin`. Omitted
@@ -83,7 +83,7 @@ export interface SessionOptions {
   offline?: boolean;
   onProgress?: GenerateOptions["onProgress"];
   signal?: AbortSignal;
-  /** how many model calls one turn may take — see ModelRefereeOptions */
+  /** how many model calls one turn may take — see ModelGameMasterOptions */
   maxRounds?: number;
 }
 
@@ -117,14 +117,14 @@ export interface PlayableSession {
    */
   resume?(runId: string): Promise<void>;
   /**
-   * A room's plate, for its first arrival in the scrollback.
+   * A room's illustration, for its first arrival in the scrollback.
    *
    * OPTIONAL, AND ABSENT ON A LOCAL RUN: `?offline` and `?stub` never ask for
    * one, so the fixture pages stay free.
    */
-  plate?(roomId: string): Promise<PlateAnswer>;
-  /** The dungeon's cover, above the opening. Absent on a local run, like `plate`. */
-  cover?(): Promise<PlateAnswer>;
+  illustration?(roomId: string): Promise<IllustrationAnswer>;
+  /** The dungeon's cover, above the opening. Absent on a local run, like `illustration`. */
+  cover?(): Promise<IllustrationAnswer>;
   /**
    * Start a run in a world that is already written.
    *
@@ -142,7 +142,7 @@ export interface PlayableSession {
   submit(text: string): Promise<void>;
   roll(): Promise<void>;
   retry(): Promise<void>;
-  /** End the run without playing it out. No referee, no dice, no world change. */
+  /** End the run without playing it out. No game master, no dice, no world change. */
   abandon(): Promise<void>;
 }
 
@@ -164,7 +164,7 @@ export interface GameSession extends PlayableSession {
   restore(saved: SavedGame, runId?: string): void;
   /**
    * `roll`'s two halves, for the server, which answers them as two requests so
-   * the player sees the dice before the referee has written about them. See
+   * the player sees the dice before the game master has written about them. See
    * `TurnMachine.throwDice`. In process, `roll` is still the one call.
    */
   throwDice(): void;
@@ -201,22 +201,22 @@ export function createGameSession(opts: SessionOptions = {}): GameSession {
   let begun = false;
 
   /**
-   * The journal, the referee, and the machine, in that order — each needs the
+   * The journal, the game master, and the machine, in that order — each needs the
    * one before it. Called by both entry points, because a resumed run is as
    * entitled to a journal as a new one.
    */
   function wire(runId: string): void {
     id = runId;
     journal = createJournal(opts.sink?.(runId), opts.startSeq ?? 0);
-    const referee =
-      opts.referee?.({ store, journal }) ??
-      createModelReferee({
+    const gameMaster =
+      opts.gameMaster?.({ store, journal }) ??
+      createModelGameMaster({
         store,
         journal,
         ...(opts.maxRounds !== undefined ? { maxRounds: opts.maxRounds } : {}),
         ...(opts.signal ? { signal: opts.signal } : {}),
       });
-    machine = createTurnMachine(referee, { store, journal });
+    machine = createTurnMachine(gameMaster, { store, journal });
   }
 
   /**

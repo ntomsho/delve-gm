@@ -86,7 +86,7 @@ const CARRIED_SHARE = 0.6;
 /** How many of the goal room's keyable properties get a placed key, beyond its location. */
 const GOAL_PROPERTY_KEYS: readonly [number, number] = [1, 3];
 
-/** The referee's ad-hoc allowance, held out of the partition. See §7.1. */
+/** The game master's ad-hoc allowance, held out of the partition. See §7.1. */
 const ALLOWANCE_SHARE = 0.1;
 
 /**
@@ -792,7 +792,7 @@ export function placeRewards(input: PlacementInput): RewardPlacement {
  * A weakness, a liability, a stretch of map: those are facts, and a fact
  * arrives as information. A blocked way, a hazard, a puzzle can be answered
  * either way -- a written combination or the crowbar that makes it moot -- so
- * the stream picks, once, at generation, rather than the referee picking
+ * the stream picks, once, at generation, rather than the game master picking
  * differently every time it looks.
  */
 function reserveKind(c: Challenge, rng: Rng): "information" | "object" {

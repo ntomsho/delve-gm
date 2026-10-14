@@ -23,7 +23,7 @@
  *   The compass is MAP-ABSOLUTE. North is up, the drawing never rotates, and
  *   nothing here knows which way the player is facing. So "the north wall" is
  *   always safe and "on your left" is always a guess — which is worth saying out
- *   loud in the prompt, because a referee handed compass directions will reach
+ *   loud in the prompt, because a game master handed compass directions will reach
  *   for the relative ones on its own.
  *
  * Screen coordinates throughout, matching the block plan and the SVG: y grows
@@ -485,7 +485,7 @@ export interface DescribeOptions {
    * WHAT THIS IS FOR: a concealed way. The sentence counts doors and says which
    * walls they are in, and a count is not something a reader can partially
    * believe — told "two off the west wall" about a room with one visible door
-   * and one secret one, the referee describes both, and a secret door that gets
+   * and one secret one, the game master describes both, and a secret door that gets
    * described is not a secret door. So the runtime hands in the concealed ones
    * and they are simply not there to be counted.
    *

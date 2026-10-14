@@ -15,7 +15,7 @@
  * below is `zustand/vanilla` and not `zustand`: the package's own entry point
  * re-exports `zustand/react`, so importing it pulled React into the import
  * graph of every module that touches game state — the turn machine and the
- * referee included. `src/ui/shared/use-game.ts` holds the one binding that does.
+ * game master included. `src/ui/shared/use-game.ts` holds the one binding that does.
  *
  * ONE STORE PER RUN. There was a module-level `useGame` here until Phase 9, and
  * a singleton is the right shape for exactly one situation: a browser tab, with
@@ -73,18 +73,18 @@ export interface TurnRecord {
  * see `assemble.ts`, where losing exactly that line lost a won roll.
  */
 export interface TranscriptEntry {
-  role: "player" | "referee" | "roll";
+  role: "player" | "game-master" | "roll";
   text: string;
 }
 
 /**
  * One line of the scrollback — what the screen shows, and nothing else.
  *
- * Deliberately not the transcript. `transcript` is what the referee is shown
+ * Deliberately not the transcript. `transcript` is what the game master is shown
  * and is cleared the moment a turn closes, which is right for a prompt and
  * fatal for a page: the player would watch the last hour of play blank itself
  * every time they finished an action. Keeping them apart lets this one hold the
- * referee's actual prose and survive a reload, while the transcript stays the
+ * game master's actual prose and survive a reload, while the transcript stays the
  * lean thing BUILD-PLAN §4.4 describes.
  *
  * Never assembled into a prompt.
@@ -95,12 +95,12 @@ export interface LogEntry {
    * Dungeon Pass. Exactly one, always first, and the only entry in the whole
    * scrollback that no turn produced.
    */
-  kind: "opening" | "arrival" | "referee" | "player" | "roll" | "effects" | "foe";
+  kind: "opening" | "arrival" | "game-master" | "player" | "roll" | "effects" | "foe";
   text: string;
   /** arrivals only: which room, so the heading can name it */
   roomId?: string;
   /**
-   * Arrivals only: the connector they came in by, so the room's plate can be
+   * Arrivals only: the connector they came in by, so the room's illustration can be
    * drawn from that side. Absent on arrivals logged before it was kept.
    */
   via?: string;
@@ -203,7 +203,7 @@ export interface RunState {
   pending?: PendingRequest;
   /** the exchange for the action in progress; capped when assembling prompts */
   transcript: TranscriptEntry[];
-  /** the scrollback the player reads. Display only — never sent to the referee. */
+  /** the scrollback the player reads. Display only — never sent to the game master. */
   log: LogEntry[];
   turnRecords: TurnRecord[];
   callLog: CallLogEntry[];
@@ -296,7 +296,7 @@ export interface GameStore {
   lastEvents: WorldEvent[];
 
   start(dungeon: GeneratedDungeon, pc: PlayerCharacter): void;
-  /** Apply a referee commit. Returns false and changes nothing if it was refused. */
+  /** Apply a game master commit. Returns false and changes nothing if it was refused. */
   commit(commit: Commit): { ok: boolean; reasons: string[] };
   /** A seeded RNG positioned where the run left off. Persist `draws` after use. */
   rng(): CountingRng;
@@ -350,16 +350,16 @@ function worldOf(run: RunState, dungeon: GeneratedDungeon | undefined): World {
 /**
  * WHICH ENDING THIS IS.
  *
- * Two things outrank whatever the referee thought came next, and both for the
- * same reason: they are derived from state the referee does not hold and cannot
+ * Two things outrank whatever the game master thought came next, and both for the
+ * same reason: they are derived from state the game master does not hold and cannot
  * be talked out of.
  *
  * Death is hit points at zero.
  *
- * A departure is a stage the referee ASKS for — it knows the player walked out,
+ * A departure is a stage the game master ASKS for — it knows the player walked out,
  * and nothing else — and the store settles what that was worth. Out with the
  * objective done is `goal_met`; out without it is `escaped`. Leaving that to the
- * referee would mean the ending depended on whether it still remembered a thing
+ * game master would mean the ending depended on whether it still remembered a thing
  * that might have happened twenty turns ago.
  */
 function endingOf(commit: Commit, world: World, died: boolean): Stage {
@@ -370,7 +370,7 @@ function endingOf(commit: Commit, world: World, died: boolean): Stage {
 
 /**
  * A store, as everything that is not React sees it: `getState`, `setState`,
- * `subscribe`. The turn machine and the referee take one of these and declare
+ * `subscribe`. The turn machine and the game master take one of these and declare
  * it structurally, so neither of them imports zustand at all.
  */
 export type GameStoreApi = StoreApi<GameStore>;

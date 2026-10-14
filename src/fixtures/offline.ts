@@ -84,14 +84,14 @@ export function fakeDungeonPass(groupIds: string[]): DungeonPassResponse {
 // The fake used to answer with its own field names — `base: "A Chasm, calm, at
 // threshold depth."` and an entity called "entrance thing". That proved the
 // wiring, which was its job, and it was actively misleading for everything
-// else: a referee handed a room whose identity is four words of metadata has
+// else: a game master handed a room whose identity is four words of metadata has
 // nothing to reason from, so it improvises, and then contradicts what it
 // improvised. Two live runs were lost to exactly that.
 //
 // So the fake still answers the payload point for point — every field is
 // derived from what was asked for, and nothing is invented that the payload did
 // not name — but it answers in prose. `depth` becomes how deep the water is,
-// which suits a drowned mint and, more usefully, gives the referee a hard
+// which suits a drowned mint and, more usefully, gives the game master a hard
 // physical fact per room that it cannot talk itself out of.
 
 const WATER: Record<string, string> = {

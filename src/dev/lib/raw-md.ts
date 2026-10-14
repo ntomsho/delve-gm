@@ -7,7 +7,7 @@
  * is why prompt assembly has always been testable headlessly.
  *
  * `node` does not. It sees a `.md` extension it has no loader for and refuses
- * the import, which means anything that reaches the referee — the turn machine,
+ * the import, which means anything that reaches the game master — the turn machine,
  * a session, a request handler — cannot be run outside a bundler. That was
  * invisible while the only thing that played a turn was a browser tab, and it
  * is the first wall you hit trying to play one from a terminal.

@@ -129,9 +129,9 @@ describe("roomView", () => {
     const shown = roomView(run, dungeon, room)!;
     expect(shown.contents.map((c) => c.id)).not.toContain("secret");
 
-    // The referee must see it, or nothing is findable.
-    const referee = roomView(run, dungeon, room, { includeHidden: true })!;
-    expect(referee.contents.map((c) => c.id)).toContain("secret");
+    // The game master must see it, or nothing is findable.
+    const gameMaster = roomView(run, dungeon, room, { includeHidden: true })!;
+    expect(gameMaster.contents.map((c) => c.id)).toContain("secret");
   });
 
   it("nests what a thing holds inside it", () => {
@@ -222,7 +222,7 @@ describe("roomView", () => {
 
     exit.isHidden = true;
     expect(roomView(run, dungeon)!.exits).toHaveLength(before - 1);
-    // The referee still needs to know it is there to be found.
+    // The game master still needs to know it is there to be found.
     const all = run.entities.connectors.filter((c) => c.endpointA === room || c.endpointB === room);
     expect(roomView(run, dungeon, room, { includeHidden: true })!.exits).toHaveLength(all.length);
   });
@@ -343,7 +343,7 @@ describe("needsComposition", () => {
     // Never described, so it owes prose.
     expect(needsComposition(useGame.getState().run!, room).map((x) => x.id)).toContain("secret");
 
-    // The referee settles it as concealed and writes only its state. `composed`
+    // The game master settles it as concealed and writes only its state. `composed`
     // is prose for the player, and a concealed thing owes them none — so the
     // debt is settled and it stops being handed to the compose pass.
     useGame.getState().commit(
@@ -610,11 +610,11 @@ describe("mapView over the floorplan", () => {
 });
 
 // ===========================================================================
-// THE DRAWING, AS THE REFEREE READS IT
+// THE DRAWING, AS THE GAME MASTER READS IT
 // ===========================================================================
 //
 // The whole point of 6c: the content pass wrote the room against a description
-// of how it was drawn, and the referee has to be reading the SAME description.
+// of how it was drawn, and the game master has to be reading the SAME description.
 // If these two ever diverge the map and the prose start describing different
 // rooms, and the player is the only one in a position to notice.
 
@@ -642,7 +642,7 @@ describe("roomView geometry", () => {
     expect(view.geometry).toBe(describeGeometry(sited().geometry[i]));
   });
 
-  // 8f. Three sources tell the referee how many ways out a room has and they
+  // 8f. Three sources tell the game master how many ways out a room has and they
   // disagreed: the ways-out list filtered concealed connectors, the geometry
   // sentence counted every one of them, and R2's arrival post duly announced
   // four ways out of a room with three and described the concealed fissure as
@@ -662,7 +662,7 @@ describe("roomView geometry", () => {
       const i = dungeon.graph.rooms.findIndex((r) => r.entityId === run.currentRoomId);
       const unfiltered = describeGeometry(sited().geometry[i]);
 
-      // Both views, and the referee's especially: it is shown the secret way in
+      // Both views, and the game master's especially: it is shown the secret way in
       // the list below, where it is marked, and must not meet it again in a
       // sentence that presents it as one more door.
       for (const opts of [{}, { includeHidden: true }]) {
@@ -683,14 +683,14 @@ describe("roomView geometry", () => {
       expect(found).toBe(describeGeometry(sited().geometry[i]));
     });
 
-    it("is marked on the exit the referee is shown, and absent from the player's", () => {
+    it("is marked on the exit the game master is shown, and absent from the player's", () => {
       const { run, secret } = withSecret();
 
-      const referee = roomView(run, dungeon, undefined, { includeHidden: true })!;
-      const shown = referee.exits.find((x) => x.connectorId === secret.id);
+      const gameMaster = roomView(run, dungeon, undefined, { includeHidden: true })!;
+      const shown = gameMaster.exits.find((x) => x.connectorId === secret.id);
       expect(shown?.isHidden).toBe(true);
       // And nothing else in the room is marked by accident.
-      expect(referee.exits.filter((x) => x.isHidden)).toHaveLength(1);
+      expect(gameMaster.exits.filter((x) => x.isHidden)).toHaveLength(1);
 
       const player = roomView(run, dungeon)!;
       expect(player.exits.find((x) => x.connectorId === secret.id)).toBeUndefined();
@@ -880,7 +880,7 @@ describe("mapView fixtures", () => {
 // ===========================================================================
 //
 // The census is what makes the world able to move while the player is elsewhere.
-// It is referee-only, so nothing here is asserted about the screen — what is
+// It is game-master-only, so nothing here is asserted about the screen — what is
 // asserted is that it names everything alive that is NOT in front of the player,
 // and says how far off it is.
 
@@ -925,7 +925,7 @@ describe("censusView", () => {
   });
 
   // The departure from `renderRoom`'s ways-out rule, and the point of it: the
-  // referee sees the name so it can judge what the character plausibly knows,
+  // game master sees the name so it can judge what the character plausibly knows,
   // and sees the mark so it knows the player could not say it.
   it("names an unvisited room and marks it as one", () => {
     const run = stocked();

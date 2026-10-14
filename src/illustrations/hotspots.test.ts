@@ -1,5 +1,5 @@
 /**
- * PLATE HOTSPOTS AND FEATURE PRESENCE
+ * ILLUSTRATION HOTSPOTS AND FEATURE PRESENCE
  *
  * Hotspots are tested on hand-built floors with a fixed camera (`viewFrom`),
  * so each outcome — shown, round a corner, off an edge — is forced rather than
@@ -9,8 +9,8 @@
 import { describe, expect, it } from "vitest";
 import { CELL_FEET } from "../generation/floorplan/geometry.ts";
 import { featurePresence } from "./feature-presence.ts";
-import { plateHotspots } from "./hotspots.ts";
-import { viewFrom, type PlateViewInput } from "./view.ts";
+import { illustrationHotspots } from "./hotspots.ts";
+import { viewFrom, type IllustrationViewInput } from "./view.ts";
 import { type Point } from "../generation/floorplan/floorplan.ts";
 
 function box(x: number, y: number, w: number, h: number): Point[] {
@@ -21,9 +21,9 @@ function box(x: number, y: number, w: number, h: number): Point[] {
 
 const NORTH: Point = { x: 0, y: -1 };
 
-describe("plateHotspots", () => {
+describe("illustrationHotspots", () => {
   /** A 5x5 room entered from the south, looked at from just inside that door. */
-  const square: PlateViewInput = {
+  const square: IllustrationViewInput = {
     floor: box(0, 0, 5, 5),
     entry: { id: "in", inside: { x: 2, y: 4 }, outside: { x: 2, y: 5 } },
     exits: [
@@ -33,7 +33,7 @@ describe("plateHotspots", () => {
     features: [{ id: "altar", cells: [{ x: 1, y: 1 }] }],
   };
   const eye = { x: 2.5 * CELL_FEET, y: 5 * CELL_FEET - 1 };
-  const hs = Object.fromEntries(plateHotspots(square, viewFrom(square, eye, NORTH)).map((h) => [h.id, h]));
+  const hs = Object.fromEntries(illustrationHotspots(square, viewFrom(square, eye, NORTH)).map((h) => [h.id, h]));
 
   it("puts a button on what is in the picture, inside the frame", () => {
     expect(hs.north.status).toBe("shown");
@@ -63,14 +63,14 @@ describe("plateHotspots", () => {
     //   ..
     //   ..
     //   ..      <- eye
-    const L: PlateViewInput = {
+    const L: IllustrationViewInput = {
       floor: [...box(0, 0, 6, 2), ...box(0, 2, 2, 3)],
       entry: { id: "in", inside: { x: 0, y: 4 }, outside: { x: 0, y: 5 } },
       exits: [{ id: "east", inside: { x: 5, y: 1 }, outside: { x: 6, y: 1 } }],
       features: [],
     };
     const v = viewFrom(L, { x: 5, y: 24 }, NORTH);
-    const east = plateHotspots(L, v).find((h) => h.id === "east")!;
+    const east = illustrationHotspots(L, v).find((h) => h.id === "east")!;
     expect(east.status).toBe("around");
     expect(east.around?.turn).toBe("right");
     expect(east.around!.x).toBeGreaterThan(0.5);

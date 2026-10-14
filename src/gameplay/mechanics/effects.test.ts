@@ -93,7 +93,7 @@ describe("the dice that hurt them", () => {
   const ARMOR = 14;
 
   it("shows nothing on a turn that did not hurt them, whatever was rolled", () => {
-    // A batch can hold an attack the referee rolled and never used.
+    // A batch can hold an attack the game master rolled and never used.
     expect(foeRolls([attack("ghoul-attack", ARMOR, true)], ARMOR, false)).toEqual([]);
   });
 

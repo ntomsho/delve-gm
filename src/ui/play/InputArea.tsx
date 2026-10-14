@@ -73,7 +73,7 @@ const EDGE_LABEL: Record<RollSpec["edge"], string> = {
   disadvantage: " · DISADVANTAGE",
 };
 
-/** The terms of the bet. Never the DC — that is the referee's business. */
+/** The terms of the bet. Never the DC — that is the game master's business. */
 function RollOffer({ roll, onRoll, compact }: { roll: RollSpec; onRoll(): void; compact?: boolean }) {
   return (
     <div className="mb-3 border-l-2 border-torch bg-torch-wash py-2 pl-3">
@@ -102,11 +102,11 @@ function RollOffer({ roll, onRoll, compact }: { roll: RollSpec; onRoll(): void; 
 }
 
 function Error({ onRetry, compact }: { onRetry(): void; compact?: boolean }) {
-  // The software talking, not the referee. Says what happened and what to do.
+  // The software talking, not the game master. Says what happened and what to do.
   return (
     <div className="mb-3 border-l-2 border-torch py-2 pl-3">
       <p className="font-mono text-[12px] text-ink">
-        The referee didn&rsquo;t answer.
+        The game master didn&rsquo;t answer.
       </p>
       <p className="mt-1 font-mono text-[11px] text-graphite">
         Your action wasn&rsquo;t lost — it&rsquo;s still in the box below.
@@ -136,7 +136,7 @@ function Error({ onRetry, compact }: { onRetry(): void; compact?: boolean }) {
  * textarea.
  *
  * IT NO LONGER OPENS BY ITSELF. It used to go up the moment the run ended, over
- * the top of the last thing the referee wrote — the death, the escape, the
+ * the top of the last thing the game master wrote — the death, the escape, the
  * moment the objective came free — so the one paragraph of the run most worth
  * reading was the one the player had to dismiss a modal to find. The final post
  * now stays on the page, and this takes the input's place with one button that
@@ -303,7 +303,7 @@ export function InputArea(props: InputAreaProps) {
          *
          * `turnCount` is closed turns, so the number the player is living
          * through is one more — which is also the number `assemble.ts` puts in
-         * front of the referee, and the two should never be off by one from each
+         * front of the game master, and the two should never be off by one from each
          * other when a player is reading both.
          *
          * Gone at a terminal stage: the run has no turn in progress, and the
@@ -396,7 +396,7 @@ export function InputArea(props: InputAreaProps) {
              * The quiet corner: the way out of the run, and the keys.
              *
              * Abandon is offered for as long as the run is live, INCLUDING while the
-             * referee is working. That is deliberate — a player sitting in front of a
+             * game master is working. That is deliberate — a player sitting in front of a
              * `thinking` that is never going to finish is exactly who needs it, and
              * the server takes it whatever stage the row is standing in.
              */}

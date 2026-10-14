@@ -2,7 +2,7 @@
  * The dev switches.
  *
  * Small enough to look obvious and important enough to be wrong once already:
- * `?offline=1` used to leave the referee real, so a page loaded for interface
+ * `?offline=1` used to leave the game master real, so a page loaded for interface
  * work called the model on room entry and spent tokens nobody had asked to
  * spend. The whole reason `readSwitches` is a function of a string is so that
  * this file can exist.
@@ -25,13 +25,13 @@ describe("what the URL asks for", () => {
   it("means offline by BOTH halves: no generation calls and no turn calls", () => {
     const s = readSwitches("?offline=1");
     expect(s.offline).toBe(true);
-    // THE BUG. A fixture dungeon and a real referee is not offline — room entry
+    // THE BUG. A fixture dungeon and a real game master is not offline — room entry
     // reaches the model before the player has typed anything.
     expect(s.stub).toBe(true);
     expect(s.bypass).toBe(true);
   });
 
-  it("lets the real referee be asked back for, on a fixture dungeon", () => {
+  it("lets the real game master be asked back for, on a fixture dungeon", () => {
     // The one combination that wants the network without wanting to pay to
     // generate: working on the turn loop against a dungeon that costs nothing.
     const s = readSwitches("?offline=1&stub=0");
@@ -39,7 +39,7 @@ describe("what the URL asks for", () => {
     expect(s.stub).toBe(false);
   });
 
-  it("stubs the referee on a real dungeon when only that is asked for", () => {
+  it("stubs the game master on a real dungeon when only that is asked for", () => {
     const s = readSwitches("?stub=1");
     expect(s.stub).toBe(true);
     expect(s.offline).toBe(false);

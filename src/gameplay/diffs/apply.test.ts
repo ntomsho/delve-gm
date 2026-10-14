@@ -274,7 +274,7 @@ describe("fictionNote", () => {
     ]);
   });
 
-  // A refused commit is written again, and a referee restating the same fact on
+  // A refused commit is written again, and a game master restating the same fact on
   // the retry should not leave it on the list twice.
   it("does not stack the same fact twice", () => {
     world = ok(note("The gaol was built over a mine."));
@@ -344,7 +344,7 @@ describe("dropping — inventory[i] = null", () => {
   it("refuses an out-of-range index, and says how to put something IN", () => {
     const r = applyCommit(world, commit({ entityId: PLAYER_ID, path: "inventory[9]", value: null }));
     expect(r.ok).toBe(false);
-    // "nothing carried at index 9" is true and useless. A refusal the referee
+    // "nothing carried at index 9" is true and useless. A refusal the game master
     // cannot act on turns a retry into the same mistake twice — 8a A2.
     expect(r.rejected[0].reason).toContain("inventory[]");
     expect(r.rejected[0].reason).toContain("parentId");
@@ -356,7 +356,7 @@ describe("dropping — inventory[i] = null", () => {
 // ===========================================================================
 
 /**
- * The referee reached for this three times in one playtest to say "they now
+ * The game master reached for this three times in one playtest to say "they now
  * have this", and was refused three times. It is the path that most obviously
  * names where a thing ended up, and stating a destination value is what the
  * envelope asks for — so the vocabulary was inviting the mistake it refused.
@@ -449,7 +449,7 @@ describe("picking up — inventory[…] = an item", () => {
 
 /**
  * The lantern. Told to reveal something found in the stables and told never to
- * invent an id, the referee reached for the player's own lantern and described
+ * invent an id, the game master reached for the player's own lantern and described
  * it lying in the straw. Every path it wrote was writable, so the commit was
  * accepted and the player's belongings became scenery in a room across the
  * dungeon. `isHidden` on a carried item is the one part of that which cannot
@@ -544,7 +544,7 @@ describe("picking up something concealed — 8a A8", () => {
     expect(held!.isHidden).not.toBe(true);
   });
 
-  // The referee writes the pair in whichever order it thinks of them, and a
+  // The game master writes the pair in whichever order it thinks of them, and a
   // guard that only tolerates one of the two orders is the same bug wearing a
   // different hat.
   it("in either order", () => {
@@ -793,7 +793,7 @@ describe("the player", () => {
     }
   });
 
-  // The player walks. A referee that picked the wrong exit used to put them
+  // The player walks. A game master that picked the wrong exit used to put them
   // somewhere no corridor reaches, silently, and the arrival pass then described
   // that room as though they had walked into it.
   it("refuses a move to a room nothing connects to", () => {
@@ -910,7 +910,7 @@ describe("leaving the dungeon", () => {
     goalMet: true,
   });
 
-  // The goal LATCHES: the applier is the one place that can be sure a referee
+  // The goal LATCHES: the applier is the one place that can be sure a game master
   // which stops mentioning it has not taken the win back.
   it("latches the goal, and never unlatches it", () => {
     world = ok(achieve());
@@ -1070,7 +1070,7 @@ describe("consulting a book", () => {
   });
 
   // One reading at a time and none un-read: the count is what `consultRoll`
-  // just handed back, and any other number is the referee inventing one.
+  // just handed back, and any other number is the game master inventing one.
   it("only ever counts up, and only ever by one", () => {
     expect(book(ok(commit({ entityId: "herbal", path: "book.uses", value: 9 })))?.uses).toBe(4);
     expect(book(ok(commit({ entityId: "herbal", path: "book.uses", value: 1 })))?.uses).toBe(3);
@@ -1185,7 +1185,7 @@ describe("approach", () => {
   });
 
   // Refused rather than dropped. A write that vanishes is a creature the
-  // referee believes is on its way and that never arrives.
+  // game master believes is on its way and that never arrives.
   it("refuses a destination with no route to it", () => {
     const r = applyCommit(longWorld(), walks({ entityId: "ghoul", path: "approach", value: ROOM_C }));
     expect(r.ok).toBe(false);

@@ -16,7 +16,7 @@
  * Nesting is why "what is in this room" is a transitive question: a dagger in a
  * chest in a room is in the room. `directContents` answers the shallow version
  * (what the applier needs when something is destroyed); `roomIndex` answers the
- * transitive one (what the referee needs to describe a room).
+ * transitive one (what the game master needs to describe a room).
  */
 
 import type { AnyEntity, IItem } from "../../shared/world/entities.ts";

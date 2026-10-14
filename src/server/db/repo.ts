@@ -46,7 +46,7 @@ export type RunStatus = "active" | "dead" | "escaped" | "goal_met" | "abandoned"
  *
  * `departed` is deliberately absent: the store resolves it into `escaped` or
  * `goal_met` the moment a commit lands — which ending a departure was depends
- * on world state rather than on what the referee remembered — so it can never
+ * on world state rather than on what the game master remembered — so it can never
  * be what is persisted. See `endingOf` in gameplay/state/store.ts.
  */
 export function statusOf(stage: Stage): RunStatus {
@@ -347,7 +347,7 @@ export interface DungeonSummary {
   createdAt: string;
   /**
    * The cover's object path in the `plates` bucket, once it is drawn. The API
-   * turns it into a URL (`plateUrl`) before it leaves the server.
+   * turns it into a URL (`illustrationUrl`) before it leaves the server.
    */
   coverPath?: string | null;
 }
@@ -712,11 +712,11 @@ export async function listChunks(
 /**
  * THE PLAYBOOK IS STORED ONCE, NOT ONCE PER CALL.
  *
- * A `system` event carries the standing instructions a referee call was made
+ * A `system` event carries the standing instructions a game master call was made
  * under — `SKILL.md`, the dungeon's fiction, the step files — and `journal.ts`
  * intends to write them once per step per run. On a server that intent does not
  * survive: the "already written" set lives on the journal, the journal is made
- * per session, and a session is made per REQUEST. So every referee call wrote
+ * per session, and a session is made per REQUEST. So every game master call wrote
  * the whole playbook again, and two thirds of a measured run's journal was three
  * copies of the same three blocks.
  *
@@ -948,7 +948,7 @@ export async function listRuns(owner: string, sql: postgres.Sql = db()): Promise
  *
  * NOT A CORRECTNESS MECHANISM. `commitTurn` below already makes concurrent
  * turns safe by refusing to write against a version that has moved. This only
- * turns a duplicate away BEFORE it spends a whole referee conversation — two to
+ * turns a duplicate away BEFORE it spends a whole game master conversation — two to
  * four model calls — on a turn that would be rejected at the write anyway. A
  * double-click should not cost tokens.
  *
@@ -1201,10 +1201,10 @@ export async function appendEvents(
 }
 
 // ---------------------------------------------------------------------------
-// PLATES
+// ILLUSTRATIONS
 // ---------------------------------------------------------------------------
 
-export interface PlateRow {
+export interface IllustrationRow {
   key: string;
   status: "pending" | "ready" | "failed";
   path: string | null;
@@ -1213,8 +1213,8 @@ export interface PlateRow {
   ageMs: number;
 }
 
-export async function getPlate(key: string, sql: postgres.Sql = db()): Promise<PlateRow | undefined> {
-  const [row] = await sql<PlateRow[]>`
+export async function getIllustration(key: string, sql: postgres.Sql = db()): Promise<IllustrationRow | undefined> {
+  const [row] = await sql<IllustrationRow[]>`
     select key, status, path, attempts,
            (extract(epoch from now() - updated_at) * 1000)::int as "ageMs"
       from plates where key = ${key}
@@ -1223,14 +1223,14 @@ export async function getPlate(key: string, sql: postgres.Sql = db()): Promise<P
 }
 
 /**
- * Take the job of drawing a plate. True when this request is the one to draw it.
+ * Take the job of drawing an illustration. True when this request is the one to draw it.
  *
  * ONE STATEMENT, so two runs entering the same room in the same instant cannot
  * both win: a new key is inserted as `pending`; an existing one is taken over
  * only when it failed and has attempts left, or when its `pending` claim is
  * older than `staleMs` — the request that made it died without saying so.
  */
-export async function claimPlate(
+export async function claimIllustration(
   key: string,
   model: string,
   opts: { staleMs: number; maxAttempts: number },
@@ -1239,33 +1239,33 @@ export async function claimPlate(
   const rows = await sql`
     insert into plates (key, status, model, attempts) values (${key}, 'pending', ${model}, 1)
     on conflict (key) do update
-       set status = 'pending', model = excluded.model, attempts = plates.attempts + 1,
+       set status = 'pending', model = excluded.model, attempts = illustrations.attempts + 1,
            error = null, updated_at = now()
-     where (plates.status = 'failed' and plates.attempts < ${opts.maxAttempts})
-        or (plates.status = 'pending' and plates.updated_at < now() - make_interval(secs => ${opts.staleMs / 1000}))
+     where (illustrations.status = 'failed' and illustrations.attempts < ${opts.maxAttempts})
+        or (illustrations.status = 'pending' and illustrations.updated_at < now() - make_interval(secs => ${opts.staleMs / 1000}))
     returning key
   `;
   return rows.length > 0;
 }
 
-export async function finishPlate(key: string, path: string, sql: postgres.Sql = db()): Promise<void> {
+export async function finishIllustration(key: string, path: string, sql: postgres.Sql = db()): Promise<void> {
   await sql`update plates set status = 'ready', path = ${path}, updated_at = now() where key = ${key}`;
 }
 
-export async function failPlate(key: string, error: string, sql: postgres.Sql = db()): Promise<void> {
+export async function failIllustration(key: string, error: string, sql: postgres.Sql = db()): Promise<void> {
   await sql`update plates set status = 'failed', error = ${error.slice(0, 2000)}, updated_at = now() where key = ${key}`;
 }
 
-/** Shared words a plate is drawn from — see `plate_words`. */
-export async function getPlateWords(key: string, sql: postgres.Sql = db()): Promise<string | undefined> {
+/** Shared words an illustration is drawn from — see `plate_words`. */
+export async function getIllustrationWords(key: string, sql: postgres.Sql = db()): Promise<string | undefined> {
   const [row] = await sql<{ value: string }[]>`select value from plate_words where key = ${key}`;
   return row?.value;
 }
 
-/** The first answer is kept: a second plate racing the first reads the winner's. */
-export async function savePlateWords(key: string, value: string, sql: postgres.Sql = db()): Promise<string> {
+/** The first answer is kept: a second illustration racing the first reads the winner's. */
+export async function saveIllustrationWords(key: string, value: string, sql: postgres.Sql = db()): Promise<string> {
   await sql`insert into plate_words (key, value) values (${key}, ${value}) on conflict (key) do nothing`;
-  return (await getPlateWords(key, sql)) ?? value;
+  return (await getIllustrationWords(key, sql)) ?? value;
 }
 
 /**
