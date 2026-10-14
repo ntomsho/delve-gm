@@ -16,13 +16,13 @@ import { describe, expect, it, vi } from "vitest";
 import { DungeonMap } from "./DungeonMap.tsx";
 import { ActionPill, HoverProvider, InspectSheet, oneParagraph } from "./hover.tsx";
 import { RoomCard } from "./RoomCard.tsx";
-import { drag, fire, hover, press, renderDom, unhover } from "../__fixtures__/dom.ts";
-import { color } from "../theme.ts";
-import { generateOffline, testCharacter } from "../../runtime/__fixtures__/offline.ts";
-import { floorplanLayout } from "../../runtime/layout.ts";
-import { placedThings } from "../../runtime/occupancy.ts";
-import { newRun } from "../../store/game.ts";
-import { mapView, roomView } from "../../store/selectors.ts";
+import { drag, fire, hover, press, renderDom, unhover } from "../test-utils/dom.ts";
+import { color } from "../shared/theme.ts";
+import { generateOffline, testCharacter } from "../../fixtures/offline.ts";
+import { floorplanLayout } from "../../generation/floorplan/map-layout.ts";
+import { placedThings } from "../../gameplay/mechanics/occupancy.ts";
+import { newRun } from "../../gameplay/state/store.ts";
+import { mapView, roomView } from "../../gameplay/view/selectors.ts";
 
 // ===========================================================================
 // ONE ROOM, DRAWN TWICE

@@ -1,7 +1,7 @@
 /**
  * The map, rendered.
  *
- * The geometry under this component is already covered — `layout.test.ts` for
+ * The geometry under this component is already covered — `map-layout.test.ts` for
  * the outlines and the doors, `geometry.test.ts` for the room as words, and the
  * `mapView` blocks in `selectors.test.ts` for what the player is entitled to
  * see. What none of them touch is the drawing itself, because a static render
@@ -25,15 +25,15 @@
 import { describe, expect, it, vi } from "vitest";
 import { DungeonMap } from "./DungeonMap.tsx";
 import { ActionPill, HoverProvider } from "./hover.tsx";
-import { drag, fire, hover, press, renderDom, unhover } from "../__fixtures__/dom.ts";
-import { color } from "../theme.ts";
-import { generateOffline, testCharacter } from "../../runtime/__fixtures__/offline.ts";
-import { floorplanLayout, pointLayout, type Shape } from "../../runtime/layout.ts";
-import { placedThings } from "../../runtime/occupancy.ts";
-import { newRun, type RunState } from "../../store/game.ts";
-import { mapView } from "../../store/selectors.ts";
-import { positionPhrase } from "../../engine/index.ts";
-import type { MapConnectorView, MapRoomView, MapView } from "../../store/selectors.ts";
+import { drag, fire, hover, press, renderDom, unhover } from "../test-utils/dom.ts";
+import { color } from "../shared/theme.ts";
+import { generateOffline, testCharacter } from "../../fixtures/offline.ts";
+import { floorplanLayout, pointLayout, type Shape } from "../../generation/floorplan/map-layout.ts";
+import { placedThings } from "../../gameplay/mechanics/occupancy.ts";
+import { newRun, type RunState } from "../../gameplay/state/store.ts";
+import { mapView } from "../../gameplay/view/selectors.ts";
+import { positionPhrase } from "../../generation/floorplan/fixtures.ts";
+import type { MapConnectorView, MapRoomView, MapView } from "../../gameplay/view/selectors.ts";
 
 // ===========================================================================
 // FIXTURES

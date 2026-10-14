@@ -12,7 +12,8 @@
  * **This one spends a reroll**, unlike the traits. An unlimited d8 is an 8.
  */
 
-import { CREATION_RULES, hpCeiling, type CreationMode, type HpRoll } from "../../engine/index.ts";
+import { CREATION_RULES, hpCeiling, type HpRoll } from "../../rules/knave/character-creation.ts";
+import { type CreationMode } from "../../rules/knave/character.ts";
 import { Button, MONO_LABEL, StepHeading } from "./shared.tsx";
 
 /** Said plainly, in the range the mode can actually produce. */

@@ -12,13 +12,13 @@
 
 import { useEffect, useRef } from "react";
 import { D20, Die, DiceRoll } from "./DiceRoll.tsx";
-import { Plate } from "./Plate.tsx";
+import { Plate } from "./Illustration.tsx";
 import { PLATE_TIP, ThingTooltip } from "./hover.tsx";
-import type { PlateAnswer } from "../../runtime/plates.ts";
-import type { MapView } from "../../store/selectors.ts";
-import type { LogEntry } from "../../store/game.ts";
-import type { RolledOutcome } from "../../runtime/types.ts";
-import { isLoss, type Effect, type FoeRoll } from "../../runtime/effects.ts";
+import type { PlateAnswer } from "../../illustrations/room-illustration.ts";
+import type { MapView } from "../../gameplay/view/selectors.ts";
+import type { LogEntry } from "../../gameplay/state/store.ts";
+import type { RolledOutcome } from "../../shared/types/turn.ts";
+import { isLoss, type Effect, type FoeRoll } from "../../gameplay/mechanics/effects.ts";
 
 export interface Arrival {
   kind: "arrival";

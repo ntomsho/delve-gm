@@ -18,11 +18,10 @@ import {
   canRaise,
   costOfAbility,
   pointsLeft,
-  type Ability,
   type AbilityRolls,
-  type CharacterAbilities,
-  type CreationMode,
-} from "../../engine/index.ts";
+} from "../../rules/knave/character-creation.ts";
+import { type Ability } from "../../shared/world/entities.ts";
+import { type CharacterAbilities, type CreationMode } from "../../rules/knave/character.ts";
 import { Button, LABEL, StepHeading, Toggle, signed } from "./shared.tsx";
 
 export type AbilityMode = "roll" | "buy";

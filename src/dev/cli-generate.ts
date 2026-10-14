@@ -22,31 +22,27 @@
 
 import { readFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { blockPlanValid, roomSizes, type BlockPlan } from "../generation/floorplan/blockplan.ts";
 import {
-  blockPlanValid,
   buildContentPassPayload,
-  buildDungeonPassPayload,
-  generateBlueprint,
-  generateBlueprintSeed,
   renderContentPassPrompt,
+} from "../generation/content/passes/content-pass.ts";
+import {
+  buildDungeonPassPayload,
   renderDungeonPassPrompt,
-  resolveBase,
-  Rng,
-  roomSizes,
-  runEntitiesPass,
-  siteRooms,
-  stockDungeon,
-  type BlockPlan,
-  type Dungeon,
-  type Size,
-  type StockedDungeon,
-} from "../engine/index.ts";
-import { configureTransport } from "../runtime/llm/client.ts";
-import { floorplanLayout, type PlacedThing } from "../runtime/layout.ts";
-import { placedThings } from "../runtime/occupancy.ts";
-import { layoutSvg } from "../runtime/layout-svg.ts";
-import { generateDungeon, validateWritten, type GenerationProgress } from "../runtime/generate.ts";
-import { chunksFor, deriveSeeds } from "../runtime/seeds.ts";
+} from "../generation/content/passes/dungeon-pass.ts";
+import { generateBlueprint, type Dungeon } from "../generation/floorplan/graph.ts";
+import { generateBlueprintSeed, Rng, type Size } from "../generation/content/blueprint.ts";
+import { resolveBase } from "../shared/world/entities.ts";
+import { runEntitiesPass } from "../generation/content/entities-pass.ts";
+import { siteRooms } from "../generation/floorplan/geometry.ts";
+import { stockDungeon, type StockedDungeon } from "../generation/content/stock.ts";
+import { configureTransport } from "../llm/client.ts";
+import { floorplanLayout, type PlacedThing } from "../generation/floorplan/map-layout.ts";
+import { placedThings } from "../gameplay/mechanics/occupancy.ts";
+import { layoutSvg } from "../generation/floorplan/map-svg.ts";
+import { generateDungeon, validateWritten, type GenerationProgress } from "../generation/generate.ts";
+import { chunksFor, deriveSeeds } from "../generation/seeds.ts";
 
 // ---------------------------------------------------------------------------
 // ARGS

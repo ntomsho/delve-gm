@@ -9,7 +9,7 @@
  * a tester's run is a query: the runs, the journal, the whole dungeon and every
  * entity in it are rows, the SQL editor runs as a privileged role so it sees
  * every account's, and CSV download does the rest. A TRANSCRIPT is not a row —
- * it is `journal-render.ts`, two hundred lines of TypeScript that know what a
+ * it is `journal/render.ts`, two hundred lines of TypeScript that know what a
  * commit and a morale check and a far-side connector are — so it is the only
  * part that has to be a program.
  *
@@ -32,8 +32,8 @@
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
-import { render } from "../runtime/journal-render.ts";
-import type { JournalRecord } from "../runtime/journal.ts";
+import { render } from "../journal/render.ts";
+import type { JournalRecord } from "../journal/journal.ts";
 
 /**
  * One line of the file, as an event — or `undefined` for a line that is not one.

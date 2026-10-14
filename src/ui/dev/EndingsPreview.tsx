@@ -17,8 +17,8 @@
 
 import { useState } from "react";
 import { EndOfRun, type Ending } from "../play/EndOfRun.tsx";
-import { keepsWhatTheyFound, type DeathReport, type RunLoot } from "../../runtime/loot.ts";
-import type { RunTally } from "../../engine/index.ts";
+import { keepsWhatTheyFound, type DeathReport, type RunLoot } from "../../gameplay/mechanics/loot.ts";
+import type { RunTally } from "../../gameplay/tally/tally-pass.ts";
 
 // ---------------------------------------------------------------------------
 // FIXTURES

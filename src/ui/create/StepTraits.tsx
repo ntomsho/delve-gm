@@ -10,8 +10,9 @@
  * they believe in is worth more to the run than a face they shrugged at.
  */
 
-import { TRAIT_KEYS, type CharacterTraits, type TraitKey } from "../../engine/index.ts";
-import { describePerson } from "../person.ts";
+import { TRAIT_KEYS, type TraitKey } from "../../rules/knave/character-creation.ts";
+import { type CharacterTraits } from "../../rules/knave/character.ts";
+import { describePerson } from "../shared/person.ts";
 import { Button, RerollGlyph, StepHeading } from "./shared.tsx";
 
 const HEADING: Record<TraitKey, string> = {

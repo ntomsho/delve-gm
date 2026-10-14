@@ -40,7 +40,7 @@ export default defineConfig(() => {
      * TWO PROJECTS, SPLIT ON THE FILE EXTENSION.
      *
      * `.test.ts` is headless and stays that way: the engine and the runtime are
-     * framework-free by rule, and `src/ui/screens.test.ts` renders through
+     * framework-free by rule, and `src/ui/app/screens.test.ts` renders through
      * `renderToStaticMarkup`, which needs no DOM. `.test.tsx` is the jsdom half,
      * which arrived with the first test that has to CLICK something — a static
      * render executes a component body but never reaches its state, its refs or
@@ -63,7 +63,7 @@ export default defineConfig(() => {
             name: "ui",
             environment: "jsdom",
             include: ["src/**/*.test.tsx"],
-            setupFiles: ["src/ui/__fixtures__/jsdom-setup.ts"],
+            setupFiles: ["src/ui/test-utils/jsdom-setup.ts"],
           },
         },
       ],

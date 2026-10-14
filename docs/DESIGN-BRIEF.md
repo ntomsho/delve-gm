@@ -225,5 +225,5 @@ Empty states and failures are direction, not mood. An empty character library is
 
 Characters and run setup (screens 1–2) were added after this brief's first pass and
 are the exception to item 2 — they are built wired, against the real store and the
-real generation pipeline, and they apply the token set in `src/ui/theme.ts` rather
+real generation pipeline, and they apply the token set in `src/ui/shared/theme.ts` rather
 than proposing a new one.

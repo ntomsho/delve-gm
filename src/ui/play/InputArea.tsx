@@ -16,10 +16,10 @@
  */
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { STAGE_HINT, STAGE_NAME, STAGE_TONE } from "../theme.ts";
-import { acceptsInput, isTerminal, type Stage, type RollSpec } from "../../runtime/types.ts";
+import { STAGE_HINT, STAGE_NAME, STAGE_TONE } from "../shared/theme.ts";
+import { acceptsInput, isTerminal, type Stage, type RollSpec } from "../../shared/types/turn.ts";
 import { ENDINGS, type Ending } from "./EndOfRun.tsx";
-import { TOUCH, useMediaQuery } from "../media.ts";
+import { TOUCH, useMediaQuery } from "../shared/media.ts";
 
 export interface InputAreaProps {
   stage: Stage;

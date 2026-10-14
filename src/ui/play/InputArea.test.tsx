@@ -10,8 +10,8 @@
 import { describe, expect, it } from "vitest";
 import { createElement as h } from "react";
 import { InputArea, type InputAreaProps } from "./InputArea.tsx";
-import { press, renderDom } from "../__fixtures__/dom.ts";
-import type { Stage } from "../../runtime/types.ts";
+import { press, renderDom } from "../test-utils/dom.ts";
+import type { Stage } from "../../shared/types/turn.ts";
 
 const noop = () => {};
 

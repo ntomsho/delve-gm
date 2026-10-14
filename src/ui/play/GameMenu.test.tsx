@@ -8,7 +8,7 @@
 import { describe, expect, it } from "vitest";
 import { createElement as h } from "react";
 import { GameMenu } from "./GameMenu.tsx";
-import { press, renderDom } from "../__fixtures__/dom.ts";
+import { press, renderDom } from "../test-utils/dom.ts";
 
 const button = (c: Element) =>
   [...c.querySelectorAll("button")].find((b) => b.textContent?.includes("Main menu"))!;

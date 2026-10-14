@@ -13,7 +13,7 @@
  * ON A PHONE (`PHONE`, 640px and under) it is none of those: the same panels,
  * built here exactly once, are handed to `PhonePlay` as three tabs. Width picks
  * the layout; whether a tap or a hover inspects is picked separately, by `TOUCH`
- * — see `src/ui/media.ts`.
+ * — see `src/ui/shared/media.ts`.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -26,15 +26,15 @@ import { InputArea } from "./InputArea.tsx";
 import { Narration, type NarrationItem } from "./Narration.tsx";
 import { PhonePlay, type Tab } from "./PhonePlay.tsx";
 import { RoomCard } from "./RoomCard.tsx";
-import { floorplanLayout, pointLayout } from "../../runtime/layout.ts";
-import { placedThings } from "../../runtime/occupancy.ts";
-import { causeOfDeath, keepsWhatTheyFound, lootOf } from "../../runtime/loot.ts";
-import { acceptsInput, isTerminal } from "../../runtime/types.ts";
-import { characterView, mapView, roomView, shownRoom } from "../../store/selectors.ts";
-import type { GeneratedDungeon } from "../../runtime/generate.ts";
-import type { RunState } from "../../store/game.ts";
-import type { PlateAnswer } from "../../runtime/plates.ts";
-import { PHONE, TOUCH, useMediaQuery } from "../media.ts";
+import { floorplanLayout, pointLayout } from "../../generation/floorplan/map-layout.ts";
+import { placedThings } from "../../gameplay/mechanics/occupancy.ts";
+import { causeOfDeath, keepsWhatTheyFound, lootOf } from "../../gameplay/mechanics/loot.ts";
+import { acceptsInput, isTerminal } from "../../shared/types/turn.ts";
+import { characterView, mapView, roomView, shownRoom } from "../../gameplay/view/selectors.ts";
+import type { GeneratedDungeon } from "../../generation/generate.ts";
+import type { RunState } from "../../gameplay/state/store.ts";
+import type { PlateAnswer } from "../../illustrations/room-illustration.ts";
+import { PHONE, TOUCH, useMediaQuery } from "../shared/media.ts";
 
 export interface PlayScreenProps {
   dungeon: GeneratedDungeon;
@@ -145,7 +145,7 @@ export function PlayScreen({
    * had already drifted — `rolling` was missing, which nobody saw because in
    * process the dice take microseconds. Played through the server they are part
    * of a request, and a hand-kept copy of `BUSY_STAGES` would have been wrong
-   * for the length of it. One source of truth, in runtime/types.ts.
+   * for the length of it. One source of truth, in shared/types/turn.ts.
    */
   const busy = !acceptsInput(run.stage) && !isTerminal(run.stage);
 

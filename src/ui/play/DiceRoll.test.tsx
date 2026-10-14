@@ -8,8 +8,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, createElement as h } from "react";
 import { DiceRoll } from "./DiceRoll.tsx";
-import { renderDom } from "../__fixtures__/dom.ts";
-import type { RolledOutcome } from "../../runtime/types.ts";
+import { renderDom } from "../test-utils/dom.ts";
+import type { RolledOutcome } from "../../shared/types/turn.ts";
 
 afterEach(() => vi.useRealTimers());
 

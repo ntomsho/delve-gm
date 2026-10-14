@@ -32,11 +32,11 @@ dungeon.
 
 ## 1. What is wrong now
 
-`distributeRewards` (`src/engine/dungeon-rooms-loop.ts:830`) spends a conserved
+`distributeRewards` (`src/generation/content/stock.ts:830`) spends a conserved
 budget `K = max(3, round(0.55 × rooms))` into five parcel types — material,
 knowledge, leverage, boon, relic — each carrying a `ParcelGrade` that is the
 sole input to what the thing is worth (`rollItemValue` → `VALUE_BANDS`,
-`src/engine/equipment.ts:1082`).
+`src/rules/knave/equipment.ts:1082`).
 
 Two problems.
 
@@ -86,7 +86,7 @@ opens.
 An obstacle is currently an unmarked `IRoomFeature` — only the generation-time
 `ElementBinding` knows it is a puzzle, and bindings do not survive into play. It
 gets an explicit marker on the entity and a `resolved` field, whitelisted in
-`src/runtime/diffs/paths.ts`.
+`src/gameplay/diffs/paths.ts`.
 
 ---
 
@@ -116,7 +116,7 @@ third variant, `rolled`, which nothing else produced.
 
 Five rows, all from tables already in the repo:
 
-1. a weapon — `WEAPONS` / `WEAPON_KEYS` (`knave-tables.ts`)
+1. a weapon — `WEAPONS` / `WEAPON_KEYS` (`tables.ts`)
 2. armor, helmet, or shield — `rollArmorTable` / `rollHelmetShieldTable`
 3. a spellbook — `SPELLS`, the d100 table
 4. 1–3 dungeoneering gear — `DUNGEONEERING_GEAR`
@@ -142,7 +142,7 @@ an object. `POTIONS` holds what a potion **does**, so the row names the thing an
 the content is the effect: the writing pass sees `Potion: Ghost-speech`.
 
 Existing: `TREASURE_ITEMS`, `VALUABLE_MATERIALS`, `WEAPON_ITEMS`
-(`dungeon-blueprint.ts:353–361`).
+(`blueprint.ts:353–361`).
 
 **To be filled**, as empty arrays in the same block with `CASCADE_TABLES` keys
 wired so `{Misc Item}` and friends resolve like the existing references:
@@ -170,7 +170,7 @@ Held back from the partition:
 - **A goal slice**, released or redistributed after the content pass (§6).
 
 `VALUE_BANDS`, `rollItemValue`, and `gradeFor` all go. Three call sites break:
-`dungeon-entities-pass.ts:428`, `dungeon-content-pass.ts:1518` (the goal item),
+`entities-pass.ts:428`, `content-pass.ts:1518` (the goal item),
 and `equipment.test.ts`. The note at `apply.ts:610` about a grade the referee
 might name goes with them.
 
@@ -246,9 +246,9 @@ choice.
 
 ## 6. The keys pass
 
-`src/engine/dungeon-keys-pass.ts`, mirroring the seams quartet
+`src/generation/content/passes/keys-pass.ts`, mirroring the seams quartet
 (`buildKeysPassPayload` / `renderKeysPassPrompt` / response schema /
-`applyKeysPass`), wired into `src/runtime/generate.ts` after the seams pass. One
+`applyKeysPass`), wired into `src/generation/generate.ts` after the seams pass. One
 call per dungeon.
 
 It exists because a placed key and its challenge are usually in different chunks,
@@ -406,7 +406,7 @@ there, in the same transaction as the ending. Death and abandonment write
 nothing, which is how they forfeit the gear and the experience together without
 either path having to remember to.
 
-Levelling was a separate session and is now built — `src/engine/level-up.ts`,
+Levelling was a separate session and is now built — `src/rules/knave/level-up.ts`,
 and `BUILD-PLAN.md` for the decisions. Nothing above it changed: the arithmetic
 (~30 challenges in a size 5 dungeon against a 1000-per-level track) stands, and
 `PlayerCharacter.xp` is still a career total nothing spends. `level` is moved by

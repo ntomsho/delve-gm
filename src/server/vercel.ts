@@ -7,7 +7,7 @@
  *
  * `export default { fetch }` is the Web-standard handler shape, which is what
  * Vercel's Node runtime wants and what Hono already is. That is most of why
- * Hono rather than Express: no adapter, and `src/server/dev.ts` runs the same
+ * Hono rather than Express: no adapter, and `src/dev/api-server.ts` runs the same
  * object locally.
  *
  * BUILT BY VITE, not by Vercel's bundler — see `npm run build:api`. The

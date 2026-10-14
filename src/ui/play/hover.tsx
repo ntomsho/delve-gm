@@ -31,7 +31,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { Tooltip, type TooltipRefProps } from "react-tooltip";
-import { color, font } from "../theme.ts";
+import { color, font } from "../shared/theme.ts";
 import type { Verb } from "./verbs.ts";
 
 /**
@@ -94,7 +94,7 @@ interface HoverState {
   setHovered(id?: string): void;
   /**
    * TOUCH: there is no hover, so a tap selects instead. The cards and the pill
-   * are not mounted; `InspectSheet` shows the selection. See `src/ui/media.ts`.
+   * are not mounted; `InspectSheet` shows the selection. See `src/ui/shared/media.ts`.
    */
   touch: boolean;
   /** what a tap picked. Always undefined with a mouse. */

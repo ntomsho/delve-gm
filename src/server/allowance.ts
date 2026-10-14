@@ -43,7 +43,7 @@
  */
 
 import type postgres from "postgres";
-import { db } from "./db.ts";
+import { db } from "./db/connection.ts";
 import type { AuthUser } from "./auth.ts";
 
 /** Runs a guest may start per UTC day. */
@@ -58,7 +58,7 @@ export type Tier = "member" | "unlimited";
 /**
  * What the interface is told, and what the gates decide on.
  *
- * Mirrored in `src/store/allowance.ts`.
+ * Mirrored in `src/api-client/allowance.ts`.
  */
 export interface Allowance {
   guest: boolean;

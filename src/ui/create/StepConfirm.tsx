@@ -7,14 +7,14 @@
  * between the review and the record.
  */
 
+import { ABILITIES } from "../../rules/knave/character-creation.ts";
 import {
-  ABILITIES,
-  pcArmorDefense,
+  armorDefense as pcArmorDefense,
   slotCapacity,
   slotsUsed,
   type PlayerCharacter,
-} from "../../engine/index.ts";
-import { describePerson } from "../person.ts";
+} from "../../rules/knave/character.ts";
+import { describePerson } from "../shared/person.ts";
 import { Button, LABEL, RerollGlyph, signed } from "./shared.tsx";
 
 function Stat({ label, value, warn }: { label: string; value: string; warn?: boolean }) {

@@ -66,7 +66,7 @@ produced them — that is in git and in the comments at each site.
 ### 2.1 Seeds and determinism
 
 ```ts
-// src/runtime/seeds.ts
+// src/generation/seeds.ts
 interface RunSeeds {
   dungeonSeed: number;    // the user-facing number
   graphSeed: string;      // `${dungeonSeed}`; graph retries derive `<graphSeed>~<n>`
@@ -188,7 +188,7 @@ so a referee that writes a draft, thinks better of it and writes another cannot 
 both. Loose text is working-out by definition. `post` is optional, because a room entry
 (where the room's own `composed` IS the paragraph) and a commit that moves the player
 legitimately write none; anything else committing without one is handed back inside the
-same conversation (`missingPost` in `referee.ts`).
+same conversation (`missingPost` in `game-master.ts`).
 
 Rules stated to the referee in `SKILL.md` and enforced in code:
 
@@ -247,8 +247,8 @@ Never writable on any type: `id`, `type`, `base`, `name`, `keywords`, `blueprint
   `[0, quality]` and **destroy at exactly 0**, clearing any equip slot pointing at it;
   run `validateEquipment` and surface anything unequipped; recompute `isOverburdened`.
 - Handlers delegate to the engine function that owns the rule — `equip` / `unequip` /
-  `addItem` / `removeItem` from `dungeon-character.ts`, `setState` from
-  `dungeon-entities.ts`.
+  `addItem` / `removeItem` from `character.ts`, `setState` from
+  `entities.ts`.
 - **Every route into the player's hands goes through `takeIntoInventory`** —
   `item.parentId = <player>`, `inventory[…] = <id or spec>`, and `children[]` on the
   player. Three spellings of one operation, and they drifted while they were three
@@ -386,14 +386,14 @@ noticing that it is doing so.
 - **Fixed cell scale, not normalised.** A wall should be the same weight at six rooms
   and at thirty.
 - **THE RULE: an entity appears on the map only when its `composed` changes.** Same
-  precedence `dungeon-entities.ts` sets for prose — what the player was told binds.
+  precedence `entities.ts` sets for prose — what the player was told binds.
   It falls out for free: never encountered draws nothing; concealed draws nothing,
   because room entry never composes a hidden thing; something that changed two rooms
   away goes on saying where it was last seen, because `setState` leaves `composed`
   alone; something revealed by a search arrives **with** the prose, because
   `setIsHidden(false)` opens a description debt the next composition pays.
   **The filter lives in `mapView` and nowhere else.** `Layout.fixtures` deliberately
-  carries every placed entity, concealed ones included, because `layout.ts` knows only
+  carries every placed entity, concealed ones included, because `map-layout.ts` knows only
   geometry.
 - **Only the current room's doors are clickable**, through a confirmation, then
   dispatched as ordinary text through the normal turn path so it is identical to typing
@@ -452,7 +452,7 @@ noticing that it is doing so.
   is what bends.
 - Four bands, tight, against spacing of 5–9 cells: **tiny 4–9, small 10–25, medium
   26–35, large 36+**. They describe what the block plan actually draws. `vast` is gone.
-- The vocabulary lives in **`src/engine/dungeon-room-size.ts`** — bands, `classOf`, the
+- The vocabulary lives in **`src/generation/floorplan/room-size.ts`** — bands, `classOf`, the
   archetype table, `sizeAllows`. Tables and predicates only, no geometry.
 - Corridor designation happens in stocking, after entrance and goal roles are fixed and
   before the headline quota. Count is **N−1 / N / N+1 at 25 / 50 / 25**; size 1 is a coin
@@ -474,10 +474,13 @@ noticing that it is doing so.
 
 Restated from CLAUDE.md, plus the mechanisms that enforce them.
 
-- `src/engine/` never imports React and must stay runnable under vitest. A purity test
-  greps for `react`, `import.meta.env` and `document`.
-- Model strings live only in `src/runtime/llm/models.ts`, keyed by task. A test greps
-  for `claude-` outside it.
+- **Nothing outside `src/ui/` imports React**, and the domain — everything except the
+  shells `ui/`, `server/`, `dev/` and `api-client/` — touches no environment global
+  (`import.meta.env`, `window`, `document`, `process`), so all of it runs under vitest.
+  Both are scans in `src/architecture.test.ts`, which walks recursively and asserts it
+  found files before asserting anything about them.
+- Model strings live only in `src/llm/models.ts`, keyed by task. The same file greps
+  for `claude-` and the image endpoints outside it.
 - The API key lives in `.env.local`, is loaded with `loadEnv(mode, cwd, "")` — **empty
   prefix**, so it is readable by the config and never `VITE_`-inlined — and is injected
   by the dev proxy. The CLI path is Node and reads the key directly; that is not the
@@ -485,17 +488,17 @@ Restated from CLAUDE.md, plus the mechanisms that enforce them.
 - Skill markdown loads via `?raw`. A test asserts every `steps/…` path named in
   `SKILL.md` resolves to a real file. **`?raw` is a bundler feature** — Vite and vitest
   understand it, plain `node` does not, so anything reaching the referee outside a
-  bundler registers the hook in `dev/raw-md.ts` first.
+  bundler registers the hook in `dev/lib/raw-md.ts` first.
 - **No module holds one of anything a run owns.** The store, the journal and the turn
   machine are made per run and carried, never imported: `createGameStore`,
   `createJournal`, `createGameSession`. A singleton is correct for exactly one situation
   — a browser tab, with one run in it — and wrong in every process that serves two.
-- `src/store/react.ts` is the only module below `src/ui` and `App.tsx` that imports
-  React. `store/game.ts` imports `zustand/vanilla`, not `zustand`, because the package's
-  own entry point re-exports `zustand/react`.
+- `src/ui/shared/use-game.ts` is where game state meets React: the store's hook.
+  `gameplay/state/store.ts` imports `zustand/vanilla`, not `zustand`, because the
+  package's own entry point re-exports `zustand/react`.
 - **Two vitest projects, split on the file extension.** `.test.ts` is headless,
   `.test.tsx` is jsdom. The extension is the whole of the rule.
-  `src/ui/__fixtures__/jsdom-setup.ts` supplies entry points jsdom lacks
+  `src/ui/test-utils/jsdom-setup.ts` supplies entry points jsdom lacks
   (`setPointerCapture` and friends) and **never fakes behaviour**.
 - Persistence is two IndexedDB keys behind a `KeyValueStore` interface with a memory
   implementation for tests and Node: `dungeon:<id>` written once, `run:<id>` per commit.
@@ -616,10 +619,10 @@ committed to until the spike below has been looked at.**
   A `base` image is true forever (§2.4), so the first player in a shared world pays for it
   and every later one gets it free, and a duplicated dungeon shares it by URL. A `state`
   image is one player's run and dies with it.
-- **The prompt builder is pure and lives in `src/engine/`**; the provider call is
+- **The prompt builder is pure and lives in `src/illustrations/`**; the provider call is
   server-side behind its own key in `.env.local`, exactly like `ANTHROPIC_API_KEY`
-  (`src/server/app.ts`). The image model's string lives in `src/runtime/llm/models.ts`
-  — `models.test.ts` greps only for `claude-` today and must be widened to catch it.
+  (`src/server/app.ts`). The image model's string lives in `src/llm/models.ts`
+  — `src/architecture.test.ts` greps for both.
 - **Post-processing is code, and it is what makes the style hold.** Every image is
   thresholded to **1-bit** on the server: it guarantees black and white (the commonest
   way these models drift), pulls different models and calls toward one look, shrinks a
@@ -637,9 +640,9 @@ committed to until the spike below has been looked at.**
   length, never in a readable alphabet. These models write nonsense into readable text.
 
 **Composition: settled in code, by a camera search.** *Built:* `plateView` /
-`viewFrom` (`src/engine/plate-view.ts`), `roomPlate` / `plateBrief` / `plateTags`
-(`src/runtime/plates.ts`), the guide image (`src/runtime/plate-sketch.ts`), and a contact
-sheet checking all of them against the map (`node src/dev/cli-plate-views.ts [--dungeon
+`viewFrom` (`src/illustrations/view.ts`), `roomPlate` / `plateBrief` / `plateTags`
+(`src/illustrations/room-illustration.ts`), the guide image (`src/illustrations/sketch.ts`), and a contact
+sheet checking all of them against the map (`node src/dev/cli-illustration-views.ts [--dungeon
 <json> | --seed N --size S]`, written to `out/plates/`).
 
 - **The camera is chosen by score.** Nine spots per floor cell, each tried at 36 headings
@@ -665,7 +668,7 @@ sheet checking all of them against the map (`node src/dev/cli-plate-views.ts [--
   marks are not to be drawn. `marks: false` draws the architecture alone. **The first
   image test decides** whether models leave the marks out, and which variant to use.
 - **Feature presence, from the rolled table entry** (`featurePresence`,
-  `src/engine/feature-presence.ts`). There are three kinds:
+  `src/illustrations/feature-presence.ts`). There are three kinds:
   - **object:** placed, outlined and tagged.
   - **surface:** stains, murals, haze, anything "throughout". Drawn over the room and
     given a button, but no outline or tag; the brief describes it in words.
@@ -676,7 +679,7 @@ sheet checking all of them against the map (`node src/dev/cli-plate-views.ts [--
 - **Outlines stop at walls.** A footprint outline is cut into 0.25 ft pieces and only the
   pieces in line of sight are drawn. Walls run floor to ceiling, so seeing a floor
   point is a 2D test.
-- **Hotspots for the page's buttons** (`plateHotspots`, `src/engine/plate-hotspots.ts`;
+- **Hotspots for the page's buttons** (`plateHotspots`, `src/illustrations/hotspots.ts`;
   `RoomPlate.hotspots`). Positions are fractions of the plate from its top-left, from
   the same projection as the guide, so a button sits on the doorway the model was told
   to draw. Each door (the way in carries `role: "entry"`) and each drawable feature is
@@ -713,7 +716,7 @@ create table public.plates (
 - **The key is a hash of what the plate is drawn from, and that gives sharing for
   free.** Not of the final prompt: that carries words Haiku wrote, which differ every
   call, so a key made from it would never be found again. `plateKey`
-  (`src/server/plates.ts`) hashes the Haiku requests, the layout half of the prompt, the
+  (`src/server/illustrations/serve.ts`) hashes the Haiku requests, the layout half of the prompt, the
   guide SVG, the style version, the model and quality, and the number of references.
   All of it is a pure function of the room's `base` as generated. A copy of a dungeon builds the same
   prompt and so finds the same image. Two worlds from one seed have different prose, so
@@ -751,10 +754,10 @@ create table public.plates (
 **Room plates are BUILT (2026-10-13)** as described here:
 - migration `20261013120000_plates.sql`, with `plates`, `plate_words` and the public
   `plates` bucket;
-- `servePlate` / `livePlateWork` in `src/server/plates.ts`;
-- the sharp steps in `src/server/plate-image.ts`;
+- `servePlate` / `livePlateWork` in `src/server/illustrations/serve.ts`;
+- the sharp steps in `src/server/illustrations/image.ts`;
 - the route in `src/server/app.ts`;
-- `Plate.tsx` in the narration.
+- `Illustration.tsx` in the narration.
 
 Differences from the design above:
 - **The way in is the run's.** Each arrival in the log records `via`, the connector it
@@ -777,7 +780,7 @@ Differences from the design above:
 - **Guide tags are stroked paths, not `<text>`.** A serverless function has no fonts,
   so sharp would rasterise `<text>` as nothing.
 - **The plate's buttons are BUILT, as white dots only.** A ready answer carries
-  `spots` (`plateSpots`, `src/runtime/plates.ts`): one per point of each `shown` hotspot
+  `spots` (`plateSpots`, `src/illustrations/room-illustration.ts`): one per point of each `shown` hotspot
   that has a guide tag, so a dot sits where the guide's marker was. They are recomputed
   from the dungeon on every ask, not stored with the image. Each dot is the map's marker
   for that thing (`doorHover` / `fixtureHover` in `DungeonMap.tsx`): the same card, the
@@ -921,7 +924,7 @@ node src/dev/cli-illustrate.ts         # ~144 images, est. $6.36
 
 It writes a contact sheet to `out/illustrate/index.html`.
 
-- **Subjects** (`src/dev/plate-subjects.ts`): 3 exteriors and 12 interiors, chosen to cover
+- **Subjects** (`src/dev/lib/illustration-subjects.ts`): 3 exteriors and 12 interiors, chosen to cover
   the layouts and a spread of looks (cave, rough-hewn or dressed stone; ruined, occupied
   or pristine; wet or dry; overgrown or lifeless).
   - Each interior is a real offline room picked by layout, with hand-written fiction at
@@ -935,7 +938,7 @@ It writes a contact sheet to `out/illustrate/index.html`.
   - every thing in the frame, with a short look and where it goes.
 
   The looks and shell come from one Haiku call per plate (`plate-visual` task,
-  `src/runtime/plate-visual.ts`; request text in `src/engine/plate-prompt.ts`), which is
+  `src/illustrations/visual.ts`; request text in `src/illustrations/prompt.ts`), which is
   forbidden numbers and positions. The WHERE is `plateView`'s.
   - Out-of-frame things and senses are not mentioned at all; naming something only to
     say "don't draw it" invites it.
@@ -947,7 +950,7 @@ It writes a contact sheet to `out/illustrate/index.html`.
   - FLUX.2 [pro] (marks, plain)
   - FLUX.1 [pro] Canny (plain only: it locks to edges, so marks would come back as edges)
 
-  Endpoint ids live in `IMAGE_MODELS` (`src/runtime/llm/models.ts`). Every image is shown
+  Endpoint ids live in `IMAGE_MODELS` (`src/llm/models.ts`). Every image is shown
   converted to 1-bit with the page's buttons laid over it.
 **Spike outcome — DECIDED (2026-10-13, about $8 in all).** Judged on the 1-bit versions.
 
@@ -1029,7 +1032,7 @@ Two halves, both needed:
 Twelve creatures plus a leader against a level 1 character (R1). Three separable
 questions:
 
-1. **Whether `dungeon-rooms-loop.ts` should produce groups that large at level 1** — a
+1. **Whether `stock.ts` should produce groups that large at level 1** — a
    stocking parameter. **Measure first**: run the generator across a seed spread and get
    the actual distribution of group size against level.
 2. **Whether an HD 0 creature resolves as a mook** — dying to any hit, attacking as a
@@ -1128,7 +1131,7 @@ something the player did. Three things to settle:
 The structural twin of `roll_offered` / `pendingRoll`, throughout: a `rest_offered` stage
 and `pendingRest` in the store, `TurnMachine.rest()` mirroring `roll()`, a `RestOffer`
 component beside `RollOffer` in `InputArea.tsx`, `steps/6-rest.md`, and
-`restRoll(rng, conBonus)` in `dungeon-rolls.ts` — there is no heal kind today. The heal is
+`restRoll(rng, conBonus)` in `rolls.ts` — there is no heal kind today. The heal is
 resolved **client-side on the button press**, like the player's d20 and for the same
 reason. Typing an action cancels the offer, which is free: `acceptsInput` stays true and
 `submit()` already resumes at `r.step`.
@@ -1153,7 +1156,7 @@ what to build, not what to reconsider.
   everything the applier needs: `{itemId, "parentId", "player"}` for the first case;
   `{player, "children[]", spec}` plus `{sourceId, "state", sourceState}` for the second.
   Both paths exist and are tested.
-- **Stored as `RunState.takes`**, set in `store/game.ts` beside `pendingRoll`, cleared by
+- **Stored as `RunState.takes`**, set in `gameplay/state/store.ts` beside `pendingRoll`, cleared by
   the next submit, by a take, and by a move.
 - **`TurnMachine.take(offerId)`** builds the diffs and calls `store.commit` directly.
   `POST /api/runs/:id/take` beside `roll`; `session.take()`; buttons in `InputArea`
@@ -1200,9 +1203,9 @@ asserting it move with it.
 
 *"Incorporate the dungeon entrance into the fiction."* / *"Most of them are really weird."*
 
-Both are one cause. `DUNGEON_ENTRANCES` (`dungeon-blueprint.ts:131`) is the Maze Rats
+Both are one cause. `DUNGEON_ENTRANCES` (`blueprint.ts:131`) is the Maze Rats
 table — *Beaver dam, Living tattoo, Giant book, Under the bed, Maze potion, Unfolded map*.
-It is rolled in **stocking** (`dungeon-rooms-loop.ts:897`), which is branch B of the
+It is rolled in **stocking** (`stock.ts:897`), which is branch B of the
 pipeline, and the **opening prose is written by the Dungeon Pass**, which is branch A and
 runs concurrently. **Branch A cannot see the roll.** So R2's opening walks the player down
 a rim path into a quarry, and the entrance roll — *Beaver dam* — surfaces only as a clause
@@ -1262,7 +1265,7 @@ silently passes today.
 thought we had something in place to make sure the goal was found on the opposite side."*
 
 **The placement machinery is working.** `structure()` picks the goal room by eccentricity
-from the entrance (`dungeon-rooms-loop.ts:426`), and in R2 it did: the entrance is the
+from the entrance (`stock.ts:426`), and in R2 it did: the entrance is the
 Bookyard, the goal room is The Vault, the goal entity is the ledger. The player never got
 there.
 
@@ -1277,7 +1280,7 @@ Pass from `bp.inhabitants`, and which room a group's members end up in is stocki
 ### Rewards: the keys pass — **BUILT**
 
 The full design is `docs/REWARDS-SPEC.md`; this does not repeat it. **R2 of three**, spec
-§6. `src/engine/dungeon-keys-pass.ts`, wired into `finishGeneration` after the seams pass,
+§6. `src/generation/content/passes/keys-pass.ts`, wired into `finishGeneration` after the seams pass,
 so the single-process pipeline and the server's `/finish` both get it.
 
 What it does:
@@ -1304,7 +1307,7 @@ Two things came out of building it that were not in the spec:
   every `mobileId` binding pointed at a creature that no longer existed. Nothing had
   noticed, because nothing had needed to get from a stocking-level mobile back to an
   entity until a key had to name the creature it was about. `anchorOf` in
-  `dungeon-challenges.ts` is the one crossing now, and both this pass and the runtime go
+  `content/challenges.ts` is the one crossing now, and both this pass and the runtime go
   through it.
 
 **Still open, carried from R1: the placed-key count varies 1 to 9 at size 5**, against the
@@ -1312,7 +1315,7 @@ spec's "roughly four". Structural rather than a bug — step 1 walks the reward-
 locations rolling loot-or-key at `KEY_SHARE`, and a dungeon with few such locations spends
 its general budget in the contested draw, which places no keys. The order spec §4 fixes is
 implemented as written; narrowing the spread means changing that order. The dials are all
-named constants at the top of `dungeon-rewards.ts`.
+named constants at the top of `rewards.ts`.
 
 Measured across nine dungeons (seeds 1005 / 4242 / 90210 at sizes 2, 3, 5): challenge
 counts land where the spec predicted (~30 at size 5) and money is bounded — a whole size 5
@@ -1322,8 +1325,8 @@ dungeon is ~1500cp against a Knave starting purse of 60–360.
 
 ### Rewards at runtime — **BUILT**
 
-**R3 of three**, spec §7–8. `src/runtime/challenges.ts` holds the state and the rules;
-`src/engine/dungeon-tally-pass.ts` holds the end-of-run call.
+**R3 of three**, spec §7–8. `src/gameplay/mechanics/challenges.ts` holds the state and the rules;
+`src/gameplay/tally/tally-pass.ts` holds the end-of-run call.
 
 - **The draw.** `offerDraws` puts a trimmed list — nearest first, capped at eight — under
   *What this dungeon still has to give*, every turn. `commit.draw` spends one; the applier
@@ -1364,7 +1367,7 @@ fled, and is correctly not credited. Nothing detects it per turn.
 unchanged and now deliberate: ~30 challenges at size 5, mostly moderate, is roughly 3000
 XP against a 1000-per-level track, so a full size 5 delve pays for about three levels and
 they are taken one at a time. Neither the track nor the rating moved; if either should,
-`XP_PER_LEVEL` in `dungeon-tally-pass.ts` is still the one number.
+`XP_PER_LEVEL` in `tally-pass.ts` is still the one number.
 
 ---
 
@@ -1374,7 +1377,7 @@ they are taken one at a time. Neither the track nor the rating moved; if either 
 dismissable back to the map and the scrollback; `RunOver` in the input area brings it back.
 Four endings, and it has to be right about something different in each.
 
-- **What they carried out**, from `lootOf` in `src/runtime/loot.ts`. `newRun` snapshots the
+- **What they carried out**, from `lootOf` in `src/gameplay/mechanics/loot.ts`. `newRun` snapshots the
   inventory ids and the purse at turn zero and the take is the diff — a thing they went
   down with is never reported as treasure. Money is not a line: the purse is one item whose
   amount moves, so coin is a delta and everything else is a list. A run saved before the
@@ -1405,7 +1408,7 @@ decision rather than a defeat.
 
 ### Levelling — **BUILT**
 
-`src/engine/level-up.ts` and `src/ui/LevelUp.tsx`, reached from a button on the roster
+`src/rules/knave/level-up.ts` and `src/ui/characters/LevelUp.tsx`, reached from a button on the roster
 row. Knave's own rule, with one departure and one derivation worth writing down.
 
 - **The track is cumulative and nothing is spent.** `pendingLevels` is
@@ -1542,7 +1545,7 @@ hill-climbing toward it — then the retry loop runs once, always.
 
 Three left, all independent:
 
-- **Call log viewer.** `referee.ts` writes `run.callLog` and nothing renders it.
+- **Call log viewer.** `game-master.ts` writes `run.callLog` and nothing renders it.
 - **Jump-to-room.** A debug diff that sets `currentRoomId` and fires the room-entry pass.
 - **Replay.** Replays the *run*, not the generation: load the persisted `GeneratedDungeon`,
   reset `runSeed`/`rngDraws`, feed `playerInputs` back through `turn.ts`. Deterministic
@@ -1615,7 +1618,7 @@ create index spend_owner_idx on public.spend (owner_id, at);
 
 - **`ON DELETE SET NULL` throughout.** Money spent stays spent after the account is
   gone, and the daily total must not drop because somebody deleted their characters.
-- **Prices live beside the model strings**, as `PRICES` in `src/runtime/llm/models.ts`.
+- **Prices live beside the model strings**, as `PRICES` in `src/llm/models.ts`.
   A price is a fact about a model string, and that file is the only place the strings
   are. Cache writes are 1.25× input and cache reads 0.1× input.
 - **`Usage` gains the two cache fields.** That fixes the undercount above and lets the
@@ -1672,7 +1675,7 @@ What landed, and binds what comes next:
   by hand: `update profiles set tier = 'unlimited' where id = '<uid>'`.
 - `GET /api/allowance` feeds run setup. The gates never trust it.
 - **Turnstile is wired but off** until `VITE_TURNSTILE_SITE_KEY` is set *and* captcha
-  is on in Supabase. See `src/ui/turnstile.ts`.
+  is on in Supabase. See `src/ui/sign-in/turnstile.ts`.
 - **Not built:** the stale-guest sweep and `MAX_TURNS_PER_RUN`.
 
 The original design, kept for the parts still open:
@@ -1771,7 +1774,7 @@ handoff (`design_handoff_mobile_responsive/README.md`, kept outside the repo). I
 three screens, and they are three sessions:
 
 1. **Play — built.** `PhonePlay.tsx` is the shell: Map / Chat / Character tabs under 640px
-   (`PHONE` in `src/ui/media.ts`), with the desktop and tablet grids unchanged. Beyond the
+   (`PHONE` in `src/ui/shared/media.ts`), with the desktop and tablet grids unchanged. Beyond the
    handoff, at the author's request:
    - a sideways swipe anywhere moves one tab, with no wrap. Swipes that start on the map
      box (`data-no-swipe`) or in a field don't count.
@@ -1868,7 +1871,7 @@ Known, deliberate, and not currently anybody's feature. Revisit if the symptom s
 mattering.
 
 1. **Relief is not applied.** Outside MVP. The axis and its carving code still exist in
-   `dungeon-floorplan.ts` and are still tested; nothing calls them.
+   `floorplan.ts` and are still tested; nothing calls them.
 2. **The family axis is unused**, so no round, cross or T-shaped rooms. Revisit if the
    drawings read as monotonous.
 3. **Large rooms are unreachable.** Zones average 20–40 cells. Accepted: size feeds only
@@ -1878,11 +1881,11 @@ mattering.
 5. **Target areas are a placeholder roll** (`[6, 9, 14, 20, 28, 40, 56]`) rather than
    derived from the size classes.
 6. **Corridors are only mildly narrower than chambers.**
-7. **`dungeon-floorplan.ts` is parked, not deleted** — author's call, kept as the record of
+7. **`floorplan.ts` is parked, not deleted** — author's call, kept as the record of
    a design that lost. `generateFloorplanValid`, `floorplanSvg` and `validateFloorplan`
    have no callers outside `floorplan.test.ts`, and the four suites exercising the packer
    are `describe.skip`. **Two suites stay live and must:** `corridor designation` covers
-   stocking, and `chamber archetypes` covers the vocabulary in `dungeon-room-size.ts` that
+   stocking, and `chamber archetypes` covers the vocabulary in `room-size.ts` that
    the identity roll reads through `sizeAllows`.
 8. **A multi-cell fixture draws as several separate things.** One berthed entity across two
    cells, drawn one mark per cell so a colonnade reads as a row. Weighed and dropped: it

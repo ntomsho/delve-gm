@@ -32,15 +32,16 @@ import {
   finishGeneration,
   generateChunk,
   generateStructure,
-} from "../runtime/generate.ts";
-import { createGameSession, describeFailure } from "../runtime/session.ts";
-import { newRun, type RunState } from "../store/game.ts";
-import { createJournal, runId } from "../runtime/journal.ts";
-import { render } from "../runtime/journal-render.ts";
-import { MODELS } from "../runtime/llm/models.ts";
-import { configureTransport } from "../runtime/llm/client.ts";
-import type { PlayerCharacter, Size } from "../engine/index.ts";
-import * as repo from "./repo.ts";
+} from "../generation/generate.ts";
+import { createGameSession, describeFailure } from "../gameplay/sessions/session.ts";
+import { newRun, type RunState } from "../gameplay/state/store.ts";
+import { createJournal, runId } from "../journal/journal.ts";
+import { render } from "../journal/render.ts";
+import { MODELS } from "../llm/models.ts";
+import { configureTransport } from "../llm/client.ts";
+import type { PlayerCharacter } from "../rules/knave/character.ts";
+import type { Size } from "../generation/content/blueprint.ts";
+import * as repo from "./db/repo.ts";
 import { allowanceOf, hasRunLeft, mayStartRunIn, refusal } from "./allowance.ts";
 import {
   coverKey,
@@ -50,8 +51,8 @@ import {
   servePlate,
   type PlateAnswer,
   type PlateWork,
-} from "./plates.ts";
-import { plateEntryFor } from "../runtime/plates.ts";
+} from "./illustrations/serve.ts";
+import { plateEntryFor } from "../illustrations/room-illustration.ts";
 import { waitUntil } from "@vercel/functions";
 
 // ---------------------------------------------------------------------------

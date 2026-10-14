@@ -23,7 +23,7 @@
  */
 
 import { useEffect, useState } from "react";
-import type { RolledOutcome } from "../../runtime/types.ts";
+import type { RolledOutcome } from "../../shared/types/turn.ts";
 
 /** Faces shown while the die is in the air, in order. Decoration only. */
 const TUMBLE = [7, 14, 3, 19, 11, 6, 17, 2, 12, 9, 15, 4];

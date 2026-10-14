@@ -24,7 +24,6 @@
 import { useMemo, useRef, useState } from "react";
 import {
   CREATION_RULES,
-  Rng,
   bonusesOf,
   buyKit,
   finishCharacter,
@@ -39,19 +38,22 @@ import {
   startingBuy,
   swapAbilities,
   withWeapon,
-  type Ability,
   type AbilityRolls,
+  type GearSlot,
+  type HpRoll,
+  type StartingKit,
+  type TraitKey,
+} from "../../rules/knave/character-creation.ts";
+import { Rng } from "../../generation/content/blueprint.ts";
+import { type Ability } from "../../shared/world/entities.ts";
+import {
   type CharacterAbilities,
   type CharacterTraits,
   type CreationMode,
-  type GearSlot,
-  type HpRoll,
   type PlayerCharacter,
-  type StartingKit,
-  type TraitKey,
-  type WeaponKey,
-} from "../../engine/index.ts";
-import { randomSeed } from "../../runtime/seeds.ts";
+} from "../../rules/knave/character.ts";
+import { type WeaponKey } from "../../rules/knave/tables.ts";
+import { randomSeed } from "../../generation/seeds.ts";
 import { Button } from "./shared.tsx";
 import { StepMode } from "./StepMode.tsx";
 import { StepAbilities, type AbilityMode } from "./StepAbilities.tsx";

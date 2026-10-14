@@ -13,7 +13,7 @@
 -- payload from journal_events` is the turn and not the instructions wrapped
 -- around it. Read `journal_events_full` instead when the PROMPT is the question.
 --
--- ONE THING IS NOT A QUERY. A readable transcript is `journal-render.ts`, so
+-- ONE THING IS NOT A QUERY. A readable transcript is `journal/render.ts`, so
 -- download §3 as CSV and run `npm run transcript -- <file>`.
 
 

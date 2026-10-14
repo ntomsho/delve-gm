@@ -38,11 +38,11 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import { exportJWK, generateKeyPair, SignJWT, type JWK } from "jose";
 import postgres from "postgres";
 import type { Hono } from "hono";
-import { closeDb, db } from "./db.ts";
-import * as repo from "./repo.ts";
+import { closeDb, db } from "./db/connection.ts";
+import * as repo from "./db/repo.ts";
 import type { AuthEnv } from "./auth.ts";
-import { generateOffline, testCharacter } from "../runtime/__fixtures__/offline.ts";
-import type { PlayerCharacter } from "../engine/index.ts";
+import { generateOffline, testCharacter } from "../fixtures/offline.ts";
+import type { PlayerCharacter } from "../rules/knave/character.ts";
 
 const ISSUER = "https://project.dbtest.supabase.co";
 

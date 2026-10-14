@@ -12,7 +12,7 @@
  * the teaching. See `raw-md.ts`. The actual CLI is `play.ts`.
  */
 
-import { registerRawMarkdown } from "./raw-md.ts";
+import { registerRawMarkdown } from "./lib/raw-md.ts";
 
 registerRawMarkdown();
-await import("./play.ts");
+await import("./lib/play.ts");

@@ -14,9 +14,9 @@
 import { describe, expect, it } from "vitest";
 import { createElement as h } from "react";
 import { EndOfRun, type Ending, type EndOfRunProps } from "./EndOfRun.tsx";
-import { press, renderDom } from "../__fixtures__/dom.ts";
-import type { RunTally } from "../../engine/index.ts";
-import type { RunLoot } from "../../runtime/loot.ts";
+import { press, renderDom } from "../test-utils/dom.ts";
+import type { RunTally } from "../../gameplay/tally/tally-pass.ts";
+import type { RunLoot } from "../../gameplay/mechanics/loot.ts";
 
 const noop = () => {};
 

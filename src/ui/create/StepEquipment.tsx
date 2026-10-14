@@ -23,20 +23,18 @@
 
 import {
   GEAR_SLOT_LABEL,
-  WEAPON_CLASSES,
-  classOfWeapon,
-  equipment,
-  isArmor,
-  isBook,
-  isSpellbook,
   kitItems,
-  weaponFacts,
-  type AnyItem,
   type GearSlot,
   type StartingKit,
+} from "../../rules/knave/character-creation.ts";
+import {
+  WEAPON_CLASSES,
+  classOfWeapon,
   type WeaponClass,
   type WeaponKey,
-} from "../../engine/index.ts";
+} from "../../rules/knave/tables.ts";
+import { equipment, weaponFacts } from "../../rules/knave/equipment.ts";
+import { isArmor, isBook, isSpellbook, type AnyItem } from "../../shared/world/entities.ts";
 import { Button, LABEL, RerollGlyph, SlotMeter, StepHeading, Toggle } from "./shared.tsx";
 
 export type EquipmentMode = "roll" | "buy";

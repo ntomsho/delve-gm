@@ -13,7 +13,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createElement as h } from "react";
 import { CreateCharacter } from "./CreateCharacter.tsx";
-import { renderDom, type Rendered } from "../__fixtures__/dom.ts";
+import { renderDom, type Rendered } from "../test-utils/dom.ts";
 import { act } from "react";
 
 const noop = () => {};

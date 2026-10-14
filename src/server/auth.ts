@@ -16,7 +16,7 @@
  *
  * `createRemoteJWKSet` caches the key set and refetches only when it sees a
  * `kid` it does not know, which is what makes key rotation a non-event. The set
- * is module state, deliberately, for the same reason the pool in `db.ts` is: it
+ * is module state, deliberately, for the same reason the pool in `connection.ts` is: it
  * holds no per-user state, and one per request would spend a fetch on every
  * turn.
  *

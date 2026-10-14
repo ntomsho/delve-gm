@@ -21,9 +21,9 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { GameMenu } from "./GameMenu.tsx";
 import { InspectSheet } from "./hover.tsx";
 import { MARK_MS, hurt, useDrops } from "./CharacterPanel.tsx";
-import { STAGE_NAME, STAGE_TONE } from "../theme.ts";
-import type { Stage } from "../../runtime/types.ts";
-import type { CharacterView } from "../../store/selectors.ts";
+import { STAGE_NAME, STAGE_TONE } from "../shared/theme.ts";
+import type { Stage } from "../../shared/types/turn.ts";
+import type { CharacterView } from "../../gameplay/view/selectors.ts";
 
 export type Tab = "map" | "chat" | "sheet";
 

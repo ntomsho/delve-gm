@@ -40,7 +40,7 @@
  * other. See `wayVerb`.
  */
 
-import type { MapRoomView } from "../../store/selectors.ts";
+import type { MapRoomView } from "../../gameplay/view/selectors.ts";
 
 /** A question, and what is sent if they say yes. */
 export interface Verb {

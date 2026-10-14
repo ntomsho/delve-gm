@@ -13,7 +13,7 @@
  * are copied from round 1's cache when they are there, so a style trial
  * changes the style and nothing else.
  *
- * Draws the subjects in `plate-subjects.ts` through every model setup below
+ * Draws the subjects in `illustration-subjects.ts` through every model setup below
  * and writes a contact sheet to out/illustrate/index.html: per subject, the
  * guide images, the condensed words, the prompts, and a grid of setups x guide
  * modes, each image shown converted to 1-bit with the page's buttons over it.
@@ -35,12 +35,20 @@ import { dirname, join, resolve } from "node:path";
 import { createHash } from "node:crypto";
 import sharp from "sharp";
 import { fal } from "@fal-ai/client";
-import { connectedCells, PLATE_EXTERIOR_SYSTEM, PLATE_STYLE, PLATE_VISUAL_SYSTEM, plateVisualMessage, touches, type GuideMode } from "../engine/index.ts";
-import { generateOffline } from "../runtime/__fixtures__/offline.ts";
-import type { GeneratedDungeon } from "../runtime/generate.ts";
-import { configureTransport } from "../runtime/llm/client.ts";
-import { IMAGE_MODELS, type ImageModel } from "../runtime/llm/models.ts";
-import { guidePng, oneBitPng, PLATE_H, PLATE_THRESHOLD, PLATE_W } from "../server/plate-image.ts";
+import { connectedCells } from "../illustrations/view.ts";
+import {
+  PLATE_EXTERIOR_SYSTEM,
+  PLATE_STYLE,
+  PLATE_VISUAL_SYSTEM,
+  plateVisualMessage,
+  type GuideMode,
+} from "../illustrations/prompt.ts";
+import { touches } from "../shared/world/entities.ts";
+import { generateOffline } from "../fixtures/offline.ts";
+import type { GeneratedDungeon } from "../generation/generate.ts";
+import { configureTransport } from "../llm/client.ts";
+import { IMAGE_MODELS, type ImageModel } from "../llm/models.ts";
+import { guidePng, oneBitPng, PLATE_H, PLATE_THRESHOLD, PLATE_W } from "../server/illustrations/image.ts";
 import {
   exteriorPlatePrompt,
   plateImagePrompt,
@@ -49,10 +57,10 @@ import {
   requestPlateSetting,
   requestPlateVisual,
   type PlateVisual,
-} from "../runtime/plate-visual.ts";
-import { plateBrief, plateEntries, roomPlate, type RoomPlate } from "../runtime/plates.ts";
-import { hotspotMarks } from "./plate-overlay.ts";
-import { EXTERIORS, INTERIORS, THEMES, type Candidate, type InteriorSubject } from "./plate-subjects.ts";
+} from "../illustrations/visual.ts";
+import { plateBrief, plateEntries, roomPlate, type RoomPlate } from "../illustrations/room-illustration.ts";
+import { hotspotMarks } from "./lib/illustration-overlay.ts";
+import { EXTERIORS, INTERIORS, THEMES, type Candidate, type InteriorSubject } from "./lib/illustration-subjects.ts";
 
 // ---------------------------------------------------------------------------
 // SETUPS

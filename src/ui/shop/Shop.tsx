@@ -40,35 +40,32 @@ import { useRef, useState } from "react";
 import {
   EMPTY_CART,
   EMPTY_SOLD,
-  Rng,
   SHOP_DISPLAY,
-  WEAPON_CLASSES,
   addToCart,
-  armorFacts,
   canAffordOneMore,
   cartLines,
   cartSlots,
   cartTotal,
   proceeds,
-  purse,
   removeFromCart,
   sellOffers,
   setQty,
-  slotCapacity,
-  slotsUsed,
   soldLines,
   soldSlots,
   toggleSold,
   treasureOffers,
-  weaponFacts,
   checkout,
   type Cart,
-  type PlayerCharacter,
   type SellOffer,
   type ShopGood,
   type Sold,
-} from "../../engine/index.ts";
-import { randomSeed } from "../../runtime/seeds.ts";
+} from "../../rules/knave/shop.ts";
+import { Rng } from "../../generation/content/blueprint.ts";
+import { WEAPON_CLASSES } from "../../rules/knave/tables.ts";
+import { armorFacts, weaponFacts } from "../../rules/knave/equipment.ts";
+import { purse } from "../../rules/knave/character-creation.ts";
+import { slotCapacity, slotsUsed, type PlayerCharacter } from "../../rules/knave/character.ts";
+import { randomSeed } from "../../generation/seeds.ts";
 import { Button, LABEL, SlotMeter } from "../create/shared.tsx";
 
 /** Copper, written the way every other number on these screens is. */

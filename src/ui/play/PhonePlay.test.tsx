@@ -9,12 +9,12 @@
 import { describe, expect, it } from "vitest";
 import { act, useState } from "react";
 import { PhonePlay, swipeTo, type Tab } from "./PhonePlay.tsx";
-import { fire, renderDom } from "../__fixtures__/dom.ts";
-import { STAGE_TONE } from "../theme.ts";
-import { generateOffline, testCharacter } from "../../runtime/__fixtures__/offline.ts";
-import { newRun } from "../../store/game.ts";
-import { characterView } from "../../store/selectors.ts";
-import type { Stage } from "../../runtime/types.ts";
+import { fire, renderDom } from "../test-utils/dom.ts";
+import { STAGE_TONE } from "../shared/theme.ts";
+import { generateOffline, testCharacter } from "../../fixtures/offline.ts";
+import { newRun } from "../../gameplay/state/store.ts";
+import { characterView } from "../../gameplay/view/selectors.ts";
+import type { Stage } from "../../shared/types/turn.ts";
 
 const pc = characterView(newRun(generateOffline(1005, 2), testCharacter()));
 

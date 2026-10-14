@@ -21,15 +21,15 @@
 import { useRef, useState } from "react";
 import { MAP_TIP, ThingTooltip, useAnchor, useHover, type HoverCard } from "./hover.tsx";
 import { roomVerb, thingVerb, wayVerb, type Verb } from "./verbs.ts";
-import { color } from "../theme.ts";
+import { color } from "../shared/theme.ts";
 import {
   pathMidpoint,
   type LayoutDoor,
   type Path,
   type Point,
   type Shape,
-} from "../../runtime/layout.ts";
-import type { MapConnectorView, MapFixtureView, MapView } from "../../store/selectors.ts";
+} from "../../generation/floorplan/map-layout.ts";
+import type { MapConnectorView, MapFixtureView, MapView } from "../../gameplay/view/selectors.ts";
 
 /** How far a stub reaches toward a room nobody has seen. Point layout only. */
 const STUB = 0.34;

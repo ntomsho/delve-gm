@@ -9,7 +9,7 @@
  * prose into plain JavaScript, so what gets deployed has no `?raw` left in it
  * and no host has to be taught anything.
  *
- * `dev/raw-md.ts` solves the same problem the other way, for `node` running the
+ * `dev/lib/raw-md.ts` solves the same problem the other way, for `node` running the
  * TypeScript directly. Both exist because both cases are real: the CLI runs
  * from source, and the deployment runs from a bundle.
  *

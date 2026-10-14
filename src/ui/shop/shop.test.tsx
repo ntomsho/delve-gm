@@ -14,10 +14,10 @@ import { describe, expect, it } from "vitest";
 import { createElement as h } from "react";
 import { act } from "react";
 import { Shop } from "./Shop.tsx";
-import { renderDom, type Rendered } from "../__fixtures__/dom.ts";
+import { renderDom, type Rendered } from "../test-utils/dom.ts";
+import { Rng } from "../../generation/content/blueprint.ts";
+import { addItem, type PlayerCharacter } from "../../rules/knave/character.ts";
 import {
-  Rng,
-  addItem,
   bonusesOf,
   buyKit,
   finishCharacter,
@@ -25,9 +25,8 @@ import {
   rollAbilities,
   rollTraits,
   setPurse,
-  type IItem,
-  type PlayerCharacter,
-} from "../../engine/index.ts";
+} from "../../rules/knave/character-creation.ts";
+import { type IItem } from "../../shared/world/entities.ts";
 
 const SEED = 20260817;
 const noop = () => {};

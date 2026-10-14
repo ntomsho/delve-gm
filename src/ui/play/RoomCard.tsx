@@ -15,7 +15,7 @@
 import { createContext, useContext, type ReactNode } from "react";
 import { CARD_TIP, ThingTooltip, useAnchor, useHover } from "./hover.tsx";
 import { thingVerb, wayVerb } from "./verbs.ts";
-import { exitLabel, type EntityView, type ExitView, type RoomView } from "../../store/selectors.ts";
+import { exitLabel, type EntityView, type ExitView, type RoomView } from "../../gameplay/view/selectors.ts";
 
 const LABEL = "font-mono text-[9px] uppercase tracking-[0.16em] text-graphite";
 /** The phone's: a size up, because it is read at arm's length. */

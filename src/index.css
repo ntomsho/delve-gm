@@ -4,7 +4,7 @@
 
 /*
  * The design's palette, as Tailwind theme values so utility classes can reach
- * it. `src/ui/theme.ts` holds the same values for the SVG map and anything else
+ * it. `src/ui/shared/theme.ts` holds the same values for the SVG map and anything else
  * that needs them in JS. Two copies is one too many, but Tailwind 4 wants CSS
  * and an SVG stroke wants a string — keep them in step.
  */

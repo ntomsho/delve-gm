@@ -6,7 +6,7 @@
   },
   "scripts": {
     "dev": "vite",
-    "api": "node src/server/dev.ts",
+    "api": "node src/dev/api-server.ts",
     "build": "tsc --noEmit && vite build && vite build --config vite.api.config.ts",
     "build:client": "vite build",
     "build:api": "vite build --config vite.api.config.ts",
