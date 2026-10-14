@@ -18,6 +18,10 @@ import { dcFromDefense } from "../../rules/knave/rolls.ts";
 import { armorDefense as pcArmorDefense } from "../../rules/knave/character.ts";
 import type { GameMasterRequest } from "../turn.ts";
 import type { Step } from "../../shared/types/turn.ts";
+import { configureTransport } from "../../llm/client.ts";
+
+// The model client has no default URL. The stubbed `fetch` below answers any.
+configureTransport({ baseUrl: "https://model.test" });
 
 const dungeon = generateOffline(1005, 1);
 

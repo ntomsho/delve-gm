@@ -264,7 +264,7 @@ describe("the ways out of it", () => {
     expect(text("dead", { onLeave: noop })).toContain("Back to characters");
   });
 
-  // A local run — `?offline`, `?stub` — has no roster, and a button leading
+  // An `?offline` run has no roster, and a button leading
   // nowhere is worse than the plain statement that the run has ended.
   it("does not, when there is not", () => {
     expect(text("dead")).not.toContain("Back to characters");

@@ -34,7 +34,7 @@ let cached: SupabaseClient | undefined;
 /**
  * The Supabase client, MADE ON FIRST USE AND NOT AT IMPORT.
  *
- * Laziness is load-bearing, not tidiness. `?offline` and `?stub` are played
+ * Laziness is load-bearing, not tidiness. `?offline` is played
  * entirely in the browser and need no account, no project and no keys — and
  * `App.tsx` imports this module either way, through `api-client/characters.ts`. A
  * client constructed at module scope threw "supabaseUrl is required" the moment

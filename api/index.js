@@ -9418,16 +9418,13 @@ var PATH = "/v1/messages";
 /**
 * Where requests go, and what rides along.
 *
-* In the browser this stays empty, so the URL is relative — `/api/anthropic/...`
-* — and the Vite dev proxy attaches the key. The bundle never holds it.
-*
-* `dev/cli-generate.ts` is the one caller that overrides this. It runs in Node,
-* outside the browser and outside the dev server, so there is no proxy to go
-* through and it reads the key from .env.local itself. That is not a loophole in
-* the rule: the rule is that the key never reaches the *browser*, and a Node
-* script is exactly where a key is supposed to live.
+* NO DEFAULT. A call made before `configureTransport` throws rather than
+* guessing a URL: a guessed one that nothing answers fails as a 404 in the
+* middle of a generation, which reads like a network problem rather than a
+* missing setting. `server/app.ts` (`configureAnthropic`), the dev CLIs and the
+* live tests each configure it with the key from their own environment.
 */
-var baseUrl = "/api/anthropic";
+var baseUrl;
 var extraHeaders = {};
 function configureTransport(opts) {
 	if (opts.baseUrl !== void 0) baseUrl = opts.baseUrl.replace(/\/$/, "");
@@ -9474,6 +9471,7 @@ var RETRIES = 3;
 var BASE_DELAY_MS = 1e3;
 var sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function post(body, signal) {
+	if (baseUrl === void 0) throw new Error("LLM transport not configured: call configureTransport before calling the model.");
 	let lastError;
 	for (let attempt = 0; attempt <= RETRIES; attempt++) {
 		if (attempt > 0) await sleep(BASE_DELAY_MS * 2 ** (attempt - 1));
@@ -14965,7 +14963,7 @@ function createGameSession(opts = {}) {
 		*
 		* There is no server to tell and no roster to free a character on, so this
 		* is the stage and nothing else — but the control exists on the play screen
-		* and interface work is done under `?stub`, so a button that did nothing
+		* and interface work is done under `?offline`, so a button that did nothing
 		* there would be a button nobody could look at.
 		*
 		* NO TALLY, and no call. Abandoning is not walking out — the character is
@@ -17983,14 +17981,12 @@ function illustrationUrl(path) {
 * shims: the Anthropic proxy and the journal writer.
 */
 /**
-* WHERE THE MODEL CALLS GO, now that there is no dev proxy.
+* WHERE THE MODEL CALLS GO.
 *
-* `llm/client.ts` defaults to the relative `/api/anthropic`, which the Vite dev
-* server used to intercept and attach the key to — the arrangement that kept
-* the key out of the browser. That proxy is gone and this file is its
-* replacement: the API calls Anthropic directly, and the key is read from the
-* server's environment. The rule has not moved, only the wall — the key still
-* never reaches a browser, because a browser now talks only to this.
+* The API calls Anthropic directly, with the key from the server's environment.
+* This is what keeps the key out of the browser: a browser talks only to this
+* API, and `llm/client.ts` has no default URL, so nothing calls the model
+* until a process with a key says where it is.
 *
 * Once per process. `configureTransport` is module state in the client, which
 * is right for a process that only ever talks to one provider.

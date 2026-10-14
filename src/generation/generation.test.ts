@@ -53,7 +53,10 @@ import {
   seamsPassSchema,
 } from "../llm/schemas.ts";
 import { extractJson, ResponseFormatError, validate } from "../llm/json.ts";
-import { callForJson, type FailedAttempt } from "../llm/client.ts";
+import { callForJson, configureTransport, type FailedAttempt } from "../llm/client.ts";
+
+// The model client has no default URL. The stubbed `fetch` below answers any.
+configureTransport({ baseUrl: "https://model.test" });
 
 // ===========================================================================
 // AN OFFLINE PIPELINE

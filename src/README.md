@@ -18,7 +18,7 @@ check.
 | `prompts/` | Every instruction to a model, as markdown. `loader.ts` is the one place it is imported. |
 | `rules/` | The game system. `knave/` is Knave 1.0: dice, the character sheet, creation, levelling, equipment and the shop. Another game's rules would sit beside it. |
 | `shared/` | Used across areas. `types/` holds the cross-cutting data shapes, `world/` the entity model, `utils/` small reusable helpers. |
-| `fixtures/` | Stand-ins for the model: the offline dungeon and the stub game master, used by tests, the dev CLIs and `?offline` / `?stub`. |
+| `fixtures/` | Stand-ins for the model: the offline dungeon and the stub game master, used by tests, the dev CLIs and `?offline`. |
 
 **Not yet where it belongs.** Some code still sits inside a large file and will
 move when that file is split:
@@ -35,3 +35,11 @@ move when that file is split:
   `gameplay/game-master/render.ts`, `llm/schemas.ts`, `gameplay/turn.ts`,
   `shared/world/entities.ts` and the content pass's stat blocks.
 - `server/routes/`: the routes are all in `server/app.ts`.
+
+**The browser downloads the whole game.** A real run is played by the server, but
+the UI imports small values from heavy files: `XP_PER_LEVEL` from
+`gameplay/tally/tally-pass.ts`, `Rng` from `generation/content/blueprint.ts`,
+`positionPhrase` from `generation/floorplan/fixtures.ts`, `randomSeed` from
+`generation/seeds.ts`. So the generator, the game master, the LLM client and the
+prompts ship to every visitor (about 450 kB of the 1 MB). Moving those values
+into `shared/` and `rules/` lets the in-process session load only on `?offline`.

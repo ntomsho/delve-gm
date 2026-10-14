@@ -26,7 +26,7 @@
  * THE SEEDED FIXTURE IS GONE from here. `testCharacter()` is the dev
  * quick-start and belongs to the fixtures; a shared database that hands every
  * visitor somebody called Testy with +3 in everything is a different thing
- * entirely. `?offline` and `?stub` still get it — see App.tsx.
+ * entirely. `?offline` still gets it — see App.tsx.
  */
 
 import type { PlayerCharacter } from "../rules/knave/character.ts";

@@ -809,7 +809,7 @@ create table public.plates (
      - `pending` under someone else's claim: `202`, and the client asks again in a few
        seconds. A claim older than a named timeout is treated as abandoned.
      - `failed`: retry while `attempts` is under `ILLUSTRATION_MAX_ATTEMPTS`; past it, no illustration.
-- **`?offline` and `?stub` never request an illustration.** The fixture pages stay free.
+- **`?offline` never requests an illustration.** The fixture pages stay free.
 - **Images outlive their dungeons.** Shared by key, so no one dungeon owns one, and at
   ~100 KB each an orphan costs too little to be worth a sweep.
 
@@ -1809,6 +1809,38 @@ built. Like the shelf, that cache is worth more for latency and illustrations th
 The artifact's `IN A RUN`, `DIED · ROOM 3`, and the epitaph. These need per-character run
 state nothing stores, and a badge computed from a field nobody writes is worse than no
 badge.
+
+---
+
+### The library as a community — **after the refactor**
+
+**Tags, search, ratings, comments, favourites and sharing for dungeons.** The library today
+(`GET /api/dungeons/library`, `repo.listLibrary`) is every complete world somebody else
+made, newest first, and the only thing a player can do with one is take a copy
+(`POST /api/dungeons/:id/duplicate`). This turns it into something people can browse.
+
+- **Tags.** Decide who writes them. Code can derive some from the blueprint (size, level,
+  theme, what the goal is), which costs nothing. The model could write descriptive ones in
+  the dungeon pass, but those are prose, not numbers, so the seeded-RNG rule does not stop
+  it. The author may also add their own.
+- **Search.** Postgres full-text search over the title, summary and tags, plus filters for
+  size and level. No search service.
+- **Ratings.** Decide whether only players who have run a dungeon may rate it, which is
+  easy to check from `runs`, and whether a rating is stars or a thumbs-up.
+- **Comments.** These are the first text one player writes that another player reads, so
+  **moderation has to be designed before comments ship**: reporting, deletion by the
+  author, and limits per account (see [Paying for strangers](#paying-for-strangers) for
+  how accounts are limited). **Spoilers too**: a comment can give away a world's secrets,
+  and the library is deliberately built never to serve a world's `doc`.
+- **Favourites.** A per-player bookmark. A favourited world is not a copy until the player
+  takes one.
+- **Sharing.** A link that opens one dungeon's library card. The library is behind sign-in
+  today, so decide what someone who is not signed in sees when they open it: probably the
+  card and its cover illustration, and a guest sign-in to play it.
+
+**Tables to add:** `dungeon_tags`, `dungeon_ratings`, `dungeon_comments`, `favourites`.
+**Still to settle:** whether a dungeon may be unlisted from the library, which none can be
+today.
 
 ---
 

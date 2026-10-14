@@ -60,14 +60,12 @@ import { waitUntil } from "@vercel/functions";
 // ---------------------------------------------------------------------------
 
 /**
- * WHERE THE MODEL CALLS GO, now that there is no dev proxy.
+ * WHERE THE MODEL CALLS GO.
  *
- * `llm/client.ts` defaults to the relative `/api/anthropic`, which the Vite dev
- * server used to intercept and attach the key to — the arrangement that kept
- * the key out of the browser. That proxy is gone and this file is its
- * replacement: the API calls Anthropic directly, and the key is read from the
- * server's environment. The rule has not moved, only the wall — the key still
- * never reaches a browser, because a browser now talks only to this.
+ * The API calls Anthropic directly, with the key from the server's environment.
+ * This is what keeps the key out of the browser: a browser talks only to this
+ * API, and `llm/client.ts` has no default URL, so nothing calls the model
+ * until a process with a key says where it is.
  *
  * Once per process. `configureTransport` is module state in the client, which
  * is right for a process that only ever talks to one provider.

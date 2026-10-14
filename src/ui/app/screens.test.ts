@@ -212,7 +212,7 @@ describe("characters", () => {
   });
 
   /*
-   * A LOCAL RUN HAS NO LIBRARY. `?offline` and `?stub` never touch the server,
+   * AN OFFLINE RUN HAS NO LIBRARY. `?offline` never touches the server,
    * so the button is absent rather than present and refused — the same call the
    * sign-out control makes.
    */

@@ -301,8 +301,8 @@ export function Characters({
   /**
    * Take this character to the shelf of worlds other people wrote.
    *
-   * OPTIONAL, and absent on a `?offline` or `?stub` run for the same reason the
-   * sign-out control is: the library is a table in Postgres, and a local run has
+   * OPTIONAL, and absent on an `?offline` run for the same reason the sign-out
+   * control is: the library is a table in Postgres, and an offline run has
    * no account to read it with. The button is simply not there.
    */
   onBrowse?: (pc: PlayerCharacter) => void;
@@ -328,8 +328,8 @@ export function Characters({
    */
   notice?: string;
   /**
-   * Who is signed in. OPTIONAL, and absent on a `?offline` or `?stub` run —
-   * those are played entirely in the browser and require no account, so a
+   * Who is signed in. OPTIONAL, and absent on an `?offline` run —
+   * that is played entirely in the browser and require no account, so a
    * sign-out control there would offer to end a session that does not exist.
    */
   account?: { guest?: boolean; email?: string; name?: string };

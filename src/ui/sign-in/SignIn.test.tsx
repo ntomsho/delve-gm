@@ -4,7 +4,7 @@
  * no wait — and that a refusal lands on the card rather than vanishing.
  */
 
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createElement as h } from "react";
 import { renderDom, press } from "../test-utils/dom.ts";
 import { SignIn } from "./SignIn.tsx";
@@ -16,6 +16,10 @@ const byText = (page: ReturnType<typeof renderDom>, text: string) => {
 };
 
 describe("SignIn", () => {
+  // Whatever `.env.local` says, these tests are about a page with no captcha.
+  beforeEach(() => vi.stubEnv("VITE_TURNSTILE_SITE_KEY", ""));
+  afterEach(() => vi.unstubAllEnvs());
+
   it("lets a guest in with one click and no captcha when none is configured", async () => {
     const calls: (string | undefined)[] = [];
     const page = renderDom(

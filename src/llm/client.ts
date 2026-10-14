@@ -2,10 +2,10 @@
  * LLM CLIENT
  * ==========
  *
- * Everything goes through the dev proxy at `/api/anthropic`, which attaches the
- * API key server-side (see vite.config.ts). Nothing here knows the key exists,
- * which is the point: swapping the proxy for a real backend later changes
- * nothing on this side.
+ * The one file that talks to Anthropic. It does not know where Anthropic is or
+ * what the key is: the process says so once at startup, through
+ * `configureTransport`. The server and the dev CLIs do; the browser never
+ * does, because the browser talks only to our API and never holds the key.
  *
  * Three paths. `callModel` returns text. `callForJson` forces a tool call and
  * returns a validated object — the generation passes use that one, because a
@@ -35,16 +35,13 @@ const PATH = "/v1/messages";
 /**
  * Where requests go, and what rides along.
  *
- * In the browser this stays empty, so the URL is relative — `/api/anthropic/...`
- * — and the Vite dev proxy attaches the key. The bundle never holds it.
- *
- * `dev/cli-generate.ts` is the one caller that overrides this. It runs in Node,
- * outside the browser and outside the dev server, so there is no proxy to go
- * through and it reads the key from .env.local itself. That is not a loophole in
- * the rule: the rule is that the key never reaches the *browser*, and a Node
- * script is exactly where a key is supposed to live.
+ * NO DEFAULT. A call made before `configureTransport` throws rather than
+ * guessing a URL: a guessed one that nothing answers fails as a 404 in the
+ * middle of a generation, which reads like a network problem rather than a
+ * missing setting. `server/app.ts` (`configureAnthropic`), the dev CLIs and the
+ * live tests each configure it with the key from their own environment.
  */
-let baseUrl = "/api/anthropic";
+let baseUrl: string | undefined;
 let extraHeaders: Record<string, string> = {};
 
 export function configureTransport(opts: { baseUrl?: string; headers?: Record<string, string> }): void {
@@ -174,6 +171,9 @@ const BASE_DELAY_MS = 1000;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function post(body: unknown, signal?: AbortSignal): Promise<ApiResponse> {
+  if (baseUrl === undefined) {
+    throw new Error("LLM transport not configured: call configureTransport before calling the model.");
+  }
   let lastError: unknown;
 
   for (let attempt = 0; attempt <= RETRIES; attempt++) {

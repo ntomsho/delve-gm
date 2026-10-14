@@ -92,8 +92,8 @@ export interface SessionOptions {
  *
  * The two implementations are this file — the whole runtime, in process — and
  * `remote-session.ts`, which posts to the server and holds nothing but a store.
- * `App.tsx` takes one of these and cannot tell which it has, so `?offline` and
- * `?stub` still work with no server running while a real run goes over HTTP.
+ * `App.tsx` takes one of these and cannot tell which it has, so `?offline`
+ * still works with no server running while a real run goes over HTTP.
  */
 export interface PlayableSession {
   /** what the interface subscribes to */
@@ -110,8 +110,8 @@ export interface PlayableSession {
   /**
    * Pick a stored run back up and play on from where it stopped.
    *
-   * OPTIONAL, AND ABSENT ON A LOCAL RUN. `?offline` and `?stub` never write a
-   * run down anywhere, so there is nothing for them to come back to — and an
+   * OPTIONAL, AND ABSENT ON A LOCAL RUN. `?offline` never writes a run
+   * down anywhere, so there is nothing to come back to — and an
    * implementation that threw would be a worse answer than a method that
    * visibly is not there. `App` offers the control only where the method is.
    */
@@ -119,7 +119,7 @@ export interface PlayableSession {
   /**
    * A room's illustration, for its first arrival in the scrollback.
    *
-   * OPTIONAL, AND ABSENT ON A LOCAL RUN: `?offline` and `?stub` never ask for
+   * OPTIONAL, AND ABSENT ON A LOCAL RUN: `?offline` never asks for
    * one, so the fixture pages stay free.
    */
   illustration?(roomId: string): Promise<IllustrationAnswer>;
@@ -368,7 +368,7 @@ export function createGameSession(opts: SessionOptions = {}): GameSession {
      *
      * There is no server to tell and no roster to free a character on, so this
      * is the stage and nothing else — but the control exists on the play screen
-     * and interface work is done under `?stub`, so a button that did nothing
+     * and interface work is done under `?offline`, so a button that did nothing
      * there would be a button nobody could look at.
      *
      * NO TALLY, and no call. Abandoning is not walking out — the character is

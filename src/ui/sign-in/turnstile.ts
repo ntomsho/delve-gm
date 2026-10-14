@@ -35,7 +35,6 @@ declare global {
   }
 }
 
-const SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY as string | undefined;
 const SCRIPT = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
 
 let loading: Promise<TurnstileApi> | undefined;
@@ -62,11 +61,13 @@ function load(): Promise<TurnstileApi> {
  * to the button that asked, rather than floating somewhere on the page.
  */
 export async function captchaToken(host: HTMLElement): Promise<string | undefined> {
-  if (!SITE_KEY) return undefined;
+  // Read per call rather than at import, so a test can set it with `vi.stubEnv`.
+  const siteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY as string | undefined;
+  if (!siteKey) return undefined;
   const api = await load();
   return new Promise((resolve, reject) => {
     const id = api.render(host, {
-      sitekey: SITE_KEY,
+      sitekey: siteKey,
       appearance: "interaction-only",
       callback: (token) => {
         api.remove(id);
