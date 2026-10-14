@@ -53,7 +53,7 @@ import {
   visualSubjects,
   type PlateVisual,
 } from "../runtime/plate-visual.ts";
-import { coverDescription, roomPlate, type PlateAnswer, type RoomPlate } from "../runtime/plates.ts";
+import { coverDescription, plateSpots, roomPlate, type PlateAnswer, type RoomPlate } from "../runtime/plates.ts";
 import * as repo from "./repo.ts";
 import { guidePng, inkPng, PLATE_H, PLATE_W } from "./plate-image.ts";
 
@@ -125,13 +125,16 @@ export async function servePlate(
   const p = roomPlate(d, roomId, entryId);
   if (!p) return { status: "none" };
   const theme = d.pass.theme;
-  return serveKeyed(plateKey(p, theme, work.references), PLATE_MODEL, p.roomName, work, store, async () => {
+  const answer = await serveKeyed(plateKey(p, theme, work.references), PLATE_MODEL, p.roomName, work, store, async () => {
     const sKey = settingKey(theme);
     const setting = (await store.getPlateWords(sKey)) ?? (await store.savePlateWords(sKey, await work.setting(theme)));
     const visual = await work.visual(p);
     const prompt = plateImagePrompt(p, "marks", setting, visual, undefined, work.references);
     return work.draw(prompt, await guidePng(p, true));
   });
+  // Recomputed from the dungeon on every ask rather than stored with the image:
+  // the same camera drew the guide, so the buttons land on what it marked.
+  return answer.status === "ready" ? { ...answer, spots: plateSpots(p) } : answer;
 }
 
 // ---------------------------------------------------------------------------

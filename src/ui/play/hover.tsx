@@ -44,6 +44,8 @@ import type { Verb } from "./verbs.ts";
  */
 export const MAP_TIP = "dungeon-map-hover";
 export const CARD_TIP = "dungeon-card-hover";
+/** The buttons on a room's plate: follows the cursor, like the map's. One mount for every plate. */
+export const PLATE_TIP = "dungeon-plate-hover";
 
 /**
  * The pill's mount, and there is only one of it for both panels.

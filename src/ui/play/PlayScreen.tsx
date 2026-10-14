@@ -123,6 +123,19 @@ export function PlayScreen({
     [run, dungeon, shown]
   );
   const pc = useMemo(() => characterView(run), [run]);
+  /**
+   * The rooms this screen came up with already arrived in: on a resumed run,
+   * every room behind the player. Read once, at mount. Their plates are not
+   * asked for; only the room they are in gets its picture.
+   */
+  const [resumed] = useState(
+    () => new Set(run.log.flatMap((e) => (e.kind === "arrival" && e.roomId ? [e.roomId] : [])))
+  );
+  const here = useMemo(() => {
+    if (shown === undefined) return undefined;
+    const cameFrom = room?.exits.find((e) => e.cameFrom)?.connectorId;
+    return { roomId: shown, ...(cameFrom ? { cameFrom } : {}) };
+  }, [shown, room]);
   const explored = useMemo(() => map.rooms.filter((r) => r.known).length, [map]);
 
   /**
@@ -196,6 +209,9 @@ export function PlayScreen({
         compact={phone}
         {...(plate ? { plate } : {})}
         {...(cover ? { cover } : {})}
+        map={map}
+        resumed={resumed}
+        {...(here ? { here } : {})}
       />
       <InputArea
         stage={run.stage}

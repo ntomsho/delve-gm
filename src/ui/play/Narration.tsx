@@ -13,7 +13,9 @@
 import { useEffect, useRef } from "react";
 import { D20, Die, DiceRoll } from "./DiceRoll.tsx";
 import { Plate } from "./Plate.tsx";
+import { PLATE_TIP, ThingTooltip } from "./hover.tsx";
 import type { PlateAnswer } from "../../runtime/plates.ts";
+import type { MapView } from "../../store/selectors.ts";
 import type { LogEntry } from "../../store/game.ts";
 import type { RolledOutcome } from "../../runtime/types.ts";
 import { isLoss, type Effect, type FoeRoll } from "../../runtime/effects.ts";
@@ -216,12 +218,28 @@ export function Narration({
   compact = false,
   plate,
   cover,
+  map,
+  here,
+  resumed,
 }: {
   items: NarrationItem[];
   /** a room's plate; absent on a local run, which never asks for one */
   plate?: (roomId: string) => Promise<PlateAnswer>;
   /** the dungeon's cover, above the opening; absent on a local run */
   cover?: () => Promise<PlateAnswer>;
+  /** what the plates' buttons are: each one is the map's marker for the same thing */
+  map?: MapView;
+  /**
+   * The room the player is standing in, and the way they came into it. Only
+   * its plate carries buttons: a button on a room they have left offers
+   * actions from somewhere they are not.
+   */
+  here?: { roomId: string; cameFrom?: string };
+  /**
+   * Rooms already arrived in when the run was resumed. Their plates are not
+   * asked for: a resumed run shows only the plate of the room it is in.
+   */
+  resumed?: ReadonlySet<string>;
   busy?: boolean;
   /**
    * The newest roll is being written up. If it is also the newest item, it is
@@ -290,9 +308,19 @@ export function Narration({
               >
                 {item.roomName}
               </h2>
-              {plate && item.first && item.roomId && (
-                <Plate id={item.roomId} subject={item.roomName} load={() => plate(item.roomId!)} />
-              )}
+              {plate &&
+                item.first &&
+                item.roomId &&
+                (item.roomId === here?.roomId || !resumed?.has(item.roomId)) && (
+                  <Plate
+                    id={item.roomId}
+                    subject={item.roomName}
+                    load={() => plate(item.roomId!)}
+                    {...(map && item.roomId === here?.roomId
+                      ? { map, ...(here.cameFrom ? { cameFrom: here.cameFrom } : {}) }
+                      : {})}
+                  />
+                )}
               <Prose>{item.prose}</Prose>
             </section>
           );
@@ -356,6 +384,8 @@ export function Narration({
           />
         </div>
       )}
+      {/* One mount for every plate's buttons. Portalled, so the scroller cannot clip it. */}
+      {map && <ThingTooltip id={PLATE_TIP} float />}
     </div>
   );
 }

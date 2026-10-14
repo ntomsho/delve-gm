@@ -297,11 +297,35 @@ export function plateEntryFor(
   return surface?.id ?? entries[0];
 }
 
+/** One button on a plate: what it is, and where, as fractions of the plate from its top-left. */
+export interface PlateSpot {
+  id: string;
+  x: number;
+  y: number;
+}
+
+/**
+ * The plate's buttons: one at each point where the guide put a tag, and nowhere
+ * else — so a button sits on the thing the image model was told to draw there.
+ * The same test as `plateSketchSvg`'s tags: shown, and tagged (a door or an
+ * object; surfaces have none).
+ */
+export function plateSpots(p: RoomPlate): PlateSpot[] {
+  const tags = plateTags(p);
+  return p.hotspots
+    .filter((h) => h.status === "shown" && tags.has(h.id))
+    .flatMap((h) => h.points.map((q) => ({ id: h.id, x: q.x, y: q.y })));
+}
+
 /**
  * What the server says about a room's plate. `pending`: somebody's request is
- * drawing it, ask again shortly. `none`: there is not going to be one.
+ * drawing it, ask again shortly. `none`: there is not going to be one. A room's
+ * ready plate carries its buttons; a cover has none.
  */
-export type PlateAnswer = { status: "ready"; url: string } | { status: "pending" } | { status: "none" };
+export type PlateAnswer =
+  | { status: "ready"; url: string; spots?: PlateSpot[] }
+  | { status: "pending" }
+  | { status: "none" };
 
 /**
  * What a dungeon's cover is drawn from: the opening the player reads, and the

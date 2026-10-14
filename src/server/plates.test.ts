@@ -6,7 +6,7 @@
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 import { generateOffline } from "../runtime/__fixtures__/offline.ts";
-import { coverDescription, plateEntries, roomPlate } from "../runtime/plates.ts";
+import { coverDescription, plateEntries, plateTags, roomPlate } from "../runtime/plates.ts";
 import type { PlateRow } from "./repo.ts";
 import { inkPng } from "./plate-image.ts";
 import {
@@ -116,6 +116,19 @@ describe("servePlate", () => {
     expect(calls.uploads).toEqual([`${plateKey(roomPlate(d, roomId, entryId)!, d.pass.theme, 4)}.png`]);
     expect(calls.prompts[0]).toContain("Dressed grey stone, dim.");
     expect(calls.prompts[0]).toContain("4 images are style references");
+  });
+
+  it("carries a button at each of the guide's tags, and nowhere else", async () => {
+    const m = memoryStore();
+    const { work } = fakeWork();
+    const got = await servePlate(d, roomId, entryId, work, m.store);
+    const p = roomPlate(d, roomId, entryId)!;
+    const tags = plateTags(p);
+    const tagged = p.hotspots.filter((h) => h.status === "shown" && tags.has(h.id));
+    expect(got.status === "ready" && got.spots).toEqual(
+      tagged.flatMap((h) => h.points.map((q) => ({ id: h.id, x: q.x, y: q.y })))
+    );
+    expect(tagged.length).toBeGreaterThan(0);
   });
 
   it("asks for the setting line once per dungeon", async () => {

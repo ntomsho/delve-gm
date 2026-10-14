@@ -19,8 +19,8 @@
  */
 
 import { useRef, useState } from "react";
-import { MAP_TIP, ThingTooltip, useAnchor, useHover } from "./hover.tsx";
-import { roomVerb, thingVerb, wayVerb } from "./verbs.ts";
+import { MAP_TIP, ThingTooltip, useAnchor, useHover, type HoverCard } from "./hover.tsx";
+import { roomVerb, thingVerb, wayVerb, type Verb } from "./verbs.ts";
 import { color } from "../theme.ts";
 import {
   pathMidpoint,
@@ -116,6 +116,30 @@ function doorRect(door: LayoutDoor) {
 }
 
 /**
+ * WHAT A THING SAYS WHEN POINTED AT, and what a click on it offers — the map's
+ * words, shared with the buttons on a room's plate so the two cannot drift.
+ */
+export function fixtureHover(f: MapFixtureView): [HoverCard, Verb] {
+  return [{ title: f.name || "Something", note: f.position, body: f.composed }, thingVerb(f.name)];
+}
+
+/** See `fixtureHover`. `reachable`: a way out of the room the player is standing in. */
+export function doorHover(c: MapConnectorView, reachable: boolean): [HoverCard, Verb] {
+  return [
+    {
+      title: c.name || (c.surface ? "The way out" : "A way through"),
+      note: c.surface
+        ? "out of the dungeon — stepping through ends the run"
+        : c.blocked
+          ? c.requirement
+          : undefined,
+      body: c.composed,
+    },
+    wayVerb(c, reachable),
+  ];
+}
+
+/**
  * What is standing in the room, as plain dots on their own layer.
  *
  * MARKERS ARE DOTS FOR NOW — author's call, with a library of line art deferred.
@@ -137,13 +161,7 @@ function Fixture({ f }: { f: MapFixtureView }) {
   const lit = useHover().lit === f.id;
 
   return (
-    <g
-      {...anchor(
-        f.id,
-        { title: f.name || "Something", note: f.position, body: f.composed },
-        thingVerb(f.name)
-      )}
-    >
+    <g {...anchor(f.id, ...fixtureHover(f))}>
       {f.at.map((p, i) => (
         <circle
           key={i}
@@ -560,21 +578,7 @@ function Door({ c }: { c: MapConnectorView }) {
     // No cursor and no click handler of its own. Every door has a hover card and
     // so takes the pointer from `[data-hover-id]`, and what a click offers is on
     // the element as an attribute — see `ActionPill`.
-    <g
-      {...anchor(
-        c.id,
-        {
-          title: c.name || (c.surface ? "The way out" : "A way through"),
-          note: c.surface
-            ? "out of the dungeon — stepping through ends the run"
-            : c.blocked
-              ? c.requirement
-              : undefined,
-          body: c.composed,
-        },
-        wayVerb(c, reachable.has(c.id))
-      )}
-    >
+    <g {...anchor(c.id, ...doorHover(c, reachable.has(c.id)))}>
       {/* The door: white, outlined at the same weight as the wall it interrupts,
           so it reads as a leaf set into the wall rather than as a gap. A blocked
           one takes the same outline in torch — the way is there and it is shut,

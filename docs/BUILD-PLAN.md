@@ -776,6 +776,17 @@ Differences from the design above:
   `SUPABASE_SERVICE_ROLE_KEY`, every room answers `none`.
 - **Guide tags are stroked paths, not `<text>`.** A serverless function has no fonts,
   so sharp would rasterise `<text>` as nothing.
+- **The plate's buttons are BUILT, as white dots only.** A ready answer carries
+  `spots` (`plateSpots`, `src/runtime/plates.ts`): one per point of each `shown` hotspot
+  that has a guide tag, so a dot sits where the guide's marker was. They are recomputed
+  from the dungeon on every ask, not stored with the image. Each dot is the map's marker
+  for that thing (`doorHover` / `fixtureHover` in `DungeonMap.tsx`): the same card, the
+  same verb, and the same `lit` id, so the plate, the map and the room card light
+  together. A thing the map does not show has no dot. The way out of the dungeon is
+  torch, as on the map. Dots have a 3 px ink rim. The door they came in by
+  (`ExitView.cameFrom`) carries a U-turn. Only the plate of the room the player is in has
+  buttons. A resumed run asks only for the current room's plate; rooms already arrived in
+  at mount (`resumed` in `PlayScreen`) are skipped. Not built yet: the `around`, `behind-wall` and `off-frame` arrows.
 
 **Dungeon covers are BUILT (2026-10-13).** A cover is the dungeon's exterior: the picture
 on its library card, beside it in run setup, and above its opening.

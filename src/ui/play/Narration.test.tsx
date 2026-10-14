@@ -3,7 +3,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { createElement as h } from "react";
+import { act, createElement as h } from "react";
 import { Narration, toItems } from "./Narration.tsx";
 import { renderDom } from "../__fixtures__/dom.ts";
 
@@ -88,6 +88,23 @@ describe("a room's plate", () => {
     expect(container.querySelectorAll('[aria-label$="still being drawn"]').length).toBe(2);
   });
 
+  it("on a resumed run, is asked for only in the room the player is in", () => {
+    const asked: string[] = [];
+    const plate = async (roomId: string) => {
+      asked.push(roomId);
+      return { status: "pending" as const };
+    };
+    renderDom(
+      h(Narration, {
+        items: toItems(log, (id) => id),
+        plate,
+        here: { roomId: "r2" },
+        resumed: new Set(["r1", "r2"]),
+      })
+    );
+    expect(asked).toEqual(["r2"]);
+  });
+
   it("is never asked for without a loader, as on a local run", () => {
     const { container } = renderDom(h(Narration, { items: toItems(log, (id) => id) }));
     expect(container.querySelectorAll('[aria-label*="A drawing of"]').length).toBe(0);
@@ -112,5 +129,40 @@ describe("the dungeon's cover", () => {
   it("is never asked for on a local run", () => {
     const { container } = renderDom(h(Narration, { items: toItems(log, () => "", dungeon) }));
     expect(container.querySelector('[aria-label*="A drawing of"]')).toBeNull();
+  });
+});
+
+describe("a plate's buttons", () => {
+  const log = [
+    { kind: "arrival" as const, text: "A hall.", roomId: "r1", turn: 1 },
+    { kind: "arrival" as const, text: "A cell.", roomId: "r2", turn: 2 },
+  ];
+  const spots = (roomId: string) => [{ id: `door-${roomId}`, x: 0.5, y: 0.5 }];
+  const map = {
+    bounds: { w: 10, h: 10 },
+    rooms: [],
+    fixtures: [],
+    connectors: ["r1", "r2"].map((r) => ({
+      id: `door-${r}`,
+      from: r,
+      to: "x",
+      interChunk: false,
+      path: { kind: "line" as const, from: { x: 0, y: 0 }, to: { x: 1, y: 0 } },
+      known: true,
+      toUnknown: true,
+      blocked: false,
+      surface: false,
+      name: "a door",
+    })),
+  };
+
+  it("are drawn only on the plate of the room the player is in", async () => {
+    const plate = async (roomId: string) => ({ status: "ready" as const, url: `u/${roomId}`, spots: spots(roomId) });
+    const { container } = renderDom(
+      h(Narration, { items: toItems(log, (id) => id), plate, map, here: { roomId: "r2" } })
+    );
+    await act(async () => {});
+    const ids = [...container.querySelectorAll("[data-plate-spot]")].map((e) => e.getAttribute("data-plate-spot"));
+    expect(ids).toEqual(["door-r2"]);
   });
 });

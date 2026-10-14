@@ -17408,6 +17408,20 @@ function plateEntryFor(d, run, roomId) {
 	return d.entities.connectors.find((c) => entries.includes(c.id) && isSurfaceExit(c))?.id ?? entries[0];
 }
 /**
+* The plate's buttons: one at each point where the guide put a tag, and nowhere
+* else — so a button sits on the thing the image model was told to draw there.
+* The same test as `plateSketchSvg`'s tags: shown, and tagged (a door or an
+* object; surfaces have none).
+*/
+function plateSpots(p) {
+	const tags = plateTags(p);
+	return p.hotspots.filter((h) => h.status === "shown" && tags.has(h.id)).flatMap((h) => h.points.map((q) => ({
+		id: h.id,
+		x: q.x,
+		y: q.y
+	})));
+}
+/**
 * What a dungeon's cover is drawn from: the opening the player reads, and the
 * way in that brings them to the first room — the place and its entrance as
 * someone approaching would see them.
@@ -17962,13 +17976,17 @@ async function servePlate(d, roomId, entryId, work, store = repo_exports) {
 	const p = roomPlate(d, roomId, entryId);
 	if (!p) return { status: "none" };
 	const theme = d.pass.theme;
-	return serveKeyed(plateKey(p, theme, work.references), PLATE_MODEL, p.roomName, work, store, async () => {
+	const answer = await serveKeyed(plateKey(p, theme, work.references), PLATE_MODEL, p.roomName, work, store, async () => {
 		const sKey = settingKey(theme);
 		const setting = await store.getPlateWords(sKey) ?? await store.savePlateWords(sKey, await work.setting(theme));
 		const visual = await work.visual(p);
 		const prompt = plateImagePrompt(p, "marks", setting, visual, void 0, work.references);
 		return work.draw(prompt, await guidePng(p, true));
 	});
+	return answer.status === "ready" ? {
+		...answer,
+		spots: plateSpots(p)
+	} : answer;
 }
 /**
 * The dungeon from outside: the cover on its library card and above its
