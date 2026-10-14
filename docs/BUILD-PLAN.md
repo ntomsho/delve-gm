@@ -874,6 +874,75 @@ first time the kind is met.
 - **Interacts with [First impressions](#first-impressions)**: a sprite shows a stranger
   without naming her, which is the point of that feature.
 
+**Sprite spike (2026-10-14, about $1 in all).** `node src/dev/cli-sprites.ts [--stage]
+[--dungeons a.json,b.json] [--setups gpt2-low]`, contact sheet at
+`out/sprites/index.html`. Run on `live-4201` and two dungeons from the database (The
+Frozen Chancel, The Attic of the Droll Scholars): 13 sprites, 10 rooms.
+
+- **Who gets a sprite (the author's rules).** Solos, leaders and named individuals get
+  one each. A group's nameless members, in every variant, share one. That is 2–3 sprites
+  a dungeon at size 1 and 8 at size 3 (`live-4201` has five leaders), so **$0.03–0.12 a
+  dungeon**, paid once and shared like plates.
+- **How a room's creatures stand.** The front row is the leader; or, with no leader, the
+  named creatures side by side, slightly overlapping; or, with neither, one copy of the
+  group's sprite. The nameless stand behind, **at most 4: two on each side**, the second
+  rank further back. Anything unrelated is its own cluster.
+- **Where.** A floor point chosen in code, put through `projectToFrame`, so scale and
+  perspective come from the plate's own camera. Height comes from a size word Haiku picks
+  (`tiny`…`huge`), mapped to feet in code.
+- **Model: GPT Image 2 low, with the plate references.** It drew all 13 in the plates'
+  manner. Klein returned a black square for 4 of 13 (body horror, and one woman), with its
+  safety checker off as well, so it is out.
+- **Cut-outs are free**, as planned: threshold, close by 3 px, flood the white from the
+  border, keep the largest piece. Every sprite cut cleanly.
+- **Shrink as coverage, not by threshold.** A 1536 px figure shown at ~300 px loses its
+  lines at the plate's threshold and reads faint. Shrinking the ink as greyscale and
+  calling a pixel black at ≥20% ink matches the plate's line weight. Thickening the lines
+  first was tried and fills small figures solid.
+- **Reserved floor: recommended for every plate, awaiting the author's call.** With the point chosen
+  after the plate is drawn, GPT's drawing drifted from the guide enough to stand figures
+  over a widened chasm or in a doorway in 3 of 10 rooms. With the patch chosen first —
+  the spot with the most open, visible floor in a 12 × 9 ft patch around it — drawn as a
+  dotted outline in the guide, and an OPEN FLOOR line in the prompt, **9 of 10 read right**.
+  - The miss is a 9-cell room (Dormitory) where no patch fits; they stand by the door.
+  - The patch changes the guide and prompt, so it changes every plate's key: plates
+    redraw from then on (no retrofit).
+  - Side effect: The Pit lost its pit. The pit is not a placed feature in that view, so
+    the first plate drew it from the room's words alone, and the bare-floor instruction
+    won. A room's defining feature belongs in the plan, not only in its prose.
+- **Needs fixing first:** generation writes one person into each room they appear in as
+  separate entities ([One leader, one entity](#one-leader-one-entity)): Chadwick, Beatrix
+  and Reinhold twice each; two Broodmothers. The spike merges by group and name; the
+  game should not have to.
+
+**Sprite style references: DECIDED (2026-10-14, about $0.70).** Nine, in
+`assets/sprite-refs/` with a README; drawn by GPT Image 2 low from words alone
+(`node src/dev/cli-sprites.ts --refs N`, rounds 1–4), never from anyone's art.
+- Round 1 (klein and GPT, "sparse" style) came out **too clean and nice**. Klein also stood
+  every creature upright, rat and insect included, because the framing said "standing".
+- Round 2 (GPT, rougher pen line, plain people, gnarly but not gory creatures) was right,
+  but put everyone in rags; a reference set all in rags dresses every sprite in rags.
+  Rounds 3–4 redrew the scholar and the thief (as an ordinary woman) with well-kept clothes.
+- **The set:** sellsword, scholar, thief, old woman, cultist; brute, skeleton, rat, insect.
+  Upright, hunched, four- and many-legged; two people in good order against three in rags.
+- **The prompt matches them** (`SPRITE_GRIT`): rough line, people plain rather than
+  handsome, creatures unpleasant but not gory, clothes as worn or as kept as the figure's
+  own description says. Without it the style text's "crisp outlines" pulls the other way.
+- **Framing:** a person stands, so a group can be arranged; a creature keeps its natural
+  stance. "Natural stance" for everyone let a scholar sit down.
+- Against the room references, the same 13 sprites came out plainer, rougher and gnarlier.
+  Small back-row figures read a little darker than the sparse plate; raising
+  `INK_COVERAGE` is the free fix if it matters.
+
+**Figure scale: DECIDED, `FIGURE_SCALE` = 1.4.** GPT draws the room larger than the guide's
+camera says (in Stilton's Chamber, walls ~15% taller and the room shifted up the frame),
+and doorways most of all, so a figure true to the guide read like a child beside them.
+Judged by eye at ×1, ×1.2 and ×1.4 on four rooms; ×1.4 read right in all four. Every height
+is multiplied; feet stay where the camera puts them. The reserved patch is sized for ×1,
+so a big group now spills past it a little, harmlessly so far. Shrinking the guide's door
+and wall heights instead would be the principled fix, at the cost of redrawing every plate,
+and is only worth it if 1.4 proves uneven across more rooms.
+
 **3. Item illustrations — two very different costs.**
 
 - **The equipment catalogue** (122 entries in `equipment.ts`) is drawn **once, at build
