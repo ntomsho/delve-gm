@@ -67,10 +67,19 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 export const hurt = (pc: CharacterView) => pc.hp.current <= Math.ceil(pc.hp.max / 3);
 const signed = (n: number) => `${n >= 0 ? "+" : ""}${n}`;
 
-export function CharacterPanel({ pc, compact = false }: { pc: CharacterView; compact?: boolean }) {
+export function CharacterPanel({
+  pc,
+  compact = false,
+  columns = false,
+}: {
+  pc: CharacterView;
+  compact?: boolean;
+  /** the compact sheet, its sections in columns: a phone held sideways */
+  columns?: boolean;
+}) {
   const { slots } = pc;
   const drops = useDrops(pc);
-  if (compact) return <CompactSheet pc={pc} drops={drops} />;
+  if (compact) return <CompactSheet pc={pc} drops={drops} columns={columns} />;
   // Overburdened is allowed — Knave leaves the consequence to the table — so it
   // is flagged rather than prevented.
   const over = slots.overburdened;
@@ -245,7 +254,15 @@ function CRow({ label, children }: { label: string; children: React.ReactNode })
  * tooltip on the desktop, which a finger cannot raise — opened in place, one row
  * at a time.
  */
-function CompactSheet({ pc, drops }: { pc: CharacterView; drops: ReturnType<typeof useDrops> }) {
+function CompactSheet({
+  pc,
+  drops,
+  columns,
+}: {
+  pc: CharacterView;
+  drops: ReturnType<typeof useDrops>;
+  columns: boolean;
+}) {
   const { slots } = pc;
   const [open, setOpen] = useState<string>();
 
@@ -276,6 +293,8 @@ function CompactSheet({ pc, drops }: { pc: CharacterView; drops: ReturnType<type
         </div>
       </header>
 
+      {/* Sideways the sections flow into three columns, each kept whole. */}
+      <div className={columns ? "mt-[22px] columns-3 gap-8 [&>div]:mb-5 [&>div]:mt-0 [&>div]:break-inside-avoid" : ""}>
       <CRow label="Ability · bonus · def">
         <div className="grid grid-cols-3 gap-px border border-rule bg-rule">
           {pc.abilities.map((a) => (
@@ -390,6 +409,7 @@ function CompactSheet({ pc, drops }: { pc: CharacterView; drops: ReturnType<type
           )}
         </ul>
       </CRow>
+      </div>
     </aside>
   );
 }

@@ -1981,6 +1981,20 @@ Android Chrome) without zooming the page, losing the input under the keyboard, o
 a hover; and desktop screenshots at 1440 and 1100 unchanged against the ones handed to
 Design.
 
+**Held sideways — BUILT (2026-10-15).** A landscape phone is wider than `PHONE` and used to
+get the desktop grid, which does not fit 390 px of height. `PHONE_LANDSCAPE`
+(`(orientation: landscape) and (max-height: 500px)`) keeps it on the tabs, laid out across:
+- the tab bar runs down the left edge (`PhonePlay`, `landscape`), the open tab's rule on its
+  right;
+- **Map:** the map on the left half, *You are in* on the right;
+- **Chat:** the scrollback on the left, the input in its own column on the right
+  (`min(42%, 340px)`), settled at the bottom;
+- **Room:** the name, then the plate as large as the rest of the screen allows (`Plate`
+  `fill`, sized by container units);
+- **Character:** the compact sheet's sections in three columns (`CharacterPanel` `columns`).
+
+Checked in headless Chrome at 844 × 390 and 390 × 844; not yet on a real phone.
+
 ---
 
 ## 4. Accepted gaps

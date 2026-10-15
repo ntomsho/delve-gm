@@ -802,15 +802,15 @@ describe("the player", () => {
     expect(r.rejected[0]!.reason).toMatch(/no way leads/);
   });
 
-  // A barred way is not an error — it is a thing to be standing in front of.
-  it("stops them where they are when every way across is blocked", () => {
+  // A barred way the commit does nothing about goes nowhere, and the referee's
+  // narration was written as though it did. Refused, with the reason, so the
+  // retry either opens it or says they are stopped (the Frosted Gaol's iron gate).
+  it("refuses a move stopped before its first step, saying what stopped it", () => {
     world.entities.connectors = world.entities.connectors.filter((c) => c.id !== "arch");
     const r = applyCommit(world, commit({ entityId: PLAYER_ID, path: "roomId", value: ROOM_B }));
-    expect(r.ok).toBe(true);
-    expect(r.world!.currentRoomId).toBe(ROOM_A);
-    expect(r.events.find((e) => e.kind === "movement-stopped")!.detail).toMatch(
-      /barred from the far side/
-    );
+    expect(r.ok).toBe(false);
+    expect(r.rejected[0]!.reason).toMatch(/cannot set out: .*barred from the far side/);
+    expect(r.rejected[0]!.reason).toMatch(/"conditional" to null/);
   });
 
   // Unbar the door and walk through it is one commit. The check reads the world
@@ -836,13 +836,6 @@ describe("the player", () => {
     const w = ok(commit({ entityId: PLAYER_ID, path: "roomId", value: ROOM_B }));
     // The open arch, not the barred door.
     expect(w.arrivedVia).toBe("arch");
-  });
-
-  it("records the last way crossed when a walk ends short", () => {
-    world.entities.connectors = world.entities.connectors.filter((c) => c.id !== "arch");
-    const r = applyCommit(world, commit({ entityId: PLAYER_ID, path: "roomId", value: ROOM_B }));
-    // They never crossed anything, so there is nothing behind them to name.
-    expect(r.world!.arrivedVia).toBeUndefined();
   });
 
   it("leaves it alone when the walk covers no ground", () => {

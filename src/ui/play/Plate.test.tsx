@@ -168,6 +168,16 @@ describe("doorHeading", () => {
     expect(doorHeading({ at, through: { x: 16, y: 11 } })).toBe("e");
     expect(doorHeading({ at, through: { x: 4, y: 9 } })).toBe("w");
   });
+
+  it("points the way the door LEADS from the plate's room, whichever side the plan put `through`", () => {
+    // A room south of the door: its floor is y 10..30. `through` sits inside it,
+    // so the door leads north out of it, not south into it.
+    const room = { kind: "polygon" as const, points: [{ x: 0, y: 10 }, { x: 20, y: 10 }, { x: 20, y: 30 }, { x: 0, y: 30 }] };
+    const at = { x: 10, y: 10 };
+    expect(doorHeading({ at, through: { x: 10, y: 16 } }, room)).toBe("n");
+    // `through` on the far side already: left alone.
+    expect(doorHeading({ at, through: { x: 10, y: 4 } }, room)).toBe("n");
+  });
 });
 
 describe("the creatures stood in a plate", () => {

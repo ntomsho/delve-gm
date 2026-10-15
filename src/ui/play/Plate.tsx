@@ -30,6 +30,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { PlateAnswer, PlateSpot } from "../../runtime/plates.ts";
 import type { SpriteAnswer } from "../../runtime/sprites.ts";
+import type { Shape } from "../../runtime/layout.ts";
 import { figureHeight, type PlateFigure } from "../../engine/index.ts";
 import type { MapView } from "../../store/selectors.ts";
 import type { FixtureShape } from "../../store/selectors.ts";
@@ -66,15 +67,41 @@ function inkStyle(url: string) {
   };
 }
 
+type Pt = { x: number; y: number };
+
+/** Inside a polygon ring, by crossings. */
+function inRing(ring: Pt[], p: Pt): boolean {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const a = ring[i];
+    const b = ring[j];
+    if (a.y > p.y !== b.y > p.y && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) inside = !inside;
+  }
+  return inside;
+}
+
+function inShape(shape: Shape, p: Pt): boolean {
+  if (shape.kind === "circle") return Math.hypot(p.x - shape.at.x, p.y - shape.at.y) < shape.r;
+  return inRing(shape.points, p) && !(shape.holes ?? []).some((h) => inRing(h, p));
+}
+
+const FLIPPED: Record<Heading, Heading> = { n: "s", s: "n", e: "w", w: "e" };
+
 /**
- * The map's door, as a heading: from the door toward its far side, whichever
- * axis is longer, on the map's compass with north up.
+ * The map's door, as a heading on the map's compass with north up: the way it
+ * LEADS from `room`, the room the plate shows.
+ *
+ * `through` is the middle of the cell on one side of the door — the side the
+ * floor plan happened to list second, which is the player's own room as often
+ * as not. So the heading is read from the door toward it, whichever axis is
+ * longer, and turned round when that cell is inside `room`: a south door in a
+ * room listed second pointed north, back into the room (2026-10-15).
  */
-export function doorHeading(door: { at: { x: number; y: number }; through: { x: number; y: number } }): Heading {
+export function doorHeading(door: { at: Pt; through: Pt }, room?: Shape): Heading {
   const dx = door.through.x - door.at.x;
   const dy = door.through.y - door.at.y;
-  if (Math.abs(dx) >= Math.abs(dy)) return dx >= 0 ? "e" : "w";
-  return dy >= 0 ? "s" : "n";
+  const toward: Heading = Math.abs(dx) >= Math.abs(dy) ? (dx >= 0 ? "e" : "w") : dy >= 0 ? "s" : "n";
+  return room && inShape(room, door.through) ? FLIPPED[toward] : toward;
 }
 
 /**
@@ -168,8 +195,9 @@ function Spot({ spot, card, verb, look }: { spot: PlateSpot; card: HoverCard; ve
  * The plate's buttons, each looked up on the map: no entry there, no button.
  * `cameFrom` is the connector they walked in by, which carries the U-turn.
  */
-function Spots({ spots, map, cameFrom }: { spots: PlateSpot[]; map: MapView; cameFrom?: string }) {
+function Spots({ spots, map, roomId, cameFrom }: { spots: PlateSpot[]; map: MapView; roomId: string; cameFrom?: string }) {
   const { reachable } = useHover();
+  const room = map.rooms.find((r) => r.id === roomId)?.shape;
   return (
     <>
       {spots.map((s, i) => {
@@ -181,7 +209,7 @@ function Spots({ spots, map, cameFrom }: { spots: PlateSpot[]; map: MapView; cam
             : c.id === cameFrom
               ? { kind: "door", inside: "came-from" }
               : c.door
-                ? { kind: "door", inside: "arrow", heading: doorHeading(c.door) }
+                ? { kind: "door", inside: "arrow", heading: doorHeading(c.door, room) }
                 : { kind: "door", inside: "none" };
           return <Spot key={i} spot={s} card={card} verb={verb} look={look} />;
         }
@@ -310,6 +338,7 @@ export function Plate({
   cameFrom,
   sprite,
   figures,
+  fill = false,
 }: {
   id: string;
   subject: string;
@@ -321,6 +350,11 @@ export function Plate({
   sprite?: (spriteId: string) => Promise<SpriteAnswer>;
   /** who stands where now; passed only while the player is in this room */
   figures?: PlateFigure[];
+  /**
+   * As large as the box it is in allows, at 3:2, rather than the prose's
+   * width. The box must be a size container (`[container-type:size]`).
+   */
+  fill?: boolean;
 }) {
   const answer = useAnswer<PlateAnswer>(id, load);
   const [open, setOpen] = useState(false);
@@ -340,10 +374,15 @@ export function Plate({
 
   if (answer.status === "none") return null;
 
+  // Filling, the frame is the largest 3:2 that fits the container both ways.
+  const frame = fill ? "mx-auto aspect-[3/2]" : "mb-4 aspect-[3/2] w-full max-w-[62ch]";
+  const frameStyle = fill ? { width: "min(100cqw, 150cqh)" } : undefined;
+
   if (answer.status === "pending") {
     return (
       <div
-        className="mb-4 flex aspect-[3/2] w-full max-w-[62ch] items-center justify-center border border-dashed border-rule-faint"
+        className={`${frame} flex items-center justify-center border border-dashed border-rule-faint`}
+        style={frameStyle}
         role="img"
         aria-label={`A drawing of ${subject}, still being drawn`}
       >
@@ -357,7 +396,7 @@ export function Plate({
     <>
       {/* The dots sit beside the picture, not in it: a button inside a button
           is not allowed, and a click on a dot must not open the full size. */}
-      <div className="relative mb-4 aspect-[3/2] w-full max-w-[62ch]">
+      <div className={`relative ${frame}`} style={frameStyle}>
         <button
           type="button"
           className="absolute inset-0 block cursor-zoom-in"
@@ -366,7 +405,7 @@ export function Plate({
           aria-label={`A drawing of ${subject}. Open it full size.`}
         />
         {people}
-        {map && answer.spots && <Spots spots={answer.spots} map={map} {...(cameFrom ? { cameFrom } : {})} />}
+        {map && answer.spots && <Spots spots={answer.spots} map={map} roomId={id} {...(cameFrom ? { cameFrom } : {})} />}
       </div>
       {open && (
         <div

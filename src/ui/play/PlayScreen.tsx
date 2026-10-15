@@ -37,7 +37,7 @@ import type { RunState } from "../../store/game.ts";
 import { roomFigures, type PlateAnswer } from "../../runtime/plates.ts";
 import type { SpriteAnswer } from "../../runtime/sprites.ts";
 import { drawableCreatures, type PlateFigure } from "../../engine/index.ts";
-import { PHONE, TOUCH, useMediaQuery } from "../media.ts";
+import { PHONE, PHONE_LANDSCAPE, TOUCH, useMediaQuery } from "../media.ts";
 
 export interface PlayScreenProps {
   dungeon: GeneratedDungeon;
@@ -78,7 +78,9 @@ export function PlayScreen({
   sprite,
 }: PlayScreenProps) {
   const [draft, setDraft] = useState("");
-  const phone = useMediaQuery(PHONE);
+  // A phone held sideways is still a phone: the tabs, laid out across the screen.
+  const landscape = useMediaQuery(PHONE_LANDSCAPE);
+  const phone = useMediaQuery(PHONE) || landscape;
   const touch = useMediaQuery(TOUCH);
   // Chat first: a run starts, and resumes, where it is played.
   const [tab, setTab] = useState<Tab>("chat");
@@ -222,8 +224,7 @@ export function PlayScreen({
   const xpTotal = (run.pc.xp ?? 0) + (run.tally?.total ?? 0);
 
   // Each panel built once, and laid out by whichever shell is showing.
-  const narration = (
-    <>
+  const scrollback = (
       <Narration
         items={items}
         busy={busy}
@@ -236,6 +237,8 @@ export function PlayScreen({
         resumed={resumed}
         {...(here ? { here } : {})}
       />
+  );
+  const input = (
       <InputArea
         stage={run.stage}
         roll={run.pendingRoll}
@@ -252,6 +255,20 @@ export function PlayScreen({
         onShowSummary={() => setSummary(true)}
         compact={phone}
       />
+  );
+  // Sideways, the input stands in its own column to the right of the chat,
+  // settled at the bottom like the end of the scrollback beside it.
+  const narration = landscape ? (
+    <div className="flex min-h-0 flex-1" data-chat-columns>
+      <div className="flex min-w-0 flex-1 flex-col">{scrollback}</div>
+      <div className="flex w-[min(42%,340px)] shrink-0 flex-col justify-end overflow-y-auto border-l border-rule">
+        {input}
+      </div>
+    </div>
+  ) : (
+    <>
+      {scrollback}
+      {input}
     </>
   );
 
@@ -306,7 +323,20 @@ export function PlayScreen({
             tab={tab}
             onTab={setTab}
             {...(onMainMenu ? { onMainMenu } : {})}
+            landscape={landscape}
             map={
+              landscape ? (
+                // Sideways: the map on the left half, where you are on the right.
+                <div className="grid h-full grid-cols-2" data-map-columns>
+                  <div className="flex min-h-0 flex-col border-r border-rule pb-2">
+                    <MapHeader name={dungeon.pass.name} map={map} compact />
+                    <div data-no-swipe className="mx-4 min-h-0 flex-1 border border-rule-faint bg-paper">
+                      <DungeonMap map={map} className="h-full w-full" controls />
+                    </div>
+                  </div>
+                  <div className="min-h-0 overflow-y-auto bg-panel">{room && <RoomCard room={room} compact />}</div>
+                </div>
+              ) : (
               <>
                 <MapHeader name={dungeon.pass.name} map={map} compact />
                 {/* The map takes every drag for itself — panning — so a swipe
@@ -323,6 +353,7 @@ export function PlayScreen({
                   </div>
                 )}
               </>
+              )
             }
             chat={narration}
             room={
@@ -332,9 +363,10 @@ export function PlayScreen({
                 {...(here?.cameFrom ? { cameFrom: here.cameFrom } : {})}
                 {...(sprite && figures ? { sprite, figures } : {})}
                 map={map}
+                fill={landscape}
               />
             }
-            sheet={<CharacterPanel pc={pc} compact />}
+            sheet={<CharacterPanel pc={pc} compact columns={landscape} />}
           />
           {endOfRun}
         </>
@@ -386,6 +418,7 @@ function RoomTab({
   map,
   sprite,
   figures,
+  fill = false,
 }: {
   name?: string;
   roomId?: string;
@@ -394,7 +427,32 @@ function RoomTab({
   map: MapView;
   sprite?: (spriteId: string) => Promise<SpriteAnswer>;
   figures?: PlateFigure[];
+  /** sideways: the name, then the picture as large as the rest of the screen allows */
+  fill?: boolean;
 }) {
+  if (fill) {
+    return (
+      <div className="flex h-full flex-col px-4 pb-3 pt-2" data-room-fill>
+        <h2 className="mb-2 shrink-0 font-display text-[19px] font-bold leading-tight text-ink">{name ?? "Somewhere"}</h2>
+        <div className="min-h-0 flex-1 [container-type:size]">
+          {roomId && load ? (
+            <Plate
+              key={roomId}
+              id={roomId}
+              subject={name ?? "this room"}
+              load={load}
+              map={map}
+              fill
+              {...(cameFrom ? { cameFrom } : {})}
+              {...(sprite && figures ? { sprite, figures } : {})}
+            />
+          ) : (
+            <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-ash">No picture of this room</p>
+          )}
+        </div>
+      </div>
+    );
+  }
   return (
     // Centred in the tab, which is otherwise a picture floating at the top of an empty screen.
     <div className="flex min-h-full flex-col justify-center px-4 py-4 [&>*:last-child]:mb-0">

@@ -14,6 +14,13 @@ import { useSyncExternalStore } from "react";
 
 /** Below this the play screen is tabs. Matches the handoff's `max-[640px]`. */
 export const PHONE = "(max-width: 640px)";
+/**
+ * A phone held sideways: wider than `PHONE`, but far too short for the desktop
+ * grid, which it used to get. Still the phone's tabs, laid out across the
+ * screen instead of down it. 500 px is above any phone's landscape height and
+ * below a tablet's.
+ */
+export const PHONE_LANDSCAPE = "(orientation: landscape) and (max-height: 500px)";
 /** No pointer that can hover: a finger. */
 export const TOUCH = "(hover: none)";
 
