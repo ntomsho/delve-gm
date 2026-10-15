@@ -10,11 +10,13 @@
  * feel like arriving somewhere, not like another paragraph in a log.
  */
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { D20, Die, DiceRoll } from "./DiceRoll.tsx";
 import { Illustration } from "./Illustration.tsx";
 import { ILLUSTRATION_TIP, ThingTooltip } from "./hover.tsx";
 import type { IllustrationAnswer } from "../../illustrations/room-illustration.ts";
+import type { SpriteAnswer } from "../../illustrations/sprites.ts";
+import type { IllustrationFigure } from "../../illustrations/figures.ts";
 import type { MapView } from "../../gameplay/view/selectors.ts";
 import type { LogEntry } from "../../gameplay/state/store.ts";
 import type { RolledOutcome } from "../../shared/types/turn.ts";
@@ -211,6 +213,28 @@ function effectText(e: Effect): string {
   }
 }
 
+/**
+ * HOW WIDE THE CHAT HAS TO BE FOR ITS PICTURES TO STAND BESIDE IT, in pixels of
+ * content. The text keeps a column of up to 62ch on the left and the illustrations take
+ * what is left, at least `ILLUSTRATION_COLUMN_MIN_PX`; narrower than this, the illustrations
+ * go back to sitting in the text, under each arrival's heading.
+ */
+const WIDE_MIN_PX = 860;
+const ILLUSTRATION_COLUMN_MIN_PX = 280;
+
+/** The box's content width, followed as it changes. 0 where nothing can measure it (jsdom). */
+function useWidth(ref: RefObject<HTMLElement | null>): number {
+  const [width, setWidth] = useState(0);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const watch = new ResizeObserver(([e]) => setWidth(e.contentRect.width));
+    watch.observe(el);
+    return () => watch.disconnect();
+  }, [ref]);
+  return width;
+}
+
 export function Narration({
   items,
   busy,
@@ -218,6 +242,8 @@ export function Narration({
   compact = false,
   illustration,
   cover,
+  sprite,
+  figures,
   map,
   here,
   resumed,
@@ -227,6 +253,14 @@ export function Narration({
   illustration?: (roomId: string) => Promise<IllustrationAnswer>;
   /** the dungeon's cover, above the opening; absent on a local run */
   cover?: () => Promise<IllustrationAnswer>;
+  /** a creature's sprite; absent on a local run */
+  sprite?: (spriteId: string) => Promise<SpriteAnswer>;
+  /**
+   * The creatures in the room the player is standing in, stood in its illustration:
+   * the same illustration that carries the buttons. An illustration they have left keeps the
+   * figures it last showed.
+   */
+  figures?: IllustrationFigure[];
   /** what the illustrations' buttons are: each one is the map's marker for the same thing */
   map?: MapView;
   /**
@@ -250,6 +284,52 @@ export function Narration({
   compact?: boolean;
 }) {
   const scroller = useRef<HTMLDivElement>(null);
+  /**
+   * WIDE: the pictures stand in a column to the right of the text, each beside
+   * the arrival it belongs to, and the current room's sticks to the top of the
+   * chat while the player reads on below it. Never on a phone, which has the
+   * Room tab for that.
+   */
+  const width = useWidth(scroller);
+  const wide = !compact && width >= WIDE_MIN_PX;
+
+  /**
+   * WHICH ARRIVALS CARRY A ILLUSTRATION. A room's first arrival, as ever — except a
+   * room the run had already been through when it was resumed, which is not
+   * asked for at all. Wide, the current room's LATEST arrival carries it too,
+   * so the illustration the player is standing in is always the lowest one, beside
+   * the newest text, and is the one that sticks.
+   */
+  const lastHere = here
+    ? items.findLastIndex((x) => x.kind === "arrival" && x.roomId === here.roomId)
+    : -1;
+  const carries = (x: NarrationItem, i: number): x is Arrival & { roomId: string } =>
+    illustration !== undefined &&
+    x.kind === "arrival" &&
+    x.roomId !== undefined &&
+    (x.first === true || (wide && i === lastHere)) &&
+    (x.roomId === here?.roomId || !resumed?.has(x.roomId));
+  /** The one illustration with buttons: the lowest of the room they are standing in. */
+  const buttonsAt = here
+    ? items.findLastIndex((x, i) => carries(x, i) && x.roomId === here.roomId)
+    : -1;
+
+  const illustrationOf = (i: number): ReactNode => {
+    const item = items[i];
+    if (item.kind === "opening") {
+      return cover ? <Illustration id="cover" subject={item.dungeonName || "the dungeon"} load={cover} /> : null;
+    }
+    if (!carries(item, i)) return null;
+    return (
+      <Illustration
+        id={item.roomId}
+        subject={item.roomName}
+        load={() => illustration!(item.roomId)}
+        {...(map && i === buttonsAt ? { map, ...(here?.cameFrom ? { cameFrom: here.cameFrom } : {}) } : {})}
+        {...(sprite && figures && i === buttonsAt ? { sprite, figures } : {})}
+      />
+    );
+  };
 
   // The newest line kept in view by scrolling THIS box, not by asking the last
   // line to scroll itself into view: `scrollIntoView` scrolls every ancestor
@@ -262,9 +342,7 @@ export function Narration({
     else el.scrollTop = el.scrollHeight;
   }, [items.length, busy]);
 
-  return (
-    <div ref={scroller} className={`flex-1 overflow-y-auto ${compact ? "px-[18px] pb-3 pt-5" : "px-8 py-6"}`}>
-      {items.map((item, i) => {
+  const render = (item: NarrationItem, i: number): ReactNode => {
         if (item.kind === "opening") {
           return (
             <section key={i} className="mb-8">
@@ -275,7 +353,7 @@ export function Narration({
                   {item.dungeonName}
                 </h1>
               )}
-              {cover && <Illustration id="cover" subject={item.dungeonName || "the dungeon"} load={cover} />}
+              {!wide && illustrationOf(i)}
               <Prose>{item.prose}</Prose>
               {item.objective && (
                 // The one line they will come back to. Kept legible from across
@@ -308,19 +386,7 @@ export function Narration({
               >
                 {item.roomName}
               </h2>
-              {illustration &&
-                item.first &&
-                item.roomId &&
-                (item.roomId === here?.roomId || !resumed?.has(item.roomId)) && (
-                  <Illustration
-                    id={item.roomId}
-                    subject={item.roomName}
-                    load={() => illustration(item.roomId!)}
-                    {...(map && item.roomId === here?.roomId
-                      ? { map, ...(here.cameFrom ? { cameFrom: here.cameFrom } : {}) }
-                      : {})}
-                  />
-                )}
+              {!wide && illustrationOf(i)}
               <Prose>{item.prose}</Prose>
             </section>
           );
@@ -369,7 +435,46 @@ export function Narration({
             <Prose>{item.prose}</Prose>
           </div>
         );
-      })}
+  };
+
+  /**
+   * WIDE, IN RUNS: each picture and the text from its arrival up to the next
+   * picture, side by side. A run is its own grid row, so a picture stays beside
+   * its own text, and a sticky one sticks only while its run is on screen —
+   * which for the current room's, the last run, is all the way to the bottom.
+   */
+  const runs: number[][] = [];
+  items.forEach((item, i) => {
+    const starts = i === 0 || (item.kind === "opening" ? cover !== undefined : carries(item, i));
+    if (starts || runs.length === 0) runs.push([i]);
+    else runs[runs.length - 1].push(i);
+  });
+
+  return (
+    <div ref={scroller} className={`flex-1 overflow-y-auto ${compact ? "px-[18px] pb-3 pt-5" : "px-8 py-6"}`}>
+      {wide
+        ? runs.map((run) => {
+            const picture = illustrationOf(run[0]);
+            return (
+              <div
+                key={run[0]}
+                className="grid gap-x-8"
+                style={{ gridTemplateColumns: `minmax(0, 62ch) minmax(${ILLUSTRATION_COLUMN_MIN_PX}px, 1fr)` }}
+                data-run={run[0]}
+              >
+                <div className="min-w-0">{run.map((i) => render(items[i], i))}</div>
+                {picture && (
+                  <div
+                    className={`self-start pt-4 ${run[0] === buttonsAt ? "sticky top-0 z-10" : ""}`}
+                    {...(run[0] === buttonsAt ? { "data-sticky": "" } : {})}
+                  >
+                    {picture}
+                  </div>
+                )}
+              </div>
+            );
+          })
+        : items.map(render)}
 
       {/*
        * The wait. Narration is held back until the commit validates and

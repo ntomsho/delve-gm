@@ -53,6 +53,8 @@ import {
   type IllustrationWork,
 } from "./illustrations/serve.ts";
 import { illustrationEntryFor } from "../illustrations/room-illustration.ts";
+import { drawableCreatures, spriteKeyOf } from "../illustrations/figures.ts";
+import { liveSpriteWork, serveSprite, type SpriteAnswer, type SpriteWork } from "./illustrations/sprites.ts";
 import { waitUntil } from "@vercel/functions";
 
 // ---------------------------------------------------------------------------
@@ -565,6 +567,30 @@ export function createApp(): Hono<AuthEnv> {
   });
 
   /**
+   * A creature's sprite, for standing it in an illustration. See `sprites.ts`.
+   *
+   * Only a kind this run can see: some creature carrying the key (`spriteKeyOf`)
+   * that is not hidden and stands in a room the run has entered. A sprite of
+   * anything else is a look at a creature the player has not met. Read from
+   * the run's entities, so a creature brought in mid-run is drawn too.
+   *
+   * `202` while somebody else's request is drawing it; the page asks again.
+   */
+  app.get("/api/runs/:id/sprites/:spriteId", async (c) => {
+    const user = currentUser(c);
+    const run = await mustGetRun(c.req.param("id"), user.id);
+    const spriteId = c.req.param("spriteId");
+    if (!mayDrawSprite(run.state, spriteId)) {
+      throw new HTTPException(404, { message: "no sprite for a creature this run has not met" });
+    }
+    const work = spriteWorker();
+    if (!work) return c.json({ status: "none" } satisfies SpriteAnswer);
+    const dungeon = await mustGetDungeon(run.dungeonId, user.id);
+    const answer = await serveSprite(run.state.entities, dungeon.doc.pass.theme, spriteId, work);
+    return c.json(answer, answer.status === "pending" ? 202 : 200);
+  });
+
+  /**
    * The dungeon's cover, for the opening. Drawn by the first ask — the client
    * sends one the moment a run starts — and served from then on.
    *
@@ -675,10 +701,22 @@ async function playTurn(c: Context<AuthEnv>, act: Action): Promise<Response> {
     illustrationStarted.add(room);
     const work = illustrationWorker();
     const entryId = work && illustrationEntryFor(dungeon.doc, r, room);
-    if (!work || !entryId) return;
-    waitUntil(
-      serveIllustration(dungeon.doc, room, entryId, work).catch((e) => console.error("[illustration] early start failed", e))
-    );
+    if (work && entryId) {
+      waitUntil(
+        serveIllustration(dungeon.doc, room, entryId, work).catch((e) => console.error("[illustration] early start failed", e))
+      );
+    }
+    // The creatures in it too, one sprite per kind, for the same reason.
+    const sprites = spriteWorker();
+    if (!sprites) return;
+    const keys = new Set(drawableCreatures(r.entities.creatures, room).map(spriteKeyOf));
+    for (const key of keys) {
+      waitUntil(
+        serveSprite(r.entities, dungeon.doc.pass.theme, key, sprites).catch((e) =>
+          console.error("[sprite] early start failed", e)
+        )
+      );
+    }
   };
   startIllustration(run.state);
   const stopWatching = session.store.subscribe((s) => s.run && startIllustration(s.run as RunState));
@@ -745,6 +783,21 @@ let illustrationWork: IllustrationWork | null | undefined;
 function illustrationWorker(): IllustrationWork | undefined {
   if (illustrationWork === undefined) illustrationWork = liveIllustrationWork() ?? null;
   return illustrationWork ?? undefined;
+}
+
+/** The sprite worker, made on first use for the same reason as the illustration worker. */
+let spriteWork: SpriteWork | null | undefined;
+function spriteWorker(): SpriteWork | undefined {
+  if (spriteWork === undefined) spriteWork = liveSpriteWork() ?? null;
+  return spriteWork ?? undefined;
+}
+
+/** Some creature carrying this sprite key is in sight in a room the run has entered. */
+function mayDrawSprite(state: RunState, spriteId: string): boolean {
+  const entered = new Set([state.currentRoomId, ...state.log.flatMap((e) => (e.kind === "arrival" && e.roomId ? [e.roomId] : []))]);
+  return [...entered].some((room) =>
+    drawableCreatures(state.entities.creatures, room).some((c) => spriteKeyOf(c) === spriteId)
+  );
 }
 
 async function mustGetRun(id: string, owner: string) {

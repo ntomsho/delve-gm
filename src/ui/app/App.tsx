@@ -711,9 +711,10 @@ export default function App() {
       // characters screen. Both are `toRoster`: leaving a live run and leaving
       // a finished one are the same move, because every commit is already saved.
       {...(OFFLINE ? {} : { onLeave: toRoster, onMainMenu: toRoster })}
-      // `?offline` never asks for an illustration; its session has no `illustration`.
+      // `?offline` never asks for an illustration or a sprite; its session has neither.
       {...(!OFFLINE && session.illustration ? { illustration: (roomId: string) => session.illustration!(roomId) } : {})}
       {...(!OFFLINE && session.cover ? { cover: () => session.cover!() } : {})}
+      {...(!OFFLINE && session.sprite ? { sprite: (key: string) => session.sprite!(key) } : {})}
     />
   );
 }

@@ -5,7 +5,7 @@ import { createGameStore, newRun } from "../state/store.ts";
 const useGame = createGameStore();
 
 import {
-  characterView, censusView, exitLabel, mapView, needsComposition, roomView, UNARMORED_DEFENSE,
+  characterView, censusView, exitLabel, FIXTURE_SHAPES, mapView, needsComposition, roomView, UNARMORED_DEFENSE,
 } from "./selectors.ts";
 import { floorplanLayout, pathMidpoint, pointLayout, shapeCenter } from "../../generation/floorplan/map-layout.ts";
 import type { Diff } from "../../shared/types/commit.ts";
@@ -765,6 +765,25 @@ describe("mapView fixtures", () => {
     const thing = run.entities.features.find((f) => f.roomId === here.id && f.place);
     return { here, thing };
   }
+
+  it("marks each thing in a room by its order there, counting the concealed, never repeating", () => {
+    const run = freshRun();
+    for (const r of run.entities.rooms) r.composed = "Somewhere.";
+    for (const f of run.entities.features) f.composed = "Something.";
+    for (const i of run.entities.items) i.composed = "Something.";
+    const drawn = mapView(run, dungeon, layout, { includeHidden: true }).fixtures;
+    const byRoom = new Map<string, string[]>();
+    for (const f of layout.fixtures) byRoom.set(f.roomId, [...(byRoom.get(f.roomId) ?? []), f.id]);
+    for (const f of drawn) {
+      const order = byRoom.get(f.roomId)!.indexOf(f.id);
+      expect(f.shape).toBe(FIXTURE_SHAPES[order % FIXTURE_SHAPES.length]);
+    }
+    for (const ids of byRoom.values()) {
+      const shapes = drawn.filter((f) => ids.includes(f.id)).map((f) => f.shape);
+      if (ids.length <= FIXTURE_SHAPES.length) expect(new Set(shapes).size).toBe(shapes.length);
+    }
+    expect(drawn.length).toBeGreaterThan(5);
+  });
 
   it("has placed things to draw at all", () => {
     // Without this the whole block asserts nothing, quietly.

@@ -181,8 +181,9 @@ function slayCreature(ctx: Ctx, creature: ICreature): void {
  *
  * Two things are settled here rather than there. A route that does not exist is
  * a REJECTION, so the reasons reach the game master and it gets the one retry §5
- * allows; a route that ends short is APPLIED, because getting as far as the
- * Torture Room and finding something in it is a real outcome and not an error.
+ * allows — and so is one stopped before its first step, which goes nowhere; a
+ * route that ends short is APPLIED, because getting as far as the Torture Room
+ * and finding something in it is a real outcome and not an error.
  * The event says so, and the arrival pass describes wherever they actually are.
  *
  * Read AFTER any earlier diff in the same batch, deliberately: unbar the door
@@ -192,6 +193,23 @@ function slayCreature(ctx: Ctx, creature: ICreature): void {
 function walkTo(ctx: Ctx, to: string): void {
   const route = routeTo(ctx.world, to);
   if (route.unreachable) fail(route.unreachable);
+
+  // STOPPED BEFORE THE FIRST STEP IS A REJECTION, not a walk that ended short.
+  // A walk cut off partway is a real outcome — they are somewhere new, and the
+  // arrival pass says where. One that never got going leaves the game master's own
+  // narration as the only account of the turn, and that narration was written
+  // assuming the move: "You push through the iron gate … The Gatehouse is
+  // brutally cold" while the player stood in the Cell block (2026-10-15, the
+  // Frosted Gaol). Refused, the game master gets the reason and its one retry: open
+  // the way in the same commit, or leave the move out and say they are stopped.
+  if (route.stoppedBy && route.legs.length === 0 && route.endsAt !== to) {
+    fail(
+      `the player cannot set out: ${route.stoppedBy}. Nothing earlier in this commit clears it, so they ` +
+        `would not move at all. If the action overcomes it, clear it in the same commit before the move ` +
+        `(for a way, set its "conditional" to null); if it does not, leave the move out and narrate them ` +
+        `stopped in front of it.`
+    );
+  }
 
   ctx.world.currentRoomId = route.endsAt;
 

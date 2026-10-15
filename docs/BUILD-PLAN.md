@@ -847,11 +847,45 @@ Differences from the design above:
   from the dungeon on every ask, not stored with the image. Each dot is the map's marker
   for that thing (`doorHover` / `fixtureHover` in `DungeonMap.tsx`): the same card, the
   same verb, and the same `lit` id, so the illustration, the map and the room card light
-  together. A thing the map does not show has no dot. The way out of the dungeon is
-  torch, as on the map. Dots have a 3 px ink rim. The door they came in by
-  (`ExitView.cameFrom`) carries a U-turn. Only the illustration of the room the player is in has
-  buttons. A resumed run asks only for the current room's illustration; rooms already arrived in
-  at mount (`resumed` in `PlayScreen`) are skipped. Not built yet: the `around`, `behind-wall` and `off-frame` arrows.
+  together. A thing the map does not show has no button.
+  - **Doors** are an arched doorway (`ARCH`, `src/ui/play/marks.ts`) with an arrow for
+    the way the door leads on the map's compass (`doorHeading`). The door they came in by
+    (`ExitView.cameFrom`) has a U-turn instead. The way out of the dungeon has a figure
+    walking out, on `verdigris` (#3F6E5B), not torch, so it doesn't look permanently lit.
+    The way out wins over the U-turn in the entrance room.
+  - **Features** carry their map mark (`MapFixtureView.shape`): circle, diamond,
+    triangle, square, star, hexagon (`FIXTURE_SHAPES`), handed out in `mapView` by
+    order among everything placed in the room, concealed included, so a found secret
+    never shifts the others. Not stored; existing dungeons get marks too. No measured
+    room places more than four.
+  - **Lit grows.** Map marks, map doors and illustration buttons scale up while lit
+    (`grows` in `DungeonMap.tsx`). On a phone, a tapped thing stays lit when the tab
+    changes (`kept` in `HoverProvider`); the sheet does not follow.
+  - Only the illustration of the room the player is in has buttons. A resumed run asks only
+    for the current room's illustration; rooms already arrived in at mount (`resumed` in
+    `PlayScreen`) are skipped.
+  - **Where illustrations sit.** On a desktop chat at least `WIDE_MIN_PX` (860) wide, illustrations
+    stand in a right-hand column beside their text (`Narration`, in runs from one illustration
+    to the next). The current room's latest arrival carries its illustration too, so the illustration
+    the player is standing in is the lowest, and it is sticky to the top of the chat.
+    Narrower, illustrations sit under each arrival's heading as before. Phones keep them in the
+    chat, never sticky, and have a **Room** tab between Chat and Character
+    (`RoomTab` in `PlayScreen.tsx`): the current room's name and illustration, with buttons.
+  - **Out-of-shot buttons are BUILT (2026-10-15).** Every door and object keeps its
+    button when it is not in the picture: the same arch or shape, card, verb and `lit`
+    id. Only where it sits changes. `IllustrationSpot` is a union on `how`:
+    - **around:** at the corner, with a bent arrow for the turn. Several things round
+      the same corner stand in a row there.
+    - **behind-wall:** where the thing would be, with a dashed rim.
+    - **edge:** in a rail inside the left, right or bottom edge, with a chevron
+      pointing out.
+      - A rail, not exact places, so two buttons on one edge cannot overlap on a phone.
+      - `Hotspot.along` (0–1, from the bearing) only orders a rail: on a side, the
+        further behind, the lower; on the bottom, behind-left to behind-right.
+    - Surfaces get none, in or out of the picture: they have no spot to point at.
+    - Measured on `live-4201`, the Frozen Chancel and the Droll Scholars (69 views):
+      194 shown, 19 around, 35 edge, no behind-wall. **No rail or corner ever held more
+      than one**, so the row and the rail order are insurance.
 
 **Dungeon covers are BUILT (2026-10-13).** A cover is the dungeon's exterior: the picture
 on its library card, beside it in run setup, and above its opening.
@@ -918,6 +952,107 @@ first time the kind is met.
   is the default unless in-scene is convincingly better.
 - **Interacts with [First impressions](#first-impressions)**: a sprite shows a stranger
   without naming her, which is the point of that feature.
+
+**Sprite spike (2026-10-14, about $1 in all).** `node src/dev/cli-sprites.ts [--stage]
+[--dungeons a.json,b.json] [--setups gpt2-low]`, contact sheet at
+`out/sprites/index.html`. Run on `live-4201` and two dungeons from the database (The
+Frozen Chancel, The Attic of the Droll Scholars): 13 sprites, 10 rooms.
+
+- **Who gets a sprite (the author's rules).** Solos, leaders and named individuals get
+  one each. A group's nameless members, in every variant, share one. That is 2–3 sprites
+  a dungeon at size 1 and 8 at size 3 (`live-4201` has five leaders), so **$0.03–0.12 a
+  dungeon**, paid once and shared like illustrations.
+- **How a room's creatures stand.** The front row is the leader; or, with no leader, the
+  named creatures side by side, slightly overlapping; or, with neither, one copy of the
+  group's sprite. The nameless stand behind, **at most 4: two on each side**, the second
+  rank further back. Anything unrelated is its own cluster.
+- **Where.** A floor point chosen in code, put through `projectToFrame`, so scale and
+  perspective come from the illustration's own camera. Height comes from a size word Haiku picks
+  (`tiny`…`huge`), mapped to feet in code.
+- **Model: GPT Image 2 low, with the illustration references.** It drew all 13 in the illustrations'
+  manner. Klein returned a black square for 4 of 13 (body horror, and one woman), with its
+  safety checker off as well, so it is out.
+- **Cut-outs are free**, as planned: threshold, close by 3 px, flood the white from the
+  border, keep the largest piece. Every sprite cut cleanly.
+- **Shrink as coverage, not by threshold.** A 1536 px figure shown at ~300 px loses its
+  lines at the illustration's threshold and reads faint. Shrinking the ink as greyscale and
+  calling a pixel black at ≥20% ink matches the illustration's line weight. Thickening the lines
+  first was tried and fills small figures solid.
+- **Reserved floor: DECIDED and BUILT, every illustration keeps a patch clear.** With the point chosen
+  after the illustration is drawn, GPT's drawing drifted from the guide enough to stand figures
+  over a widened chasm or in a doorway in 3 of 10 rooms. With the patch chosen first —
+  the spot with the most open, visible floor in a 12 × 9 ft patch around it — drawn as a
+  dotted outline in the guide, and an OPEN FLOOR line in the prompt, **9 of 10 read right**.
+  - The miss is a 9-cell room (Dormitory) where no patch fits; they stand by the door.
+  - The patch changes the guide and prompt, so it changes every illustration's key: illustrations
+    redraw from then on (no retrofit).
+  - Side effect: The Pit lost its pit. The pit is not a placed feature in that view, so
+    the first illustration drew it from the room's words alone, and the bare-floor instruction
+    won. A room's defining feature belongs in the plan, not only in its prose.
+- **Needs fixing first:** generation writes one person into each room they appear in as
+  separate entities ([One leader, one entity](#one-leader-one-entity)): Chadwick, Beatrix
+  and Reinhold twice each; two Broodmothers. The spike merges by group and name; the
+  game should not have to.
+
+**Sprite style references: DECIDED (2026-10-14, about $0.70).** Nine, in
+`assets/sprite-refs/` with a README; drawn by GPT Image 2 low from words alone
+(`node src/dev/cli-sprites.ts --refs N`, rounds 1–4), never from anyone's art.
+- Round 1 (klein and GPT, "sparse" style) came out **too clean and nice**. Klein also stood
+  every creature upright, rat and insect included, because the framing said "standing".
+- Round 2 (GPT, rougher pen line, plain people, gnarly but not gory creatures) was right,
+  but put everyone in rags; a reference set all in rags dresses every sprite in rags.
+  Rounds 3–4 redrew the scholar and the thief (as an ordinary woman) with well-kept clothes.
+- **The set:** sellsword, scholar, thief, old woman, cultist; brute, skeleton, rat, insect.
+  Upright, hunched, four- and many-legged; two people in good order against three in rags.
+- **The prompt matches them** (`SPRITE_GRIT`): rough line, people plain rather than
+  handsome, creatures unpleasant but not gory, clothes as worn or as kept as the figure's
+  own description says. Without it the style text's "crisp outlines" pulls the other way.
+- **Framing:** a person stands, so a group can be arranged; a creature keeps its natural
+  stance. "Natural stance" for everyone let a scholar sit down.
+- Against the room references, the same 13 sprites came out plainer, rougher and gnarlier.
+  Small back-row figures read a little darker than the sparse illustration; raising
+  `INK_COVERAGE` is the free fix if it matters.
+
+**Figure scale: DECIDED, `FIGURE_SCALE` = 1.4.** GPT draws the room larger than the guide's
+camera says (in Stilton's Chamber, walls ~15% taller and the room shifted up the frame),
+and doorways most of all, so a figure true to the guide read like a child beside them.
+Judged by eye at ×1, ×1.2 and ×1.4 on four rooms; ×1.4 read right in all four. Every height
+is multiplied; feet stay where the camera puts them. The reserved patch is sized for ×1,
+so a big group now spills past it a little, harmlessly so far. Shrinking the guide's door
+and wall heights instead would be the principled fix, at the cost of redrawing every illustration,
+and is only worth it if 1.4 proves uneven across more rooms.
+
+**Creature sprites are BUILT (2026-10-14)** as above:
+- **The reserved floor** is the game's own: `illustrationStage` / `stageOutline`
+  (`src/illustrations/figures.ts`), `RoomIllustration.stage`, the dotted patch in `illustrationSketchSvg`
+  and `ILLUSTRATION_OPEN_FLOOR_NOTE` in the prompt (marked guide only). It changes the guide and
+  prompt, so **every illustration's key changed: illustrations redraw from then on.**
+- **Who stands where** is pure and in the engine: `roomClusters` (the author's rules),
+  `illustrationFigures` (stand points through `projectToFrame`, back to front) and `figureHeight`
+  (`FIGURE_SIZE_FT` × `FIGURE_SCALE`, capped `FIGURE_HEADROOM` below the top: a large
+  creature near the eye ran off the frame, head and all).
+- **Sprites** are served like illustrations: `GET /api/runs/:id/sprites/:spriteId`
+  (`serveSprite`, `src/server/illustrations/sprites.ts`), stored in `plates` and the same bucket through
+  the shared `serveKeyed`. The look and size word are one Haiku call (`sprite-look` task),
+  kept in `plate_words` under `sprite-look:<key>`. The key hashes the Haiku request, the
+  prompt's fixed text, `SPRITE_MODEL`, the quality and the number of references — never
+  Haiku's answer. `SPRITE_STYLE_VERSION` redraws them all.
+  - Only a kind the run can see: some creature carrying the key, not hidden, in a room the
+    run has entered. Read from the run's entities, so a creature brought in mid-run is drawn.
+  - Started, like the illustration, the moment a turn puts the player in a new room.
+  - `assets/*-refs/*.png` are bundled with the function (`vercel.json`).
+- **The stored sprite is two masks side by side** (`spriteMasksPng`,
+  `src/server/illustrations/sprite-image.ts`): body left, ink right, 512 px tall, ink kept at ≥25% of a
+  stored pixel. **The page shrinks them smoothly and never re-thresholds.** Forcing small
+  figures back to pure black and white clumped their hatching into dark patches that read
+  as shading on the back row; the author asked for it gone.
+- **On the page** (`Illustration.tsx`): the current room's illustration gets `roomFigures` from the run
+  as it is now, worked out again only when who is in the room changes. Each figure is two
+  coats, the page's paper then its ink, feet at its point, mirrored on the right of the back
+  row. An illustration the player has walked out of keeps the figures it last showed.
+- **Not built:** figures on an illustration after a reload of a room left earlier (the scrollback
+  keeps them only in memory), and figures on resumed runs' earlier rooms, which have no
+  illustration asked for anyway.
 
 **3. Item illustrations — two very different costs.**
 
@@ -1956,6 +2091,20 @@ the existing suite still passes; a run played to the end on a real phone (iOS Sa
 Android Chrome) without zooming the page, losing the input under the keyboard, or needing
 a hover; and desktop screenshots at 1440 and 1100 unchanged against the ones handed to
 Design.
+
+**Held sideways — BUILT (2026-10-15).** A landscape phone is wider than `PHONE` and used to
+get the desktop grid, which does not fit 390 px of height. `PHONE_LANDSCAPE`
+(`(orientation: landscape) and (max-height: 500px)`) keeps it on the tabs, laid out across:
+- the tab bar runs down the left edge (`PhonePlay`, `landscape`), the open tab's rule on its
+  right;
+- **Map:** the map on the left half, *You are in* on the right;
+- **Chat:** the scrollback on the left, the input in its own column on the right
+  (`min(42%, 340px)`), settled at the bottom;
+- **Room:** the name, then the illustration as large as the rest of the screen allows (`Illustration`
+  `fill`, sized by container units);
+- **Character:** the compact sheet's sections in three columns (`CharacterPanel` `columns`).
+
+Checked in headless Chrome at 844 × 390 and 390 × 844; not yet on a real phone.
 
 ---
 

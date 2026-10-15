@@ -40,8 +40,11 @@ const biggest = [...plan.fixtures].sort((a, b) => b.at.length - a.at.length)[0];
  * A run standing in the room that thing is in, with the room and the thing both
  * described — which is what makes them drawable at all. See `MapFixtureView`.
  */
-function both() {
+function both(barred?: string) {
   const run = newRun(dungeon, testCharacter());
+  // Something in the way of one door, the way the Frosted Gaol's iron gate was.
+  const bar = run.entities.connectors.find((c) => c.id === barred);
+  if (bar) bar.conditional = "The bar is down on the far side.";
   const room = run.entities.rooms.find((r) => r.id === biggest.roomId)!;
   room.composed = `You are standing in ${room.name}.`;
   const entity =
@@ -76,8 +79,8 @@ const shown = () => document.querySelector(".react-tooltip__show")?.textContent 
  * provider without it — `panels()` above — draws everything and offers nothing.
  * That is the read-only case, and it is what every hover test in this file wants.
  */
-function playing(reachable: string[], onAct = vi.fn()) {
-  const { map, room } = both();
+function playing(reachable: string[], onAct = vi.fn(), barred?: string) {
+  const { map, room } = both(barred);
   const r = renderDom(
     <HoverProvider acting reachable={new Set(reachable)} onAct={onAct}>
       <DungeonMap map={map} />
@@ -96,7 +99,7 @@ const row = (r: { one(s: string): Element }, id: string) => r.one(`li[data-hover
 
 /** Dots drawn in torch — the map's half of the highlight. */
 const litDots = (r: { all(s: string): Element[] }) =>
-  r.all("g circle").filter((c) => c.getAttribute("fill") === color.torch);
+  r.all("g path[data-shape]").filter((c) => c.getAttribute("fill") === color.torch);
 
 // ===========================================================================
 // THE SAME HOVER FROM EITHER SIDE
@@ -235,6 +238,16 @@ describe("clicking a room card row", () => {
     const { r } = playing([]);
     await press(row(r, exit.connectorId));
     expect(pill()!.textContent).toBe("Examine?");
+  });
+
+  it("greys out going through a way something is in, beside a look at it", async () => {
+    const exit = both().room.exits.find((e) => !e.toKnown && !e.surface && !e.blocked)!;
+    const { r } = playing([exit.connectorId], vi.fn(), exit.connectorId);
+    await press(row(r, exit.connectorId));
+    expect(pill()!.textContent).toBe("Examine?");
+    const greyed = document.querySelector(".react-tooltip__show [data-blocked]") as HTMLButtonElement;
+    expect(greyed.textContent).toBe("Go Through?");
+    expect(greyed.disabled).toBe(true);
   });
 
   it("raises the pill where the room card cannot paint over it", async () => {
@@ -386,8 +399,11 @@ describe("what the cursor says", () => {
  * The same two panels on a touch screen. No hover card and no pill: a tap
  * selects, and the sheet says what the card and the pill would have.
  */
-function tapping(reachable: string[], { acting = true, onAct = vi.fn(), onActed = vi.fn() } = {}) {
-  const { map, room } = both();
+function tapping(
+  reachable: string[],
+  { acting = true, onAct = vi.fn(), onActed = vi.fn(), barred }: { acting?: boolean; onAct?: (sentence: string) => void; onActed?: () => void; barred?: string } = {}
+) {
+  const { map, room } = both(barred);
   const r = renderDom(
     <HoverProvider touch acting={acting} reachable={new Set(reachable)} onAct={onAct}>
       <DungeonMap map={map} />
@@ -438,6 +454,18 @@ describe("tapping, on a touch screen", () => {
     expect(sheet()).toBeNull();
   });
 
+  it("shows going through a barred way greyed above the look, and never sends it", async () => {
+    const exit = both().room.exits.find((e) => !e.toKnown && !e.surface && !e.blocked)!;
+    const { r, onAct } = tapping([exit.connectorId], { barred: exit.connectorId });
+    await press(row(r, exit.connectorId));
+    const greyed = sheet()!.querySelector("[data-blocked]") as HTMLButtonElement;
+    expect(greyed.textContent).toBe("Go Through?");
+    expect(greyed.disabled).toBe(true);
+    await press(greyed);
+    expect(onAct).not.toHaveBeenCalled();
+    expect(sheet()!.querySelector("[data-sends]")!.textContent).toBe("Examine?");
+  });
+
   it("offers no button while the game master is working, and says why", async () => {
     const { r } = tapping([], { acting: false });
     await press(row(r, biggest.id));
@@ -450,7 +478,7 @@ describe("tapping, on a touch screen", () => {
   it("selects a map marker tapped through the map's own pointer handlers", async () => {
     const { r, map } = tapping([]);
     const marker = r.all("svg g")[map.fixtures.findIndex((f) => f.id === biggest.id)];
-    const dot = marker.querySelector("circle")!;
+    const dot = marker.querySelector("path[data-shape]")!;
 
     fire(dot, "pointerdown", { clientX: 10, clientY: 10, pointerId: 1 });
     fire(dot, "pointerup", { clientX: 12, clientY: 11, pointerId: 1 });
@@ -462,7 +490,7 @@ describe("tapping, on a touch screen", () => {
   it("selects nothing at the end of a drag", async () => {
     const { r, map } = tapping([]);
     const marker = r.all("svg g")[map.fixtures.findIndex((f) => f.id === biggest.id)];
-    const dot = marker.querySelector("circle")!;
+    const dot = marker.querySelector("path[data-shape]")!;
 
     drag(dot, { x: 10, y: 10 }, { x: 60, y: 10 });
     await press(dot);
@@ -474,5 +502,24 @@ describe("tapping, on a touch screen", () => {
     await press(row(r, biggest.id));
     await press(r.one("svg"));
     expect(sheet()).toBeNull();
+  });
+
+  it("keeps the thing lit, not the sheet, when the player changes tab", async () => {
+    const { map, room } = both();
+    const at = (scope: string) => (
+      <HoverProvider touch acting reachable={new Set()} onAct={() => {}} scope={scope}>
+        <DungeonMap map={map} />
+        <RoomCard room={room} />
+        <InspectSheet />
+      </HoverProvider>
+    );
+    const r = renderDom(at("map"));
+    await press(row(r, biggest.id));
+    r.update(at("chat"));
+    expect(sheet()).toBeNull();
+    expect(litDots(r)).toHaveLength(biggest.at.length);
+    // The next tap of anything puts it down.
+    await press(r.one("svg"));
+    expect(litDots(r)).toHaveLength(0);
   });
 });

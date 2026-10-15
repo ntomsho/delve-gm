@@ -135,6 +135,7 @@ export function illustrationImagePrompt(
     viewpoint,
     drawn: drawn.map((x) => ({ tag: x.tag, look: look(x.subject.id, x.subject.name), where: x.where, doorway: x.doorway })),
     surfaces: surfaces.map((x) => ({ look: look(x.subject.id, x.subject.name), where: x.where })),
+    openFloor: p.stage !== undefined,
   });
 }
 

@@ -118,17 +118,22 @@ describe("serveIllustration", () => {
     expect(calls.prompts[0]).toContain("4 images are style references");
   });
 
-  it("carries a button at each of the guide's tags, and nowhere else", async () => {
+  it("carries a button at each of the guide's tags, and one for every door and object out of the picture", async () => {
     const m = memoryStore();
     const { work } = fakeWork();
     const got = await serveIllustration(d, roomId, entryId, work, m.store);
+    const spots = got.status === "ready" ? got.spots ?? [] : [];
     const p = roomIllustration(d, roomId, entryId)!;
     const tags = illustrationTags(p);
     const tagged = p.hotspots.filter((h) => h.status === "shown" && tags.has(h.id));
-    expect(got.status === "ready" && got.spots).toEqual(
-      tagged.flatMap((h) => h.points.map((q) => ({ id: h.id, x: q.x, y: q.y })))
+    expect(spots.filter((s) => s.how === "shown")).toEqual(
+      tagged.flatMap((h) => h.points.map((q) => ({ id: h.id, how: "shown", x: q.x, y: q.y })))
     );
     expect(tagged.length).toBeGreaterThan(0);
+    const objects = new Set([...p.exits, p.entry].map((x) => x.id));
+    p.features.forEach((f) => f.presence === "object" && objects.add(f.id));
+    const unseen = p.hotspots.filter((h) => h.status !== "shown" && objects.has(h.id));
+    expect(spots.filter((s) => s.how !== "shown").map((s) => s.id).sort()).toEqual(unseen.map((h) => h.id).sort());
   });
 
   it("asks for the setting line once per dungeon", async () => {

@@ -30,6 +30,7 @@ import {
   ILLUSTRATION_WALL_FT,
   illustrationSight,
 } from "./view.ts";
+import { stageOutline } from "./figures.ts";
 import { type Point } from "../generation/floorplan/floorplan.ts";
 import { traceOutline } from "../generation/floorplan/map-layout.ts";
 import { illustrationTags, type RoomIllustration } from "./room-illustration.ts";
@@ -264,6 +265,18 @@ export function illustrationSketchSvg(p: RoomIllustration, opts: SketchOptions =
         }
       }
     });
+    // THE OPEN FLOOR: the patch kept clear for creatures, dotted so it reads
+    // as neither a wall nor a feature's dashes. Only on floor in sight.
+    if (p.stage) {
+      for (const run of stageOutline(p.input, p.view, p.stage)) {
+        out.push(
+          line3(
+            run.map((q) => at3(q, 0.05)),
+            `stroke="${INK}" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="0.1 4"`
+          )
+        );
+      }
+    }
     for (const h of p.hotspots) {
       const t = tags.get(h.id);
       if (h.status === "shown" && t) for (const q of h.points) tag(q, t);

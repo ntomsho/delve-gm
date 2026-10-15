@@ -32,12 +32,14 @@
  * before `toUnknown`, which is always false for a way out (`mapView` sets the
  * far side known when the near side is).
  *
- * A BLOCKED WAY GETS EXAMINE. It is the one place this reverses `TravelConfirm`,
- * which offered travel through anything and let the game master say no. The pill
- * sends immediately, so "go through the barred door" would spend a turn on an
- * answer the player has already been given in the room card; examining the bar
- * is the move that gets them somewhere, and it is one keystroke to type the
- * other. See `wayVerb`.
+ * A BLOCKED WAY GETS EXAMINE, WITH THE TRAVEL IT WOULD OFFER SHOWN GREYED. It is
+ * the one place this reverses `TravelConfirm`, which offered travel through
+ * anything and let the game master say no. The pill sends immediately, so "go
+ * through the barred door" would spend a turn on an answer the player has
+ * already been given in the room card; examining the bar is the move that gets
+ * them somewhere. But a door that simply stopped offering "Go Through?" read as
+ * a door that was not a door (2026-10-15, the Frosted Gaol's iron gate), so the
+ * travel stays on the pill, disabled, beside Examine (`Verb.blocked`).
  */
 
 import type { MapRoomView } from "../../gameplay/view/selectors.ts";
@@ -48,6 +50,11 @@ export interface Verb {
   label: string;
   /** the action, phrased as the player would have typed it */
   sentence: string;
+  /**
+   * What this would offer if nothing were in the way — "Go Through?" on a
+   * barred door — shown greyed beside the verb and never sent.
+   */
+  blocked?: string;
 }
 
 const EXAMINE = "Examine?";
@@ -138,14 +145,16 @@ export interface Wayish {
 export function wayVerb(way: Wayish, reachable: boolean): Verb {
   const what = named(way.name, way.surface ? "the way out" : "the way through");
 
-  if (reachable && !way.blocked) {
-    if (way.surface) {
-      return { label: "Leave the Dungeon?", sentence: `I leave the dungeon through ${what}.` };
-    }
-    if (way.toUnknown) return { label: "Go Through?", sentence: `I go through ${what}.` };
+  const travel = !reachable ? undefined : way.surface ? "Leave the Dungeon?" : way.toUnknown ? "Go Through?" : undefined;
+
+  if (travel && !way.blocked) {
+    return way.surface
+      ? { label: travel, sentence: `I leave the dungeon through ${what}.` }
+      : { label: travel, sentence: `I go through ${what}.` };
   }
 
-  return { label: EXAMINE, sentence: `I examine ${what}.` };
+  const examine = { label: EXAMINE, sentence: `I examine ${what}.` };
+  return travel ? { ...examine, blocked: travel } : examine;
 }
 
 /** Everything that is not a room and not a way out of one. */

@@ -37,6 +37,7 @@ import { challengeStateOf } from "../mechanics/challenges.ts";
 import { generateDungeon, type GeneratedDungeon, type GenerateOptions } from "../../generation/generate.ts";
 import { MODELS } from "../../llm/models.ts";
 import type { IllustrationAnswer } from "../../illustrations/room-illustration.ts";
+import type { SpriteAnswer } from "../../illustrations/sprites.ts";
 import type { PlayerCharacter } from "../../rules/knave/character.ts";
 import type { Size } from "../../generation/content/blueprint.ts";
 
@@ -125,6 +126,8 @@ export interface PlayableSession {
   illustration?(roomId: string): Promise<IllustrationAnswer>;
   /** The dungeon's cover, above the opening. Absent on a local run, like `illustration`. */
   cover?(): Promise<IllustrationAnswer>;
+  /** A creature's sprite, to stand it in an illustration (`spriteKeyOf`). Absent on a local run, like `illustration`. */
+  sprite?(spriteId: string): Promise<SpriteAnswer>;
   /**
    * Start a run in a world that is already written.
    *

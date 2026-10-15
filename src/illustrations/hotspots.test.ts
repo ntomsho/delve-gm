@@ -55,6 +55,34 @@ describe("illustrationHotspots", () => {
     expect(hs.in).toMatchObject({ role: "entry", status: "off-frame", edge: "bottom" });
   });
 
+  it("says where along its edge each arrow goes, from the bearing", () => {
+    // Standing mid-room looking north: two doors in the west wall, one beside
+    // and one a little behind, one in the south-west corner further behind
+    // still, and the way in dead behind.
+    const mid: IllustrationViewInput = {
+      floor: box(0, 0, 5, 5),
+      entry: { id: "in", inside: { x: 2, y: 4 }, outside: { x: 2, y: 5 } },
+      exits: [
+        { id: "west", inside: { x: 0, y: 2 }, outside: { x: -1, y: 2 } },
+        { id: "west-back", inside: { x: 0, y: 3 }, outside: { x: -1, y: 3 } },
+        { id: "sw", inside: { x: 0, y: 4 }, outside: { x: 0, y: 5 } },
+      ],
+      features: [],
+    };
+    const at = Object.fromEntries(
+      illustrationHotspots(mid, viewFrom(mid, { x: 12.5, y: 12.5 }, NORTH)).map((h) => [h.id, h])
+    );
+    expect(at.west).toMatchObject({ status: "off-frame", edge: "left" });
+    expect(at["west-back"]).toMatchObject({ status: "off-frame", edge: "left" });
+    // Further behind, lower down the side.
+    expect(at["west-back"].along!).toBeGreaterThan(at.west.along!);
+    // Dead behind is the middle of the bottom; behind and to the left is left of it.
+    expect(at.in).toMatchObject({ edge: "bottom" });
+    expect(at.in.along).toBeCloseTo(0.5, 2);
+    expect(at.sw).toMatchObject({ edge: "bottom" });
+    expect(at.sw.along!).toBeLessThan(0.5);
+  });
+
   it("finds the corner to go round, and which way it turns", () => {
     // A passage running north, then turning east into an arm. Looking up the
     // passage, the door at the end of the arm is round the corner to the right.

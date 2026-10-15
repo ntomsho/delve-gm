@@ -1,8 +1,9 @@
 /**
- * THE PLAY SCREEN ON A PHONE: three tabs where the desktop has three columns.
+ * THE PLAY SCREEN ON A PHONE: four tabs where the desktop has three columns.
  *
  *   Map         the map, and the room card under it
  *   Chat        the narration and the input — where a run is played
+ *   Room        the picture of the room they are standing in, with its buttons
  *   Character   the sheet
  *
  * The layout is Claude Design's mobile handoff; see *Phones* in
@@ -11,7 +12,11 @@
  * and is handed the three bodies already built, so it never has to know what
  * a map or a turn is.
  *
- * ALL THREE BODIES STAY MOUNTED, the inactive two hidden but laid out. The
+ * HELD SIDEWAYS (`landscape`), the tab bar runs down the left edge and each
+ * body is laid out across the screen; the bodies themselves are built for it by
+ * `PlayScreen`.
+ *
+ * ALL THE BODIES STAY MOUNTED, the inactive ones hidden but laid out. The
  * narration keeps its scroll position and goes on following the newest line
  * while the player is looking at the map, and the sheet keeps noticing a drop
  * in HP while it is out of sight — which is what lets its tab carry a badge.
@@ -25,7 +30,7 @@ import { STAGE_NAME, STAGE_TONE } from "../shared/theme.ts";
 import type { Stage } from "../../shared/types/turn.ts";
 import type { CharacterView } from "../../gameplay/view/selectors.ts";
 
-export type Tab = "map" | "chat" | "sheet";
+export type Tab = "map" | "chat" | "room" | "sheet";
 
 /**
  * In order, left to right — which is also the order a swipe walks them in.
@@ -34,6 +39,7 @@ export type Tab = "map" | "chat" | "sheet";
 export const TABS: { id: Tab; label: string }[] = [
   { id: "map", label: "Map" },
   { id: "chat", label: "Chat" },
+  { id: "room", label: "Room" },
   { id: "sheet", label: "Character" },
 ];
 
@@ -101,10 +107,27 @@ export interface PhonePlayProps {
   onMainMenu?: () => void;
   map: ReactNode;
   chat: ReactNode;
+  room: ReactNode;
   sheet: ReactNode;
+  /** a phone held sideways: tabs down the left, bodies across the screen */
+  landscape?: boolean;
 }
 
-export function PhonePlay({ stage, busy, narrated, explored, pc, tab, onTab, onMainMenu, map, chat, sheet }: PhonePlayProps) {
+export function PhonePlay({
+  stage,
+  busy,
+  narrated,
+  explored,
+  pc,
+  tab,
+  onTab,
+  onMainMenu,
+  map,
+  chat,
+  room,
+  sheet,
+  landscape = false,
+}: PhonePlayProps) {
   const tone = STAGE_TONE[stage];
   const vv = useVisualViewport();
 
@@ -186,14 +209,19 @@ export function PhonePlay({ stage, busy, narrated, explored, pc, tab, onTab, onM
 
   return (
     <main
-      className={`fixed inset-x-0 flex flex-col bg-paper text-ink ${vv ? "" : "top-0 h-dvh"}`}
+      className={`fixed inset-x-0 flex bg-paper text-ink ${landscape ? "flex-row-reverse" : "flex-col"} ${vv ? "" : "top-0 h-dvh"}`}
       style={vv ? { top: vv.top, height: vv.height } : undefined}
       onTouchStart={onTouchStart}
       onTouchEnd={onTouchEnd}
       onTouchCancel={() => (touchStart.current = null)}
     >
+      {/* Sideways, the bar and the bodies are one column beside the tabs. The
+          row is reversed so the tabs, last in the document, sit on the left. */}
+      <div className={landscape ? "flex min-w-0 flex-1 flex-col" : "contents"}>
       {/* THE TOP BAR: the way out, what the game wants, and how hurt you are. */}
-      <header className="grid h-[52px] shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-2 border-b border-rule bg-paper px-4">
+      <header
+        className={`grid shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-2 border-b border-rule bg-paper px-4 ${landscape ? "h-11" : "h-[52px]"}`}
+      >
         <div className="min-w-0">{onMainMenu && <GameMenu onMainMenu={onMainMenu} busy={busy} compact />}</div>
         <span
           className="truncate text-center font-mono text-[10px] uppercase tracking-[0.16em]"
@@ -229,23 +257,32 @@ export function PhonePlay({ stage, busy, narrated, explored, pc, tab, onTab, onM
         <section className={`${panel("chat")} flex flex-col`} aria-hidden={tab !== "chat"} aria-label="Chat">
           {chat}
         </section>
+        <section className={`${panel("room")} overflow-y-auto`} aria-hidden={tab !== "room"} aria-label="Room">
+          {room}
+        </section>
         <section className={`${panel("sheet")} overflow-y-auto bg-panel`} aria-hidden={tab !== "sheet"} aria-label="Character">
           {sheet}
         </section>
 
         {/* Over whichever tab raised it — and the provider puts it down when
-            the tab changes, so in practice that is always the map. Pressing its
-            verb sends a turn, and the turn is read in Chat. */}
+            the tab changes, so in practice that is the map or the room. Pressing
+            its verb sends a turn, and the turn is read in Chat. */}
         <InspectSheet
           className="absolute inset-x-0 bottom-0 z-10 max-h-[75%] overflow-y-auto"
           onActed={() => onTab("chat")}
         />
       </div>
+      </div>
 
       <nav
         role="tablist"
         aria-label="Play"
-        className="flex shrink-0 border-t border-rule bg-paper pb-[env(safe-area-inset-bottom)]"
+        aria-orientation={landscape ? "vertical" : "horizontal"}
+        className={`flex shrink-0 bg-paper ${
+          landscape
+            ? "w-[92px] flex-col border-r border-rule pl-[env(safe-area-inset-left)]"
+            : "border-t border-rule pb-[env(safe-area-inset-bottom)]"
+        }`}
       >
         {TABS.map((t) => {
           const active = tab === t.id;
@@ -261,20 +298,22 @@ export function PhonePlay({ stage, busy, narrated, explored, pc, tab, onTab, onM
               aria-selected={active}
               data-tab={t.id}
               onClick={() => onTab(t.id)}
-              className="tab relative h-14 min-w-0 basis-0 font-mono uppercase tracking-[0.14em]"
+              className={`tab relative min-w-0 basis-0 font-mono uppercase tracking-[0.14em] ${landscape ? "min-h-0 w-full" : "h-14"}`}
               style={{
                 flexGrow: active ? 1.8 : 1,
-                fontSize: active ? 14 : 11,
+                // Down the side the rail is narrow: "Character" has to fit open.
+                fontSize: landscape ? (active ? 12 : 10) : active ? 14 : 11,
                 color: ink,
                 fontWeight: active ? 700 : 400,
               }}
             >
-              {/* The rule across the top of the open tab. Grows from the
-                  middle as the tab does, so the two read as one movement. */}
+              {/* The rule along the open tab's outer edge — the top, or the
+                  right when the bar is down the side. Grows from the middle as
+                  the tab does, so the two read as one movement. */}
               <span
                 aria-hidden
-                className="tab-rule absolute inset-x-0 top-0 h-[2px]"
-                style={{ background: ink, transform: `scaleX(${active ? 1 : 0})` }}
+                className={`tab-rule absolute ${landscape ? "inset-y-0 right-0 w-[2px]" : "inset-x-0 top-0 h-[2px]"}`}
+                style={{ background: ink, transform: landscape ? `scaleY(${active ? 1 : 0})` : `scaleX(${active ? 1 : 0})` }}
               />
               <span className="relative inline-block max-w-full truncate px-2 align-middle">
                 {t.label}

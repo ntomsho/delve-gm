@@ -48,6 +48,7 @@ import { createGameStore, type RunState } from "../state/store.ts";
 import { acceptsInput, isTerminal, type Stage, type Step } from "../../shared/types/turn.ts";
 import type { GeneratedDungeon, GenerationProgress } from "../../generation/generate.ts";
 import type { IllustrationAnswer } from "../../illustrations/room-illustration.ts";
+import type { SpriteAnswer } from "../../illustrations/sprites.ts";
 import type { PlayableSession, RunRequest } from "./session.ts";
 import type { PlayerCharacter } from "../../rules/knave/character.ts";
 
@@ -232,17 +233,17 @@ export function createRemoteSession(opts: RemoteOptions = {}): PlayableSession {
    * ask while the first is still drawing (a re-mount, a second panel) waits on
    * the same request instead of being told "pending" by its own claim.
    */
-  const illustrations = new Map<string, Promise<IllustrationAnswer>>();
+  const illustrations = new Map<string, Promise<IllustrationAnswer | SpriteAnswer>>();
 
   /** One ask of an illustration-like route, kept until it is an answer. See `plates`. */
-  function askOnce(key: string, path: string): Promise<IllustrationAnswer> {
-    let asked = illustrations.get(key);
+  function askOnce<T extends IllustrationAnswer | SpriteAnswer>(key: string, path: string): Promise<T> {
+    let asked = illustrations.get(key) as Promise<T> | undefined;
     if (!asked) {
-      asked = (async (): Promise<IllustrationAnswer> => {
+      asked = (async (): Promise<T> => {
         const res = await http(`${base}${path}`);
         // A picture is never worth an error on the page: anything but an answer is none.
-        return res.ok ? ((await res.json()) as IllustrationAnswer) : { status: "none" };
-      })().catch((): IllustrationAnswer => ({ status: "none" }));
+        return res.ok ? ((await res.json()) as T) : ({ status: "none" } as T);
+      })().catch((): T => ({ status: "none" }) as T);
       illustrations.set(key, asked);
       // "Ask again later" is not an answer to keep.
       void asked.then((a) => a.status === "pending" && illustrations.delete(key));
@@ -257,7 +258,7 @@ export function createRemoteSession(opts: RemoteOptions = {}): PlayableSession {
    */
   function cover(): Promise<IllustrationAnswer> {
     if (!runId) return Promise.resolve({ status: "none" });
-    return askOnce("cover", `/api/runs/${runId}/cover`);
+    return askOnce<IllustrationAnswer>("cover", `/api/runs/${runId}/cover`);
   }
 
   return {
@@ -265,7 +266,12 @@ export function createRemoteSession(opts: RemoteOptions = {}): PlayableSession {
 
     illustration(roomId: string): Promise<IllustrationAnswer> {
       if (!runId) return Promise.resolve({ status: "none" });
-      return askOnce(`room:${roomId}`, `/api/runs/${runId}/illustrations/${encodeURIComponent(roomId)}`);
+      return askOnce<IllustrationAnswer>(`room:${roomId}`, `/api/runs/${runId}/illustrations/${encodeURIComponent(roomId)}`);
+    },
+
+    sprite(spriteId: string): Promise<SpriteAnswer> {
+      if (!runId) return Promise.resolve({ status: "none" });
+      return askOnce<SpriteAnswer>(`sprite:${spriteId}`, `/api/runs/${runId}/sprites/${encodeURIComponent(spriteId)}`);
     },
 
     cover,

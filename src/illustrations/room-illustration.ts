@@ -27,11 +27,19 @@ import {
 import { featurePresence, type Presence } from "./feature-presence.ts";
 import {
   isSurfaceExit,
+  type ICreature,
   resolveBase,
   touches,
   type IRoomConnector,
 } from "../shared/world/entities.ts";
-import { illustrationHotspots, type Hotspot } from "./hotspots.ts";
+import {
+  drawableCreatures,
+  illustrationFigures,
+  illustrationStage,
+  roomClusters,
+  type IllustrationFigure,
+} from "./figures.ts";
+import { illustrationHotspots, type Hotspot, type HotspotEdge } from "./hotspots.ts";
 import { type Point } from "../generation/floorplan/floorplan.ts";
 import type { GeneratedDungeon } from "../generation/generate.ts";
 
@@ -71,6 +79,12 @@ export interface RoomIllustration {
   senses: IllustrationSubject[];
   /** where every way out and drawable feature lands on the illustration, for the page's buttons */
   hotspots: Hotspot[];
+  /**
+   * The floor kept clear for creatures, in feet: marked in the guide, named in
+   * the prompt, and where the first cluster stands (`illustrationFigures`). Absent
+   * when the room has nowhere in the frame that will do.
+   */
+  stage?: Point;
 }
 
 const pairKey = (a: number, b: number) => `${Math.min(a, b)}-${Math.max(a, b)}`;
@@ -160,6 +174,7 @@ export function roomIllustration(d: GeneratedDungeon, roomId: string, entryId: s
     features: features.map((f) => ({ id: f.id, cells: cellsOf.get(f.id) ?? [] })),
   };
   const view = illustrationView(input);
+  const stage = illustrationStage(input, view);
 
   return {
     roomId,
@@ -178,6 +193,7 @@ export function roomIllustration(d: GeneratedDungeon, roomId: string, entryId: s
     features,
     senses,
     hotspots: illustrationHotspots(input, view),
+    ...(stage ? { stage } : {}),
   };
 }
 
@@ -297,24 +313,65 @@ export function illustrationEntryFor(
   return surface?.id ?? entries[0];
 }
 
-/** One button on an illustration: what it is, and where, as fractions of the illustration from its top-left. */
-export interface IllustrationSpot {
-  id: string;
-  x: number;
-  y: number;
+/**
+ * The creatures in a room, stood in its illustration: who stands where, as the page
+ * lays the sprites down. Live — from the run's entities as they stand now — so
+ * a creature slain is gone and a pack worn down shows fewer. The illustration is the
+ * same one the server drew (`illustrationEntryFor`, `roomIllustration`), so the first
+ * cluster stands on the floor it kept clear. Empty when the room has no illustration
+ * or no one in it.
+ */
+export function roomFigures(
+  d: GeneratedDungeon,
+  run: Parameters<typeof illustrationEntryFor>[1] & { entities: { creatures: ICreature[] } },
+  roomId: string
+): IllustrationFigure[] {
+  const creatures = drawableCreatures(run.entities.creatures, roomId);
+  if (!creatures.length) return [];
+  const entryId = illustrationEntryFor(d, run, roomId);
+  const p = entryId ? roomIllustration(d, roomId, entryId) : undefined;
+  return p ? illustrationFigures(p.input, p.view, roomClusters(creatures)) : [];
 }
 
 /**
- * The illustration's buttons: one at each point where the guide put a tag, and nowhere
- * else — so a button sits on the thing the image model was told to draw there.
- * The same test as `illustrationSketchSvg`'s tags: shown, and tagged (a door or an
- * object; surfaces have none).
+ * One button on an illustration: what it is, and where, as fractions of the illustration from
+ * its top-left — or, for something out of the picture, which edge it is off.
+ *
+ * - shown: on the thing, where the guide put its tag.
+ * - behind-wall: where the thing would be, walled off.
+ * - around: at the corner in the picture to go round, and which way to turn.
+ * - edge: off the left, right or bottom of the picture; `along` (0 to 1) orders
+ *   the buttons sharing an edge.
+ */
+export type IllustrationSpot =
+  | { id: string; how: "shown"; x: number; y: number }
+  | { id: string; how: "behind-wall"; x: number; y: number }
+  | { id: string; how: "around"; x: number; y: number; turn: "left" | "right" }
+  | { id: string; how: "edge"; edge: HotspotEdge; along: number };
+
+/**
+ * The illustration's buttons: every door and every object, in the picture or not.
+ * One in the picture sits at each point where the guide put a tag, so a button
+ * sits on the thing the image model was told to draw there. Surfaces have
+ * none: they are drawn over the room, not at a spot, so there is nowhere to
+ * put one and nothing for an arrow to point at.
  */
 export function illustrationSpots(p: RoomIllustration): IllustrationSpot[] {
-  const tags = illustrationTags(p);
+  const surfaces = new Set(p.features.filter((f) => f.presence !== "object").map((f) => f.id));
   return p.hotspots
-    .filter((h) => h.status === "shown" && tags.has(h.id))
-    .flatMap((h) => h.points.map((q) => ({ id: h.id, x: q.x, y: q.y })));
+    .filter((h) => !surfaces.has(h.id))
+    .flatMap((h): IllustrationSpot[] => {
+      switch (h.status) {
+        case "shown":
+          return h.points.map((q) => ({ id: h.id, how: "shown", x: q.x, y: q.y }));
+        case "behind-wall":
+          return h.points.map((q) => ({ id: h.id, how: "behind-wall", x: q.x, y: q.y }));
+        case "around":
+          return h.around ? [{ id: h.id, how: "around", x: h.around.x, y: h.around.y, turn: h.around.turn }] : [];
+        case "off-frame":
+          return h.edge ? [{ id: h.id, how: "edge", edge: h.edge, along: h.along ?? 0.5 }] : [];
+      }
+    });
 }
 
 /**

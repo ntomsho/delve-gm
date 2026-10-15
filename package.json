@@ -5,7 +5,8 @@
     "doc": "docs"
   },
   "scripts": {
-    "dev": "vite",
+    "dev": "concurrently --kill-others --names web,api --prefix-colors cyan,magenta \"vite\" \"node --watch src/dev/api-server.ts\"",
+    "dev:web": "vite",
     "api": "node src/dev/api-server.ts",
     "build": "tsc --noEmit && vite build && vite build --config vite.api.config.ts",
     "build:client": "vite build",
@@ -51,6 +52,7 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^6.0.5",
+    "concurrently": "^9.2.5",
     "jsdom": "^29.1.1",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",

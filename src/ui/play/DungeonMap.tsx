@@ -22,6 +22,7 @@ import { useRef, useState } from "react";
 import { MAP_TIP, ThingTooltip, useAnchor, useHover, type HoverCard } from "./hover.tsx";
 import { roomVerb, thingVerb, wayVerb, type Verb } from "./verbs.ts";
 import { color } from "../shared/theme.ts";
+import { shapePath } from "./marks.ts";
 import {
   pathMidpoint,
   type LayoutDoor,
@@ -142,13 +143,15 @@ export function doorHover(c: MapConnectorView, reachable: boolean): [HoverCard, 
 /**
  * What is standing in the room, as plain dots on their own layer.
  *
- * MARKERS ARE DOTS FOR NOW — author's call, with a library of line art deferred.
- * The data is stored as cells and a kind rather than as a picture, so replacing
- * this function is the whole of that change; nothing has to be regenerated.
+ * MARKERS ARE SHAPES — a circle, a diamond, a triangle and so on, one per thing
+ * in the room (`MapFixtureView.shape`) — so a mark here can be matched to its
+ * button on the room's illustration. They say nothing about what the thing is; a
+ * library of line art is still deferred, and since the data is cells, not a
+ * picture, it would replace this function and regenerate nothing.
  *
- * One entity, however many cells: a colonnade is six dots that hover as "the
+ * One entity, however many cells: a colonnade is six marks that hover as "the
  * pillars", because that is what the player would point at. So the hit area is
- * per dot and the tooltip is per entity.
+ * per mark and the tooltip is per entity.
  *
  * Drawn in graphite rather than ink, so a room's contents sit UNDER its walls in
  * the eye's reading order. Torch is reserved for what the game wants the player
@@ -163,20 +166,35 @@ function Fixture({ f }: { f: MapFixtureView }) {
   return (
     <g {...anchor(f.id, ...fixtureHover(f))}>
       {f.at.map((p, i) => (
-        <circle
+        <path
           key={i}
-          cx={p.x}
-          cy={p.y}
-          r={lit ? f.r * 0.85 : f.r / 2}
+          // Its own mark, the same one its button on the room's illustration carries.
+          d={shapePath(f.shape, p.x, p.y, f.r * 0.6)}
+          data-shape={f.shape}
           fill={lit ? color.torch : color.graphite}
-          // A dot is three units across and a cursor is not that accurate, so
+          // A mark is a few units across and a cursor is not that accurate, so
           // the mark and the thing you can point at are drawn at two sizes.
           stroke="transparent"
           strokeWidth={f.r * 1.6}
+          style={grows(lit, 1.45)}
         />
       ))}
     </g>
   );
+}
+
+/**
+ * A mark a little bigger while it is lit — pointed at here, on the illustration or in
+ * the room card, or picked on another tab. Scaled about its own middle, so it
+ * grows where it stands; eased, so the eye follows it.
+ */
+export function grows(lit: boolean, by: number) {
+  return {
+    transform: lit ? `scale(${by})` : "none",
+    transformBox: "fill-box" as const,
+    transformOrigin: "center",
+    transition: "transform 140ms ease-out",
+  };
 }
 
 /** A unit vector from the wall toward the far side. */
@@ -590,6 +608,7 @@ function Door({ c }: { c: MapConnectorView }) {
         // Heavier while pointed at, since a door is already outlined in torch
         // when it is blocked and colour alone would say nothing new there.
         strokeWidth={lit ? WALL * 2 : WALL}
+        style={grows(lit, 1.3)}
       />
 
       {tail && (

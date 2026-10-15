@@ -149,3 +149,74 @@ describe("illustrationEntryFor", () => {
     expect(isSurfaceExit(d.entities.connectors.find((c) => c.id === out)!)).toBe(true);
   });
 });
+
+describe("the floor kept clear for figures", () => {
+  for (const seed of SEEDS) {
+    it(`seed ${seed}: nearly every illustration keeps one, the guide dots it and the prompt names it`, async () => {
+      const { illustrationImagePrompt, rawVisual } = await import("./visual.ts");
+      const d = generateOffline(seed, 1);
+      let illustrations = 0;
+      let staged = 0;
+      for (const gr of d.graph.rooms) {
+        for (const entryId of illustrationEntries(d, gr.entityId)) {
+          const p = roomIllustration(d, gr.entityId, entryId)!;
+          illustrations++;
+          const svg = illustrationSketchSvg(p, { marks: true });
+          const prompt = illustrationImagePrompt(p, "marks", "", rawVisual(p), undefined, 4);
+          if (p.stage) staged++;
+          // Dotted only for the stage; the features' outlines are dashed "5 4".
+          expect(svg.includes('stroke-dasharray="0.1 4"')).toBe(p.stage !== undefined);
+          expect(prompt.includes("OPEN FLOOR")).toBe(p.stage !== undefined);
+          // Never on the unmarked guide, which the prompt then has nothing to point at.
+          expect(illustrationImagePrompt(p, "plain", "", rawVisual(p), undefined, 4)).not.toContain("OPEN FLOOR");
+        }
+      }
+      expect(staged / illustrations).toBeGreaterThan(0.8);
+    });
+  }
+});
+
+describe("roomFigures", () => {
+  for (const seed of SEEDS) {
+    it(`seed ${seed}: everyone stands in the frame, far to near, the first on the stage`, async () => {
+      const { roomFigures } = await import("./room-illustration.ts");
+      const { drawableCreatures, roomClusters } = await import("./figures.ts");
+      const d = generateOffline(seed, 1);
+      let rooms = 0;
+      for (const gr of d.graph.rooms) {
+        const roomId = gr.entityId;
+        const entryId = illustrationEntries(d, roomId)[0];
+        if (!entryId) continue;
+        const clusters = roomClusters(drawableCreatures(d.entities.creatures, roomId));
+        if (!clusters.length) continue;
+        rooms++;
+        const run = { log: [{ kind: "arrival", roomId, via: entryId }], currentRoomId: roomId, entities: d.entities };
+        const figs = roomFigures(d, run, roomId);
+        const wanted = clusters.reduce((k, c) => k + c.front.length + c.behind.length, 0);
+        expect(figs.length).toBeGreaterThan(0);
+        expect(figs.length).toBeLessThanOrEqual(wanted);
+        for (const f of figs) {
+          expect(f.perFoot).toBeGreaterThan(0);
+          expect(f.y).toBeGreaterThan(0);
+          expect(f.y).toBeLessThanOrEqual(1);
+        }
+        // Back to front: the nearer a figure, the bigger it is per foot.
+        for (let i = 1; i < figs.length; i++) expect(figs[i].perFoot).toBeGreaterThanOrEqual(figs[i - 1].perFoot - 1e-9);
+        // Deterministic.
+        expect(roomFigures(d, run, roomId)).toEqual(figs);
+      }
+      expect(rooms).toBeGreaterThan(0);
+    });
+  }
+
+  it("a creature slain is gone; a room with no one in it has no figures", async () => {
+    const { roomFigures } = await import("./room-illustration.ts");
+    const d = generateOffline(4201, 1);
+    const c = d.entities.creatures.find((x) => illustrationEntries(d, x.roomId).length > 0)!;
+    const roomId = c.roomId;
+    const run = { log: [], currentRoomId: roomId, entities: d.entities };
+    const others = { ...d.entities, creatures: d.entities.creatures.filter((x) => x.roomId !== roomId) };
+    expect(roomFigures(d, run, roomId).length).toBeGreaterThan(0);
+    expect(roomFigures(d, { ...run, entities: others }, roomId)).toEqual([]);
+  });
+});

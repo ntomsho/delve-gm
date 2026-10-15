@@ -137,7 +137,7 @@ describe("an illustration's buttons", () => {
     { kind: "arrival" as const, text: "A hall.", roomId: "r1", turn: 1 },
     { kind: "arrival" as const, text: "A cell.", roomId: "r2", turn: 2 },
   ];
-  const spots = (roomId: string) => [{ id: `door-${roomId}`, x: 0.5, y: 0.5 }];
+  const spots = (roomId: string) => [{ id: `door-${roomId}`, how: "shown" as const, x: 0.5, y: 0.5 }];
   const map = {
     bounds: { w: 10, h: 10 },
     rooms: [],
@@ -164,5 +164,76 @@ describe("an illustration's buttons", () => {
     await act(async () => {});
     const ids = [...container.querySelectorAll("[data-illustration-spot]")].map((e) => e.getAttribute("data-illustration-spot"));
     expect(ids).toEqual(["door-r2"]);
+  });
+});
+
+describe("wide, the pictures beside the text", () => {
+  const log = [
+    { kind: "arrival" as const, text: "A hall.", roomId: "r1", turn: 1 },
+    { kind: "arrival" as const, text: "A cell.", roomId: "r2", turn: 2 },
+    { kind: "player" as const, text: "I go back.", turn: 3 },
+    { kind: "arrival" as const, text: "The hall again.", roomId: "r1", turn: 3 },
+    { kind: "game-master" as const, text: "Dust settles.", turn: 4 },
+  ];
+  const ready = async (roomId: string) => ({ status: "ready" as const, url: `u/${roomId}` });
+
+  /** A chat `width` pixels wide, as a browser would measure it. */
+  function at(width: number) {
+    const was = globalThis.ResizeObserver;
+    globalThis.ResizeObserver = class {
+      constructor(private cb: ResizeObserverCallback) {}
+      observe() {
+        this.cb([{ contentRect: { width } } as ResizeObserverEntry], this as unknown as ResizeObserver);
+      }
+      disconnect() {}
+      unobserve() {}
+    } as unknown as typeof ResizeObserver;
+    return () => (globalThis.ResizeObserver = was);
+  }
+
+  it("stands each illustration beside its own text, and sticks the current room's lowest one", async () => {
+    const undo = at(1000);
+    try {
+      const { container } = renderDom(
+        h(Narration, { items: toItems(log, (id) => id), illustration: ready, here: { roomId: "r1" } })
+      );
+      await act(async () => {});
+      const runs = [...container.querySelectorAll("[data-run]")];
+      // r1's first arrival, r2's, and r1's again: wide, the room they are in has its illustration at the bottom too.
+      expect(runs.map((r) => r.getAttribute("data-run"))).toEqual(["0", "1", "3"]);
+      const sticky = container.querySelectorAll("[data-sticky]");
+      expect(sticky).toHaveLength(1);
+      expect(runs[2].contains(sticky[0])).toBe(true);
+      expect(runs[2].textContent).toContain("Dust settles.");
+    } finally {
+      undo();
+    }
+  });
+
+  it("keeps the illustrations in the text when the chat is too narrow", async () => {
+    const undo = at(600);
+    try {
+      const { container } = renderDom(
+        h(Narration, { items: toItems(log, (id) => id), illustration: ready, here: { roomId: "r1" } })
+      );
+      await act(async () => {});
+      expect(container.querySelector("[data-run]")).toBeNull();
+      expect(container.querySelectorAll('[aria-label^="A drawing of"]')).toHaveLength(2);
+    } finally {
+      undo();
+    }
+  });
+
+  it("is never wide on a phone", async () => {
+    const undo = at(1000);
+    try {
+      const { container } = renderDom(
+        h(Narration, { items: toItems(log, (id) => id), illustration: ready, here: { roomId: "r1" }, compact: true })
+      );
+      await act(async () => {});
+      expect(container.querySelector("[data-run]")).toBeNull();
+    } finally {
+      undo();
+    }
   });
 });
