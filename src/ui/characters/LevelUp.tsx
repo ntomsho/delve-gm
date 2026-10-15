@@ -41,7 +41,7 @@ import {
   type LevelUpRoll,
 } from "../../rules/knave/level-up.ts";
 import { slotCapacity, type PlayerCharacter } from "../../rules/knave/character.ts";
-import { type Ability } from "../../shared/world/entities.ts";
+import type { Ability } from "../../shared/world/entities.ts";
 import { Button, LABEL, MONO_LABEL } from "../create/shared.tsx";
 import { signed } from "../../shared/utils/format.ts";
 

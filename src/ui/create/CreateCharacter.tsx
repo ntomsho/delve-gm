@@ -45,14 +45,14 @@ import {
   type TraitKey,
 } from "../../rules/knave/character-creation.ts";
 import { Rng } from "../../shared/utils/rng.ts";
-import { type Ability } from "../../shared/world/entities.ts";
-import {
-  type CharacterAbilities,
-  type CharacterTraits,
-  type CreationMode,
-  type PlayerCharacter,
+import type { Ability } from "../../shared/world/entities.ts";
+import type {
+  CharacterAbilities,
+  CharacterTraits,
+  CreationMode,
+  PlayerCharacter,
 } from "../../rules/knave/character.ts";
-import { type WeaponKey } from "../../rules/knave/tables.ts";
+import type { WeaponKey } from "../../rules/knave/tables.ts";
 import { randomSeed } from "../../generation/seeds.ts";
 import { Button } from "./shared.tsx";
 import { StepMode } from "./StepMode.tsx";

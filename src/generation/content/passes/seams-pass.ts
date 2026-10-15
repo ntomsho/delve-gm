@@ -23,7 +23,7 @@
  */
 
 import { CONNECTOR_HEIGHT, CONNECTOR_NAMING, type ConnectorResponse } from "./content-pass.ts";
-import { type Omission } from "../types.ts";
+import type { Omission } from "../types.ts";
 import type { EntityPassResult } from "../../../shared/world/entities.ts";
 import { isSurfaceExit, properName } from "../../../shared/world/entities.ts";
 import type { StockedDungeon } from "../types.ts";

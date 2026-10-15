@@ -38,7 +38,7 @@ import { resolveBase } from "../shared/world/entities.ts";
 import { runEntitiesPass } from "../generation/content/entities-pass.ts";
 import { siteRooms } from "../generation/floorplan/geometry.ts";
 import { stockDungeon } from "../generation/content/stock.ts";
-import { type StockedDungeon } from "../generation/content/types.ts";
+import type { StockedDungeon } from "../generation/content/types.ts";
 import { configureTransport } from "../llm/client.ts";
 import { floorplanLayout, type PlacedThing } from "../generation/floorplan/map-layout.ts";
 import { placedThings } from "../gameplay/mechanics/occupancy.ts";

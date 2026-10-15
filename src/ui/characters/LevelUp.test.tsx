@@ -17,7 +17,7 @@ import { LevelUp } from "./LevelUp.tsx";
 import { renderDom, type Rendered } from "../test-utils/dom.ts";
 import { testCharacter } from "../../fixtures/offline.ts";
 import { ABILITY_MAX, levelUpRoll } from "../../rules/knave/level-up.ts";
-import { type PlayerCharacter } from "../../rules/knave/character.ts";
+import type { PlayerCharacter } from "../../rules/knave/character.ts";
 
 const noop = () => {};
 

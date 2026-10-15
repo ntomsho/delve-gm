@@ -36,7 +36,7 @@ import type { IllustrationAnswer, IllustrationSpot } from "../../illustrations/r
 import type { SpriteAnswer } from "../../illustrations/sprites.ts";
 import type { Shape } from "../../generation/floorplan/map-layout.ts";
 import { figureHeight, type IllustrationFigure } from "../../illustrations/figures.ts";
-import { type HotspotEdge } from "../../illustrations/hotspots.ts";
+import type { HotspotEdge } from "../../illustrations/hotspots.ts";
 import type { MapView } from "../../gameplay/view/selectors.ts";
 import type { FixtureShape } from "../../gameplay/view/selectors.ts";
 import { doorHover, fixtureHover, grows } from "./DungeonMap.tsx";

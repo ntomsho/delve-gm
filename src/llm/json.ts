@@ -85,3 +85,21 @@ export function validate<T>(schema: z.ZodType<T>, value: unknown): T {
 export function parseAndValidate<T>(schema: z.ZodType<T>, text: string): T {
   return validate(schema, extractJson(text));
 }
+
+/**
+ * An error, said usefully.
+ *
+ * "response did not match the expected shape" is what a `ResponseFormatError`
+ * says on its own, and on a screen it is worth nothing: it names no pass, no
+ * chunk, and no field. The issues are right there on the error, so the first
+ * few of them go into the message — enough to tell a prompt problem from a bad
+ * roll of the dice without opening anything.
+ */
+export function describeFailure(e: unknown): string {
+  const message = e instanceof Error ? e.message : String(e);
+  if (!(e instanceof ResponseFormatError) || e.issues.length === 0) return message;
+
+  const shown = e.issues.slice(0, 3).map((i) => `${i.path}: ${i.message}`);
+  const rest = e.issues.length - shown.length;
+  return `${message} — ${shown.join("; ")}${rest > 0 ? `, and ${rest} more` : ""}`;
+}

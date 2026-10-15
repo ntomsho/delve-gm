@@ -10,7 +10,7 @@ import {
 } from "./blockplan.ts";
 import { generateBlueprint, type Dungeon } from "./graph.ts";
 import { stockDungeon } from "../content/stock.ts";
-import { type StockedDungeon } from "../content/types.ts";
+import type { StockedDungeon } from "../content/types.ts";
 import { generateBlueprintSeed, type Size } from "../content/blueprint.ts";
 
 /**

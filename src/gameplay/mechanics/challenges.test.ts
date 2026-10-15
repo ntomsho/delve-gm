@@ -20,7 +20,7 @@ import {
   type TallyResponse,
 } from "../tally/tally-pass.ts";
 import { CHALLENGE_LABEL } from "../../generation/content/challenges.ts";
-import { type Challenge } from "../../shared/world/challenges.ts";
+import type { Challenge } from "../../shared/world/challenges.ts";
 import { purse } from "../../rules/knave/character-creation.ts";
 import { generateOffline, testCharacter } from "../../fixtures/offline.ts";
 import { applyCommit } from "../diffs/apply.ts";
@@ -38,7 +38,7 @@ import {
   recordFact,
   resolutionsFrom,
 } from "./challenges.ts";
-import { type ChallengeState } from "../../shared/world/challenges.ts";
+import type { ChallengeState } from "../../shared/world/challenges.ts";
 
 const SEED = 1005;
 

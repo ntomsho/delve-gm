@@ -39,7 +39,7 @@ import {
   type PlayerCharacter,
   type SlotReport,
 } from "../../rules/knave/character.ts";
-import { type EntityPassResult } from "../../shared/world/entities.ts";
+import type { EntityPassResult } from "../../shared/world/entities.ts";
 import { EQUIP_SLOTS, heldItem, itemSummary } from "../../rules/knave/character.ts";
 import { farSide, isArmor, isBook, isSurfaceExit, touches } from "../../shared/world/entities.ts";
 import { describeGeometry, exitPhrase, siteRooms } from "../../generation/floorplan/geometry.ts";

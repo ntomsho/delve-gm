@@ -24,7 +24,7 @@ import type { GeneratedDungeon } from "../../generation/generate.ts";
 import type { RunState } from "../state/store.ts";
 import type { Stage } from "../../shared/types/turn.ts";
 import { purse, purseItem } from "../../rules/knave/character-creation.ts";
-import { type ICreature, type IItem } from "../../shared/world/entities.ts";
+import type { ICreature, IItem } from "../../shared/world/entities.ts";
 import { theRoom } from "../view/selectors.ts";
 
 // ---------------------------------------------------------------------------

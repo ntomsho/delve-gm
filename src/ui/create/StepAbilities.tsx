@@ -20,8 +20,8 @@ import {
   pointsLeft,
   type AbilityRolls,
 } from "../../rules/knave/character-creation.ts";
-import { type Ability } from "../../shared/world/entities.ts";
-import { type CharacterAbilities, type CreationMode } from "../../rules/knave/character.ts";
+import type { Ability } from "../../shared/world/entities.ts";
+import type { CharacterAbilities, CreationMode } from "../../rules/knave/character.ts";
 import { Button, LABEL, StepHeading, Toggle } from "./shared.tsx";
 import { signed } from "../../shared/utils/format.ts";
 

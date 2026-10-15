@@ -31,7 +31,7 @@ import { Shop } from "../shop/Shop.tsx";
 import { LevelUp } from "../characters/LevelUp.tsx";
 import { RunSetup } from "../run-setup/RunSetup.tsx";
 import { purse } from "../../rules/knave/character-creation.ts";
-import { type PlayerCharacter } from "../../rules/knave/character.ts";
+import type { PlayerCharacter } from "../../rules/knave/character.ts";
 import { toItems } from "../play/Narration.tsx";
 import { useGame } from "../shared/use-game.ts";
 import {
@@ -61,14 +61,10 @@ import {
   type Account,
 } from "../../api-client/auth.ts";
 import { fetchAllowance, type Allowance } from "../../api-client/allowance.ts";
-import {
-  createGameSession,
-  describeFailure,
-  type PlayableSession,
-  type RunRequest,
-} from "../../gameplay/sessions/session.ts";
+import type { PlayableSession, RunRequest } from "../../gameplay/sessions/session.ts";
+import { describeFailure } from "../../llm/json.ts";
 import { createRemoteSession } from "../../gameplay/sessions/remote-session.ts";
-import { type GenerationProgress } from "../../generation/generate.ts";
+import type { GenerationProgress } from "../../generation/generate.ts";
 import { randomSeed } from "../../generation/seeds.ts";
 import { readSwitches } from "./switches.ts";
 
@@ -90,20 +86,25 @@ const {
 const seedForNewRun = () => (PINNED ? SEED : randomSeed());
 
 /**
- * THE FIXTURES, loaded only on an offline run.
+ * AN OFFLINE RUN'S CODE, loaded only on an offline run.
  *
- * A dynamic import is its own chunk, so a normal visit never downloads the
- * fixture dungeon or the stub game master. `undefined` means this is not an
- * offline run.
+ * A real run is played by the server, so the browser needs none of the game
+ * engine: not the generator, not the game master, not their prompts. Only
+ * `?offline` plays in the browser, and it needs the in-process session, the
+ * fixture dungeon and the stub game master. Each dynamic import is its own
+ * chunk, so a normal visit downloads none of them. `undefined` means this is
+ * not an offline run.
  */
 const fixtures = OFFLINE ? await loadFixtures() : undefined;
 
 async function loadFixtures() {
-  const [offline, stub] = await Promise.all([
+  const [session, offline, stub] = await Promise.all([
+    import("../../gameplay/sessions/session.ts"),
     import("../../fixtures/offline.ts"),
     import("../../fixtures/stub-game-master.ts"),
   ]);
   return {
+    createGameSession: session.createGameSession,
     generate: offline.generateOffline,
     /**
      * The dev quick-start character. Handing every visitor somebody called
@@ -140,7 +141,7 @@ export default function App() {
    */
   const makeSession = (): PlayableSession =>
     fixtures
-      ? createGameSession({
+      ? fixtures.createGameSession({
           onProgress: setProgress,
           gameMaster: () => fixtures.gameMaster,
           offline: true,

@@ -17,7 +17,8 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { createGameSession, describeFailure } from "./session.ts";
+import { createGameSession } from "./session.ts";
+import { describeFailure } from "../../llm/json.ts";
 import { ResponseFormatError } from "../../llm/json.ts";
 import { generateOffline, testCharacter } from "../../fixtures/offline.ts";
 import { stubGameMaster } from "../../fixtures/stub-game-master.ts";

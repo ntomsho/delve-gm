@@ -33,7 +33,8 @@ import {
   generateChunk,
   generateStructure,
 } from "../generation/generate.ts";
-import { createGameSession, describeFailure } from "../gameplay/sessions/session.ts";
+import { createGameSession } from "../gameplay/sessions/session.ts";
+import { describeFailure } from "../llm/json.ts";
 import { newRun, type RunState } from "../gameplay/state/store.ts";
 import { createJournal, runId } from "../journal/journal.ts";
 import { render } from "../journal/render.ts";

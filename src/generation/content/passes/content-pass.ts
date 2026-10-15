@@ -18,8 +18,8 @@
  * along into the context of any later pass that revisits the entity.
  */
 
-import { type DungeonBlueprintSeed, type InhabitantGroup, type Tier } from "../blueprint.ts";
-import { type MonsterSeed, type NpcSeed } from "../../../shared/world/seeds.ts";
+import type { DungeonBlueprintSeed, InhabitantGroup, Tier } from "../blueprint.ts";
+import type { MonsterSeed, NpcSeed } from "../../../shared/world/seeds.ts";
 import { makeId } from "../../../shared/utils/id.ts";
 import { Rng } from "../../../shared/utils/rng.ts";
 import {
@@ -29,7 +29,7 @@ import {
   promoteDetail,
   PENDING_CONDITION,
 } from "../entities-pass.ts";
-import { type EntityPassResult } from "../../../shared/world/entities.ts";
+import type { EntityPassResult } from "../../../shared/world/entities.ts";
 import {
   describeGeometry,
   exitPhrase,
@@ -54,7 +54,7 @@ import type {
   StockedDungeon,
 } from "../types.ts";
 import { goalItemValue } from "../rewards.ts";
-import { type Reward } from "../types.ts";
+import type { Reward } from "../types.ts";
 import { withheldKeyItems } from "./keys-pass.ts";
 import { properName } from "../../../shared/world/entities.ts";
 import type {

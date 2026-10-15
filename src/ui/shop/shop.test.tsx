@@ -25,7 +25,7 @@ import {
   rollTraits,
   setPurse,
 } from "../../rules/knave/character-creation.ts";
-import { type IItem } from "../../shared/world/entities.ts";
+import type { IItem } from "../../shared/world/entities.ts";
 
 const SEED = 20260817;
 const noop = () => {};

@@ -11,7 +11,7 @@
  */
 
 import { TRAIT_KEYS, type TraitKey } from "../../rules/knave/character-creation.ts";
-import { type CharacterTraits } from "../../rules/knave/character.ts";
+import type { CharacterTraits } from "../../rules/knave/character.ts";
 import { describePerson } from "../shared/person.ts";
 import { Button, RerollGlyph, StepHeading } from "./shared.tsx";
 

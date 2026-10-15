@@ -13,7 +13,7 @@
  */
 
 import { CREATION_MODES, CREATION_RULES } from "../../rules/knave/character-creation.ts";
-import { type CreationMode } from "../../rules/knave/character.ts";
+import type { CreationMode } from "../../rules/knave/character.ts";
 import { LABEL, StepHeading } from "./shared.tsx";
 
 const BLURB: Record<CreationMode, string> = {

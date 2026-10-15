@@ -28,7 +28,7 @@ import {
 } from "../illustrations/view.ts";
 import { touches } from "../shared/world/entities.ts";
 import type { Point } from "../shared/utils/grid.ts";
-import { type Size } from "../generation/content/blueprint.ts";
+import type { Size } from "../generation/content/blueprint.ts";
 import { generateOffline } from "../fixtures/offline.ts";
 import type { GeneratedDungeon } from "../generation/generate.ts";
 import { traceOutline } from "../generation/floorplan/map-layout.ts";

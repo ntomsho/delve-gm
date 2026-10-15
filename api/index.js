@@ -119,6 +119,130 @@ function currentUser(c) {
 	return user;
 }
 //#endregion
+//#region src/shared/utils/id.ts
+/**
+* IDS
+*
+* Identity, not content: an entity's id says which thing it is and nothing
+* about what it is like, so it does not come from the seeded generator. Two
+* generations of one seed build the same world with different ids.
+*/
+/** Unique id. Not drawn from the seeded rng — identity, not content. */
+function makeId() {
+	const c = globalThis.crypto;
+	if (c?.randomUUID) return c.randomUUID();
+	return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (ch) => {
+		const r = Math.random() * 16 | 0;
+		return (ch === "x" ? r : r & 3 | 8).toString(16);
+	});
+}
+//#endregion
+//#region src/shared/utils/rng.ts
+function mulberry32(a) {
+	return function() {
+		a |= 0;
+		a = a + 1831565813 | 0;
+		let t = Math.imul(a ^ a >>> 15, 1 | a);
+		t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+		return ((t ^ t >>> 14) >>> 0) / 4294967296;
+	};
+}
+var Rng = class {
+	f;
+	seed;
+	constructor(seed) {
+		this.seed = seed;
+		this.f = mulberry32(seed);
+	}
+	next() {
+		return this.f();
+	}
+	/** 1..n inclusive */
+	d(n) {
+		return Math.floor(this.f() * n) + 1;
+	}
+	/** inclusive range */
+	range(lo, hi) {
+		return lo + Math.floor(this.f() * (hi - lo + 1));
+	}
+	pick(arr) {
+		return arr[Math.floor(this.f() * arr.length)];
+	}
+	/** n distinct picks */
+	pickN(arr, n) {
+		const pool = [...arr];
+		const out = [];
+		while (out.length < n && pool.length) out.push(pool.splice(Math.floor(this.f() * pool.length), 1)[0]);
+		return out;
+	}
+	chance(p) {
+		return this.f() < p;
+	}
+	coin() {
+		return this.f() < .5;
+	}
+};
+/**
+* THE RUN RNG
+*
+* Play-time randomness draws from a stream separate from generation, so
+* re-rolling a character cannot shift the dungeon and replaying a run cannot
+* reshape it.
+*
+* `Rng` keeps its state in a private field and exposes no way to read or
+* restore it, so a save can't snapshot mid-stream. What a save *can* record is
+* the seed and how many numbers have been drawn — replaying those draws lands
+* on exactly the same point. Draws are cheap (a few multiplies each), so
+* fast-forwarding thousands of them on load costs nothing measurable.
+*
+* A wrapper rather than a subclass: `Rng`'s own methods reach for its private
+* generator directly, so overriding `next()` would not catch them. Everything
+* that needs seeded randomness at runtime takes the `RollRng` interface —
+* `{ next(): number }` — which both satisfy.
+*/
+var CountingRng = class CountingRng {
+	seed;
+	inner;
+	count = 0;
+	constructor(seed, draws = 0) {
+		this.seed = seed;
+		this.inner = new Rng(seed);
+		this.fastForward(draws);
+	}
+	/** How many numbers have been drawn. Persist this alongside the seed. */
+	get draws() {
+		return this.count;
+	}
+	next() {
+		this.count++;
+		return this.inner.next();
+	}
+	/** Replay `n` draws to reach a saved position. */
+	fastForward(n) {
+		for (let i = 0; i < n; i++) this.next();
+	}
+	/** Restore from a persisted `{ seed, draws }` pair. */
+	static resume(seed, draws) {
+		return new CountingRng(seed, draws);
+	}
+};
+//#endregion
+//#region src/rules/cairn/dungeon-seeds.ts
+/**
+* CAIRN 2E: DUNGEON SEEDS
+* =======================
+*
+* Yochai Gal, Cairn 2e "Dungeon Seeds" (CC BY-SA 4.0). Who built the place, how
+* it fell, and what it is made of. Plain data; `generation/content/blueprint.ts`
+* rolls on it.
+*/
+/** A table written as one `|`-separated line, as the source prints it. */
+var t$3 = (s) => s.split("|");
+var CAIRN_BUILT_BY = t$3("A Fallen Hero|A Fanatical Cult|A Forgotten Empire|A Long-Dead Poet|A Militant Order|A Renowned Alchemist|A Royal Dynasty|A Secret Society|A Tyrannical Ruler|A Warrior Tribe|A Wealthy Recluse|Desperate Rebels|Heretical Alchemists|Heretical Monks|Immoral Sorcerers|Inverted Astrologers|Mob Families|Opulent Merchants|Pilgrims to a Dead God|Rogue Scholars");
+var CAIRN_RUIN_CONDITION = t$3("Corpse|Crumbling|Cursed|Desecrated|Devoured|Displaced|Divided|Frozen|Haunted|Infested|Overgrown|Overpopulated|Petrified|Plundered|Poisoned|Scorched|Shrouded in Mist|Submerged|Unending|Warped");
+var CAIRN_RUIN_CAUSE = t$3("Alchemical Accident|Ancient Curse|Cataclysmic Flood|Civil War|Competing Rituals|Consumed by a Beast|Disease|Hedonism|Invasion|Long-Term Abandonment|Magic Gone Awry|Magical Seal|Natural Disaster|Natural Erosion|Obfuscation|Overrun with Monsters|Sudden Change in Climate|Teleported to Another Realm|Turned to Stone|Unresolved Spirits");
+var CAIRN_COMPOSITION = t$3("Bone|Coral|Crystal|Earth|Ethereal Fabric|Flesh|Floating Platforms|Fungi|Glass|Ice|Living Plants|Marble|Metal|Obsidian|Petrified Wood|Sand|Shadow Material|Stone|Webs|Wood");
+//#endregion
 //#region src/rules/knave/tables.ts
 var t$2 = (s) => s.split("|");
 t$2("Athletic|Brawny|Corpulent|Delicate|Gaunt|Hulking|Lanky|Ripped|Rugged|Scrawny|Short|Sinewy|Slender|Flabby|Statuesque|Stout|Tiny|Towering|Willowy|Wiry");
@@ -437,21 +561,13 @@ var SPELLS = [
 	"X-Ray Vision: You gain X-Ray vision."
 ].map(spell);
 //#endregion
-//#region src/generation/content/blueprint.ts
+//#region src/rules/maze-rats/tables.ts
 /**
-* blueprint.ts
+* MAZE RATS TABLES
+* ================
 *
-* Procedural generation of the top-level dungeon blueprint: everything that is
-* decided BEFORE the rooms loop runs.
-*
-* Sources:
-*   - Maze Rats v4.3 by Ben Milton (CC BY 4.0)
-*   - Cairn 2e "Dungeon Seeds", Yochai Gal (CC BY-SA 4.0)
-*
-* Pipeline:
-*   1. procgen  -> rolls the seed bundle (this file)
-*   2. synthesis -> one LLM pass emitting theme -> history -> goal spec -> starting prose
-*   3. rooms loop -> binds entrances, goal entity, and concrete room contents (later)
+* Maze Rats v4.3 by Ben Milton (CC BY 4.0): the random tables generation rolls
+* on, and the roller that resolves their cascades.
 *
 * Conventions:
 *   - Maze Rats tables are 36 entries (2d6: first die = group of 6, second = item).
@@ -465,50 +581,6 @@ var SPELLS = [
 * one entry short or contain a duplicate (flagged inline). Sampling is by array
 * length, so this is harmless; correct at leisure.
 */
-function mulberry32(a) {
-	return function() {
-		a |= 0;
-		a = a + 1831565813 | 0;
-		let t = Math.imul(a ^ a >>> 15, 1 | a);
-		t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
-		return ((t ^ t >>> 14) >>> 0) / 4294967296;
-	};
-}
-var Rng = class {
-	f;
-	seed;
-	constructor(seed) {
-		this.seed = seed;
-		this.f = mulberry32(seed);
-	}
-	next() {
-		return this.f();
-	}
-	/** 1..n inclusive */
-	d(n) {
-		return Math.floor(this.f() * n) + 1;
-	}
-	/** inclusive range */
-	range(lo, hi) {
-		return lo + Math.floor(this.f() * (hi - lo + 1));
-	}
-	pick(arr) {
-		return arr[Math.floor(this.f() * arr.length)];
-	}
-	/** n distinct picks */
-	pickN(arr, n) {
-		const pool = [...arr];
-		const out = [];
-		while (out.length < n && pool.length) out.push(pool.splice(Math.floor(this.f() * pool.length), 1)[0]);
-		return out;
-	}
-	chance(p) {
-		return this.f() < p;
-	}
-	coin() {
-		return this.f() < .5;
-	}
-};
 var t$1 = (s) => s.split("|");
 var DUNGEON_FORMS = t$1("Arena|Asylum|Aviary|Bank|Baths|Body|{Building Room}|Casino|Catacombs|Cave|Court|{Dungeon Room}|Forge|Garden|Hideout|Hotel|{L. Cl. Building}|Laboratory|Library|Market|Mine|Monastery|Museum|Nursery|Orphanage|Palace|Prison|Sewer|Ship|Slave pit|Temple|Theater|{U. Cl. Building}|University|Vault|Zoo");
 var DUNGEON_REWARDS = t$1("Ancient lore|Animal ally|Army|Blessing|Blueprints|Cultural artifact|Enemy weakness|Faction ally|Forewarning|Guide|Holy relic|Influential ally|Instructions|Jewels|Key|Lost formula|Machine|Magic item|Magical ally|Map|Marital ally|Masterpiece|{Monster} ally|Oracle|Piles of loot|Planar portal|Prophecy|Renown|Spell|Transformation|Transport|{Treasure Item}|Uncovered plot|{Val. Material}|Vision|Weapon");
@@ -542,10 +614,6 @@ var DUNGEON_HAZARDS = t$1("Acid drip|Bloodsuckers|Cave-in|Choking dust|Crude oil
 */
 var TRAP_EFFECTS = t$1("Acid pool|Adhesive|Alarm|Armor melts|Bear trap|Blinding spray|Blunt pendulum|Boiling tar|Collapsing floor|Crocodile pit|Crushing walls|Deep pit|Falling cage|Falling ceiling|Fills with sand|Flooding|Giant magnet|Hard vacuum|Lava flow|Lightning|Living statues|Missile fire|{Monster} freed|Net trap|Pendulum blade|Poison gas|Poison needle|Quicksand|Rage gas|Rolling boulder|Room freezes|Room on fire|Sleeping gas|Spiked pit|Tombs open|Wall spikes");
 var TRAP_TRIGGERS = t$1("Blow|Break|Burn|Choice|Countdown|Darkness|Drain|Eat|Insert|Kill|Knock|Light|Magic|Melody|Noise|Open|Phrase|Pour|Press|Proximity|Pull|Read|Reflect|Release|Remove|Retrieve|Rudeness|Shut|Sit|Sleep|Slide|Touch|Turn|Unbalance|Unearth|Write");
-var CAIRN_BUILT_BY = t$1("A Fallen Hero|A Fanatical Cult|A Forgotten Empire|A Long-Dead Poet|A Militant Order|A Renowned Alchemist|A Royal Dynasty|A Secret Society|A Tyrannical Ruler|A Warrior Tribe|A Wealthy Recluse|Desperate Rebels|Heretical Alchemists|Heretical Monks|Immoral Sorcerers|Inverted Astrologers|Mob Families|Opulent Merchants|Pilgrims to a Dead God|Rogue Scholars");
-var CAIRN_RUIN_CONDITION = t$1("Corpse|Crumbling|Cursed|Desecrated|Devoured|Displaced|Divided|Frozen|Haunted|Infested|Overgrown|Overpopulated|Petrified|Plundered|Poisoned|Scorched|Shrouded in Mist|Submerged|Unending|Warped");
-var CAIRN_RUIN_CAUSE = t$1("Alchemical Accident|Ancient Curse|Cataclysmic Flood|Civil War|Competing Rituals|Consumed by a Beast|Disease|Hedonism|Invasion|Long-Term Abandonment|Magic Gone Awry|Magical Seal|Natural Disaster|Natural Erosion|Obfuscation|Overrun with Monsters|Sudden Change in Climate|Teleported to Another Realm|Turned to Stone|Unresolved Spirits");
-var CAIRN_COMPOSITION = t$1("Bone|Coral|Crystal|Earth|Ethereal Fabric|Flesh|Floating Platforms|Fungi|Glass|Ice|Living Plants|Marble|Metal|Obsidian|Petrified Wood|Sand|Shadow Material|Stone|Webs|Wood");
 var FACTIONS = t$1("Art movement|Beggar's guild|Black market|Brotherhood|City guard|Conspiracy|Craft guild|Crime family|Crime ring|Dark cult|Explorer's club|Free company|Gourmand club|Heist crew|Heretical sect|High council|Hired killers|Local militia|National church|Noble house|Outlander clan|Outlaw gang|Political party|Religious order|Religious sect|Resistance|Royal army|Royal house|Scholar's circle|Secret society|Spy network|Street artists|Street gang|Street musicians|Theater troupe|Trade company");
 var FACTION_TRAITS = t$1("Bankrupt|Bureaucratic|Charitable|Confused|Connected|Corrupt|Decadent|Decaying|Delusional|Divided|Dwindling|Efficient|Esoteric|Expanding|Hunted|Incompetent|Incorruptible|Insane|Insular|Manipulative|Martial|{Personality}|Pious|Popular|Righteous|Ruthless|Secret|Subversive|Suppressed|Threatened|Thriving|Unpopular|Up-and-coming|Wealthy|Well-prepared|Xenophobic");
 var FACTION_GOALS = t$1("Advise leader|Avoid detection|Awaken being|Collect artifacts|Construct base|Control {faction}|Control politics|Create artifact|Create {monster}|Defeat {faction}|Defend borders|Defend leader|Destroy artifacts|Destroy being|Destroy villain|Enforce law|Enrich members|Entertain|Exchange goods|Hear rumors|Indulge tastes|Infiltrate {faction}|Map the wild|Overthrow order|Preserve lineage|Preserve lore|Produce goods|Promote arts|Promote craft|Purge traitors|Sell services|Share knowledge|Spread beliefs|Summon evil|Survive|Transport goods");
@@ -769,15 +837,35 @@ var rollTable = (table, rng) => table.length ? roll$1(table, rng) : void 0;
 function rollDistinct(table, n, rng) {
 	return rng.pickN(table, n).map((raw) => resolveCascades$1(raw, rng));
 }
-/** Unique id. Not drawn from the seeded rng — identity, not content. */
-function makeId() {
-	const c = globalThis.crypto;
-	if (c?.randomUUID) return c.randomUUID();
-	return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (ch) => {
-		const r = Math.random() * 16 | 0;
-		return (ch === "x" ? r : r & 3 | 8).toString(16);
-	});
-}
+//#endregion
+//#region src/generation/content/blueprint.ts
+/**
+* blueprint.ts
+*
+* Procedural generation of the top-level dungeon blueprint: everything that is
+* decided BEFORE the rooms loop runs.
+*
+* Sources:
+*   - Maze Rats v4.3 by Ben Milton (CC BY 4.0)
+*   - Cairn 2e "Dungeon Seeds", Yochai Gal (CC BY-SA 4.0)
+*
+* Pipeline:
+*   1. procgen  -> rolls the seed bundle (this file)
+*   2. synthesis -> one LLM pass emitting theme -> history -> goal spec -> starting prose
+*   3. rooms loop -> binds entrances, goal entity, and concrete room contents (later)
+*
+* Conventions:
+*   - Maze Rats tables are 36 entries (2d6: first die = group of 6, second = item).
+*     We sample uniformly across all 36, which is equivalent.
+*   - Bolded MR entries are "cascades": they point at another table. They are
+*     encoded here with {Braces} and resolved by resolveCascades().
+*   - Entity cascades ({NPC}, {faction}, {monster}) do NOT re-enter the pipeline.
+*     They emit a stub for the LLM to bind or briefly write up. This caps recursion.
+*
+* NOTE: a couple of tables were transcribed from the PDF's column layout and are
+* one entry short or contain a duplicate (flagged inline). Sampling is by array
+* length, so this is harmless; correct at leisure.
+*/
 var TIER_COMPLEXITY = {
 	Solo: "major",
 	Band: "complex",
@@ -3111,6 +3199,14 @@ function sizeAllows(identity, cls) {
 	if (arch.minClass && classRank(cls) < classRank(arch.minClass)) return false;
 	return true;
 }
+//#endregion
+//#region src/shared/utils/grid.ts
+/** A cell as a Set or Map key: "x,y". */
+var xyKey = (x, y) => `${x},${y}`;
+/** `xyKey` for a point. */
+var cellKey = (p) => xyKey(p.x, p.y);
+/** Two graph indices as one key, the same whichever way round they are given. */
+var pairKey = (a, b) => `${Math.min(a, b)}-${Math.max(a, b)}`;
 /** See `Outline` — measured, and re-measure before changing either. */
 var FILL_RECTANGULAR = .85;
 var FILL_NOTCHED = .6;
@@ -3146,7 +3242,6 @@ var ENDS = {
 	east: ["north", "south"],
 	west: ["north", "south"]
 };
-var cellKey$1 = (p) => `${p.x},${p.y}`;
 function boundingBox(cells) {
 	let minX = Infinity;
 	let minY = Infinity;
@@ -3174,7 +3269,7 @@ function boundingBox(cells) {
 * genuinely the north wall of the part of the room they are in.
 */
 function wallCells(cells) {
-	const mine = new Set(cells.map(cellKey$1));
+	const mine = new Set(cells.map(cellKey));
 	const out = {
 		north: [],
 		south: [],
@@ -3183,7 +3278,7 @@ function wallCells(cells) {
 	};
 	for (const c of cells) for (const w of WALLS) {
 		const s = STEP[w];
-		if (!mine.has(cellKey$1({
+		if (!mine.has(cellKey({
 			x: c.x + s.x,
 			y: c.y + s.y
 		}))) out[w].push(c);
@@ -3439,7 +3534,7 @@ function wordFor(n) {
 	][n] ?? `${n}`;
 }
 //#endregion
-//#region src/generation/floorplan/fixtures.ts
+//#region src/shared/world/placement.ts
 var FIXTURE_KINDS = [
 	"altar",
 	"bunks",
@@ -3493,6 +3588,10 @@ var POSITION_PHRASE = {
 function positionPhrase(word) {
 	return isPositionWord(word) ? POSITION_PHRASE[word] : word;
 }
+var isFixtureKind = (s) => FIXTURE_KINDS.includes(s);
+var isPositionWord = (s) => POSITION_WORDS.includes(s);
+//#endregion
+//#region src/generation/floorplan/fixtures.ts
 /**
 * The fifteen drawable things, and what each one implies about its placement.
 *
@@ -3603,8 +3702,6 @@ var CAP = {
 function fixtureCap(g) {
 	return g.corridor ? 1 : CAP[g.sizeClass] ?? 2;
 }
-var isFixtureKind = (s) => FIXTURE_KINDS.includes(s);
-var isPositionWord = (s) => POSITION_WORDS.includes(s);
 /**
 * The menu, rendered ONCE for a prompt.
 *
@@ -3616,7 +3713,6 @@ var isPositionWord = (s) => POSITION_WORDS.includes(s);
 function fixtureMenu() {
 	return FIXTURE_KINDS.map((k) => `${k}${FIXTURES[k].corridor ? "*" : ""} (${FIXTURES[k].gloss})`).join("; ");
 }
-var cellKey = (p) => `${p.x},${p.y}`;
 var dist2 = (a, b) => (a.x - b.x) ** 2 + (a.y - b.y) ** 2;
 /**
 * The cells a position word admits.
@@ -3976,44 +4072,6 @@ function anchorOf(c, src) {
 }
 //#endregion
 //#region src/generation/content/rewards.ts
-/**
-* REWARDS
-* =======
-*
-* What a dungeon GIVES you, and what it pays for answering what it asks.
-*
-* Two families and no third:
-*
-*   KEY       answers one challenge
-*   GENERAL   50/50 equipment / treasure
-*
-* `leverage` and `boon` did not survive the cut. Leverage -- "defensible
-* chokepoint", "safe place to rest" -- describes a room, and the content pass
-* can write that without spending a reward slot on it. Boons are consumables,
-* and a consumable is a thing you carry off and could as easily sell: potions
-* are drawn as TREASURE, out of the pot, and are the whole of what is left of
-* that family.
-*
-* A POTION IS TREASURE, and the reason is money rather than fiction. Equipment
-* is priced from the catalog and there is no catalog entry for "Potion of
-* Ghost-speech" -- the row was pricing itself out of the key band, 5-60cp, and
-* a five-copper flight potion is a dungeon disagreeing with itself. Drawn as
-* treasure it takes a share of the conserved pot like everything else worth
-* money, which is both the right number and one fewer place numbers come from.
-*
-* WHAT REPLACED GRADE. The old system set an item's worth from a `ParcelGrade`
-* and nothing else, so a dungeon's total take was whatever its grades happened
-* to roll -- three significant parcels was 3,600-36,000cp against a Knave
-* starting purse of 60-360. Money is now a CONSERVED POT, partitioned across
-* the placed treasure before anything reaches the LLM. Which table a treasure
-* parcel draws on is decided by the share it drew, not the other way round,
-* which is what makes grade unnecessary rather than merely unused.
-*
-* Level does not move money. It never should have.
-*
-* KEYS ARE OUTSIDE THE POT. A key is equipment, not wealth, and its band sits
-* well under treasure money so that selling one never beats using it.
-*/
 /** Chance a reward-guaranteed location takes a key instead of loot. */
 var KEY_SHARE = .25;
 /** Of the loot that does fall out, how much is equipment rather than treasure. */
@@ -4869,25 +4927,6 @@ function mintGoalProperties(res, payload, sd) {
 }
 //#endregion
 //#region src/generation/content/passes/content-pass.ts
-/**
-* CONTENT PASS  (per chunk)
-* =========================
-*
-* The fourth pass, and the first that writes prose. ONE batch call per chunk
-* (six rooms). In a single call the model names and writes the standing `base`
-* for every room, entity, connector, and creature-group local to those rooms,
-* and the deterministic layer settles counts and stats around it.
-*
-* CONSOLIDATION. A pack of one creature type is ONE entity with a `count` and a
-* single stat block -- five fen-seals are "Fen-seals x5", not five identical
-* bodies. Distinct specimens (an elite, a named person) split off into their own
-* entity. The number appearing is rolled in code from the group's tier, never by
-* the model.
-*
-* KEYWORDS. Everything that gets a base also carries `keywords`: a record of the
-* procgen rolls behind it, keyed by the table each was rolled from. These ride
-* along into the context of any later pass that revisits the entity.
-*/
 function monsterKeywords(m) {
 	const r = {
 		Complexity: m.complexity,
@@ -7273,11 +7312,10 @@ function spaceOut(graph, chunkOf, rng) {
 		y: Math.round(p.y)
 	}));
 	const taken = /* @__PURE__ */ new Set();
-	const key = (p) => `${p.x},${p.y}`;
 	for (let i = 0; i < n; i++) {
 		let guard = 0;
 		while (guard++ < 400) {
-			if (!(taken.has(key(cells[i])) || cells.some((c, j) => j !== i && taken.has(key(c)) && manhattan(c, cells[i]) < CLEAR))) break;
+			if (!(taken.has(cellKey(cells[i])) || cells.some((c, j) => j !== i && taken.has(cellKey(c)) && manhattan(c, cells[i]) < CLEAR))) break;
 			cells[i].x += rng.pick([
 				-1,
 				0,
@@ -7289,7 +7327,7 @@ function spaceOut(graph, chunkOf, rng) {
 				1
 			]);
 		}
-		taken.add(key(cells[i]));
+		taken.add(cellKey(cells[i]));
 	}
 	return cells;
 }
@@ -7413,7 +7451,6 @@ function lRoutes(a, b) {
 		y: b.y
 	})];
 }
-var key$2 = (p) => `${p.x},${p.y}`;
 /** The four 2x2 blocks that have the anchor cell as one of their corners. */
 var CORNERS = [
 	[0, 0],
@@ -7459,19 +7496,19 @@ function makeBlocks(centres, rng) {
 		let placed = null;
 		for (const corner of rng.pickN(CORNERS, CORNERS.length)) {
 			const cells = blockAt(p, corner);
-			if (cells.some((c) => taken.has(key$2(c)))) continue;
+			if (cells.some((c) => taken.has(cellKey(c)))) continue;
 			placed = cells;
 			break;
 		}
 		if (!placed) return null;
-		for (const c of placed) taken.add(key$2(c));
+		for (const c of placed) taken.add(cellKey(c));
 		blocks.push(placed);
 	}
 	return blocks;
 }
 /** Cells orthogonally touching the block but not in it. */
 function rimOf(block) {
-	const inside = new Set(block.map(key$2));
+	const inside = new Set(block.map(cellKey));
 	const out = /* @__PURE__ */ new Map();
 	for (const c of block) for (const [dx, dy] of [
 		[1, 0],
@@ -7483,7 +7520,7 @@ function rimOf(block) {
 			x: c.x + dx,
 			y: c.y + dy
 		};
-		if (!inside.has(key$2(n))) out.set(key$2(n), n);
+		if (!inside.has(cellKey(n))) out.set(cellKey(n), n);
 	}
 	return [...out.values()];
 }
@@ -7491,7 +7528,7 @@ function rimOf(block) {
 var ROUTE_TRIES = 96;
 function route$1(blocks, graph, rng) {
 	const solid = /* @__PURE__ */ new Set();
-	for (const b of blocks) for (const c of b) solid.add(key$2(c));
+	for (const b of blocks) for (const c of b) solid.add(cellKey(c));
 	const used = new Set(solid);
 	const centreOf = (b) => ({
 		x: b[0].x + .5,
@@ -7504,9 +7541,9 @@ function route$1(blocks, graph, rng) {
 	})).sort((p, q) => p.d - q.d || p.i - q.i);
 	const paths = [];
 	for (const { e } of order) {
-		const A = new Set(blocks[e.a].map(key$2));
-		const B = new Set(blocks[e.b].map(key$2));
-		if (rimOf(blocks[e.a]).some((c) => B.has(key$2(c)))) {
+		const A = new Set(blocks[e.a].map(cellKey));
+		const B = new Set(blocks[e.b].map(cellKey));
+		if (rimOf(blocks[e.a]).some((c) => B.has(cellKey(c)))) {
 			paths.push({
 				a: e.a,
 				b: e.b,
@@ -7514,8 +7551,8 @@ function route$1(blocks, graph, rng) {
 			});
 			continue;
 		}
-		const exits = rimOf(blocks[e.a]).filter((c) => !used.has(key$2(c)));
-		const entries = rimOf(blocks[e.b]).filter((c) => !used.has(key$2(c)));
+		const exits = rimOf(blocks[e.a]).filter((c) => !used.has(cellKey(c)));
+		const entries = rimOf(blocks[e.b]).filter((c) => !used.has(cellKey(c)));
 		const pairs = [];
 		for (const from of exits) for (const to of entries) pairs.push({
 			from,
@@ -7529,7 +7566,7 @@ function route$1(blocks, graph, rng) {
 			if (rng.coin()) routes.reverse();
 			for (const rest of routes) {
 				const cells = [from, ...rest];
-				if (cells.some((c) => used.has(key$2(c)) || A.has(key$2(c)) || B.has(key$2(c)))) continue;
+				if (cells.some((c) => used.has(cellKey(c)) || A.has(cellKey(c)) || B.has(cellKey(c)))) continue;
 				laid = cells;
 				break;
 			}
@@ -7540,7 +7577,7 @@ function route$1(blocks, graph, rng) {
 			a: e.a,
 			b: e.b
 		};
-		for (const c of laid) used.add(key$2(c));
+		for (const c of laid) used.add(cellKey(c));
 		paths.push({
 			a: e.a,
 			b: e.b,
@@ -7565,7 +7602,7 @@ function route$1(blocks, graph, rng) {
 function shift(blocks, i, graph, rng) {
 	const others = /* @__PURE__ */ new Set();
 	blocks.forEach((b, j) => {
-		if (j !== i) for (const c of b) others.add(key$2(c));
+		if (j !== i) for (const c of b) others.add(cellKey(c));
 	});
 	const linked = graph.edges.filter((e) => e.a === i || e.b === i).map((e) => e.a === i ? e.b : e.a);
 	const clear = [];
@@ -7576,7 +7613,7 @@ function shift(blocks, i, graph, rng) {
 			x: c.x + dx,
 			y: c.y + dy
 		}));
-		if (moved.some((c) => others.has(key$2(c)))) continue;
+		if (moved.some((c) => others.has(cellKey(c)))) continue;
 		clear.push(moved);
 		if (linked.every((j) => {
 			const d = manhattan(moved[0], blocks[j][0]);
@@ -7657,9 +7694,9 @@ function growZones(seed, graph, isCorridor) {
 	const owner = /* @__PURE__ */ new Map();
 	const pathEnds = /* @__PURE__ */ new Map();
 	seed.blocks.forEach((cells, i) => {
-		for (const c of cells) owner.set(key$2(c), i);
+		for (const c of cells) owner.set(cellKey(c), i);
 	});
-	for (const p of seed.paths) for (const c of p.cells) pathEnds.set(key$2(c), [p.a, p.b]);
+	for (const p of seed.paths) for (const c of p.cells) pathEnds.set(cellKey(c), [p.a, p.b]);
 	const boxed = surroundedness(seed.blocks);
 	const turnOrder = seed.blocks.map((_c, i) => i).sort((a, b) => {
 		const ca = isCorridor?.(a) ? 1 : 0;
@@ -7683,7 +7720,7 @@ function growZones(seed, graph, isCorridor) {
 				x: c.x + dx,
 				y: c.y + dy
 			};
-			const k = key$2(n);
+			const k = cellKey(n);
 			if (!mayTake(i, k)) continue;
 			owner.set(k, i);
 			if (pathEnds.has(k)) unclaimed--;
@@ -7700,7 +7737,7 @@ function growZones(seed, graph, isCorridor) {
 function contacts(zones, graph) {
 	const own = /* @__PURE__ */ new Map();
 	zones.forEach((cells, i) => {
-		for (const c of cells) own.set(key$2(c), i);
+		for (const c of cells) own.set(cellKey(c), i);
 	});
 	const out = /* @__PURE__ */ new Map();
 	const push = (i, v) => {
@@ -7716,7 +7753,7 @@ function contacts(zones, graph) {
 					x: c.x + dx,
 					y: c.y + dy
 				};
-				if (own.get(key$2(n)) === e.b) {
+				if (own.get(cellKey(n)) === e.b) {
 					found = {
 						mine: c,
 						theirs: n
@@ -7759,7 +7796,7 @@ function walkInZone(zone, from, to) {
 			let at = cur;
 			while (at) {
 				path.push(at);
-				at = prev.get(key$2(at)) ?? void 0;
+				at = prev.get(cellKey(at)) ?? void 0;
 			}
 			return path;
 		}
@@ -7768,7 +7805,7 @@ function walkInZone(zone, from, to) {
 				x: cur.x + dx,
 				y: cur.y + dy
 			};
-			const k = key$2(n);
+			const k = cellKey(n);
 			if (!zone.has(k) || prev.has(k)) continue;
 			prev.set(k, cur);
 			queue.push(n);
@@ -7824,13 +7861,13 @@ function buildRooms(seed, zones, graph, proportionOf, targetArea, rng) {
 	const touch = contacts(zones, graph);
 	const out = [];
 	for (let i = 0; i < zones.length; i++) {
-		const zone = new Set(zones[i].map(key$2));
-		const taken = new Set(seed.blocks[i].map(key$2));
+		const zone = new Set(zones[i].map(cellKey));
+		const taken = new Set(seed.blocks[i].map(cellKey));
 		for (const c of touch.get(i) ?? []) {
-			if (taken.has(key$2(c.mine))) continue;
+			if (taken.has(cellKey(c.mine))) continue;
 			const run = walkInZone(zone, taken, c.mine);
 			if (!run) return null;
-			for (const p of run) taken.add(key$2(p));
+			for (const p of run) taken.add(cellKey(p));
 		}
 		const band = ASPECT_BAND[proportionOf(i)];
 		const stray = (r) => r < band[0] ? band[0] - r : r > band[1] ? r - band[1] : 0;
@@ -7841,7 +7878,7 @@ function buildRooms(seed, zones, graph, proportionOf, targetArea, rng) {
 			for (const k of taken) {
 				const p = unkey(k);
 				for (const [dx, dy] of NEIGHBOURS) {
-					const n = key$2({
+					const n = cellKey({
 						x: p.x + dx,
 						y: p.y + dy
 					});
@@ -7878,14 +7915,14 @@ function buildRooms(seed, zones, graph, proportionOf, targetArea, rng) {
 function chooseDoors(rooms, graph, rng) {
 	const doors = [];
 	for (const e of graph.edges) {
-		const other = new Set(rooms[e.b].map(key$2));
+		const other = new Set(rooms[e.b].map(cellKey));
 		const along = [];
 		for (const c of rooms[e.a]) for (const [dx, dy] of NEIGHBOURS) {
 			const n = {
 				x: c.x + dx,
 				y: c.y + dy
 			};
-			if (other.has(key$2(n))) along.push({
+			if (other.has(cellKey(n))) along.push({
 				a: e.a,
 				b: e.b,
 				from: c,
@@ -7912,14 +7949,14 @@ function surfaceDoor(rooms, entrance, rng) {
 	const mine = rooms[entrance];
 	if (!mine?.length) return null;
 	const owned = /* @__PURE__ */ new Set();
-	for (const cells of rooms) for (const c of cells) owned.add(key$2(c));
+	for (const cells of rooms) for (const c of cells) owned.add(cellKey(c));
 	const options = [];
 	for (const c of mine) for (const [dx, dy] of NEIGHBOURS) {
 		const out = {
 			x: c.x + dx,
 			y: c.y + dy
 		};
-		if (!owned.has(key$2(out))) options.push({
+		if (!owned.has(cellKey(out))) options.push({
 			room: entrance,
 			from: c,
 			to: out
@@ -8869,391 +8906,7 @@ var COVER_MODEL = "flux-2-klein-4b";
 */
 var SPRITE_MODEL = "gpt-image-2";
 //#endregion
-//#region src/llm/schemas.ts
-/**
-* Zod for every model response. Nothing reaches the engine unvalidated.
-*
-* These mirror the response interfaces the engine declares — the engine owns
-* the shape, this file owns the checking. `satisfies` on each export keeps the
-* two from drifting apart silently: change the interface without changing the
-* schema and this file stops compiling.
-*/
-var nonEmpty$1 = z.string().trim().min(1);
-var dungeonPassSchema = z.object({
-	name: nonEmpty$1,
-	theme: nonEmpty$1,
-	history: nonEmpty$1,
-	goal: z.object({
-		summary: nonEmpty$1,
-		spec: nonEmpty$1
-	}),
-	openingProse: nonEmpty$1,
-	groups: z.array(z.object({
-		id: nonEmpty$1,
-		name: nonEmpty$1,
-		base: nonEmpty$1
-	})).min(1)
-});
-var modifiers = z.object({
-	str: z.number().int().optional(),
-	dex: z.number().int().optional(),
-	con: z.number().int().optional(),
-	int: z.number().int().optional(),
-	wis: z.number().int().optional(),
-	cha: z.number().int().optional(),
-	attack: z.number().int().optional()
-});
-var statDeviations = z.object({
-	damage: z.string().optional(),
-	armorDefense: z.number().int().optional(),
-	morale: z.number().int().optional(),
-	modifiers: modifiers.optional()
-});
-/**
-* Where in the room something stands.
-*
-* A LOOSE STRING, not an enum, and deliberately: a position that does not parse
-* is a fixture in the middle of the room instead of at the far end, where a
-* rejected batch is six unwritten rooms and a retry. `applyContentPass` does the
-* narrowing (`isPositionWord`) and falls back to the centre. Same reasoning for
-* `kind` below — the difference is that an unrecognised kind cannot be drawn at
-* all, so apply drops the fixture rather than guessing at one.
-*/
-var position = z.string().optional();
-var writtenEntity = z.object({
-	ref: nonEmpty$1,
-	name: nonEmpty$1,
-	base: nonEmpty$1,
-	position
-});
-var fixtureResponse = z.object({
-	kind: nonEmpty$1,
-	position: nonEmpty$1,
-	name: nonEmpty$1,
-	base: nonEmpty$1
-});
-var promotedDetail = z.object({
-	text: nonEmpty$1,
-	name: nonEmpty$1,
-	base: nonEmpty$1,
-	hidden: z.boolean().optional(),
-	position
-});
-var connectorResponse = z.object({
-	ref: nonEmpty$1,
-	name: nonEmpty$1,
-	form: nonEmpty$1,
-	requirement: z.string().optional()
-});
-var groupResponse = z.object({
-	name: nonEmpty$1,
-	base: nonEmpty$1,
-	activity: nonEmpty$1,
-	stats: statDeviations.optional()
-});
-var distinctResponse = z.object({
-	kind: z.enum(["elite", "named"]),
-	member: z.string().optional(),
-	name: nonEmpty$1,
-	base: nonEmpty$1,
-	isLeader: z.boolean().optional(),
-	activity: nonEmpty$1,
-	stats: statDeviations.optional()
-});
-var encounterResponse = z.object({
-	ref: nonEmpty$1,
-	group: groupResponse.optional(),
-	distinct: z.array(distinctResponse).optional()
-});
-var roomResponse = z.object({
-	ref: nonEmpty$1,
-	name: nonEmpty$1,
-	base: nonEmpty$1,
-	entities: z.array(writtenEntity).optional(),
-	fixtures: z.array(fixtureResponse).optional(),
-	promotions: z.array(promotedDetail).optional(),
-	connectors: z.array(connectorResponse).optional(),
-	encounters: z.array(encounterResponse).optional(),
-	goal: z.object({
-		entityType: z.enum([
-			"Item",
-			"RoomFeature",
-			"Creature"
-		]),
-		name: nonEmpty$1,
-		base: nonEmpty$1,
-		position
-	}).optional()
-});
-var contentPassSchema = z.object({ rooms: z.array(roomResponse).min(1) });
-var seamsPassSchema = z.object({ connectors: z.array(connectorResponse).min(1) });
-var keyResponse = z.object({
-	ref: nonEmpty$1,
-	name: nonEmpty$1,
-	base: nonEmpty$1,
-	lockRequirement: z.string().optional()
-});
-var keysPassSchema = z.object({
-	keys: z.array(keyResponse),
-	goalProperties: z.array(nonEmpty$1).optional()
-});
-var tallyRating = z.object({
-	challengeId: nonEmpty$1,
-	risk: z.enum([
-		"low",
-		"moderate",
-		"high"
-	]),
-	why: nonEmpty$1
-});
-var tallyPassSchema = z.object({ ratings: z.array(tallyRating) });
-var ability = z.enum([
-	"str",
-	"dex",
-	"con",
-	"int",
-	"wis",
-	"cha"
-]);
-var edge = z.enum([
-	"none",
-	"advantage",
-	"disadvantage"
-]);
-/**
-* The stages a GAME MASTER may name — a strict subset of `Stage`.
-*
-* `thinking`, `rolling`, `room_entry` and `error` are the software talking, and
-* `resolving` is the machine's own marker for the call it is making right now.
-* A commit that named one of them would leave the player looking at a closed
-* input area with nothing running. Narrowing the enum makes that unsayable
-* rather than merely discouraged.
-*/
-var gameMasterStage = z.enum([
-	"awaiting_action",
-	"clarifying",
-	"rejected",
-	"roll_offered",
-	"dead",
-	"departed"
-]);
-/**
-* The steps a turn can RESUME at. The rest are mid-cascade — a single call runs
-* step 1 through step 3 without stopping — so they are not resume points and
-* naming one would only cost a retry.
-*/
-var gameMasterStep = z.enum([
-	"1-target",
-	"4-confirm-roll",
-	"5-resolution"
-]);
-/**
-* HOW LONG THE ACTION TOOK, which is how the rest of the dungeon finds out that
-* a turn has passed. Not a duration — see `TimeSpent` for why there is no clock
-* — but the four cases named so the game master reads what each one covers.
-*
-* `long` is on the wire and is refused on the way back in until Phase 16 exists
-* to produce it; the description says so, because a model offered a value it
-* cannot use will reach for it.
-*/
-var timeSpent = z.enum([
-	"instant",
-	"round",
-	"short",
-	"long"
-]).describe("How long this action took, which decides who else got to move. instant — a glance, a word, drawing a blade: nobody moves. round — ten seconds or less, one exchange, a lunge, a shove. short — up to an hour: searching, picking a lock, binding a wound. long — a night's rest, and ONLY that; nothing else you can be asked to resolve is long, and a turn that says so is refused. Forced to instant on clarifying, rejected and roll_offered, because those turns have not happened yet.");
-/**
-* What goes on the table. The player-facing terms sit alongside the two
-* game-master-side numbers, and the interface renders only the former — see
-* RollSpec, and `InputArea` which never reads `dc`.
-*
-* A save carries `dc`; an attack or a stunt carries `targetDefense`, which the
-* game master converts through `dcFromDefense`. That keeps the vocabulary the
-* playbook uses on the wire and the one `+1` in the codebase in one function.
-*/
-var rollRequest = z.object({
-	kind: z.enum([
-		"save",
-		"attack",
-		"stunt"
-	]),
-	ability,
-	bonus: z.number().int(),
-	edge,
-	description: nonEmpty$1,
-	weapon: z.string().optional(),
-	mode: z.enum(["damage", "stunt"]).optional(),
-	advantageUse: z.enum(["normal", "stunt-and-damage"]).optional(),
-	/** saves: the number to meet. Defaults to the ordinary 16. Never rendered. */
-	dc: z.number().int().optional(),
-	/** attacks and stunts: the target's defense, converted here. Never rendered. */
-	targetDefense: z.number().int().optional(),
-	damage: z.string().optional(),
-	targetId: z.string().optional()
-});
-/** A thing being brought into existence, appended to a holder's `children[]`. */
-var entitySpec = z.object({
-	type: z.enum(["Item", "RoomFeature"]),
-	name: nonEmpty$1,
-	base: nonEmpty$1,
-	state: z.string().optional(),
-	slots: z.number().int().optional(),
-	amount: z.string().optional(),
-	hidden: z.boolean().optional(),
-	/** address it from a later diff in this same commit */
-	ref: z.string().optional()
-});
-/**
-* Spelled out rather than left as `unknown`.
-*
-* `unknown` compiles to `{}` in JSON Schema, which tells the model nothing —
-* and the one value shape it cannot guess is the entity spec behind
-* `children[]`. An `anyOf` costs a few lines and puts that shape on the wire.
-*/
-var diffValue = z.union([
-	z.string(),
-	z.number(),
-	z.boolean(),
-	z.null(),
-	z.array(z.string()),
-	entitySpec
-]);
-var diff = z.object({
-	entityId: nonEmpty$1,
-	path: nonEmpty$1,
-	value: diffValue
-});
-var commitSchema = z.object({
-	/**
-	* WHAT THE PLAYER READS. The only place a post can come from.
-	*
-	* It was loose assistant text until Phase 12 (CODING-PLAN 8a A9): narration
-	* was the concatenation of every text block in the response, and nothing
-	* distinguished a draft from the post. A game master that thought better of a
-	* paragraph mid-response — *"Wait, I should not write that post yet… Let me
-	* rewrite"* — had BOTH drafts printed, one after the other, the second in a
-	* different tense and ending in a roll offer. No streaming rule catches that;
-	* the buffer is complete and valid, it is just two answers stapled together.
-	*
-	* A field cannot be written twice. The last `commit_state` call is the only
-	* one that counts, so a draft is not narration BY CONSTRUCTION rather than by
-	* the loop guessing which block the game master meant — and the rule that a player
-	* reads nothing until the commit has validated gets its second guarantee,
-	* because the prose now travels inside the thing being validated.
-	*
-	* REQUIRED, AND NULL ON THE TWO TURNS THAT WRITE NONE: a room entry, where the
-	* room's own `composed` IS the paragraph, and a commit that moves the player,
-	* whose prose is discarded unread because the arrival pass is about to
-	* describe the real room. Anything else with a null post is refused — see
-	* `missingPost` in game-master.ts.
-	*
-	* It was `.optional()`, and optional is a key the model can simply not write.
-	* It did, a quarter of the time: R3 (2026-10-11) had 4 of 19 calls spent on
-	* "this commit has no `post`", the game master filling `coinGrant` and `learned`
-	* with blank placeholders and skipping the one field that mattered. `commit_state`
-	* goes out strict, so a required key is one the API will not let it leave out —
-	* and `null` keeps the exempt turns to four tokens rather than a paragraph
-	* written to be thrown away (which they were writing anyway: both R3 room
-	* entries carried a post duplicating `composed`).
-	*/
-	post: z.string().trim().min(1).nullable(),
-	nextStage: gameMasterStage,
-	nextStep: gameMasterStep,
-	timeSpent,
-	rollRequest: rollRequest.optional(),
-	diffs: z.array(diff),
-	/**
-	* The dungeon's objective is accomplished. It does NOT end the run — the
-	* player still has to carry it out — so it is a flag rather than a stage, and
-	* it latches: saying it once is enough, forever.
-	*/
-	goalMet: z.boolean().optional(),
-	/**
-	* One fact this turn established about the DUNGEON — its history, its makers,
-	* what a place was really for. Appended to the run's fiction and shown back on
-	* every later call, so the story of the place only ever grows.
-	*
-	* Capped, and deliberately short of a paragraph: this is a line for the record,
-	* not a second draft of the narration. Anything true of a single entity belongs
-	* in that entity's `state` instead, which is why the length is the check.
-	*/
-	fictionNote: z.string().trim().min(1).max(300).optional(),
-	/**
-	* ONE challenge answered out of the reserve, and one at most per turn.
-	*
-	* The id must be one the offer list carried — the applier refuses anything
-	* else, including an entry already spent and a challenge already resolved.
-	* `entityRef` names an entity created by a `children[]` diff in this same
-	* commit, for a draw the player can pick up; an information draw omits it.
-	*/
-	draw: z.object({
-		challengeId: nonEmpty$1,
-		entityRef: z.string().optional()
-	}).optional(),
-	/**
-	* Challenges whose fact the player has now been told, in as many words.
-	*
-	* The applier writes the DUNGEON'S wording onto the thing the fact is about,
-	* not whatever was written in the post — so this is a list of ids and carries
-	* no prose of its own.
-	*/
-	learned: z.array(nonEmpty$1).optional(),
-	/**
-	* The player found money. HOW MUCH IS NOT YOURS TO SAY — the dungeon holds an
-	* allowance settled before play and the amount is rolled from it. `why` is one
-	* line for the record.
-	*/
-	coinGrant: z.object({ why: nonEmpty$1 }).optional()
-});
-/**
-* One request in the batch. Flat rather than a discriminated union: JSON Schema
-* can express the union but the model reads a flat object with a `kind` more
-* reliably, and zod checks the per-kind requirements on the way back in.
-*/
-var rollSpecRequest = z.object({
-	/** the caller's own label, so the results can be told apart */
-	id: nonEmpty$1,
-	kind: z.enum([
-		"save",
-		"attack",
-		"stunt",
-		"morale",
-		"damage",
-		"consult"
-	]),
-	/**
-	* Whose roll this is — and `"player"` is deliberately unsayable, because the
-	* player's own roll is offered rather than thrown (see `playersOwnDice`).
-	* Optional, and read only when a roll made at one of the player's bonuses
-	* would otherwise be refused: saying it is the ghoul's is how a game master gets
-	* a genuine coincidence past the guard.
-	*/
-	actor: z.enum(["creature", "world"]).optional(),
-	edge: edge.optional(),
-	/** save, attack, stunt */
-	bonus: z.number().int().optional(),
-	/** save: the number to meet. Defaults to 16. */
-	dc: z.number().int().optional(),
-	/** save: a creature is the source of the risk — pass its defense instead */
-	defenseAsDc: z.number().int().optional(),
-	/** attack, stunt */
-	targetDefense: z.number().int().optional(),
-	/** attack: the weapon's die. damage: the expression to roll. */
-	damage: z.string().optional(),
-	expr: z.string().optional(),
-	extraDice: z.number().int().optional(),
-	/** attack: the right weapon against the right enemy, for the extra die */
-	wellSuited: z.boolean().optional(),
-	/** morale: the group's rating. Defaults to 7. */
-	rating: z.number().int().optional(),
-	/**
-	* consult: how many times that book has been read ALREADY — its current
-	* `book.uses`, and 0 for one nobody has opened. This reading is added by the
-	* tool, which then says what to write back.
-	*/
-	uses: z.number().int().optional()
-});
-var rollBatchSchema = z.object({ rolls: z.array(rollSpecRequest).min(1) });
+//#region src/llm/validation.ts
 function issuesOf(error) {
 	return error.issues.map((i) => ({
 		path: i.path.join(".") || "(root)",
@@ -9285,6 +8938,22 @@ function validate(schema, value) {
 	const result = schema.safeParse(value);
 	if (result.success) return result.data;
 	throw new ResponseFormatError("response did not match the expected shape", issuesOf(result.error), JSON.stringify(value).slice(0, 2e3));
+}
+/**
+* An error, said usefully.
+*
+* "response did not match the expected shape" is what a `ResponseFormatError`
+* says on its own, and on a screen it is worth nothing: it names no pass, no
+* chunk, and no field. The issues are right there on the error, so the first
+* few of them go into the message — enough to tell a prompt problem from a bad
+* roll of the dice without opening anything.
+*/
+function describeFailure(e) {
+	const message = e instanceof Error ? e.message : String(e);
+	if (!(e instanceof ResponseFormatError) || e.issues.length === 0) return message;
+	const shown = e.issues.slice(0, 3).map((i) => `${i.path}: ${i.message}`);
+	const rest = e.issues.length - shown.length;
+	return `${message} — ${shown.join("; ")}${rest > 0 ? `, and ${rest} more` : ""}`;
 }
 //#endregion
 //#region src/llm/tool-schema.ts
@@ -9639,6 +9308,142 @@ async function callForJson(opts) {
 	}
 }
 //#endregion
+//#region src/shared/utils/schema.ts
+/**
+* ZOD HELPERS shared by every schema that checks a model's answer.
+*/
+/** A string with something in it once trimmed. */
+var nonEmpty = z.string().trim().min(1);
+//#endregion
+//#region src/generation/content/passes/schemas.ts
+/**
+* ZOD FOR THE GENERATION PASSES. Nothing a model writes reaches the dungeon
+* unvalidated.
+*
+* These mirror the response interfaces each pass declares: the pass owns the
+* shape, this file owns the checking. The drift guards at the bottom keep the
+* two from drifting apart silently: change an interface without changing its
+* schema and this file stops compiling.
+*/
+var dungeonPassSchema = z.object({
+	name: nonEmpty,
+	theme: nonEmpty,
+	history: nonEmpty,
+	goal: z.object({
+		summary: nonEmpty,
+		spec: nonEmpty
+	}),
+	openingProse: nonEmpty,
+	groups: z.array(z.object({
+		id: nonEmpty,
+		name: nonEmpty,
+		base: nonEmpty
+	})).min(1)
+});
+var modifiers = z.object({
+	str: z.number().int().optional(),
+	dex: z.number().int().optional(),
+	con: z.number().int().optional(),
+	int: z.number().int().optional(),
+	wis: z.number().int().optional(),
+	cha: z.number().int().optional(),
+	attack: z.number().int().optional()
+});
+var statDeviations = z.object({
+	damage: z.string().optional(),
+	armorDefense: z.number().int().optional(),
+	morale: z.number().int().optional(),
+	modifiers: modifiers.optional()
+});
+/**
+* Where in the room something stands.
+*
+* A LOOSE STRING, not an enum, and deliberately: a position that does not parse
+* is a fixture in the middle of the room instead of at the far end, where a
+* rejected batch is six unwritten rooms and a retry. `applyContentPass` does the
+* narrowing (`isPositionWord`) and falls back to the centre. Same reasoning for
+* `kind` below — the difference is that an unrecognised kind cannot be drawn at
+* all, so apply drops the fixture rather than guessing at one.
+*/
+var position = z.string().optional();
+var writtenEntity = z.object({
+	ref: nonEmpty,
+	name: nonEmpty,
+	base: nonEmpty,
+	position
+});
+var fixtureResponse = z.object({
+	kind: nonEmpty,
+	position: nonEmpty,
+	name: nonEmpty,
+	base: nonEmpty
+});
+var promotedDetail = z.object({
+	text: nonEmpty,
+	name: nonEmpty,
+	base: nonEmpty,
+	hidden: z.boolean().optional(),
+	position
+});
+var connectorResponse = z.object({
+	ref: nonEmpty,
+	name: nonEmpty,
+	form: nonEmpty,
+	requirement: z.string().optional()
+});
+var groupResponse = z.object({
+	name: nonEmpty,
+	base: nonEmpty,
+	activity: nonEmpty,
+	stats: statDeviations.optional()
+});
+var distinctResponse = z.object({
+	kind: z.enum(["elite", "named"]),
+	member: z.string().optional(),
+	name: nonEmpty,
+	base: nonEmpty,
+	isLeader: z.boolean().optional(),
+	activity: nonEmpty,
+	stats: statDeviations.optional()
+});
+var encounterResponse = z.object({
+	ref: nonEmpty,
+	group: groupResponse.optional(),
+	distinct: z.array(distinctResponse).optional()
+});
+var roomResponse = z.object({
+	ref: nonEmpty,
+	name: nonEmpty,
+	base: nonEmpty,
+	entities: z.array(writtenEntity).optional(),
+	fixtures: z.array(fixtureResponse).optional(),
+	promotions: z.array(promotedDetail).optional(),
+	connectors: z.array(connectorResponse).optional(),
+	encounters: z.array(encounterResponse).optional(),
+	goal: z.object({
+		entityType: z.enum([
+			"Item",
+			"RoomFeature",
+			"Creature"
+		]),
+		name: nonEmpty,
+		base: nonEmpty,
+		position
+	}).optional()
+});
+var contentPassSchema = z.object({ rooms: z.array(roomResponse).min(1) });
+var seamsPassSchema = z.object({ connectors: z.array(connectorResponse).min(1) });
+var keyResponse = z.object({
+	ref: nonEmpty,
+	name: nonEmpty,
+	base: nonEmpty,
+	lockRequirement: z.string().optional()
+});
+var keysPassSchema = z.object({
+	keys: z.array(keyResponse),
+	goalProperties: z.array(nonEmpty).optional()
+});
+//#endregion
 //#region src/generation/seeds.ts
 function deriveSeeds(dungeonSeed, runSeed) {
 	return {
@@ -9659,78 +9464,9 @@ function chunksFor(size) {
 	return size;
 }
 //#endregion
-//#region src/journal/journal.ts
-/**
-* A journal for one run.
-*
-* With no sink it is the no-op every test gets: `log` returns on the first
-* line, nothing is allocated, nothing is stamped.
-*
-* `startSeq` IS WHAT MAKES A RUN SURVIVE BEING PUT DOWN. In a browser one
-* journal sees a whole run and counting from zero is right. On a server there
-* is no continuous anything: a session is built per request, plays one turn,
-* and dies — so a journal that always started at zero would number the second
-* turn's events 1, 2, 3 again, on top of the first turn's. Against a table keyed
-* `(run_id, seq)` that is a collision, and the failure would be the quiet kind:
-* every write here is wrapped, per IT MUST NEVER BREAK A TURN, so the turn would
-* succeed and the journalling would simply stop. Whoever builds the session
-* passes the last sequence already stored.
-*/
-function createJournal(sink, startSeq = 0) {
-	let seq = startSeq;
-	let broken = false;
-	/**
-	* Steps whose playbook has already been written. Tracked on the journal
-	* rather than at the call site because "have I already written this" is a
-	* property of the journal, not of the game master — and it is per run, because
-	* two runs each want their own copy of the instructions they were played
-	* under.
-	*/
-	const written = /* @__PURE__ */ new Set();
-	function log(event) {
-		if (!sink || broken) return;
-		try {
-			sink.write({
-				...event,
-				seq: ++seq,
-				at: (/* @__PURE__ */ new Date()).toISOString()
-			});
-		} catch (e) {
-			broken = true;
-			console.warn("[journal] writing failed; journalling is off for this run:", e);
-		}
-	}
-	return {
-		log,
-		logSystem(step, blocks) {
-			if (!sink || written.has(step)) return;
-			written.add(step);
-			log({
-				kind: "system",
-				step,
-				blocks
-			});
-		}
-	};
-}
-/**
-* The journal for a run that is not being journalled — shared, so the default
-* costs one reference rather than an object per turn machine.
-*/
-var NO_JOURNAL = createJournal();
-/** A name for this run's directory: sortable, and says which seed it was. */
-function runId(seed) {
-	return `${(/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-").slice(0, 19)}-seed${seed}`;
-}
-/**
-* The diffs a commit proposed, in one line each, as `entity path = value`.
-* Shared by the transcript and by anything else that has to show a change
-* without printing a wall of JSON.
-*/
-function describeDiff(d) {
-	const value = typeof d.value === "string" ? d.value.length > 120 ? `${d.value.slice(0, 117).replace(/\s*\n\s*/g, " ")}…` : d.value.replace(/\s*\n\s*/g, " ") : JSON.stringify(d.value);
-	return `${d.entityId} · ${d.path} = ${value}`;
-}
+//#region src/generation/log.ts
+/** Writes nothing: generation without a journal. */
+var NO_LOG = { log() {} };
 //#endregion
 //#region src/generation/generate.ts
 /**
@@ -9833,7 +9569,7 @@ async function generateStructure(opts) {
 	const level = opts.level ?? 1;
 	const seeds = deriveSeeds(opts.seed);
 	const report = opts.onProgress ?? (() => {});
-	const journal = opts.journal ?? NO_JOURNAL;
+	const journal = opts.journal ?? NO_LOG;
 	const blueprint = generateBlueprintSeed(size, seeds.blueprintSeed, level);
 	const fiction = (async () => {
 		report({ stage: "inhabitants" });
@@ -9916,7 +9652,7 @@ async function generateStructure(opts) {
 * applied serially afterwards, which is the rule in CLAUDE.md.
 */
 async function generateChunk(partial, chunk, opts = {}) {
-	const journal = opts.journal ?? NO_JOURNAL;
+	const journal = opts.journal ?? NO_LOG;
 	const payload = contentPayload(partial, chunk);
 	const prompt = renderContentPassPrompt(payload);
 	const { value, usage } = await callForJson({
@@ -9959,7 +9695,7 @@ async function generateChunk(partial, chunk, opts = {}) {
 */
 async function finishGeneration(partial, results, opts = {}) {
 	const report = opts.onProgress ?? (() => {});
-	const journal = opts.journal ?? NO_JOURNAL;
+	const journal = opts.journal ?? NO_LOG;
 	const { blueprint, stocked, entities } = partial;
 	const missing = chunksOf(partial).filter((c) => !results.some((r) => r.chunk === c));
 	if (missing.length > 0) throw new Error(`cannot finish generation: region ${missing.join(", ")} was never written`);
@@ -11870,52 +11606,6 @@ function applyCommit(world, commit) {
 	};
 }
 //#endregion
-//#region src/shared/utils/rng.ts
-/**
-* THE RUN RNG
-*
-* Play-time randomness draws from a stream separate from generation, so
-* re-rolling a character cannot shift the dungeon and replaying a run cannot
-* reshape it.
-*
-* `Rng` keeps its state in a private field and exposes no way to read or
-* restore it, so a save can't snapshot mid-stream. What a save *can* record is
-* the seed and how many numbers have been drawn — replaying those draws lands
-* on exactly the same point. Draws are cheap (a few multiplies each), so
-* fast-forwarding thousands of them on load costs nothing measurable.
-*
-* A wrapper rather than a subclass: `Rng`'s own methods reach for its private
-* generator directly, so overriding `next()` would not catch them. Everything
-* that needs seeded randomness at runtime takes the `RollRng` interface —
-* `{ next(): number }` — which both satisfy.
-*/
-var CountingRng = class CountingRng {
-	seed;
-	inner;
-	count = 0;
-	constructor(seed, draws = 0) {
-		this.seed = seed;
-		this.inner = new Rng(seed);
-		this.fastForward(draws);
-	}
-	/** How many numbers have been drawn. Persist this alongside the seed. */
-	get draws() {
-		return this.count;
-	}
-	next() {
-		this.count++;
-		return this.inner.next();
-	}
-	/** Replay `n` draws to reach a saved position. */
-	fastForward(n) {
-		for (let i = 0; i < n; i++) this.next();
-	}
-	/** Restore from a persisted `{ seed, draws }` pair. */
-	static resume(seed, draws) {
-		return new CountingRng(seed, draws);
-	}
-};
-//#endregion
 //#region src/gameplay/state/store.ts
 /**
 * GAME STATE
@@ -12166,6 +11856,79 @@ var init = (set, get) => ({
 		});
 	}
 });
+//#endregion
+//#region src/journal/journal.ts
+/**
+* A journal for one run.
+*
+* With no sink it is the no-op every test gets: `log` returns on the first
+* line, nothing is allocated, nothing is stamped.
+*
+* `startSeq` IS WHAT MAKES A RUN SURVIVE BEING PUT DOWN. In a browser one
+* journal sees a whole run and counting from zero is right. On a server there
+* is no continuous anything: a session is built per request, plays one turn,
+* and dies — so a journal that always started at zero would number the second
+* turn's events 1, 2, 3 again, on top of the first turn's. Against a table keyed
+* `(run_id, seq)` that is a collision, and the failure would be the quiet kind:
+* every write here is wrapped, per IT MUST NEVER BREAK A TURN, so the turn would
+* succeed and the journalling would simply stop. Whoever builds the session
+* passes the last sequence already stored.
+*/
+function createJournal(sink, startSeq = 0) {
+	let seq = startSeq;
+	let broken = false;
+	/**
+	* Steps whose playbook has already been written. Tracked on the journal
+	* rather than at the call site because "have I already written this" is a
+	* property of the journal, not of the game master — and it is per run, because
+	* two runs each want their own copy of the instructions they were played
+	* under.
+	*/
+	const written = /* @__PURE__ */ new Set();
+	function log(event) {
+		if (!sink || broken) return;
+		try {
+			sink.write({
+				...event,
+				seq: ++seq,
+				at: (/* @__PURE__ */ new Date()).toISOString()
+			});
+		} catch (e) {
+			broken = true;
+			console.warn("[journal] writing failed; journalling is off for this run:", e);
+		}
+	}
+	return {
+		log,
+		logSystem(step, blocks) {
+			if (!sink || written.has(step)) return;
+			written.add(step);
+			log({
+				kind: "system",
+				step,
+				blocks
+			});
+		}
+	};
+}
+/**
+* The journal for a run that is not being journalled — shared, so the default
+* costs one reference rather than an object per turn machine.
+*/
+var NO_JOURNAL = createJournal();
+/** A name for this run's directory: sortable, and says which seed it was. */
+function runId(seed) {
+	return `${(/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-").slice(0, 19)}-seed${seed}`;
+}
+/**
+* The diffs a commit proposed, in one line each, as `entity path = value`.
+* Shared by the transcript and by anything else that has to show a change
+* without printing a wall of JSON.
+*/
+function describeDiff(d) {
+	const value = typeof d.value === "string" ? d.value.length > 120 ? `${d.value.slice(0, 117).replace(/\s*\n\s*/g, " ")}…` : d.value.replace(/\s*\n\s*/g, " ") : JSON.stringify(d.value);
+	return `${d.entityId} · ${d.path} = ${value}`;
+}
 /**
 * A defense used as a roll target. Knave contests must EXCEED the defense, so
 * meeting `defense + 1` is the same bar. The only `+1` in the codebase.
@@ -12320,6 +12083,14 @@ function consultRoll(rng, priorUses = 0) {
 	};
 }
 //#endregion
+//#region src/shared/utils/format.ts
+/**
+* SMALL FORMATTERS shared by the screen and the game master's prompt, so a
+* bonus reads the same in both.
+*/
+/** A bonus with its sign, the way a sheet writes one: "+2", "+0", "-1". */
+var signed = (n) => `${n >= 0 ? "+" : ""}${n}`;
+//#endregion
 //#region src/rules/knave/roll-tool.ts
 /**
 * THE DICE TOOL
@@ -12345,6 +12116,61 @@ function consultRoll(rng, priorUses = 0) {
 * player's own rolls draw from, advanced in list order. Two runs on one seed
 * roll the same dice.
 */
+/** Advantage, disadvantage, or neither. Shared with the roll a commit offers the player. */
+var edgeSchema = z.enum([
+	"none",
+	"advantage",
+	"disadvantage"
+]);
+/**
+* One request in the batch. Flat rather than a discriminated union: JSON Schema
+* can express the union but the model reads a flat object with a `kind` more
+* reliably, and zod checks the per-kind requirements on the way back in.
+*/
+var rollSpecRequest = z.object({
+	/** the caller's own label, so the results can be told apart */
+	id: nonEmpty,
+	kind: z.enum([
+		"save",
+		"attack",
+		"stunt",
+		"morale",
+		"damage",
+		"consult"
+	]),
+	/**
+	* Whose roll this is — and `"player"` is deliberately unsayable, because the
+	* player's own roll is offered rather than thrown (see `playersOwnDice`).
+	* Optional, and read only when a roll made at one of the player's bonuses
+	* would otherwise be refused: saying it is the ghoul's is how a game master gets
+	* a genuine coincidence past the guard.
+	*/
+	actor: z.enum(["creature", "world"]).optional(),
+	edge: edgeSchema.optional(),
+	/** save, attack, stunt */
+	bonus: z.number().int().optional(),
+	/** save: the number to meet. Defaults to 16. */
+	dc: z.number().int().optional(),
+	/** save: a creature is the source of the risk — pass its defense instead */
+	defenseAsDc: z.number().int().optional(),
+	/** attack, stunt */
+	targetDefense: z.number().int().optional(),
+	/** attack: the weapon's die. damage: the expression to roll. */
+	damage: z.string().optional(),
+	expr: z.string().optional(),
+	extraDice: z.number().int().optional(),
+	/** attack: the right weapon against the right enemy, for the extra die */
+	wellSuited: z.boolean().optional(),
+	/** morale: the group's rating. Defaults to 7. */
+	rating: z.number().int().optional(),
+	/**
+	* consult: how many times that book has been read ALREADY — its current
+	* `book.uses`, and 0 for one nobody has opened. This reading is added by the
+	* tool, which then says what to write back.
+	*/
+	uses: z.number().int().optional()
+});
+var rollBatchSchema = z.object({ rolls: z.array(rollSpecRequest).min(1) });
 /** A d20 result as the screen may see it — everything but the DC. */
 function shown(o) {
 	return {
@@ -12357,10 +12183,9 @@ function shown(o) {
 		nat1: o.nat1
 	};
 }
-var sign$1 = (n) => n >= 0 ? `+${n}` : `${n}`;
 /** The d20 and its bonus, spelled out so a total can never be a bare claim. */
 function d20Line(o) {
-	return `d20 ${o.rolled.length > 1 ? `[${o.rolled.join(", ")}] keep ${o.kept}` : `${o.kept}`} ${sign$1(o.bonus)} = ${o.total} vs ${o.dc}`;
+	return `d20 ${o.rolled.length > 1 ? `[${o.rolled.join(", ")}] keep ${o.kept}` : `${o.kept}`} ${signed(o.bonus)} = ${o.total} vs ${o.dc}`;
 }
 /** Crits report themselves; spending the quality point is the game master's diff. */
 function critNote(o) {
@@ -12961,13 +12786,12 @@ var ABILITY_ORDER = [
 	"wis",
 	"cha"
 ];
-var sign = (n) => n >= 0 ? `+${n}` : `${n}`;
 /** Drop empty lines a conditional field left behind. */
 var lines = (xs) => xs.filter((x) => x !== void 0).join("\n");
 function renderCharacter(pc) {
 	const abilities = ABILITY_ORDER.map((k) => {
 		const a = pc.abilities.find((x) => x.key === k);
-		return `${k.toUpperCase()} ${sign(a.bonus)} (defense ${a.defense})`;
+		return `${k.toUpperCase()} ${signed(a.bonus)} (defense ${a.defense})`;
 	}).join(" · ");
 	const carried = pc.inventory.length ? pc.inventory.map((i) => `- ${renderItemLine(i)}`).join("\n") : "- (nothing)";
 	const equipped = pc.equipped.map((e) => `${e.slot}: ${e.item ? `[${e.item.id}] ${e.item.name}` : "—"}`).join(" · ");
@@ -12977,7 +12801,7 @@ function renderCharacter(pc) {
 		`**${pc.name}** — level ${pc.level}, referred to in diffs as \`player\`.`,
 		`Hit points **${pc.hp.current}/${pc.hp.max}**.`,
 		abilities,
-		`Armour defense ${pc.armorDefense} · melee attack ${sign(pc.meleeBonus)} · ranged attack ${sign(pc.rangedBonus)}`,
+		`Armour defense ${pc.armorDefense} · melee attack ${signed(pc.meleeBonus)} · ranged attack ${signed(pc.rangedBonus)}`,
 		`Inventory slots ${pc.slots.used}/${pc.slots.capacity}${pc.slots.overburdened ? " — OVERBURDENED" : ""}`,
 		pc.conditions.length ? `Conditions: ${pc.conditions.join(", ")}` : `Conditions: none`,
 		``,
@@ -13043,7 +12867,7 @@ function renderEntity(e, indent = "") {
 		field("state", e.state),
 		field("composed", e.composed),
 		e.activity ? `${indent}    doing: ${e.activity}` : void 0,
-		e.combat ? `${indent}    defenses ${ABILITY_ORDER.map((a) => `${a} ${e.combat.defenses[a]}`).join(" ")} · armour defense ${e.combat.armorDefense} · attack ${sign(e.combat.attackBonus)} · damage ${e.combat.damage} · morale ${e.combat.morale}` : void 0,
+		e.combat ? `${indent}    defenses ${ABILITY_ORDER.map((a) => `${a} ${e.combat.defenses[a]}`).join(" ")} · armour defense ${e.combat.armorDefense} · attack ${signed(e.combat.attackBonus)} · damage ${e.combat.damage} · morale ${e.combat.morale}` : void 0,
 		itemDetail(e) ? `${indent}    ${itemDetail(e)}` : void 0
 	].filter((x) => x !== void 0 && x.trim() !== ""));
 	for (const child of e.contains) out.push(renderEntity(child, `${indent}  `));
@@ -13154,7 +12978,7 @@ function renderRoll(o) {
 		``,
 		`They attempted: ${o.spec.description}`,
 		`${o.spec.kind} on ${o.spec.ability.toUpperCase()}, edge ${o.spec.edge}` + (o.spec.targetId ? `, against [${o.spec.targetId}]` : ""),
-		`d20 ${dice} ${sign(o.spec.bonus)} = **${o.total}** against ${o.spec.dc} — **${o.success ? "SUCCESS" : "FAILURE"}**`,
+		`d20 ${dice} ${signed(o.spec.bonus)} = **${o.total}** against ${o.spec.dc} — **${o.success ? "SUCCESS" : "FAILURE"}**`,
 		o.nat20 ? `Natural 20: the defender's armour loses a point of currentQuality.` : void 0,
 		o.nat1 ? `Natural 1: the attacker's weapon loses a point of currentQuality.` : void 0,
 		o.damage ? `Damage rolled: ${o.damage.expr} → [${o.damage.rolls.join(", ")}] = **${o.damage.total}**` : void 0,
@@ -13427,6 +13251,208 @@ function body(req) {
 		`Their words are the last message above. Resume the heuristic at the step you were given and carry it as far as it goes.`
 	].join("\n");
 }
+//#endregion
+//#region src/gameplay/game-master/schemas.ts
+/**
+* ZOD FOR THE GAME MASTER'S TOOLS. Nothing the model commits reaches the
+* applier unvalidated.
+*
+* `commit_state` is here. The `roll` tool's request schema lives with the dice
+* that answer it, in `rules/knave/roll-tool.ts`.
+*/
+var ability = z.enum([
+	"str",
+	"dex",
+	"con",
+	"int",
+	"wis",
+	"cha"
+]);
+/**
+* The stages a GAME MASTER may name — a strict subset of `Stage`.
+*
+* `thinking`, `rolling`, `room_entry` and `error` are the software talking, and
+* `resolving` is the machine's own marker for the call it is making right now.
+* A commit that named one of them would leave the player looking at a closed
+* input area with nothing running. Narrowing the enum makes that unsayable
+* rather than merely discouraged.
+*/
+var gameMasterStage = z.enum([
+	"awaiting_action",
+	"clarifying",
+	"rejected",
+	"roll_offered",
+	"dead",
+	"departed"
+]);
+/**
+* The steps a turn can RESUME at. The rest are mid-cascade — a single call runs
+* step 1 through step 3 without stopping — so they are not resume points and
+* naming one would only cost a retry.
+*/
+var gameMasterStep = z.enum([
+	"1-target",
+	"4-confirm-roll",
+	"5-resolution"
+]);
+/**
+* HOW LONG THE ACTION TOOK, which is how the rest of the dungeon finds out that
+* a turn has passed. Not a duration — see `TimeSpent` for why there is no clock
+* — but the four cases named so the game master reads what each one covers.
+*
+* `long` is on the wire and is refused on the way back in until Phase 16 exists
+* to produce it; the description says so, because a model offered a value it
+* cannot use will reach for it.
+*/
+var timeSpent = z.enum([
+	"instant",
+	"round",
+	"short",
+	"long"
+]).describe("How long this action took, which decides who else got to move. instant — a glance, a word, drawing a blade: nobody moves. round — ten seconds or less, one exchange, a lunge, a shove. short — up to an hour: searching, picking a lock, binding a wound. long — a night's rest, and ONLY that; nothing else you can be asked to resolve is long, and a turn that says so is refused. Forced to instant on clarifying, rejected and roll_offered, because those turns have not happened yet.");
+/**
+* What goes on the table. The player-facing terms sit alongside the two
+* game-master-side numbers, and the interface renders only the former — see
+* RollSpec, and `InputArea` which never reads `dc`.
+*
+* A save carries `dc`; an attack or a stunt carries `targetDefense`, which the
+* game master converts through `dcFromDefense`. That keeps the vocabulary the
+* playbook uses on the wire and the one `+1` in the codebase in one function.
+*/
+var rollRequest = z.object({
+	kind: z.enum([
+		"save",
+		"attack",
+		"stunt"
+	]),
+	ability,
+	bonus: z.number().int(),
+	edge: edgeSchema,
+	description: nonEmpty,
+	weapon: z.string().optional(),
+	mode: z.enum(["damage", "stunt"]).optional(),
+	advantageUse: z.enum(["normal", "stunt-and-damage"]).optional(),
+	/** saves: the number to meet. Defaults to the ordinary 16. Never rendered. */
+	dc: z.number().int().optional(),
+	/** attacks and stunts: the target's defense, converted here. Never rendered. */
+	targetDefense: z.number().int().optional(),
+	damage: z.string().optional(),
+	targetId: z.string().optional()
+});
+/** A thing being brought into existence, appended to a holder's `children[]`. */
+var entitySpec = z.object({
+	type: z.enum(["Item", "RoomFeature"]),
+	name: nonEmpty,
+	base: nonEmpty,
+	state: z.string().optional(),
+	slots: z.number().int().optional(),
+	amount: z.string().optional(),
+	hidden: z.boolean().optional(),
+	/** address it from a later diff in this same commit */
+	ref: z.string().optional()
+});
+/**
+* Spelled out rather than left as `unknown`.
+*
+* `unknown` compiles to `{}` in JSON Schema, which tells the model nothing —
+* and the one value shape it cannot guess is the entity spec behind
+* `children[]`. An `anyOf` costs a few lines and puts that shape on the wire.
+*/
+var diffValue = z.union([
+	z.string(),
+	z.number(),
+	z.boolean(),
+	z.null(),
+	z.array(z.string()),
+	entitySpec
+]);
+var diff = z.object({
+	entityId: nonEmpty,
+	path: nonEmpty,
+	value: diffValue
+});
+var commitSchema = z.object({
+	/**
+	* WHAT THE PLAYER READS. The only place a post can come from.
+	*
+	* It was loose assistant text until Phase 12 (CODING-PLAN 8a A9): narration
+	* was the concatenation of every text block in the response, and nothing
+	* distinguished a draft from the post. A game master that thought better of a
+	* paragraph mid-response — *"Wait, I should not write that post yet… Let me
+	* rewrite"* — had BOTH drafts printed, one after the other, the second in a
+	* different tense and ending in a roll offer. No streaming rule catches that;
+	* the buffer is complete and valid, it is just two answers stapled together.
+	*
+	* A field cannot be written twice. The last `commit_state` call is the only
+	* one that counts, so a draft is not narration BY CONSTRUCTION rather than by
+	* the loop guessing which block the game master meant — and the rule that a player
+	* reads nothing until the commit has validated gets its second guarantee,
+	* because the prose now travels inside the thing being validated.
+	*
+	* REQUIRED, AND NULL ON THE TWO TURNS THAT WRITE NONE: a room entry, where the
+	* room's own `composed` IS the paragraph, and a commit that moves the player,
+	* whose prose is discarded unread because the arrival pass is about to
+	* describe the real room. Anything else with a null post is refused — see
+	* `missingPost` in game-master.ts.
+	*
+	* It was `.optional()`, and optional is a key the model can simply not write.
+	* It did, a quarter of the time: R3 (2026-10-11) had 4 of 19 calls spent on
+	* "this commit has no `post`", the game master filling `coinGrant` and `learned`
+	* with blank placeholders and skipping the one field that mattered. `commit_state`
+	* goes out strict, so a required key is one the API will not let it leave out —
+	* and `null` keeps the exempt turns to four tokens rather than a paragraph
+	* written to be thrown away (which they were writing anyway: both R3 room
+	* entries carried a post duplicating `composed`).
+	*/
+	post: z.string().trim().min(1).nullable(),
+	nextStage: gameMasterStage,
+	nextStep: gameMasterStep,
+	timeSpent,
+	rollRequest: rollRequest.optional(),
+	diffs: z.array(diff),
+	/**
+	* The dungeon's objective is accomplished. It does NOT end the run — the
+	* player still has to carry it out — so it is a flag rather than a stage, and
+	* it latches: saying it once is enough, forever.
+	*/
+	goalMet: z.boolean().optional(),
+	/**
+	* One fact this turn established about the DUNGEON — its history, its makers,
+	* what a place was really for. Appended to the run's fiction and shown back on
+	* every later call, so the story of the place only ever grows.
+	*
+	* Capped, and deliberately short of a paragraph: this is a line for the record,
+	* not a second draft of the narration. Anything true of a single entity belongs
+	* in that entity's `state` instead, which is why the length is the check.
+	*/
+	fictionNote: z.string().trim().min(1).max(300).optional(),
+	/**
+	* ONE challenge answered out of the reserve, and one at most per turn.
+	*
+	* The id must be one the offer list carried — the applier refuses anything
+	* else, including an entry already spent and a challenge already resolved.
+	* `entityRef` names an entity created by a `children[]` diff in this same
+	* commit, for a draw the player can pick up; an information draw omits it.
+	*/
+	draw: z.object({
+		challengeId: nonEmpty,
+		entityRef: z.string().optional()
+	}).optional(),
+	/**
+	* Challenges whose fact the player has now been told, in as many words.
+	*
+	* The applier writes the DUNGEON'S wording onto the thing the fact is about,
+	* not whatever was written in the post — so this is a list of ids and carries
+	* no prose of its own.
+	*/
+	learned: z.array(nonEmpty).optional(),
+	/**
+	* The player found money. HOW MUCH IS NOT YOURS TO SAY — the dungeon holds an
+	* allowance settled before play and the amount is rolled from it. `why` is one
+	* line for the record.
+	*/
+	coinGrant: z.object({ why: nonEmpty }).optional()
+});
 //#endregion
 //#region src/gameplay/game-master/game-master.ts
 /**
@@ -14702,6 +14728,21 @@ function applyTally(res, payload) {
 	};
 }
 //#endregion
+//#region src/gameplay/tally/schema.ts
+/**
+* ZOD FOR THE TALLY PASS, and the proof that it matches `TallyResponse`.
+*/
+var tallyRating = z.object({
+	challengeId: nonEmpty,
+	risk: z.enum([
+		"low",
+		"moderate",
+		"high"
+	]),
+	why: nonEmpty
+});
+var tallyPassSchema = z.object({ ratings: z.array(tallyRating) });
+//#endregion
 //#region src/gameplay/tally/tally.ts
 /**
 * THE END-OF-RUN TALLY
@@ -14802,22 +14843,6 @@ async function tallyRun(req) {
 * No React. Runs under vitest and under `node` — see `dev/cli-play.ts`, which
 * plays a whole run through this with no browser anywhere.
 */
-/**
-* An error, said usefully.
-*
-* "response did not match the expected shape" is what a `ResponseFormatError`
-* says on its own, and on a screen it is worth nothing: it names no pass, no
-* chunk, and no field. The issues are right there on the error, so the first
-* few of them go into the message — enough to tell a prompt problem from a bad
-* roll of the dice without opening anything.
-*/
-function describeFailure(e) {
-	const message = e instanceof Error ? e.message : String(e);
-	if (!(e instanceof ResponseFormatError) || e.issues.length === 0) return message;
-	const shown = e.issues.slice(0, 3).map((i) => `${i.path}: ${i.message}`);
-	const rest = e.issues.length - shown.length;
-	return `${message} — ${shown.join("; ")}${rest > 0 ? `, and ${rest} more` : ""}`;
-}
 function createGameSession(opts = {}) {
 	const store = createGameStore();
 	const generate = opts.generate ?? generateDungeon;
@@ -16306,7 +16331,6 @@ var SPOT_OFFSETS_FT = [
 * rather than left or right. About a fifth of the frame either side of centre.
 */
 var CENTRE_DEG = 12;
-var key$1 = (x, y) => `${x},${y}`;
 /**
 * Every cell the straight line from `a` to `b` passes through is floor.
 *
@@ -16372,8 +16396,8 @@ function doorTarget(d) {
 }
 /** Lines of sight from `eye` in this room: clear when every cell crossed is floor. */
 function illustrationSight(input, eye) {
-	const floor = new Set(input.floor.map((c) => key$1(c.x, c.y)));
-	const onFloor = (x, y) => floor.has(key$1(x, y));
+	const floor = new Set(input.floor.map((c) => xyKey(c.x, c.y)));
+	const onFloor = (x, y) => floor.has(xyKey(x, y));
 	return (p) => clearLine(eye, p, onFloor);
 }
 /**
@@ -16409,10 +16433,10 @@ function standingSpots(input) {
 }
 /** Cells split into pieces that touch edge to edge. */
 function connectedCells(cells) {
-	const left = new Map(cells.map((c) => [key$1(c.x, c.y), c]));
+	const left = new Map(cells.map((c) => [xyKey(c.x, c.y), c]));
 	const pieces = [];
 	for (const start of cells) {
-		if (!left.delete(key$1(start.x, start.y))) continue;
+		if (!left.delete(xyKey(start.x, start.y))) continue;
 		const piece = [];
 		const queue = [start];
 		while (queue.length) {
@@ -16424,9 +16448,9 @@ function connectedCells(cells) {
 				[0, 1],
 				[0, -1]
 			]) {
-				const n = left.get(key$1(c.x + dx, c.y + dy));
+				const n = left.get(xyKey(c.x + dx, c.y + dy));
 				if (n) {
-					left.delete(key$1(n.x, n.y));
+					left.delete(xyKey(n.x, n.y));
 					queue.push(n);
 				}
 			}
@@ -16629,8 +16653,8 @@ function standingPhrase(floor, eye) {
 * it is worked out once per spot and every heading reuses it.
 */
 function illustrationView(input) {
-	const floor = new Set(input.floor.map((c) => key$1(c.x, c.y)));
-	const onFloor = (x, y) => floor.has(key$1(x, y));
+	const floor = new Set(input.floor.map((c) => xyKey(c.x, c.y)));
+	const onFloor = (x, y) => floor.has(xyKey(x, y));
 	const tanFov = Math.tan(50 * Math.PI / 180);
 	const targets = [];
 	let group = 0;
@@ -16830,12 +16854,11 @@ function offset(view, at, ahead, across) {
 */
 function standPoints(input, view) {
 	const sight = illustrationSight(input, view.eye);
-	const cellKey = (x, y) => `${x},${y}`;
-	const floor = new Set(input.floor.map((c) => cellKey(c.x, c.y)));
+	const floor = new Set(input.floor.map((c) => xyKey(c.x, c.y)));
 	const blockedCells = input.features.flatMap((f) => f.cells);
-	const blocked = new Set(blockedCells.map((c) => cellKey(c.x, c.y)));
+	const blocked = new Set(blockedCells.map((c) => xyKey(c.x, c.y)));
 	const doors = [input.entry, ...input.exits].map(doorPoint);
-	const cellOf = (q) => cellKey(Math.floor(q.x / 5), Math.floor(q.y / 5));
+	const cellOf = (q) => xyKey(Math.floor(q.x / 5), Math.floor(q.y / 5));
 	const clearOfThings = (at) => blockedCells.every((c) => {
 		const dx = Math.max(c.x * 5 - at.x, 0, at.x - (c.x + 1) * 5);
 		const dy = Math.max(c.y * 5 - at.y, 0, at.y - (c.y + 1) * 5);
@@ -16855,7 +16878,7 @@ function standPoints(input, view) {
 	const step = 5 / 2;
 	const out = [];
 	for (const c of input.floor) {
-		if (blocked.has(cellKey(c.x, c.y))) continue;
+		if (blocked.has(xyKey(c.x, c.y))) continue;
 		for (const ox of [step / 2, step * 1.5]) for (const oy of [step / 2, step * 1.5]) {
 			const at = {
 				x: c.x * 5 + ox,
@@ -16938,7 +16961,6 @@ function spriteKeyOf(c) {
 function drawableCreatures(creatures, roomId) {
 	return creatures.filter((c) => c.roomId === roomId && c.isHidden !== true && (c.count ?? 1) > 0);
 }
-Math.PI / 2, -Math.PI / 2;
 //#endregion
 //#region src/illustrations/feature-presence.ts
 /** Table entries that are heard, smelled or felt, never seen. */
@@ -17008,7 +17030,6 @@ function featurePresence(keywords, position) {
 var FEATURE_Z = 0;
 /** Height a corner arrow sits at, in feet: about a hand's height on the wall. */
 var CORNER_Z = 4;
-var key = (x, y) => `${x},${y}`;
 var inFrame = (q) => q !== null && q.x >= 0 && q.x <= 1 && q.y >= 0 && q.y <= 1;
 /** Within the horizontal field of view and in front of the eye, whatever the height. */
 function inFieldOfView(eye, p) {
@@ -17050,7 +17071,7 @@ function edgeToward(eye, p, z) {
 * foot off the rock so a sight line to it does not graze the wall.
 */
 function cornersOf(floor) {
-	const on = new Set(floor.map((c) => key(c.x, c.y)));
+	const on = new Set(floor.map((c) => xyKey(c.x, c.y)));
 	const seen = /* @__PURE__ */ new Set();
 	const out = [];
 	for (const c of floor) for (const [i, j] of [
@@ -17059,14 +17080,14 @@ function cornersOf(floor) {
 		[c.x, c.y + 1],
 		[c.x + 1, c.y + 1]
 	]) {
-		if (seen.has(key(i, j))) continue;
-		seen.add(key(i, j));
+		if (seen.has(xyKey(i, j))) continue;
+		seen.add(xyKey(i, j));
 		const rock = [
 			[i - 1, j - 1],
 			[i, j - 1],
 			[i - 1, j],
 			[i, j]
-		].filter(([x, y]) => !on.has(key(x, y)));
+		].filter(([x, y]) => !on.has(xyKey(x, y)));
 		if (rock.length !== 1) continue;
 		const [rx, ry] = rock[0];
 		out.push({
@@ -17084,8 +17105,8 @@ function cornersOf(floor) {
 * string a walk round the room's corners makes.
 */
 function route(input, eye, target, corners) {
-	const on = new Set(input.floor.map((c) => key(c.x, c.y)));
-	const onFloor = (x, y) => on.has(key(x, y));
+	const on = new Set(input.floor.map((c) => xyKey(c.x, c.y)));
+	const onFloor = (x, y) => on.has(xyKey(x, y));
 	const fromEye = illustrationSight(input, eye);
 	const nodes = [
 		eye,
@@ -17258,7 +17279,6 @@ function illustrationHotspots(input, view) {
 * No creatures and no loose items: they move, die and get picked up, and a
 * picture of them is stale the moment they do.
 */
-var pairKey = (a, b) => `${Math.min(a, b)}-${Math.max(a, b)}`;
 /**
 * Where a connector cuts this room's wall, as the plan drew it.
 *
@@ -17839,7 +17859,6 @@ function inset(ring, d) {
 * dropped, nothing out of frame. The model writes no positions and no numbers;
 * the prompt's WHERE comes from code.
 */
-var nonEmpty = z.string().trim().min(1);
 var visualSchema = z.object({
 	room: nonEmpty,
 	things: z.array(z.object({

@@ -28,12 +28,12 @@
  */
 
 import { anchorOf } from "../../generation/content/challenges.ts";
-import { type Challenge, type ChallengeKind } from "../../shared/world/challenges.ts";
+import type { Challenge, ChallengeKind } from "../../shared/world/challenges.ts";
 import { isSurfaceExit } from "../../shared/world/entities.ts";
 import { purse, setPurse } from "../../rules/knave/character-creation.ts";
 import { Rng } from "../../shared/utils/rng.ts";
-import { type EntityPassResult } from "../../shared/world/entities.ts";
-import { type ReserveEntry } from "../../shared/world/challenges.ts";
+import type { EntityPassResult } from "../../shared/world/entities.ts";
+import type { ReserveEntry } from "../../shared/world/challenges.ts";
 import type { World, WorldEvent } from "../../shared/types/commit.ts";
 import type {
   ChallengeState,

@@ -13,7 +13,7 @@
  */
 
 import { CREATION_RULES, hpCeiling, type HpRoll } from "../../rules/knave/character-creation.ts";
-import { type CreationMode } from "../../rules/knave/character.ts";
+import type { CreationMode } from "../../rules/knave/character.ts";
 import { Button, MONO_LABEL, StepHeading } from "./shared.tsx";
 
 /** Said plainly, in the range the mode can actually produce. */

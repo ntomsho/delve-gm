@@ -26,7 +26,7 @@ import {
   XP_PER_LEVEL,
 } from "./level-up.ts";
 import { Rng } from "../../shared/utils/rng.ts";
-import { type PlayerCharacter } from "./character.ts";
+import type { PlayerCharacter } from "./character.ts";
 
 const SEED = 20260820;
 

@@ -35,7 +35,7 @@
 
 import type { Rolled } from "../../../shared/utils/rng.ts";
 import { CHALLENGE_LABEL } from "../challenges.ts";
-import { type Challenge, type ChallengeKind } from "../../../shared/world/challenges.ts";
+import type { Challenge, ChallengeKind } from "../../../shared/world/challenges.ts";
 import type { Omission } from "../types.ts";
 import {
   isSurfaceExit,

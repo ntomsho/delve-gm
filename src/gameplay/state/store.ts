@@ -39,7 +39,7 @@ import {
   noteArrival,
   noteDamage,
 } from "../mechanics/challenges.ts";
-import { type ChallengeState } from "../../shared/world/challenges.ts";
+import type { ChallengeState } from "../../shared/world/challenges.ts";
 import { purse } from "../../rules/knave/character-creation.ts";
 import type { EntityPassResult } from "../../shared/world/entities.ts";
 import type { PlayerCharacter } from "../../rules/knave/character.ts";

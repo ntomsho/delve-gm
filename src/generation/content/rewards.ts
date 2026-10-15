@@ -46,7 +46,7 @@ import {
   VALUABLE_MATERIALS,
   rollTable,
 } from "../../rules/maze-rats/tables.ts";
-import { type Rolled } from "../../shared/utils/rng.ts";
+import type { Rolled } from "../../shared/utils/rng.ts";
 import { Rng } from "../../shared/utils/rng.ts";
 import {
   DUNGEONEERING_GEAR,

@@ -29,7 +29,7 @@
  */
 
 import { CHALLENGE_LABEL } from "../../generation/content/challenges.ts";
-import { type Challenge, type ChallengeKind } from "../../shared/world/challenges.ts";
+import type { Challenge, ChallengeKind } from "../../shared/world/challenges.ts";
 
 // ---------------------------------------------------------------------------
 // KNAVE'S NUMBERS

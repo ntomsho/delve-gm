@@ -14,8 +14,8 @@
 
 import { describe, expect, it } from "vitest";
 import { COPPER_NAME } from "../../rules/knave/character-creation.ts";
-import { type AnyItem } from "../../shared/world/entities.ts";
-import { type PlayerCharacter } from "../../rules/knave/character.ts";
+import type { AnyItem } from "../../shared/world/entities.ts";
+import type { PlayerCharacter } from "../../rules/knave/character.ts";
 import { generateOffline, testCharacter } from "../../fixtures/offline.ts";
 import { causeOfDeath, keepsWhatTheyFound, lootOf } from "./loot.ts";
 import { newRun, type RunState } from "../state/store.ts";

@@ -481,10 +481,19 @@ Restated from CLAUDE.md, plus the mechanisms that enforce them.
   found files before asserting anything about them.
 - Model strings live only in `src/llm/models.ts`, keyed by task. The same file greps
   for `claude-` and the image endpoints outside it.
-- The API key lives in `.env.local`, is loaded with `loadEnv(mode, cwd, "")` — **empty
-  prefix**, so it is readable by the config and never `VITE_`-inlined — and is injected
-  by the dev proxy. The CLI path is Node and reads the key directly; that is not the
-  rule being soft, it is there being no browser to keep it out of.
+- **The folders are layers**, drawn in `src/README.md`: each imports only from the
+  folders below it, type imports included, and no cycle of imports that load code is
+  allowed anywhere. `src/architecture.test.ts` checks every import and names the two
+  type-only exceptions left for the ruleset seam.
+- **A type-only import is written `import type { … }`.** Under `verbatimModuleSyntax`,
+  `import { type A } from "x"` compiles to `import {} from "x"`, which still loads x. One
+  of those in `App.tsx` kept the whole generation pipeline in the browser bundle. The
+  architecture test forbids the form.
+- The Anthropic key lives in the server's environment (`.env.local` in development) and
+  is attached by `configureAnthropic` in `src/server/app.ts`. `llm/client.ts` has no
+  default URL, so nothing calls the model until a process with a key configures it. The
+  dev CLIs are Node and read the key directly; that is not the rule being soft, it is
+  there being no browser to keep it out of.
 - Skill markdown loads via `?raw`. A test asserts every `steps/…` path named in
   `SKILL.md` resolves to a real file. **`?raw` is a bundler feature** — Vite and vitest
   understand it, plain `node` does not, so anything reaching the game master outside a
