@@ -38,10 +38,10 @@ import {
   noteAction,
   noteArrival,
   noteDamage,
-  type ChallengeState,
 } from "../mechanics/challenges.ts";
+import { type ChallengeState } from "../../shared/world/challenges.ts";
 import { purse } from "../../rules/knave/character-creation.ts";
-import type { EntityPassResult } from "../../generation/content/entities-pass.ts";
+import type { EntityPassResult } from "../../shared/world/entities.ts";
 import type { PlayerCharacter } from "../../rules/knave/character.ts";
 import type { RunTally } from "../tally/tally-pass.ts";
 import { dungeonKey, runKey, type KeyValueStore } from "./persist.ts";

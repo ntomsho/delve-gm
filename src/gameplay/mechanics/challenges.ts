@@ -27,78 +27,24 @@
  * `bestedByBypass`.
  */
 
-import {
-  anchorOf,
-  type Challenge,
-  type ChallengeKind,
-} from "../../generation/content/challenges.ts";
+import { anchorOf } from "../../generation/content/challenges.ts";
+import { type Challenge, type ChallengeKind } from "../../shared/world/challenges.ts";
 import { isSurfaceExit } from "../../shared/world/entities.ts";
 import { purse, setPurse } from "../../rules/knave/character-creation.ts";
 import { Rng } from "../../shared/utils/rng.ts";
-import { type EntityPassResult } from "../../generation/content/entities-pass.ts";
-import { type ReserveEntry } from "../../generation/content/rewards.ts";
+import { type EntityPassResult } from "../../shared/world/entities.ts";
+import { type ReserveEntry } from "../../shared/world/challenges.ts";
 import type { World, WorldEvent } from "../../shared/types/commit.ts";
+import type {
+  ChallengeState,
+  DrawnKey,
+  LedgerAction,
+  LedgerEntry,
+} from "../../shared/world/challenges.ts";
 
 // ---------------------------------------------------------------------------
 // STATE
 // ---------------------------------------------------------------------------
-
-/** One thing the player did with a challenge in front of them. */
-export interface LedgerAction {
-  turn: number;
-  /** what they did, in their own words — the action line, not a narration */
-  action: string;
-  roll?: { kind: string; total: number; success: boolean };
-  /** hit points lost on this turn, if any. Risk is what the tally prices. */
-  damageTaken?: number;
-}
-
-/**
- * A challenge's whole history.
- *
- * `metTurn` is what makes bypass inferable: a creature the player met on turn 4
- * and never resolved, who then reached the goal on turn 20, got past it
- * somehow. A creature they met and fled from and never got past has no later
- * accomplishment to point at, and is correctly not credited.
- */
-export interface LedgerEntry {
-  challengeId: string;
-  kind: ChallengeKind;
-  /** the turn the player was first in the room with it */
-  metTurn?: number;
-  /** the turn it was resolved outright, if it was */
-  resolvedTurn?: number;
-  /** how it was resolved, for the tally to read */
-  resolution?: "slain" | "cleared" | "found" | "disabled" | "completed";
-  actions: LedgerAction[];
-}
-
-/** A reserve entry that has been spent. */
-export interface DrawnKey {
-  challengeId: string;
-  turn: number;
-  kind: "information" | "object";
-  /** the entity minted for it, when the draw put it in the world as a thing */
-  entityId?: string;
-}
-
-/**
- * Everything the run accumulates about its challenges.
- *
- * FIRST-CLASS RUN STATE, not the journal. The journal defaults to no sink and is
- * explicitly shaped for nobody, so the tally could not read from it — and the
- * tally is the whole reason any of this is written down.
- */
-export interface ChallengeState {
-  drawn: DrawnKey[];
-  /** challenge ids whose fact the player has been told, in the order told */
-  known: string[];
-  /** rooms a region key put on the map. DISPLAY ONLY — see `mapped` in the spec */
-  mapped: string[];
-  ledger: LedgerEntry[];
-  /** what is left of the 10% held out of the pot, in copper */
-  allowanceLeft: number;
-}
 
 export function newChallengeState(allowance: number): ChallengeState {
   return { drawn: [], known: [], mapped: [], ledger: [], allowanceLeft: allowance };

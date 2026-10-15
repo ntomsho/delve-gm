@@ -31,7 +31,7 @@ import {
   type EntityView,
   type RoomView,
 } from "../view/selectors.ts";
-import { positionPhrase } from "../../generation/floorplan/fixtures.ts";
+import { positionPhrase } from "../../shared/world/placement.ts";
 import type { TurnRecord } from "../state/store.ts";
 import type { RolledOutcome } from "../turn.ts";
 import type { DrawOffer } from "../mechanics/challenges.ts";

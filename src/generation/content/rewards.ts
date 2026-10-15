@@ -45,8 +45,8 @@ import {
   TREASURE_TRAITS,
   VALUABLE_MATERIALS,
   rollTable,
-  type Rolled,
 } from "../../rules/maze-rats/tables.ts";
+import { type Rolled } from "../../shared/utils/rng.ts";
 import { Rng } from "../../shared/utils/rng.ts";
 import {
   DUNGEONEERING_GEAR,
@@ -59,13 +59,19 @@ import {
   type GearRow,
 } from "../../rules/knave/tables.ts";
 import { STANDARD_EQUIPMENT, type EquipmentKey } from "../../rules/knave/equipment.ts";
-import type { Challenge } from "./challenges.ts";
+import type { Challenge, ReserveEntry } from "../../shared/world/challenges.ts";
 import { isGoalChallenge } from "./challenges.ts";
 import type {
+  EquipmentDraw,
+  EquipmentRow,
   MobileEntity,
+  Pot,
+  Reward,
+  RewardHolder,
   RoomStock,
   StockedConnector,
-} from "./stock.ts";
+  TreasureRow,
+} from "./types.ts";
 
 // ---------------------------------------------------------------------------
 // THE DIALS
@@ -135,19 +141,6 @@ const COIN_VESSELS: readonly string[] = [
 // TYPES
 // ---------------------------------------------------------------------------
 
-/**
- * The equipment rows of §3.1, all drawn from tables already in the repo.
- *
- * §3.1 printed six. `potion` is the one that left: it is treasure now, for the
- * reason in the header, and every row still here prices itself from the catalog.
- */
-export type EquipmentRow =
-  | "weapon"
-  | "protection"
-  | "spellbook"
-  | "dungeoneering"
-  | "general";
-
 const EQUIPMENT_ROWS: readonly EquipmentRow[] = [
   "weapon",
   "protection",
@@ -155,89 +148,6 @@ const EQUIPMENT_ROWS: readonly EquipmentRow[] = [
   "dungeoneering",
   "general",
 ];
-
-/**
- * The treasure rows of §3.2. Which one fires is decided by the share drawn --
- * every one of them is worth exactly that share, whatever it turns out to be.
- */
-export type TreasureRow = "coins" | "item" | "item-with-trait" | "ingredients" | "potion";
-
-/**
- * One object an equipment reward hands over. A row can hand over several -- two
- * to four pieces of general gear is one reward, not four.
- */
-/**
- * EVERY DRAW HAS A CATALOG PRICE BEHIND IT. There was a third variant -- a
- * rolled thing with no entry, which was only ever a potion -- and it went with
- * the row: an equipment reward that had to invent its own number was the one
- * place this family drew a price out of nowhere.
- */
-export type EquipmentDraw =
-  /** a catalog entry: name, slots, facts and price all come from STANDARD_EQUIPMENT */
-  | { kind: "catalog"; key: EquipmentKey; amount?: string; value: number }
-  /** a spellbook, which is the entry plus the one spell it holds */
-  | { kind: "spellbook"; spell: string; effect: string; value: number };
-
-/** Where a placed reward actually sits. */
-export interface RewardHolder {
-  kind: "room" | "mobile";
-  /** a `RoomStock.roomId` or a `MobileEntity.id` */
-  id: string;
-}
-
-interface RewardCommon {
-  /** derived from placement order; stable for a seed, never `makeId()` */
-  id: string;
-  /** the room it is found in, whoever is holding it */
-  roomId: string;
-  holder: RewardHolder;
-  /** this location was owed a reward: a dead end, an obstacle room, or hostile ground */
-  guaranteed: boolean;
-}
-
-export type Reward = RewardCommon &
-  (
-    | {
-        kind: "key";
-        /** the one challenge this answers */
-        challengeId: string;
-        /** what the key must answer. The keys pass turns this into an object. */
-        answers: Rolled;
-        value: number;
-      }
-    | { kind: "equipment"; row: EquipmentRow; draws: EquipmentDraw[] }
-    | { kind: "treasure"; row: TreasureRow; content: Rolled; value: number }
-  );
-
-/**
- * The dungeon's wealth, and what was held out of it.
- *
- * `placed` is the whole of what went into treasure and is exactly
- * `total - allowance`. Nothing else draws on the pot: equipment is priced from
- * the catalog, keys have their own small band, and the goal is priced against
- * the placed rewards rather than out of the money.
- */
-export interface Pot {
-  total: number;
-  allowance: number;
-  placed: number;
-}
-
-/**
- * A challenge with no placed key, held for a draw in play.
- *
- * PURE GENERATION DATA. No prose -- a reserve entry is written only when it is
- * drawn, so its form can match what the player is doing at the moment they get
- * it: information from an NPC mid-conversation, an object in the cabinet they
- * are searching.
- */
-export interface ReserveEntry {
-  challengeId: string;
-  /** how a draw would reach the player */
-  kind: "information" | "object";
-  /** the mechanical fact, verbatim from the challenge */
-  fact: Rolled;
-}
 
 export interface RewardPlacement {
   pot: Pot;

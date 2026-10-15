@@ -11,7 +11,7 @@ import { floorplanLayout, pathMidpoint, pointLayout, shapeCenter } from "../../g
 import type { Diff } from "../../shared/types/commit.ts";
 import { describeGeometry, siteRooms } from "../../generation/floorplan/geometry.ts";
 import { isSurfaceExit, maxHp, setState } from "../../shared/world/entities.ts";
-import { positionPhrase, POSITION_WORDS } from "../../generation/floorplan/fixtures.ts";
+import { positionPhrase, POSITION_WORDS } from "../../shared/world/placement.ts";
 import type { IArmor, IItem } from "../../shared/world/entities.ts";
 import { placedThings } from "../mechanics/occupancy.ts";
 import { roomDistances } from "../mechanics/travel.ts";

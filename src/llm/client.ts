@@ -27,7 +27,7 @@
 import { z } from "zod";
 import { MAX_TOKENS, modelFor, type Task } from "./models.ts";
 import { ResponseFormatError, validate } from "./json.ts";
-import type { ValidationIssue } from "./schemas.ts";
+import type { ValidationIssue } from "./validation.ts";
 import { canBeStrict, fitStrict, toolSchema, type ToolSchema } from "./tool-schema.ts";
 
 const PATH = "/v1/messages";

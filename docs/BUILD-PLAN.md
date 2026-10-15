@@ -572,7 +572,7 @@ snapshot.
 
 **The code.** Knave assumptions are built into files that are otherwise general:
 `gameplay/diffs/paths.ts` (the sheet's writable fields), `gameplay/game-master/render.ts`
-(how the sheet is shown to the model), the roll-request schema in `llm/schemas.ts`,
+(how the sheet is shown to the model), the roll-request schema in `rules/knave/roll-tool.ts` and the offered roll in `gameplay/game-master/schemas.ts`,
 `resolveSpec` in `gameplay/turn.ts`, creature stats in `shared/world/entities.ts`, and the
 content pass's stat blocks. **Decide in session** what `rules/ruleset.ts` has to declare
 for those to read through it — dice kinds, the sheet's shape and writable paths, how a roll

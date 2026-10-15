@@ -38,11 +38,11 @@
  * anyone reading the lifetimes will look for it.
  */
 
-import type { MonsterSeed, NpcSeed } from "../../generation/content/blueprint.ts";
+import type { MonsterSeed, NpcSeed } from "./seeds.ts";
 // Type-only, so there is no runtime edge from the entity model to the fixture
 // vocabulary — the same arrangement `room-size.ts` has with the rooms
 // loop. The menu owns the words; this file owns what an entity stores.
-import type { Placement } from "../../generation/floorplan/fixtures.ts";
+import type { Placement } from "./placement.ts";
 
 // ---------------------------------------------------------------------------
 // BASE
@@ -726,4 +726,80 @@ export function setIsHidden(e: IEntity, hidden: boolean): void {
  */
 export function needsComposition(e: IEntity): boolean {
   return e.needUpdate !== false;
+}
+
+/** Ties an emitted entity back to the stocked element it came from, so the
+ *  Rooms Pass `elements` manifestations can be matched to entities by ref. */
+export interface ElementBinding {
+  entityId: string;
+  roomId: string;
+  /** matches the element ref the Rooms Pass payload used */
+  element:
+    | "entrance"
+    | "hazard"
+    | "obstacle"
+    | "clue"
+    | "reward"
+    | "creature"
+    | "connector"
+    | "detail";
+  /** the rolled keyword(s) behind it, for the writing pass */
+  keywords: string[];
+  /**
+   * Reward bindings only: which `Reward` this entity came out of.
+   *
+   * One reward can emit several entities -- a general-gear row hands over two
+   * to four things -- and several rewards can sit in one room, so the room is
+   * no longer enough to find the reward an item belongs to. The keys pass reads
+   * this to find the challenge a placed key answers.
+   */
+  rewardId?: string;
+  /**
+   * Creature bindings only: the `MobileEntity.id` this entity was emitted from.
+   *
+   * Stocking names creatures by mobile id -- a challenge does, and so does a
+   * reward carried by one -- while entities get their own minted ids, and
+   * nothing else carries the mapping between them.
+   */
+  mobileId?: string;
+}
+
+export interface DetailCandidate {
+  roomId: string;
+  /** the rolled detail, e.g. "Chains" */
+  text: string;
+}
+
+export interface EntityPassResult {
+  registry: TemplateRegistry;
+  rooms: IRoom[];
+  connectors: IRoomConnector[];
+  creatures: ICreature[];
+  features: IRoomFeature[];
+  items: IItem[];
+  hazards: IHazard[];
+  effects: IMobileEffect[];
+  bindings: ElementBinding[];
+  /**
+   * Room details always appear in the room's description. Some are also things
+   * a player will poke at -- chains, a nest, a bas-relief -- and those want to
+   * be their own entity so they can change independently. That is a reading of
+   * the fiction, not something a keyword settles, so the writing pass decides
+   * and calls promoteDetail() for the ones it wants.
+   */
+  detailCandidates: DetailCandidate[];
+  /** the goal room; the writing pass must create one entity of its choosing here */
+  pendingGoal: { roomId: string; reward: string; mission: string; instruction: string };
+  /**
+   * The entity the writing pass made of the objective, once it has run.
+   *
+   * ABSENT UNTIL THEN, and that is the whole reason it is here rather than
+   * derived: `GoalDirective` deliberately does not pick an entity type, so
+   * nothing before `applyContentPass` knows whether the objective is an item, a
+   * creature, or a feature of the room -- and afterwards there is no way to tell
+   * it from the other entities in that room. The keys pass needs it to mint the
+   * objective's keyable properties, and the tally needs it to know what
+   * "completed" was about.
+   */
+  goalEntityId?: string;
 }

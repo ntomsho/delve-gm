@@ -18,13 +18,8 @@
  * along into the context of any later pass that revisits the entity.
  */
 
-import {
-  type DungeonBlueprintSeed,
-  type InhabitantGroup,
-  type MonsterSeed,
-  type NpcSeed,
-  type Tier,
-} from "../blueprint.ts";
+import { type DungeonBlueprintSeed, type InhabitantGroup, type Tier } from "../blueprint.ts";
+import { type MonsterSeed, type NpcSeed } from "../../../shared/world/seeds.ts";
 import { makeId } from "../../../shared/utils/id.ts";
 import { Rng } from "../../../shared/utils/rng.ts";
 import {
@@ -33,8 +28,8 @@ import {
   createCreatureFromSeed,
   promoteDetail,
   PENDING_CONDITION,
-  type EntityPassResult,
 } from "../entities-pass.ts";
+import { type EntityPassResult } from "../../../shared/world/entities.ts";
 import {
   describeGeometry,
   exitPhrase,
@@ -42,25 +37,24 @@ import {
   type RoomGround,
   type Siting,
 } from "../../floorplan/geometry.ts";
+import { fixtureCap, fixtureMenu, placeAt, placeFixture } from "../../floorplan/fixtures.ts";
 import {
-  fixtureCap,
-  fixtureMenu,
   isFixtureKind,
   isPositionWord,
-  placeAt,
-  placeFixture,
   POSITION_WORDS,
   type Placement,
   type PositionWord,
-} from "../../floorplan/fixtures.ts";
+} from "../../../shared/world/placement.ts";
 import type {
   MobileEntity,
+  Omission,
   RoomStock,
   SpecialContent,
   StockedConnector,
   StockedDungeon,
-} from "../stock.ts";
-import { goalItemValue, type Reward } from "../rewards.ts";
+} from "../types.ts";
+import { goalItemValue } from "../rewards.ts";
+import { type Reward } from "../types.ts";
 import { withheldKeyItems } from "./keys-pass.ts";
 import { properName } from "../../../shared/world/entities.ts";
 import type {
@@ -1125,18 +1119,6 @@ of them: "kind" and "position" are words off the lists and nothing else.`;
 // ===========================================================================
 // COMPLETENESS
 // ===========================================================================
-
-/**
- * One thing the payload asked for that the response did not answer.
- *
- * Structurally a `ValidationIssue` (src/llm/schemas.ts) without being
- * one: the engine does not import from the runtime. The guard that keeps the
- * two shapes together lives on the runtime side, beside the other three.
- */
-export interface Omission {
-  path: string;
-  message: string;
-}
 
 /**
  * EVERYTHING THIS CHUNK WAS ASKED ABOUT AND DID NOT WRITE.

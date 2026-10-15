@@ -11,7 +11,7 @@ import { CountingRng } from "../../shared/utils/rng.ts";
 import { die } from "../../rules/knave/rolls.ts";
 import { PLAYER_ID } from "../../shared/types/commit.ts";
 import type { GeneratedDungeon } from "../../generation/generate.ts";
-import type { EntityPassResult } from "../../generation/content/entities-pass.ts";
+import type { EntityPassResult } from "../../shared/world/entities.ts";
 import type { PlayerCharacter } from "../../rules/knave/character.ts";
 
 // ===========================================================================

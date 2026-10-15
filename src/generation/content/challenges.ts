@@ -29,78 +29,12 @@
  * one have to agree across a save and a reload.
  */
 
-import type { Rolled } from "../../rules/maze-rats/tables.ts";
-import type {
-  MobileEntity,
-  RoomStock,
-  StockedConnector,
-} from "./stock.ts";
+import type { MobileEntity, RoomStock, StockedConnector } from "./types.ts";
+import type { Challenge, ChallengeKind } from "../../shared/world/challenges.ts";
 
 // ---------------------------------------------------------------------------
 // THE TAXONOMY
 // ---------------------------------------------------------------------------
-
-/**
- * One row of the table in the spec. Each names a source and the property on it
- * that a key can answer.
- *
- * `goal-property` is DECLARED BUT NOT ENUMERATED HERE. The goal's form is the
- * content pass's call -- `GoalDirective` deliberately does not pick an entity
- * type -- so its keyable properties do not exist until that pass has run, and
- * the keys pass is the first point at which they can be minted. The member is
- * here so that everything reading a challenge already handles the kind.
- */
-export type ChallengeKind =
-  | "creature-weakness"
-  | "creature-ability"
-  | "npc-liability"
-  | "npc-asset"
-  | "blocked-way"
-  | "concealed-way"
-  | "hazard"
-  | "obstacle"
-  | "region"
-  | "goal-location"
-  | "goal-property";
-
-/** Which kind of stocking-level thing `targetId` names. */
-export type ChallengeTarget = "mobile" | "connector" | "room" | "chunk";
-
-export interface Challenge {
-  /** derived from target and property position; stable across regeneration */
-  id: string;
-  kind: ChallengeKind;
-  target: ChallengeTarget;
-  /**
-   * The stocking-level id: a `MobileEntity.id`, a `StockedConnector.id`, or a
-   * `RoomStock.roomId`. Chunk targets carry the chunk number as a string and
-   * `chunk` alongside it.
-   */
-  targetId: string;
-  /**
-   * Where the player meets it. For a way, the SHALLOWER endpoint -- the side
-   * they arrive from. For a region, the shallowest room in the chunk.
-   */
-  roomId: string;
-  /** set on region challenges only */
-  chunk?: number;
-  /**
-   * Region challenges only: every room the chart covers.
-   *
-   * Carried on the challenge rather than looked up later because by the time a
-   * region key is drawn there is nothing left holding the chunk map — `RoomStock`
-   * belongs to generation and the runtime world has entities, which do not know
-   * which chunk they were written in. It is one array on one challenge per
-   * region, and it is what `mapped` is filled from.
-   */
-  roomIds?: string[];
-  /**
-   * The rolled fact being keyed, verbatim: the weakness, the ability, the
-   * liability, the hazard, the puzzle's subject. Exact wording matters -- it is
-   * what a drawn key restates and what stops the fact drifting between calls.
-   */
-  property: Rolled;
-}
 
 /** Whether this challenge is one of the goal's. Goal challenges are placed AND reserved. */
 export function isGoalChallenge(c: Challenge): boolean {

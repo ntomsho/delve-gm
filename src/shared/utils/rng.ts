@@ -114,3 +114,10 @@ export class CountingRng implements RollRng {
     return new CountingRng(seed, draws);
   }
 }
+
+/**
+ * A table draw, fully resolved. Cascades ({Braces}) are expanded in place and
+ * the result is just the final text -- we do not retain the unresolved entry or
+ * a separate list of entity references.
+ */
+export type Rolled = string;

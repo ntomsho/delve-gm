@@ -17,7 +17,7 @@
  * everything the camera, the guide and the buttons do runs on real data.
  */
 
-import type { FixtureKind } from "../../generation/floorplan/fixtures.ts";
+import type { FixtureKind } from "../../shared/world/placement.ts";
 
 /** What a candidate room is, for `pick`. */
 export interface Candidate {

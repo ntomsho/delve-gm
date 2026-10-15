@@ -52,7 +52,7 @@ import {
   dungeonPassSchema,
   keysPassSchema,
   seamsPassSchema,
-} from "../llm/schemas.ts";
+} from "./content/passes/schemas.ts";
 import { extractJson, ResponseFormatError, validate } from "../llm/json.ts";
 import { callForJson, configureTransport, type FailedAttempt } from "../llm/client.ts";
 

@@ -51,12 +51,8 @@ import {
   type Usage,
 } from "../../llm/client.ts";
 import { ResponseFormatError, validate } from "../../llm/json.ts";
-import {
-  commitSchema,
-  rollBatchSchema,
-  type CommitParsed,
-  type RollBatchParsed,
-} from "../../llm/schemas.ts";
+import { rollBatchSchema, type RollBatchParsed } from "../../rules/knave/roll-tool.ts";
+import { commitSchema, type CommitParsed } from "./schemas.ts";
 import { modelFor, type Task } from "../../llm/models.ts";
 import { PLAYER_ID, type Commit } from "../../shared/types/commit.ts";
 import type { RollSpec } from "../../shared/types/turn.ts";

@@ -40,7 +40,8 @@ import { Rng } from "../shared/utils/rng.ts";
 import { blockPlanValid, roomSizes, type BlockPlan } from "../generation/floorplan/blockplan.ts";
 import { runEntitiesPass } from "../generation/content/entities-pass.ts";
 import { siteRooms } from "../generation/floorplan/geometry.ts";
-import { stockDungeon, type StockedDungeon } from "../generation/content/stock.ts";
+import { stockDungeon } from "../generation/content/stock.ts";
+import { type StockedDungeon } from "../generation/content/types.ts";
 import { type AnyItem } from "../shared/world/entities.ts";
 import { type PlayerCharacter } from "../rules/knave/character.ts";
 import type { GeneratedDungeon } from "../generation/generate.ts";
@@ -50,7 +51,7 @@ import {
   dungeonPassSchema,
   keysPassSchema,
   seamsPassSchema,
-} from "../llm/schemas.ts";
+} from "../generation/content/passes/schemas.ts";
 import { validate } from "../llm/json.ts";
 
 export function fakeDungeonPass(groupIds: string[]): DungeonPassResponse {

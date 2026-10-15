@@ -19,11 +19,14 @@ import {
   rollTable,
 } from "../../rules/maze-rats/tables.ts";
 import { Rng } from "../../shared/utils/rng.ts";
-import { enumerateChallenges, isGoalChallenge, type Challenge } from "./challenges.ts";
+import { enumerateChallenges, isGoalChallenge } from "./challenges.ts";
+import { type Challenge } from "../../shared/world/challenges.ts";
 import { generateBlueprint } from "../floorplan/graph.ts";
-import { partition, reachableWithout, type Reward } from "./rewards.ts";
+import { partition, reachableWithout } from "./rewards.ts";
+import { type Reward } from "./types.ts";
 import { runEntitiesPass } from "./entities-pass.ts";
-import { stockDungeon, type StockedDungeon } from "./stock.ts";
+import { stockDungeon } from "./stock.ts";
+import { type StockedDungeon } from "./types.ts";
 
 function stockFor(seed: number, size: Size): StockedDungeon {
   const bp = generateBlueprintSeed(size, seed);

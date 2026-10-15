@@ -33,7 +33,7 @@ import {
   spriteImagePrompt,
   spriteLookMessage,
 } from "../../illustrations/sprite-prompt.ts";
-import { type EntityPassResult } from "../../generation/content/entities-pass.ts";
+import { type EntityPassResult } from "../../shared/world/entities.ts";
 import { IMAGE_MODELS, SPRITE_MODEL } from "../../llm/models.ts";
 import { requestSpriteLook, spriteSubject, type SpriteAnswer, type SpriteLook, type SpriteSubject } from "../../illustrations/sprites.ts";
 import * as repo from "../db/repo.ts";

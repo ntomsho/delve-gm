@@ -9,7 +9,7 @@
  */
 
 import { z } from "zod";
-import { formatIssues, issuesOf, type ValidationIssue } from "./schemas.ts";
+import { formatIssues, issuesOf, type ValidationIssue } from "./validation.ts";
 
 // Explicit fields, not constructor parameter properties — see the note on
 // LlmError: the CLI runs under plain `node`, which cannot strip those.

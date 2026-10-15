@@ -20,7 +20,7 @@
  */
 
 import type { AnyEntity, IItem } from "../../shared/world/entities.ts";
-import type { EntityPassResult } from "../../generation/content/entities-pass.ts";
+import type { EntityPassResult } from "../../shared/world/entities.ts";
 
 /** Everything whose own link field points straight at `holderId`. */
 export function directContents(holderId: string, e: EntityPassResult): AnyEntity[] {

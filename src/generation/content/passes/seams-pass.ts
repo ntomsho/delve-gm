@@ -22,15 +22,11 @@
  * after the serial applies, with both rooms written and in front of the model.
  */
 
-import {
-  CONNECTOR_HEIGHT,
-  CONNECTOR_NAMING,
-  type ConnectorResponse,
-  type Omission,
-} from "./content-pass.ts";
-import type { EntityPassResult } from "../entities-pass.ts";
+import { CONNECTOR_HEIGHT, CONNECTOR_NAMING, type ConnectorResponse } from "./content-pass.ts";
+import { type Omission } from "../types.ts";
+import type { EntityPassResult } from "../../../shared/world/entities.ts";
 import { isSurfaceExit, properName } from "../../../shared/world/entities.ts";
-import type { StockedDungeon } from "../stock.ts";
+import type { StockedDungeon } from "../types.ts";
 
 // ===========================================================================
 // PAYLOAD

@@ -13,11 +13,11 @@
  * rather than merely instructed.
  */
 
-import type { Challenge } from "../../generation/content/challenges.ts";
-import type { EntityPassResult } from "../../generation/content/entities-pass.ts";
+import type { Challenge } from "../world/challenges.ts";
+import type { EntityPassResult } from "../world/entities.ts";
 import type { PlayerCharacter } from "../../rules/knave/character.ts";
-import type { ReserveEntry } from "../../generation/content/rewards.ts";
-import type { ChallengeState } from "../../gameplay/mechanics/challenges.ts";
+import type { ReserveEntry } from "../world/challenges.ts";
+import type { ChallengeState } from "../world/challenges.ts";
 import type { RollSpec, Stage, Step } from "./turn.ts";
 
 export interface Diff {

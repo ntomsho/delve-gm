@@ -1,12 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { canBeStrict, fitStrict, toolSchema } from "./tool-schema.ts";
-import {
-  commitSchema,
-  contentPassSchema,
-  dungeonPassSchema,
-  rollBatchSchema,
-} from "./schemas.ts";
+import { rollBatchSchema } from "../rules/knave/roll-tool.ts";
+import { commitSchema } from "../gameplay/game-master/schemas.ts";
+import { contentPassSchema, dungeonPassSchema } from "../generation/content/passes/schemas.ts";
 
 /**
  * The bug these guard against: `input_schema` was

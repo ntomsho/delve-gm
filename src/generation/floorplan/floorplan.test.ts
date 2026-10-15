@@ -43,7 +43,8 @@ import {
   UPPER_CLASS_BUILDINGS,
 } from "../../rules/maze-rats/tables.ts";
 import { generateBlueprint, type Dungeon } from "./graph.ts";
-import { stockDungeon, type StockedDungeon } from "../content/stock.ts";
+import { stockDungeon } from "../content/stock.ts";
+import { type StockedDungeon } from "../content/types.ts";
 
 function build(seed: number, size: Size): { graph: Dungeon; sd: StockedDungeon } {
   const { dungeon } = generateBlueprint(String(seed), { chunks: size }, true);

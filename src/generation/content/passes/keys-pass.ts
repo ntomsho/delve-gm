@@ -33,9 +33,10 @@
  * about what it is worth.
  */
 
-import type { Rolled } from "../../../rules/maze-rats/tables.ts";
-import { CHALLENGE_LABEL, type Challenge, type ChallengeKind } from "../challenges.ts";
-import type { Omission } from "./content-pass.ts";
+import type { Rolled } from "../../../shared/utils/rng.ts";
+import { CHALLENGE_LABEL } from "../challenges.ts";
+import { type Challenge, type ChallengeKind } from "../../../shared/world/challenges.ts";
+import type { Omission } from "../types.ts";
 import {
   isSurfaceExit,
   properName,
@@ -44,9 +45,9 @@ import {
   type IEntity,
   type IRoomConnector,
 } from "../../../shared/world/entities.ts";
-import type { EntityPassResult } from "../entities-pass.ts";
-import type { ReserveEntry } from "../rewards.ts";
-import type { StockedDungeon } from "../stock.ts";
+import type { EntityPassResult } from "../../../shared/world/entities.ts";
+import type { ReserveEntry } from "../../../shared/world/challenges.ts";
+import type { StockedDungeon } from "../types.ts";
 
 // ===========================================================================
 // WHAT THE CONTENT PASS SKIPS

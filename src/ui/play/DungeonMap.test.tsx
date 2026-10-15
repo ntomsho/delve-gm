@@ -32,7 +32,7 @@ import { floorplanLayout, pointLayout, type Shape } from "../../generation/floor
 import { placedThings } from "../../gameplay/mechanics/occupancy.ts";
 import { newRun, type RunState } from "../../gameplay/state/store.ts";
 import { mapView } from "../../gameplay/view/selectors.ts";
-import { positionPhrase } from "../../generation/floorplan/fixtures.ts";
+import { positionPhrase } from "../../shared/world/placement.ts";
 import type { MapConnectorView, MapRoomView, MapView } from "../../gameplay/view/selectors.ts";
 
 // ===========================================================================

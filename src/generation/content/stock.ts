@@ -49,11 +49,10 @@ import {
   genPeopleGroup,
   type DungeonBlueprintSeed,
   type InhabitantGroup,
-  type MonsterSeed,
-  type NpcSeed,
   type Size,
   type Tier,
 } from "./blueprint.ts";
+import type { MonsterSeed } from "../../shared/world/seeds.ts";
 import {
   BUILDING_ROOMS,
   DUNGEON_ENTRANCES,
@@ -69,18 +68,24 @@ import {
   TREASURE_ITEMS,
   VALUABLE_MATERIALS,
   WEAPON_ITEMS,
-  type Rolled,
 } from "../../rules/maze-rats/tables.ts";
-import { Rng } from "../../shared/utils/rng.ts";
-
+import { Rng, type Rolled } from "../../shared/utils/rng.ts";
 import type { Dungeon, Edge, Room } from "../floorplan/graph.ts";
-import { enumerateChallenges, type Challenge } from "./challenges.ts";
-import { placeRewards, type Pot, type Reward, type ReserveEntry } from "./rewards.ts";
+import { enumerateChallenges } from "./challenges.ts";
+import { placeRewards } from "./rewards.ts";
 import { sizeAllows, type SizeClass } from "../floorplan/room-size.ts";
+import type {
+  Disposition,
+  MobileEntity,
+  RoomStock,
+  SpecialContent,
+  StockedConnector,
+  StockedDungeon,
+} from "./types.ts";
 
 // ---------------------------------------------------------------------------
 // TABLES
-// Shared Maze Rats tables now live in blueprint.ts and are imported
+// Shared Maze Rats tables live in rules/maze-rats/tables.ts and are imported
 // above -- keeping second copies here is what let "Maze potion" drift into
 // "Maze pattern". Only tables used by nothing but the rooms loop stay local.
 // ---------------------------------------------------------------------------
@@ -138,196 +143,6 @@ function resolveCascades(entry: string, rng: Rng, depth = 0): string {
 
 function roll(table: readonly string[], rng: Rng): Rolled {
   return resolveCascades(rng.pick(table), rng);
-}
-
-// ---------------------------------------------------------------------------
-// TYPES
-// ---------------------------------------------------------------------------
-
-export type Headline = "creature" | "special" | "quiet" | "none";
-export type RoomRole = "entrance" | "goal" | "normal";
-export type Disposition = "hostile" | "neutral" | "friendly";
-export interface SpecialContent {
-  kind: "hazard" | "obstacle";
-  /** hazard: an environmental hazard, or a trap (trigger + effect) */
-  hazard?: Rolled;
-  trapTrigger?: Rolled;
-  trapEffect?: Rolled;
-  /** obstacle: Cairn Special + (Cairn Feature | MR Trick) */
-  subject?: Rolled;
-  behaviour?: Rolled;
-  behaviourSource?: "cairn-feature" | "mr-trick";
-}
-
-export interface ClueContent {
-  keyword: Rolled;
-  /** what this clue is actually about -- resolved after all placement */
-  targetRoomId?: string;
-  targetMobileId?: string;
-  about: string;
-}
-
-/**
- * What the composition pass must create to embody the dungeon goal. We do not
- * pick the entity TYPE here -- the goal may be a creature, an object, a person,
- * a feature of the room, or something stranger, and only the fiction settled in
- * the Dungeon Pass can say which. The room is fixed; the form is not.
- */
-export interface GoalDirective {
-  reward: Rolled;
-  mission: Rolled;
-  instruction: string;
-}
-
-export interface MobileEntity {
-  id: string;
-  kind: "group-member" | "wanderer-monster" | "wanderer-npc";
-  /**
-   * Id of the group this creature belongs to. Inhabitant groups come from the
-   * dungeon pass; wanderer groups are created here during stocking and held in
-   * StockedDungeon.wandererGroups. Either way the creature's rolled identity
-   * lives on a group at dungeon level, never on the creature itself.
-   */
-  groupId?: string;
-  name: string;
-  locationRoomId: string;
-  /** index into blueprint.inhabitants, when affiliated */
-  groupIndex?: number;
-  isBase?: boolean;
-  tier?: Tier;
-  activity?: Rolled;
-  disposition?: Disposition;
-  monster?: MonsterSeed;
-  npc?: NpcSeed;
-  /**
-   * Nameless rank and file attached to an inhabitant group. Minions share their
-   * parent's tier and are always simple complexity -- for people minions, treat
-   * them as simple wherever complexity is needed.
-   */
-  minion?: "young" | "thrall" | "ecology" | "hirelings";
-  notes?: string;
-}
-
-export interface RoomStock {
-  /** stable entity id carried through from Phase A */
-  roomId: string;
-  /** graph index, for adjacency work and human-readable reports */
-  index: number;
-  /** Phase A chunk -- purely a batching unit, never a content input */
-  chunk: number;
-  role: RoomRole;
-  headline: Headline;
-  /** true when load-bearing placement claimed this room */
-  claimed: boolean;
-  /** a claimed room that also stacked a second headline */
-  stacked?: Headline;
-
-  /**
-   * This room is a passage rather than a place: it rolled `identity` on the
-   * Dungeon Corridors table and the floorplan draws it as whatever shape the
-   * connection needed rather than as a chamber with an area band.
-   *
-   * A corridor is an ordinary room in every other respect -- it keeps its
-   * headline and its contents, occupancy and travel and fog work on it
-   * unchanged. It costs roughly 17% of the content rooms at every size, which
-   * is the point rather than the price: a dungeon of nothing but stocked rooms
-   * reads as beads on a string, and corridors are the pacing.
-   */
-  isCorridor: boolean;
-
-  /**
-   * How big the room came out once the layout drew it, read off its floor area.
-   *
-   * This arrives from OUTSIDE stocking, via the `layout` hook, and it arrives
-   * before `identity` is rolled -- which is the whole reason the hook exists. A
-   * room's size is decided by where its neighbours ended up and how much ground
-   * they left it, and no roll can know that in advance. So the geometry settles
-   * first and the size then constrains what the room may be: a four-cell closet
-   * does not get to be a banquet hall. See `sizeAllows`.
-   *
-   * Undefined when no layout ran, in which case identity rolls unconstrained.
-   */
-  sizeClass?: SizeClass;
-
-  identity: Rolled;
-  detail?: Rolled;
-  entranceFeature?: Rolled;
-
-  depth: number;
-  degree: number;
-  isDeadEnd: boolean;
-
-  danger: number;
-  special?: SpecialContent;
-  clue?: ClueContent;
-  /**
-   * Everything placed here, whoever ends up holding it. An array because there
-   * is deliberately NO CAP per room or per entity -- more than one reward in a
-   * room is fine, and sometimes you stumble on an awesome find.
-   */
-  rewards: Reward[];
-
-  /** mobile entity ids currently located here */
-  occupants: string[];
-
-  /** present on exactly one room */
-  goalDirective?: GoalDirective;
-}
-
-export interface StockedConnector {
-  id: string;
-  a: string;
-  b: string;
-  /**
-   * A connection is either freely usable or it is not. Whatever stands in the
-   * way -- locked, blocked, concealed, flooded, too dangerous -- is one idea,
-   * not three, so we only mark THAT a connector is gated. What it actually
-   * demands falls out of the LLM pass, which can see both rooms it joins, and
-   * lands in `requirement` -> the entity's `conditional` field.
-   */
-  gated: boolean;
-  /**
-   * Concealed: the player does not know this way exists until they find it.
-   * Rolled here rather than decided by the writing pass — see gateConnectors.
-   * Independent of `gated`; a way can be hidden, blocked, or both.
-   */
-  hidden: boolean;
-  /** filled by the composition pass; becomes IRoomConnector.conditional */
-  requirement?: string;
-}
-
-export interface StockedDungeon {
-  seed: number;
-  size: Size;
-  level: number;
-  entranceRoomId: string;
-  goalRoomId: string;
-  maxDepth: number;
-  rooms: RoomStock[];
-  mobiles: MobileEntity[];
-  /**
-   * Groups created for wandering encounters. Same shape as inhabitants, but
-   * rolled during stocking rather than during dungeon generation, so they are
-   * not part of the dungeon's resident population.
-   */
-  wandererGroups: InhabitantGroup[];
-  connectors: StockedConnector[];
-  /** per-dungeon share of creature encounters tied to the roster */
-  cohesion: number;
-  quota: Record<Headline, number>;
-  /**
-   * Every keyable property in the dungeon, enumerated. Keys answer these,
-   * accomplishments resolve them, and XP prices them -- see dungeon-challenges.
-   */
-  challenges: Challenge[];
-  /**
-   * The challenges no placed key answers, held for a draw in play. Pure data:
-   * a reserve entry is written only when it is drawn.
-   */
-  reserve: ReserveEntry[];
-  /** the dungeon's money, conserved */
-  pot: Pot;
-  rewardBudget: { general: number; keys: number; reserved: number };
 }
 
 // ---------------------------------------------------------------------------

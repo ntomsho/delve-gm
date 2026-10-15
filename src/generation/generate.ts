@@ -57,18 +57,20 @@ import {
 import { Rng } from "../shared/utils/rng.ts";
 import { blockPlanValid, roomSizes, type BlockPlan } from "./floorplan/blockplan.ts";
 import { resolveBase } from "../shared/world/entities.ts";
-import { runEntitiesPass, type EntityPassResult } from "./content/entities-pass.ts";
+import { runEntitiesPass } from "./content/entities-pass.ts";
+import { type EntityPassResult } from "../shared/world/entities.ts";
 import { siteRooms } from "./floorplan/geometry.ts";
-import { stockDungeon, type StockedDungeon } from "./content/stock.ts";
+import { stockDungeon } from "./content/stock.ts";
+import { type StockedDungeon } from "./content/types.ts";
 import { addUsage, callForJson, type FailedAttempt, type Usage } from "../llm/client.ts";
 import {
   contentPassSchema,
   dungeonPassSchema,
   keysPassSchema,
   seamsPassSchema,
-} from "../llm/schemas.ts";
+} from "./content/passes/schemas.ts";
 import { chunksFor, deriveSeeds, type RunSeeds } from "./seeds.ts";
-import { NO_JOURNAL, type Journal } from "../journal/journal.ts";
+import { NO_LOG, type GenerationLog } from "./log.ts";
 
 // ---------------------------------------------------------------------------
 // PROGRESS
@@ -147,7 +149,7 @@ export interface GenerateOptions {
   onProgress?: ProgressFn;
   signal?: AbortSignal;
   /** where the generation writes itself down. Omitted means it does not. */
-  journal?: Journal;
+  journal?: GenerationLog;
 }
 
 // ---------------------------------------------------------------------------
@@ -172,7 +174,7 @@ const GRAPH_ATTEMPTS = 8;
  * not an answer.
  */
 function reportFailure(
-  journal: Journal,
+  journal: GenerationLog,
   pass: "dungeon-pass" | "content-pass" | "seams-pass" | "keys-pass",
   chunk?: number
 ) {
@@ -270,7 +272,7 @@ export async function generateStructure(opts: GenerateOptions): Promise<Generate
   const level = opts.level ?? 1;
   const seeds = deriveSeeds(opts.seed);
   const report = opts.onProgress ?? (() => {});
-  const journal = opts.journal ?? NO_JOURNAL;
+  const journal = opts.journal ?? NO_LOG;
 
   const blueprint = generateBlueprintSeed(size, seeds.blueprintSeed, level);
 
@@ -393,7 +395,7 @@ export async function generateChunk(
   chunk: number,
   opts: PassOptions = {}
 ): Promise<ChunkResult> {
-  const journal = opts.journal ?? NO_JOURNAL;
+  const journal = opts.journal ?? NO_LOG;
   const payload = contentPayload(partial, chunk);
   const prompt = renderContentPassPrompt(payload);
 
@@ -436,7 +438,7 @@ export async function finishGeneration(
   opts: PassOptions = {}
 ): Promise<GeneratedDungeon> {
   const report = opts.onProgress ?? (() => {});
-  const journal = opts.journal ?? NO_JOURNAL;
+  const journal = opts.journal ?? NO_LOG;
   const { blueprint, stocked, entities } = partial;
 
   // A region that was never written would otherwise be discovered as an

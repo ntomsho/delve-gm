@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 import { roomDistances, routeTo, stepToward } from "./travel.ts";
 import type { World } from "../../shared/types/commit.ts";
 import { newChallengeState } from "./challenges.ts";
-import type { EntityPassResult } from "../../generation/content/entities-pass.ts";
+import type { EntityPassResult } from "../../shared/world/entities.ts";
 import type { ICreature, IRoom, IRoomConnector } from "../../shared/world/entities.ts";
 import type { PlayerCharacter } from "../../rules/knave/character.ts";
 

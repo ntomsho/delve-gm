@@ -44,17 +44,18 @@
 import type { GeneratedDungeon } from "../generation/generate.ts";
 import type { Message, SystemBlock, ToolUse, Usage } from "../llm/client.ts";
 import type { Commit, Diff, WorldEvent } from "../shared/types/commit.ts";
-import type { RolledOutcome } from "../gameplay/turn.ts";
-import type { DiceOutcome } from "../rules/knave/roll-tool.ts";
-import type { Stage, Step } from "../shared/types/turn.ts";
+import type { RolledOutcome, Stage, Step } from "../shared/types/turn.ts";
+import type { DiceOutcome, RollRequestParsed } from "../rules/knave/roll-tool.ts";
 import type { PlayerCharacter } from "../rules/knave/character.ts";
-import type { RollRequestParsed, ValidationIssue } from "../llm/schemas.ts";
+import type { GenerationRecord } from "../generation/log.ts";
 
 // ---------------------------------------------------------------------------
 // EVENTS
 // ---------------------------------------------------------------------------
 
 export type JournalEvent =
+  /** a generation pass's call, its failure, or an error — see generation/log.ts */
+  | GenerationRecord
   /** what this run is: the seed, the sheet, and which model answers what */
   | {
       kind: "run";
@@ -66,44 +67,6 @@ export type JournalEvent =
       offline: boolean;
       models: Record<string, string>;
       character: PlayerCharacter;
-    }
-  /**
-   * A generation call, in full. Kept because the dungeon is written exactly
-   * once and cannot be re-examined later by playing differently — if a room
-   * reads badly, this is the only record of what was asked for.
-   */
-  | {
-      kind: "generation";
-      pass: "dungeon-pass" | "content-pass" | "seams-pass" | "keys-pass" | "tally-pass";
-      chunk?: number;
-      prompt: string;
-      response: unknown;
-      usage: Usage;
-    }
-  /**
-   * A generation call that came back unusable.
-   *
-   * The `generation` event above is written on SUCCESS, which meant a pass that
-   * never succeeded left no trace but the message on the exception — and since
-   * the chunks run in parallel, not even which one it was. So a failure writes
-   * its own event: which pass, which chunk, which attempt, and what was
-   * actually objected to.
-   *
-   * Both attempts are recorded, not just the last. The first failure and the
-   * failure after the correction are different evidence: the same complaint
-   * twice is a prompt that cannot be satisfied, and two different ones is a
-   * model having a bad day.
-   */
-  | {
-      kind: "generation-error";
-      pass: "dungeon-pass" | "content-pass" | "seams-pass" | "keys-pass" | "tally-pass";
-      chunk?: number;
-      attempt: number;
-      willRetry: boolean;
-      message: string;
-      issues: ValidationIssue[];
-      /** the tool input as it arrived, truncated */
-      raw?: string;
     }
   /** the finished world, and the baseline every diff below applies to */
   | { kind: "dungeon"; dungeon: GeneratedDungeon }
@@ -154,8 +117,7 @@ export type JournalEvent =
       retry?: boolean;
     }
   | { kind: "stage"; from?: Stage; to: Stage; step: Step }
-  | { kind: "turn"; turn: number; action: string; outcome: string; diffs: number }
-  | { kind: "error"; where: string; message: string };
+  | { kind: "turn"; turn: number; action: string; outcome: string; diffs: number };
 
 /** An event as it is written: in order, and stamped. */
 export type JournalRecord = JournalEvent & { seq: number; at: string };

@@ -20,10 +20,11 @@ import {
   type RunTally,
   type TallyContext,
 } from "./tally-pass.ts";
-import { type Challenge } from "../../generation/content/challenges.ts";
-import { bestedByBypass, type ChallengeState } from "../mechanics/challenges.ts";
+import { type Challenge } from "../../shared/world/challenges.ts";
+import { bestedByBypass } from "../mechanics/challenges.ts";
+import { type ChallengeState } from "../../shared/world/challenges.ts";
 import { callForJson, type Usage } from "../../llm/client.ts";
-import { tallyPassSchema } from "../../llm/schemas.ts";
+import { tallyPassSchema } from "./schema.ts";
 import { NO_JOURNAL, type Journal } from "../../journal/journal.ts";
 import type { Stage } from "../../shared/types/turn.ts";
 

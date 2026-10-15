@@ -19,7 +19,7 @@
  */
 
 import { SPELLS } from "../knave/tables.ts";
-import type { Rng } from "../../shared/utils/rng.ts";
+import type { Rng, Rolled } from "../../shared/utils/rng.ts";
 
 const t = (s: string): string[] => s.split("|");
 
@@ -463,13 +463,6 @@ const ENTITY_CASCADES = new Set(["NPC", "faction", "monster", "Monster"]);
 
 const MAX_CASCADE_DEPTH = 2;
 
-/**
- * A table draw, fully resolved. Cascades ({Braces}) are expanded in place and
- * the result is just the final text -- we do not retain the unresolved entry or
- * a separate list of entity references.
- */
-export type Rolled = string;
-
 export function rollAnimal(rng: Rng): string {
   const d = rng.d(6);
   const tbl = d <= 2 ? AERIAL_ANIMALS : d <= 4 ? TERRESTRIAL_ANIMALS : AQUATIC_ANIMALS;
@@ -501,7 +494,6 @@ export function roll(table: readonly string[], rng: Rng): Rolled {
 }
 
 // --- public rollers for the MAZE hazard/detail tables ------------------------
-
 
 export const rollDungeonEntrance = (rng: Rng): Rolled => roll(DUNGEON_ENTRANCES, rng);
 export const rollRoomDetail = (rng: Rng): Rolled => roll(DUNGEON_ROOM_DETAILS, rng);

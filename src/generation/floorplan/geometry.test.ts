@@ -26,21 +26,18 @@ import {
   siteRooms,
   wallCells,
 } from "./geometry.ts";
+import { FIXTURES, fixtureCap, fixtureMenu, placeAt, placeFixture } from "./fixtures.ts";
 import {
-  FIXTURES,
   FIXTURE_KINDS,
-  fixtureCap,
-  fixtureMenu,
   isFixtureKind,
   isPositionWord,
-  placeAt,
-  placeFixture,
   POSITION_WORDS,
-} from "./fixtures.ts";
+} from "../../shared/world/placement.ts";
 import { generateBlueprint, type Dungeon } from "./graph.ts";
 import { generateBlueprintSeed, type Size } from "../content/blueprint.ts";
 import { Rng } from "../../shared/utils/rng.ts";
-import { stockDungeon, type StockedDungeon } from "../content/stock.ts";
+import { stockDungeon } from "../content/stock.ts";
+import { type StockedDungeon } from "../content/types.ts";
 import type { Point } from "../../shared/utils/grid.ts";
 
 // ---------------------------------------------------------------------------

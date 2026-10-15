@@ -28,7 +28,8 @@
  * `shouldTally`.
  */
 
-import { CHALLENGE_LABEL, type Challenge, type ChallengeKind } from "../../generation/content/challenges.ts";
+import { CHALLENGE_LABEL } from "../../generation/content/challenges.ts";
+import { type Challenge, type ChallengeKind } from "../../shared/world/challenges.ts";
 
 // ---------------------------------------------------------------------------
 // KNAVE'S NUMBERS

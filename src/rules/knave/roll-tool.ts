@@ -23,6 +23,7 @@
  * roll the same dice.
  */
 
+import { z } from "zod";
 import {
   attackRoll,
   consultRoll,
@@ -36,8 +37,62 @@ import {
   type Edge,
 } from "./rolls.ts";
 import type { RollRng } from "../../shared/utils/rng.ts";
-import type { RollRequestParsed } from "../../llm/schemas.ts";
 import { signed } from "../../shared/utils/format.ts";
+import { nonEmpty } from "../../shared/utils/schema.ts";
+
+// ---------------------------------------------------------------------------
+// THE REQUEST
+// ---------------------------------------------------------------------------
+
+/** Advantage, disadvantage, or neither. Shared with the roll a commit offers the player. */
+export const edgeSchema = z.enum(["none", "advantage", "disadvantage"]);
+
+/**
+ * One request in the batch. Flat rather than a discriminated union: JSON Schema
+ * can express the union but the model reads a flat object with a `kind` more
+ * reliably, and zod checks the per-kind requirements on the way back in.
+ */
+const rollSpecRequest = z.object({
+  /** the caller's own label, so the results can be told apart */
+  id: nonEmpty,
+  kind: z.enum(["save", "attack", "stunt", "morale", "damage", "consult"]),
+  /**
+   * Whose roll this is — and `"player"` is deliberately unsayable, because the
+   * player's own roll is offered rather than thrown (see `playersOwnDice`).
+   * Optional, and read only when a roll made at one of the player's bonuses
+   * would otherwise be refused: saying it is the ghoul's is how a game master gets
+   * a genuine coincidence past the guard.
+   */
+  actor: z.enum(["creature", "world"]).optional(),
+  edge: edgeSchema.optional(),
+  /** save, attack, stunt */
+  bonus: z.number().int().optional(),
+  /** save: the number to meet. Defaults to 16. */
+  dc: z.number().int().optional(),
+  /** save: a creature is the source of the risk — pass its defense instead */
+  defenseAsDc: z.number().int().optional(),
+  /** attack, stunt */
+  targetDefense: z.number().int().optional(),
+  /** attack: the weapon's die. damage: the expression to roll. */
+  damage: z.string().optional(),
+  expr: z.string().optional(),
+  extraDice: z.number().int().optional(),
+  /** attack: the right weapon against the right enemy, for the extra die */
+  wellSuited: z.boolean().optional(),
+  /** morale: the group's rating. Defaults to 7. */
+  rating: z.number().int().optional(),
+  /**
+   * consult: how many times that book has been read ALREADY — its current
+   * `book.uses`, and 0 for one nobody has opened. This reading is added by the
+   * tool, which then says what to write back.
+   */
+  uses: z.number().int().optional(),
+});
+
+export const rollBatchSchema = z.object({ rolls: z.array(rollSpecRequest).min(1) });
+
+export type RollBatchParsed = z.infer<typeof rollBatchSchema>;
+export type RollRequestParsed = z.infer<typeof rollSpecRequest>;
 
 export interface DiceOutcome {
   /** the game master's own label for this roll */

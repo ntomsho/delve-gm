@@ -5,7 +5,7 @@ import { normalizePath } from "./paths.ts";
 import { newChallengeState } from "../mechanics/challenges.ts";
 import { roomIndex } from "../mechanics/occupancy.ts";
 import { isBook } from "../../shared/world/entities.ts";
-import type { EntityPassResult } from "../../generation/content/entities-pass.ts";
+import type { EntityPassResult } from "../../shared/world/entities.ts";
 import type {
   ICreature,
   AnyItem,

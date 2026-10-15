@@ -32,8 +32,7 @@ import {
 } from "./prompt.ts";
 import { callForJson, type Usage } from "../llm/client.ts";
 import { illustrationInView, type RoomIllustration } from "./room-illustration.ts";
-
-const nonEmpty = z.string().trim().min(1);
+import { nonEmpty } from "../shared/utils/schema.ts";
 
 const visualSchema = z.object({
   room: nonEmpty,

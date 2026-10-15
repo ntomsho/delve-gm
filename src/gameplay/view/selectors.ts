@@ -39,11 +39,11 @@ import {
   type PlayerCharacter,
   type SlotReport,
 } from "../../rules/knave/character.ts";
-import { type EntityPassResult } from "../../generation/content/entities-pass.ts";
+import { type EntityPassResult } from "../../shared/world/entities.ts";
 import { EQUIP_SLOTS, heldItem, itemSummary } from "../../rules/knave/character.ts";
 import { farSide, isArmor, isBook, isSurfaceExit, touches } from "../../shared/world/entities.ts";
 import { describeGeometry, exitPhrase, siteRooms } from "../../generation/floorplan/geometry.ts";
-import { positionPhrase } from "../../generation/floorplan/fixtures.ts";
+import { positionPhrase } from "../../shared/world/placement.ts";
 import type { RoomGeometry } from "../../generation/floorplan/geometry.ts";
 import { directContents, heldItems } from "../mechanics/occupancy.ts";
 import { roomDistances } from "../mechanics/travel.ts";

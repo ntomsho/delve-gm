@@ -14,7 +14,7 @@ check.
 | `illustrations/` | Room illustrations: the camera search, button hotspots, the guide image and the prompts for the image model. |
 | `generation/` | Building a dungeon. `generate.ts` is the pipeline. `floorplan/` is the physical dungeon: graph, planar layout, room shapes, fixtures and the map. `content/` is what is in it: stocking tables, challenges, rewards, and the model passes that write its prose. |
 | `journal/` | The per-run event log, and its readable rendering. |
-| `llm/` | The Anthropic transport, forced-tool JSON calls, zod schemas, and `models.ts`, the only file allowed to name a model. |
+| `llm/` | The Anthropic transport, forced-tool JSON calls, the shape of a validation issue, and `models.ts`, the only file allowed to name a model. Knows nothing about the game: each schema lives with the code that asks for that answer. |
 | `prompts/` | Every instruction to a model, as markdown. `loader.ts` is the one place it is imported. |
 | `rules/` | The game systems, one folder each. `knave/` is Knave 1.0, the system played: dice, the character sheet, creation, levelling, equipment and the shop. `maze-rats/` and `cairn/` are the tables generation rolls on. Another game's rules would sit beside them. |
 | `shared/` | Used across areas. `types/` holds the cross-cutting data shapes, `world/` the entity model, `utils/` small reusable helpers: the seeded `Rng`, ids, grid keys, formatting. |
@@ -28,7 +28,7 @@ move when that file is split:
 - `prompts/`: the generation, tally and illustration instructions are still
   TypeScript strings beside the code that sends them.
 - `rules/knave/`: Knave assumptions are still built into `gameplay/diffs/paths.ts`,
-  `gameplay/game-master/render.ts`, `llm/schemas.ts`, `gameplay/turn.ts`,
+  `gameplay/game-master/render.ts`, `gameplay/game-master/schemas.ts`, `gameplay/turn.ts`,
   `shared/world/entities.ts` and the content pass's stat blocks.
 - `server/routes/`: the routes are all in `server/app.ts`.
 

@@ -70,7 +70,7 @@
 
 import { Rng } from "../../shared/utils/rng.ts";
 import type { Dungeon } from "./graph.ts";
-import type { RoomStock, StockedDungeon } from "../content/stock.ts";
+import type { RoomStock, StockedDungeon } from "../content/types.ts";
 import {
   ARCHETYPES,
   AREA,
