@@ -16,8 +16,8 @@ check.
 | `journal/` | The per-run event log, and its readable rendering. |
 | `llm/` | The Anthropic transport, forced-tool JSON calls, zod schemas, and `models.ts`, the only file allowed to name a model. |
 | `prompts/` | Every instruction to a model, as markdown. `loader.ts` is the one place it is imported. |
-| `rules/` | The game system. `knave/` is Knave 1.0: dice, the character sheet, creation, levelling, equipment and the shop. Another game's rules would sit beside it. |
-| `shared/` | Used across areas. `types/` holds the cross-cutting data shapes, `world/` the entity model, `utils/` small reusable helpers. |
+| `rules/` | The game systems, one folder each. `knave/` is Knave 1.0, the system played: dice, the character sheet, creation, levelling, equipment and the shop. `maze-rats/` and `cairn/` are the tables generation rolls on. Another game's rules would sit beside them. |
+| `shared/` | Used across areas. `types/` holds the cross-cutting data shapes, `world/` the entity model, `utils/` small reusable helpers: the seeded `Rng`, ids, grid keys, formatting. |
 | `fixtures/` | Stand-ins for the model: the offline dungeon and the stub game master, used by tests, the dev CLIs and `?offline`. |
 
 **Not yet where it belongs.** Some code still sits inside a large file and will
@@ -25,10 +25,6 @@ move when that file is split:
 
 - `shared/types/`: `GeneratedDungeon` is still in `generation/generate.ts` and
   `RunState` in `gameplay/state/store.ts`.
-- `shared/utils/`: the `Rng` class and `makeId` are still in
-  `generation/content/blueprint.ts`. Grid helpers (`cellKey`, `pairKey`,
-  `route`, `traceOutline`) are defined separately in several floorplan and
-  illustration files.
 - `prompts/`: the generation, tally and illustration instructions are still
   TypeScript strings beside the code that sends them.
 - `rules/knave/`: Knave assumptions are still built into `gameplay/diffs/paths.ts`,

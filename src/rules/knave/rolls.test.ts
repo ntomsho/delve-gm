@@ -12,9 +12,8 @@ import {
   rollDamage,
   saveRoll,
   stuntRoll,
-  type RollRng,
 } from "./rolls.ts";
-import { Rng } from "../../generation/content/blueprint.ts";
+import { Rng, type RollRng } from "../../shared/utils/rng.ts";
 
 /** Feeds an exact sequence, so a specific die result can be forced. */
 function scripted(...values: number[]): RollRng {

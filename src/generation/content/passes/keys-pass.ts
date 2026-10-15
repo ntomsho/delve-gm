@@ -33,7 +33,7 @@
  * about what it is worth.
  */
 
-import type { Rolled } from "../blueprint.ts";
+import type { Rolled } from "../../../rules/maze-rats/tables.ts";
 import { CHALLENGE_LABEL, type Challenge, type ChallengeKind } from "../challenges.ts";
 import type { Omission } from "./content-pass.ts";
 import {

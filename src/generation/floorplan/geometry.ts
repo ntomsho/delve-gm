@@ -30,9 +30,11 @@
  * DOWNWARD, so north is -y.
  */
 
-import type { BlockPlan, Point } from "./blockplan.ts";
+import type { BlockPlan } from "./blockplan.ts";
+import type { Point } from "../../shared/utils/grid.ts";
 import type { Dungeon } from "./graph.ts";
 import { classOf, type Proportion, type SizeClass } from "./room-size.ts";
+import { cellKey } from "../../shared/utils/grid.ts";
 
 /**
  * One grid cell, in feet.
@@ -147,7 +149,6 @@ const ENDS: Record<Wall, [Along, Along]> = {
   west: ["north", "south"],
 };
 
-const cellKey = (p: Point) => `${p.x},${p.y}`;
 
 export function boundingBox(cells: Point[]): { x: number; y: number; w: number; h: number } {
   let minX = Infinity;

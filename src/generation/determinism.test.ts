@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { generateBlueprint } from "./floorplan/graph.ts";
-import { generateBlueprintSeed, Rng, type Size } from "./content/blueprint.ts";
+import { generateBlueprintSeed, type Size } from "./content/blueprint.ts";
+import { Rng } from "../shared/utils/rng.ts";
 import { stockDungeon } from "./content/stock.ts";
 import { runEntitiesPass } from "./content/entities-pass.ts";
 

@@ -71,7 +71,7 @@ import {
   type PlayerCharacter,
 } from "./character.ts";
 import { purse, purseItem, setPurse } from "./character-creation.ts";
-import type { Rng } from "../../generation/content/blueprint.ts";
+import type { Rng } from "../../shared/utils/rng.ts";
 import {
   STANDARD_EQUIPMENT,
   mintItem,

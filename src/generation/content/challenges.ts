@@ -29,7 +29,7 @@
  * one have to agree across a save and a reload.
  */
 
-import type { Rolled } from "./blueprint.ts";
+import type { Rolled } from "../../rules/maze-rats/tables.ts";
 import type {
   MobileEntity,
   RoomStock,

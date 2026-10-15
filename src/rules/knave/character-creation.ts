@@ -37,7 +37,8 @@
  * free, because an unlimited d8 is an 8 every time.
  */
 
-import { Rng, makeId } from "../../generation/content/blueprint.ts";
+import { makeId } from "../../shared/utils/id.ts";
+import { Rng } from "../../shared/utils/rng.ts";
 import { isArmor, isWeapon, type Ability, type AnyItem } from "../../shared/world/entities.ts";
 import { mintItem, mintSpellbook, type EquipmentKey } from "./equipment.ts";
 import type {

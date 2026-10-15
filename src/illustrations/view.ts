@@ -28,8 +28,9 @@
  * scaled to feet by CELL_FEET so every distance here is one the prose may say.
  */
 
-import type { Point } from "../generation/floorplan/blockplan.ts";
+import type { Point } from "../shared/utils/grid.ts";
 import { CELL_FEET } from "../generation/floorplan/geometry.ts";
+import { xyKey } from "../shared/utils/grid.ts";
 
 // ---------------------------------------------------------------------------
 // INPUT
@@ -184,7 +185,6 @@ const CENTRE_DEG = 12;
 // SIGHT
 // ---------------------------------------------------------------------------
 
-const key = (x: number, y: number) => `${x},${y}`;
 
 /**
  * Every cell the straight line from `a` to `b` passes through is floor.
@@ -255,8 +255,8 @@ export function doorTarget(d: ViewDoor): Point {
 
 /** Lines of sight from `eye` in this room: clear when every cell crossed is floor. */
 export function illustrationSight(input: IllustrationViewInput, eye: Point): (p: Point) => boolean {
-  const floor = new Set(input.floor.map((c) => key(c.x, c.y)));
-  const onFloor = (x: number, y: number) => floor.has(key(x, y));
+  const floor = new Set(input.floor.map((c) => xyKey(c.x, c.y)));
+  const onFloor = (x: number, y: number) => floor.has(xyKey(x, y));
   return (p) => clearLine(eye, p, onFloor);
 }
 
@@ -300,19 +300,19 @@ function standingSpots(input: IllustrationViewInput): Point[] {
 
 /** Cells split into pieces that touch edge to edge. */
 export function connectedCells(cells: readonly Point[]): Point[][] {
-  const left = new Map(cells.map((c) => [key(c.x, c.y), c]));
+  const left = new Map(cells.map((c) => [xyKey(c.x, c.y), c]));
   const pieces: Point[][] = [];
   for (const start of cells) {
-    if (!left.delete(key(start.x, start.y))) continue;
+    if (!left.delete(xyKey(start.x, start.y))) continue;
     const piece: Point[] = [];
     const queue = [start];
     while (queue.length) {
       const c = queue.pop()!;
       piece.push(c);
       for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-        const n = left.get(key(c.x + dx, c.y + dy));
+        const n = left.get(xyKey(c.x + dx, c.y + dy));
         if (n) {
-          left.delete(key(n.x, n.y));
+          left.delete(xyKey(n.x, n.y));
           queue.push(n);
         }
       }
@@ -518,8 +518,8 @@ function standingPhrase(floor: Point[], eye: Point): string {
  * it is worked out once per spot and every heading reuses it.
  */
 export function illustrationView(input: IllustrationViewInput): IllustrationView {
-  const floor = new Set(input.floor.map((c) => key(c.x, c.y)));
-  const onFloor = (x: number, y: number) => floor.has(key(x, y));
+  const floor = new Set(input.floor.map((c) => xyKey(c.x, c.y)));
+  const onFloor = (x: number, y: number) => floor.has(xyKey(x, y));
   const tanFov = Math.tan((ILLUSTRATION_HALF_FOV_DEG * Math.PI) / 180);
 
   /** What can score, each with where it is, what it is worth, and which group it counts in. */

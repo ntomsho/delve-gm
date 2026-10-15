@@ -27,14 +27,11 @@
  * exactly as everything else here does.
  */
 
-import { Rng } from "../content/blueprint.ts";
+import { Rng } from "../../shared/utils/rng.ts";
 import { classOf, type Proportion, type SizeClass } from "./room-size.ts";
 import type { Dungeon } from "./graph.ts";
-
-export interface Point {
-  x: number;
-  y: number;
-}
+import { cellKey } from "../../shared/utils/grid.ts";
+import type { Point } from "../../shared/utils/grid.ts";
 
 export interface BlockPath {
   /** graph indices of the two rooms */
@@ -170,18 +167,17 @@ function spaceOut(graph: Dungeon, chunkOf: Map<number, number>, rng: Rng): Point
   // it has its own cell and its clearance.
   const cells = pos.map((p) => ({ x: Math.round(p.x), y: Math.round(p.y) }));
   const taken = new Set<string>();
-  const key = (p: Point) => `${p.x},${p.y}`;
   for (let i = 0; i < n; i++) {
     let guard = 0;
     while (guard++ < 400) {
       const clash =
-        taken.has(key(cells[i])) ||
-        cells.some((c, j) => j !== i && taken.has(key(c)) && manhattan(c, cells[i]) < CLEAR);
+        taken.has(cellKey(cells[i])) ||
+        cells.some((c, j) => j !== i && taken.has(cellKey(c)) && manhattan(c, cells[i]) < CLEAR);
       if (!clash) break;
       cells[i].x += rng.pick([-1, 0, 1]);
       cells[i].y += rng.pick([-1, 0, 1]);
     }
-    taken.add(key(cells[i]));
+    taken.add(cellKey(cells[i]));
   }
   return cells;
 }
@@ -311,7 +307,6 @@ function lRoutes(a: Point, b: Point): Point[][] {
   return [via({ x: b.x, y: a.y }), via({ x: a.x, y: b.y })];
 }
 
-const key = (p: Point) => `${p.x},${p.y}`;
 
 /** The four 2x2 blocks that have the anchor cell as one of their corners. */
 const CORNERS: Array<[number, number]> = [
@@ -348,12 +343,12 @@ function makeBlocks(centres: Point[], rng: Rng): Point[][] | null {
     let placed: Point[] | null = null;
     for (const corner of rng.pickN(CORNERS, CORNERS.length)) {
       const cells = blockAt(p, corner);
-      if (cells.some((c) => taken.has(key(c)))) continue;
+      if (cells.some((c) => taken.has(cellKey(c)))) continue;
       placed = cells;
       break;
     }
     if (!placed) return null;
-    for (const c of placed) taken.add(key(c));
+    for (const c of placed) taken.add(cellKey(c));
     blocks.push(placed);
   }
   return blocks;
@@ -361,12 +356,12 @@ function makeBlocks(centres: Point[], rng: Rng): Point[][] | null {
 
 /** Cells orthogonally touching the block but not in it. */
 function rimOf(block: Point[]): Point[] {
-  const inside = new Set(block.map(key));
+  const inside = new Set(block.map(cellKey));
   const out = new Map<string, Point>();
   for (const c of block) {
     for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as Array<[number, number]>) {
       const n = { x: c.x + dx, y: c.y + dy };
-      if (!inside.has(key(n))) out.set(key(n), n);
+      if (!inside.has(cellKey(n))) out.set(cellKey(n), n);
     }
   }
   return [...out.values()];
@@ -387,7 +382,7 @@ type RouteResult = { ok: true; paths: BlockPath[] } | { ok: false; a: number; b:
 
 function route(blocks: Point[][], graph: Dungeon, rng: Rng): RouteResult {
   const solid = new Set<string>();
-  for (const b of blocks) for (const c of b) solid.add(key(c));
+  for (const b of blocks) for (const c of b) solid.add(cellKey(c));
   const used = new Set<string>(solid);
 
   const centreOf = (b: Point[]) => ({ x: b[0].x + 0.5, y: b[0].y + 0.5 });
@@ -401,17 +396,17 @@ function route(blocks: Point[][], graph: Dungeon, rng: Rng): RouteResult {
 
   const paths: BlockPath[] = [];
   for (const { e } of order) {
-    const A = new Set(blocks[e.a].map(key));
-    const B = new Set(blocks[e.b].map(key));
+    const A = new Set(blocks[e.a].map(cellKey));
+    const B = new Set(blocks[e.b].map(cellKey));
 
     // Already touching: the two rooms need no corridor between them at all.
-    if (rimOf(blocks[e.a]).some((c) => B.has(key(c)))) {
+    if (rimOf(blocks[e.a]).some((c) => B.has(cellKey(c)))) {
       paths.push({ a: e.a, b: e.b, cells: [] });
       continue;
     }
 
-    const exits = rimOf(blocks[e.a]).filter((c) => !used.has(key(c)));
-    const entries = rimOf(blocks[e.b]).filter((c) => !used.has(key(c)));
+    const exits = rimOf(blocks[e.a]).filter((c) => !used.has(cellKey(c)));
+    const entries = rimOf(blocks[e.b]).filter((c) => !used.has(cellKey(c)));
 
     const pairs: Array<{ from: Point; to: Point; d: number }> = [];
     for (const from of exits) {
@@ -425,7 +420,7 @@ function route(blocks: Point[][], graph: Dungeon, rng: Rng): RouteResult {
       if (rng.coin()) routes.reverse();
       for (const rest of routes) {
         const cells = [from, ...rest];
-        if (cells.some((c) => used.has(key(c)) || A.has(key(c)) || B.has(key(c)))) continue;
+        if (cells.some((c) => used.has(cellKey(c)) || A.has(cellKey(c)) || B.has(cellKey(c)))) continue;
         laid = cells;
         break;
       }
@@ -433,7 +428,7 @@ function route(blocks: Point[][], graph: Dungeon, rng: Rng): RouteResult {
     }
     if (!laid) return { ok: false, a: e.a, b: e.b };
 
-    for (const c of laid) used.add(key(c));
+    for (const c of laid) used.add(cellKey(c));
     paths.push({ a: e.a, b: e.b, cells: laid });
   }
   return { ok: true, paths };
@@ -452,7 +447,7 @@ function route(blocks: Point[][], graph: Dungeon, rng: Rng): RouteResult {
 function shift(blocks: Point[][], i: number, graph: Dungeon, rng: Rng): boolean {
   const others = new Set<string>();
   blocks.forEach((b, j) => {
-    if (j !== i) for (const c of b) others.add(key(c));
+    if (j !== i) for (const c of b) others.add(cellKey(c));
   });
   const linked = graph.edges
     .filter((e) => e.a === i || e.b === i)
@@ -464,7 +459,7 @@ function shift(blocks: Point[][], i: number, graph: Dungeon, rng: Rng): boolean 
     for (let dy = -2; dy <= 2; dy++) {
       if (dx === 0 && dy === 0) continue;
       const moved = blocks[i].map((c) => ({ x: c.x + dx, y: c.y + dy }));
-      if (moved.some((c) => others.has(key(c)))) continue;
+      if (moved.some((c) => others.has(cellKey(c)))) continue;
       clear.push(moved);
       // Prefer a move that leaves every connection still the right length.
       const spans = linked.every((j) => {
@@ -614,10 +609,10 @@ export function growZones(seed: BlockSeed, graph: Dungeon, isCorridor?: (i: numb
   const pathEnds = new Map<string, [number, number]>();
 
   seed.blocks.forEach((cells, i) => {
-    for (const c of cells) owner.set(key(c), i);
+    for (const c of cells) owner.set(cellKey(c), i);
   });
   for (const p of seed.paths) {
-    for (const c of p.cells) pathEnds.set(key(c), [p.a, p.b]);
+    for (const c of p.cells) pathEnds.set(cellKey(c), [p.a, p.b]);
   }
 
   // Interior rooms claim before rim rooms, and corridors claim after everything
@@ -651,7 +646,7 @@ export function growZones(seed: BlockSeed, graph: Dungeon, isCorridor?: (i: numb
       for (const c of frontier[i]) {
         for (const [dx, dy] of NEIGHBOURS) {
           const n = { x: c.x + dx, y: c.y + dy };
-          const k = key(n);
+          const k = cellKey(n);
           if (!mayTake(i, k)) continue;
           owner.set(k, i);
           if (pathEnds.has(k)) unclaimed--;
@@ -678,7 +673,7 @@ function contacts(
 ): Map<number, Array<{ mine: Point; theirs: Point; with: number }>> {
   const own = new Map<string, number>();
   zones.forEach((cells, i) => {
-    for (const c of cells) own.set(key(c), i);
+    for (const c of cells) own.set(cellKey(c), i);
   });
 
   const out = new Map<number, Array<{ mine: Point; theirs: Point; with: number }>>();
@@ -693,7 +688,7 @@ function contacts(
     for (const c of zones[e.a]) {
       for (const [dx, dy] of NEIGHBOURS) {
         const n = { x: c.x + dx, y: c.y + dy };
-        if (own.get(key(n)) === e.b) {
+        if (own.get(cellKey(n)) === e.b) {
           found = { mine: c, theirs: n };
           break;
         }
@@ -723,13 +718,13 @@ function walkInZone(zone: Set<string>, from: Set<string>, to: Point): Point[] | 
       let at: Point | undefined = cur;
       while (at) {
         path.push(at);
-        at = prev.get(key(at)) ?? undefined;
+        at = prev.get(cellKey(at)) ?? undefined;
       }
       return path;
     }
     for (const [dx, dy] of NEIGHBOURS) {
       const n = { x: cur.x + dx, y: cur.y + dy };
-      const k = key(n);
+      const k = cellKey(n);
       if (!zone.has(k) || prev.has(k)) continue;
       prev.set(k, cur);
       queue.push(n);
@@ -794,16 +789,16 @@ export function buildRooms(
   const out: Point[][] = [];
 
   for (let i = 0; i < zones.length; i++) {
-    const zone = new Set(zones[i].map(key));
-    const taken = new Set(seed.blocks[i].map(key));
+    const zone = new Set(zones[i].map(cellKey));
+    const taken = new Set(seed.blocks[i].map(cellKey));
 
     // Every agreed contact has to be in the room, and reachable from its block.
     // This is the skeleton: the doors, and the shortest ground joining them.
     for (const c of touch.get(i) ?? []) {
-      if (taken.has(key(c.mine))) continue;
+      if (taken.has(cellKey(c.mine))) continue;
       const run = walkInZone(zone, taken, c.mine);
       if (!run) return null;
-      for (const p of run) taken.add(key(p));
+      for (const p of run) taken.add(cellKey(p));
     }
 
     // Then grow it toward the floor it wants, one cell at a time, taking only
@@ -826,7 +821,7 @@ export function buildRooms(
       for (const k of taken) {
         const p = unkey(k);
         for (const [dx, dy] of NEIGHBOURS) {
-          const n = key({ x: p.x + dx, y: p.y + dy });
+          const n = cellKey({ x: p.x + dx, y: p.y + dy });
           if (zone.has(n) && !taken.has(n)) ring.add(n);
         }
       }
@@ -865,12 +860,12 @@ export function buildRooms(
 export function chooseDoors(rooms: Point[][], graph: Dungeon, rng: Rng): BlockDoor[] {
   const doors: BlockDoor[] = [];
   for (const e of graph.edges) {
-    const other = new Set(rooms[e.b].map(key));
+    const other = new Set(rooms[e.b].map(cellKey));
     const along: BlockDoor[] = [];
     for (const c of rooms[e.a]) {
       for (const [dx, dy] of NEIGHBOURS) {
         const n = { x: c.x + dx, y: c.y + dy };
-        if (other.has(key(n))) along.push({ a: e.a, b: e.b, from: c, to: n });
+        if (other.has(cellKey(n))) along.push({ a: e.a, b: e.b, from: c, to: n });
       }
     }
     if (along.length) doors.push(rng.pick(along));
@@ -899,13 +894,13 @@ function surfaceDoor(
   if (!mine?.length) return null;
 
   const owned = new Set<string>();
-  for (const cells of rooms) for (const c of cells) owned.add(key(c));
+  for (const cells of rooms) for (const c of cells) owned.add(cellKey(c));
 
   const options: SurfaceDoor[] = [];
   for (const c of mine) {
     for (const [dx, dy] of NEIGHBOURS) {
       const out = { x: c.x + dx, y: c.y + dy };
-      if (!owned.has(key(out))) options.push({ room: entrance, from: c, to: out });
+      if (!owned.has(cellKey(out))) options.push({ room: entrance, from: c, to: out });
     }
   }
   return options.length ? rng.pick(options) : null;

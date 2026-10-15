@@ -34,7 +34,7 @@ import {
 } from "../../generation/content/challenges.ts";
 import { isSurfaceExit } from "../../shared/world/entities.ts";
 import { purse, setPurse } from "../../rules/knave/character-creation.ts";
-import { Rng } from "../../generation/content/blueprint.ts";
+import { Rng } from "../../shared/utils/rng.ts";
 import { type EntityPassResult } from "../../generation/content/entities-pass.ts";
 import { type ReserveEntry } from "../../generation/content/rewards.ts";
 import type { World, WorldEvent } from "../../shared/types/commit.ts";

@@ -51,10 +51,10 @@ import {
 import { generateBlueprint, type Dungeon } from "./floorplan/graph.ts";
 import {
   generateBlueprintSeed,
-  Rng,
   type DungeonBlueprintSeed,
   type Size,
 } from "./content/blueprint.ts";
+import { Rng } from "../shared/utils/rng.ts";
 import { blockPlanValid, roomSizes, type BlockPlan } from "./floorplan/blockplan.ts";
 import { resolveBase } from "../shared/world/entities.ts";
 import { runEntitiesPass, type EntityPassResult } from "./content/entities-pass.ts";

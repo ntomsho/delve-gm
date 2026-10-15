@@ -44,10 +44,17 @@
  */
 
 import {
-  Rng,
   genMonster,
   genMonsterGroup,
   genPeopleGroup,
+  type DungeonBlueprintSeed,
+  type InhabitantGroup,
+  type MonsterSeed,
+  type NpcSeed,
+  type Size,
+  type Tier,
+} from "./blueprint.ts";
+import {
   BUILDING_ROOMS,
   DUNGEON_ENTRANCES,
   DUNGEON_HAZARDS,
@@ -62,14 +69,9 @@ import {
   TREASURE_ITEMS,
   VALUABLE_MATERIALS,
   WEAPON_ITEMS,
-  type DungeonBlueprintSeed,
-  type InhabitantGroup,
-  type MonsterSeed,
-  type NpcSeed,
   type Rolled,
-  type Size,
-  type Tier,
-} from "./blueprint.ts";
+} from "../../rules/maze-rats/tables.ts";
+import { Rng } from "../../shared/utils/rng.ts";
 
 import type { Dungeon, Edge, Room } from "../floorplan/graph.ts";
 import { enumerateChallenges, type Challenge } from "./challenges.ts";

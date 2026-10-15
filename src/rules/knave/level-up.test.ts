@@ -12,7 +12,6 @@
 import { describe, expect, it } from "vitest";
 import {
   ABILITY_MAX,
-  RAISES_PER_LEVEL,
   applyLevelUp,
   canLevelUp,
   hpFromRoll,
@@ -21,11 +20,12 @@ import {
   nextLevel,
   pendingLevels,
   raisableAbilities,
+  RAISES_PER_LEVEL,
   requiredRaises,
   rollLevelUpHp,
+  XP_PER_LEVEL,
 } from "./level-up.ts";
-import { Rng } from "../../generation/content/blueprint.ts";
-import { XP_PER_LEVEL } from "../../gameplay/tally/tally-pass.ts";
+import { Rng } from "../../shared/utils/rng.ts";
 import { type PlayerCharacter } from "./character.ts";
 
 const SEED = 20260820;

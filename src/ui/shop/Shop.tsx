@@ -60,7 +60,7 @@ import {
   type ShopGood,
   type Sold,
 } from "../../rules/knave/shop.ts";
-import { Rng } from "../../generation/content/blueprint.ts";
+import { Rng } from "../../shared/utils/rng.ts";
 import { WEAPON_CLASSES } from "../../rules/knave/tables.ts";
 import { armorFacts, weaponFacts } from "../../rules/knave/equipment.ts";
 import { purse } from "../../rules/knave/character-creation.ts";

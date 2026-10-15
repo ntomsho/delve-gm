@@ -37,8 +37,8 @@
  * well under treasure money so that selling one never beats using it.
  */
 
+import type { Size } from "./blueprint.ts";
 import {
-  Rng,
   MAGICAL_INGREDIENTS,
   POTIONS,
   TREASURE_ITEMS,
@@ -46,8 +46,8 @@ import {
   VALUABLE_MATERIALS,
   rollTable,
   type Rolled,
-  type Size,
-} from "./blueprint.ts";
+} from "../../rules/maze-rats/tables.ts";
+import { Rng } from "../../shared/utils/rng.ts";
 import {
   DUNGEONEERING_GEAR,
   GENERAL_GEAR_1,

@@ -28,8 +28,8 @@
  */
 
 import { useEffect } from "react";
-import { XP_PER_LEVEL, type RunTally } from "../../gameplay/tally/tally-pass.ts";
-import { levelsOwed } from "../../rules/knave/level-up.ts";
+import type { RunTally } from "../../gameplay/tally/tally-pass.ts";
+import { levelsOwed, XP_PER_LEVEL } from "../../rules/knave/level-up.ts";
 import type { DeathReport, RunLoot } from "../../gameplay/mechanics/loot.ts";
 
 export type Ending = "dead" | "escaped" | "goal_met" | "abandoned";

@@ -46,17 +46,6 @@ export const XP_FOR_RISK: Record<Risk, number> = {
   high: 200,
 };
 
-/**
- * A level's worth.
- *
- * LEVELLING IS NOT DONE HERE and is deliberately a separate session. The
- * arithmetic is worth writing down while it is in front of us: about thirty
- * challenges in a size 5 dungeon, most of them moderate, is roughly 3000 XP --
- * three levels for one dungeon against this track. Either the track moves or the
- * rating does, and which is a design question rather than a coding one.
- */
-export const XP_PER_LEVEL = 1000;
-
 export type Risk = "low" | "moderate" | "high";
 
 export const isRisk = (s: string): s is Risk => s === "low" || s === "moderate" || s === "high";

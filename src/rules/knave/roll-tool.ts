@@ -34,9 +34,10 @@ import {
   saveRoll,
   stuntRoll,
   type Edge,
-  type RollRng,
 } from "./rolls.ts";
+import type { RollRng } from "../../shared/utils/rng.ts";
 import type { RollRequestParsed } from "../../llm/schemas.ts";
+import { signed } from "../../shared/utils/format.ts";
 
 export interface DiceOutcome {
   /** the game master's own label for this roll */
@@ -64,12 +65,11 @@ function shown(o: { rolled: number[]; kept: number; bonus: number; total: number
   return { rolled: [...o.rolled], kept: o.kept, bonus: o.bonus, total: o.total, success: o.success, nat20: o.nat20, nat1: o.nat1 };
 }
 
-const sign = (n: number) => (n >= 0 ? `+${n}` : `${n}`);
 
 /** The d20 and its bonus, spelled out so a total can never be a bare claim. */
 function d20Line(o: { rolled: number[]; kept: number; bonus: number; total: number; dc: number }): string {
   const dice = o.rolled.length > 1 ? `[${o.rolled.join(", ")}] keep ${o.kept}` : `${o.kept}`;
-  return `d20 ${dice} ${sign(o.bonus)} = ${o.total} vs ${o.dc}`;
+  return `d20 ${dice} ${signed(o.bonus)} = ${o.total} vs ${o.dc}`;
 }
 
 /** Crits report themselves; spending the quality point is the game master's diff. */

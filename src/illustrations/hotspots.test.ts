@@ -11,7 +11,7 @@ import { CELL_FEET } from "../generation/floorplan/geometry.ts";
 import { featurePresence } from "./feature-presence.ts";
 import { illustrationHotspots } from "./hotspots.ts";
 import { viewFrom, type IllustrationViewInput } from "./view.ts";
-import { type Point } from "../generation/floorplan/floorplan.ts";
+import type { Point } from "../shared/utils/grid.ts";
 
 function box(x: number, y: number, w: number, h: number): Point[] {
   const out: Point[] = [];

@@ -15,7 +15,8 @@ import {
   type PlayerCharacter,
 } from "../../rules/knave/character.ts";
 import { describePerson } from "../shared/person.ts";
-import { Button, LABEL, RerollGlyph, signed } from "./shared.tsx";
+import { Button, LABEL, RerollGlyph } from "./shared.tsx";
+import { signed } from "../../shared/utils/format.ts";
 
 function Stat({ label, value, warn }: { label: string; value: string; warn?: boolean }) {
   return (

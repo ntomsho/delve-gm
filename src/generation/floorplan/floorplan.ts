@@ -68,7 +68,7 @@
  * exposed as `Point`s at the boundary and the packing never escapes this file.
  */
 
-import { Rng } from "../content/blueprint.ts";
+import { Rng } from "../../shared/utils/rng.ts";
 import type { Dungeon } from "./graph.ts";
 import type { RoomStock, StockedDungeon } from "../content/stock.ts";
 import {
@@ -83,6 +83,7 @@ import {
   type RoomShape,
   type SizeClass,
 } from "./room-size.ts";
+import type { Point } from "../../shared/utils/grid.ts";
 
 // ---------------------------------------------------------------------------
 // TYPES
@@ -90,11 +91,6 @@ import {
 
 export type DoorKind = "plain" | "gated" | "concealed";
 export type Orientation = "horizontal" | "vertical";
-
-export interface Point {
-  x: number;
-  y: number;
-}
 
 export interface Rect {
   x: number;

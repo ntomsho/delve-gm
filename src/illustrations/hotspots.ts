@@ -30,7 +30,7 @@
  */
 
 import { CELL_FEET } from "../generation/floorplan/geometry.ts";
-import type { Point } from "../generation/floorplan/blockplan.ts";
+import type { Point } from "../shared/utils/grid.ts";
 import {
   cellMiddle,
   clearLine,
@@ -46,6 +46,7 @@ import {
   type IllustrationViewInput,
   type ViewDoor,
 } from "./view.ts";
+import { xyKey } from "../shared/utils/grid.ts";
 
 export type HotspotRole = "entry" | "exit" | "feature";
 export type HotspotEdge = "left" | "right" | "bottom";
@@ -83,7 +84,6 @@ const FEATURE_Z = 0;
 /** Height a corner arrow sits at, in feet: about a hand's height on the wall. */
 const CORNER_Z = 4;
 
-const key = (x: number, y: number) => `${x},${y}`;
 
 const inFrame = (q: Point | null): q is Point => q !== null && q.x >= 0 && q.x <= 1 && q.y >= 0 && q.y <= 1;
 
@@ -120,15 +120,15 @@ function edgeToward(eye: Eye, p: Point, z: number): { edge: HotspotEdge; along: 
  * foot off the rock so a sight line to it does not graze the wall.
  */
 function cornersOf(floor: readonly Point[]): Point[] {
-  const on = new Set(floor.map((c) => key(c.x, c.y)));
+  const on = new Set(floor.map((c) => xyKey(c.x, c.y)));
   const seen = new Set<string>();
   const out: Point[] = [];
   for (const c of floor) {
     for (const [i, j] of [[c.x, c.y], [c.x + 1, c.y], [c.x, c.y + 1], [c.x + 1, c.y + 1]]) {
-      if (seen.has(key(i, j))) continue;
-      seen.add(key(i, j));
+      if (seen.has(xyKey(i, j))) continue;
+      seen.add(xyKey(i, j));
       const around = [[i - 1, j - 1], [i, j - 1], [i - 1, j], [i, j]];
-      const rock = around.filter(([x, y]) => !on.has(key(x, y)));
+      const rock = around.filter(([x, y]) => !on.has(xyKey(x, y)));
       if (rock.length !== 1) continue;
       const [rx, ry] = rock[0];
       out.push({
@@ -148,8 +148,8 @@ function cornersOf(floor: readonly Point[]): Point[] {
  * string a walk round the room's corners makes.
  */
 function route(input: IllustrationViewInput, eye: Point, target: Point, corners: Point[]): Point[] | null {
-  const on = new Set(input.floor.map((c) => key(c.x, c.y)));
-  const onFloor = (x: number, y: number) => on.has(key(x, y));
+  const on = new Set(input.floor.map((c) => xyKey(c.x, c.y)));
+  const onFloor = (x: number, y: number) => on.has(xyKey(x, y));
   const fromEye = illustrationSight(input, eye);
   const nodes = [eye, ...corners, target];
   const last = nodes.length - 1;

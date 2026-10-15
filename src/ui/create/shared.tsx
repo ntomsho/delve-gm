@@ -193,6 +193,3 @@ export function StepHeading({ title, children }: { title: string; children?: Rea
     </div>
   );
 }
-
-/** A signed bonus, the way a sheet writes one. */
-export const signed = (n: number) => `${n >= 0 ? "+" : ""}${n}`;

@@ -33,11 +33,20 @@
  * made for the same kind of reason.
  */
 
-import { Rng } from "../../generation/content/blueprint.ts";
+import { Rng } from "../../shared/utils/rng.ts";
 import type { Ability } from "../../shared/world/entities.ts";
 import { ABILITIES } from "./character-creation.ts";
 import type { PlayerCharacter } from "./character.ts";
-import { XP_PER_LEVEL } from "../../gameplay/tally/tally-pass.ts";
+
+/**
+ * A level's worth.
+ *
+ * The arithmetic is worth writing down while it is in front of us: about thirty
+ * challenges in a size 5 dungeon, most of them moderate, is roughly 3000 XP --
+ * three levels for one dungeon against this track. Either the track moves or the
+ * rating does, and which is a design question rather than a coding one.
+ */
+export const XP_PER_LEVEL = 1000;
 
 /**
  * Knave's ceiling, in the units a sheet stores. Abilities are held as BONUSES

@@ -25,7 +25,7 @@ import {
   type KeysPassResponse,
 } from "./content/passes/keys-pass.ts";
 import { resolveBase } from "../shared/world/entities.ts";
-import { Rng } from "./content/blueprint.ts";
+import { Rng } from "../shared/utils/rng.ts";
 import { runEntitiesPass } from "./content/entities-pass.ts";
 import { fakeKeysPass, generateOffline } from "../fixtures/offline.ts";
 

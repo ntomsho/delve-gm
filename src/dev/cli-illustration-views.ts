@@ -27,7 +27,7 @@ import {
   unseenReason,
 } from "../illustrations/view.ts";
 import { touches } from "../shared/world/entities.ts";
-import { type Point } from "../generation/floorplan/floorplan.ts";
+import type { Point } from "../shared/utils/grid.ts";
 import { type Size } from "../generation/content/blueprint.ts";
 import { generateOffline } from "../fixtures/offline.ts";
 import type { GeneratedDungeon } from "../generation/generate.ts";

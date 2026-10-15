@@ -38,9 +38,10 @@ import {
   POSITION_WORDS,
 } from "./fixtures.ts";
 import { generateBlueprint, type Dungeon } from "./graph.ts";
-import { generateBlueprintSeed, Rng, type Size } from "../content/blueprint.ts";
+import { generateBlueprintSeed, type Size } from "../content/blueprint.ts";
+import { Rng } from "../../shared/utils/rng.ts";
 import { stockDungeon, type StockedDungeon } from "../content/stock.ts";
-import { type Point } from "./floorplan.ts";
+import type { Point } from "../../shared/utils/grid.ts";
 
 // ---------------------------------------------------------------------------
 // A DRAWN DUNGEON, BUILT THE WAY THE GAME BUILDS ONE

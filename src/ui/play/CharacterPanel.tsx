@@ -10,6 +10,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { CharacterView } from "../../gameplay/view/selectors.ts";
+import { signed } from "../../shared/utils/format.ts";
 
 /** How long a change stays marked on the sheet. */
 export const MARK_MS = 2600;
@@ -65,7 +66,6 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 
 /** Low enough to be worth a colour: a third of the maximum or less. */
 export const hurt = (pc: CharacterView) => pc.hp.current <= Math.ceil(pc.hp.max / 3);
-const signed = (n: number) => `${n >= 0 ? "+" : ""}${n}`;
 
 export function CharacterPanel({
   pc,

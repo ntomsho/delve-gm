@@ -8,18 +8,17 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { generateBlueprintSeed, type Size } from "./blueprint.ts";
 import {
   MAGICAL_INGREDIENTS,
   MISC_ITEMS,
   POTIONS,
-  Rng,
   TOOL_ITEMS,
   TREASURE_TRAITS,
   WORN_ITEMS,
-  generateBlueprintSeed,
   rollTable,
-  type Size,
-} from "./blueprint.ts";
+} from "../../rules/maze-rats/tables.ts";
+import { Rng } from "../../shared/utils/rng.ts";
 import { enumerateChallenges, isGoalChallenge, type Challenge } from "./challenges.ts";
 import { generateBlueprint } from "../floorplan/graph.ts";
 import { partition, reachableWithout, type Reward } from "./rewards.ts";

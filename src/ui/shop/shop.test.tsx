@@ -11,11 +11,10 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { createElement as h } from "react";
-import { act } from "react";
+import { act, createElement as h } from "react";
 import { Shop } from "./Shop.tsx";
 import { renderDom, type Rendered } from "../test-utils/dom.ts";
-import { Rng } from "../../generation/content/blueprint.ts";
+import { Rng } from "../../shared/utils/rng.ts";
 import { addItem, type PlayerCharacter } from "../../rules/knave/character.ts";
 import {
   bonusesOf,

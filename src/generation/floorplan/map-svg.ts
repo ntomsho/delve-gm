@@ -14,7 +14,8 @@
  * Framework-free, so `cli-generate.ts` can call it under plain node.
  */
 
-import type { Layout, LayoutDoor, Point, Shape } from "./map-layout.ts";
+import type { Layout, LayoutDoor, Shape } from "./map-layout.ts";
+import type { Point } from "../../shared/utils/grid.ts";
 
 // Mirrors `ui/shared/theme.ts`, which this cannot import: that module is the UI's and
 // pulls in React types, while this has to run under plain node for the CLI.

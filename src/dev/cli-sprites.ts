@@ -51,7 +51,7 @@ import {
 } from "../illustrations/view.ts";
 import { illustrationReferenceNote } from "../illustrations/prompt.ts";
 import { resolveBase, type ICreature } from "../shared/world/entities.ts";
-import { type Point } from "../generation/floorplan/floorplan.ts";
+import type { Point } from "../shared/utils/grid.ts";
 import type { GeneratedDungeon } from "../generation/generate.ts";
 import { callForJson, configureTransport } from "../llm/client.ts";
 import { IMAGE_MODELS } from "../llm/models.ts";

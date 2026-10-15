@@ -34,15 +34,14 @@ import {
   validateFloorplan,
   type FloorplanRoom,
 } from "./floorplan.ts";
+import { generateBlueprintSeed, type Size } from "../content/blueprint.ts";
 import {
   BUILDING_ROOMS,
   DUNGEON_CORRIDORS,
   DUNGEON_ROOMS,
   LOWER_CLASS_BUILDINGS,
   UPPER_CLASS_BUILDINGS,
-  generateBlueprintSeed,
-  type Size,
-} from "../content/blueprint.ts";
+} from "../../rules/maze-rats/tables.ts";
 import { generateBlueprint, type Dungeon } from "./graph.ts";
 import { stockDungeon, type StockedDungeon } from "../content/stock.ts";
 

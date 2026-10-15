@@ -41,21 +41,21 @@ import {
   treasureOffers,
   type Cart,
 } from "./shop.ts";
-import { purse, setPurse } from "./character-creation.ts";
-import { slotsUsed, type PlayerCharacter } from "./character.ts";
-import { Rng } from "../../generation/content/blueprint.ts";
 import {
+  bonusesOf,
   buyKit,
   finishCharacter,
+  purse,
+  purseItem,
   rollAbilities,
   rollTraits,
-  bonusesOf,
+  setPurse,
 } from "./character-creation.ts";
+import { addItem, equip, type PlayerCharacter, slotsUsed } from "./character.ts";
+import { Rng } from "../../shared/utils/rng.ts";
 import { WEAPONS } from "./tables.ts";
 import { armorFacts, equipment, mintItem, mintSpellbook, weaponFacts } from "./equipment.ts";
 import { isArmor, isWeapon, type IItem } from "../../shared/world/entities.ts";
-import { addItem, equip } from "./character.ts";
-import { purseItem } from "./character-creation.ts";
 
 /** Purchases roll — a book rolls for what is in it — so the till needs a stream. */
 const till = () => new Rng(SEED);

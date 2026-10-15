@@ -27,9 +27,9 @@ import {
   pathMidpoint,
   type LayoutDoor,
   type Path,
-  type Point,
   type Shape,
 } from "../../generation/floorplan/map-layout.ts";
+import type { Point } from "../../shared/utils/grid.ts";
 import type { MapConnectorView, MapFixtureView, MapView } from "../../gameplay/view/selectors.ts";
 
 /** How far a stub reaches toward a room nobody has seen. Point layout only. */

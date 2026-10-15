@@ -49,7 +49,9 @@ import type {
   NpcSeed,
   Tier,
 } from "./blueprint.ts";
-import { Rng, TIER_COMPLEXITY, makeId } from "./blueprint.ts";
+import { TIER_COMPLEXITY } from "./blueprint.ts";
+import { makeId } from "../../shared/utils/id.ts";
+import { Rng } from "../../shared/utils/rng.ts";
 import { mintItem, mintSpellbook } from "../../rules/knave/equipment.ts";
 import type {
   CreatureStats,

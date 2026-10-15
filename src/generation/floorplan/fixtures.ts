@@ -28,9 +28,10 @@
  * anything.
  */
 
-import { Rng } from "../content/blueprint.ts";
-import type { Point } from "./blockplan.ts";
+import { Rng } from "../../shared/utils/rng.ts";
+import type { Point } from "../../shared/utils/grid.ts";
 import { wallCells, type RoomGeometry, type RoomGround, type Wall } from "./geometry.ts";
+import { cellKey } from "../../shared/utils/grid.ts";
 
 // ---------------------------------------------------------------------------
 // THE MENU
@@ -197,7 +198,6 @@ export interface FixtureRequest {
   position: PositionWord;
 }
 
-const cellKey = (p: Point) => `${p.x},${p.y}`;
 const dist2 = (a: Point, b: Point) => (a.x - b.x) ** 2 + (a.y - b.y) ** 2;
 
 /**

@@ -31,7 +31,7 @@ import {
   illustrationSight,
 } from "./view.ts";
 import { stageOutline } from "./figures.ts";
-import { type Point } from "../generation/floorplan/floorplan.ts";
+import type { Point } from "../shared/utils/grid.ts";
 import { traceOutline } from "../generation/floorplan/map-layout.ts";
 import { illustrationTags, type RoomIllustration } from "./room-illustration.ts";
 

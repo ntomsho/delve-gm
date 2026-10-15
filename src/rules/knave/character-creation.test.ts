@@ -47,7 +47,7 @@ import {
   weaponsIn,
   type WeaponKey,
 } from "./tables.ts";
-import { Rng } from "../../generation/content/blueprint.ts";
+import { Rng } from "../../shared/utils/rng.ts";
 import { isOverburdened, slotCapacity, slotsUsed, validateEquipment } from "./character.ts";
 import { isArmor, isSpellbook, isWeapon, type AnyItem } from "../../shared/world/entities.ts";
 import { STANDARD_EQUIPMENT, armorFacts, equipment, weaponFacts } from "./equipment.ts";

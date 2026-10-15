@@ -22,8 +22,10 @@
 import {
   addItem,
   EQUIP_SLOTS,
+  equipResolving,
   isOverburdened,
   removeItem,
+  unequip as unequipSlot,
   validateEquipment,
   type EquipSlot,
 } from "../../rules/knave/character.ts";
@@ -45,8 +47,7 @@ import {
   type IRoomConnector,
   type IRoomFeature,
 } from "../../shared/world/entities.ts";
-import { makeId } from "../../generation/content/blueprint.ts";
-import { equipResolving, unequip as unequipSlot } from "../../rules/knave/character.ts";
+import { makeId } from "../../shared/utils/id.ts";
 import { NO_CHANGE_STAGES } from "../../shared/types/turn.ts";
 import { applyDraw, grantCoin, noteResolutions, recordFact, resolutionsFrom } from "../mechanics/challenges.ts";
 import { heldItems } from "../mechanics/occupancy.ts";

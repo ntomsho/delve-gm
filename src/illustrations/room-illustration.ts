@@ -40,7 +40,7 @@ import {
   type IllustrationFigure,
 } from "./figures.ts";
 import { illustrationHotspots, type Hotspot, type HotspotEdge } from "./hotspots.ts";
-import { type Point } from "../generation/floorplan/floorplan.ts";
+import { pairKey, type Point } from "../shared/utils/grid.ts";
 import type { GeneratedDungeon } from "../generation/generate.ts";
 
 /** A way out or a feature, with what the prompt needs to name it. */
@@ -87,7 +87,6 @@ export interface RoomIllustration {
   stage?: Point;
 }
 
-const pairKey = (a: number, b: number) => `${Math.min(a, b)}-${Math.max(a, b)}`;
 
 /**
  * Where a connector cuts this room's wall, as the plan drew it.

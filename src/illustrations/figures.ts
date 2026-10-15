@@ -38,7 +38,8 @@ import {
   type IllustrationView,
   type IllustrationViewInput,
 } from "./view.ts";
-import type { Point } from "../generation/floorplan/blockplan.ts";
+import type { Point } from "../shared/utils/grid.ts";
+import { xyKey } from "../shared/utils/grid.ts";
 
 // ---------------------------------------------------------------------------
 // TUNING
@@ -125,12 +126,11 @@ function offset(view: IllustrationView, at: Point, ahead: number, across: number
  */
 export function standPoints(input: IllustrationViewInput, view: IllustrationView): StandPoint[] {
   const sight = illustrationSight(input, view.eye);
-  const cellKey = (x: number, y: number) => `${x},${y}`;
-  const floor = new Set(input.floor.map((c) => cellKey(c.x, c.y)));
+  const floor = new Set(input.floor.map((c) => xyKey(c.x, c.y)));
   const blockedCells = input.features.flatMap((f) => f.cells);
-  const blocked = new Set(blockedCells.map((c) => cellKey(c.x, c.y)));
+  const blocked = new Set(blockedCells.map((c) => xyKey(c.x, c.y)));
   const doors = [input.entry, ...input.exits].map(doorPoint);
-  const cellOf = (q: Point) => cellKey(Math.floor(q.x / CELL_FEET), Math.floor(q.y / CELL_FEET));
+  const cellOf = (q: Point) => xyKey(Math.floor(q.x / CELL_FEET), Math.floor(q.y / CELL_FEET));
 
   const clearOfThings = (at: Point) =>
     blockedCells.every((c) => {
@@ -156,7 +156,7 @@ export function standPoints(input: IllustrationViewInput, view: IllustrationView
   const step = CELL_FEET / 2;
   const out: StandPoint[] = [];
   for (const c of input.floor) {
-    if (blocked.has(cellKey(c.x, c.y))) continue;
+    if (blocked.has(xyKey(c.x, c.y))) continue;
     for (const ox of [step / 2, step * 1.5]) {
       for (const oy of [step / 2, step * 1.5]) {
         const at = { x: c.x * CELL_FEET + ox, y: c.y * CELL_FEET + oy };

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Rng } from "../../generation/content/blueprint.ts";
+import { Rng } from "../../shared/utils/rng.ts";
 import {
   EQUIPMENT_KEYS,
   STANDARD_EQUIPMENT,
@@ -26,7 +26,7 @@ import {
   WEAPON_CLASSES,
 } from "./tables.ts";
 import { canConsult, isArmor, isBook, isSpellbook, isWeapon, needsComposition } from "../../shared/world/entities.ts";
-import { BOOK_SUBJECTS } from "../../generation/content/blueprint.ts";
+import { BOOK_SUBJECTS } from "../maze-rats/tables.ts";
 
 const rng = () => new Rng(20260818);
 

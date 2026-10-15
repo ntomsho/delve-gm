@@ -44,7 +44,7 @@ import {
   type StartingKit,
   type TraitKey,
 } from "../../rules/knave/character-creation.ts";
-import { Rng } from "../../generation/content/blueprint.ts";
+import { Rng } from "../../shared/utils/rng.ts";
 import { type Ability } from "../../shared/world/entities.ts";
 import {
   type CharacterAbilities,

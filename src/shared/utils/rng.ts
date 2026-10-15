@@ -1,4 +1,70 @@
 /**
+ * SEEDED RANDOMNESS
+ * =================
+ *
+ * Every random number in the game comes from a seed, so the same seed builds
+ * the same dungeon and a replayed run rolls the same dice. The model never
+ * generates a number (CLAUDE.md); this file is where they come from instead.
+ *
+ * `Rng` is the generator: mulberry32, a small fast 32-bit PRNG. Generation uses
+ * it directly. Play uses `CountingRng`, below, which wraps it so a save can
+ * record its position.
+ */
+
+/** Anything that yields a float in [0,1). `Rng` satisfies it, as does CountingRng. */
+export interface RollRng {
+  next(): number;
+}
+
+function mulberry32(a: number) {
+  return function () {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+export class Rng {
+  private f: () => number;
+  readonly seed: number;
+  constructor(seed: number) {
+    this.seed = seed;
+    this.f = mulberry32(seed);
+  }
+  next(): number {
+    return this.f();
+  }
+  /** 1..n inclusive */
+  d(n: number): number {
+    return Math.floor(this.f() * n) + 1;
+  }
+  /** inclusive range */
+  range(lo: number, hi: number): number {
+    return lo + Math.floor(this.f() * (hi - lo + 1));
+  }
+  pick<T>(arr: readonly T[]): T {
+    return arr[Math.floor(this.f() * arr.length)];
+  }
+  /** n distinct picks */
+  pickN<T>(arr: readonly T[], n: number): T[] {
+    const pool = [...arr];
+    const out: T[] = [];
+    while (out.length < n && pool.length) {
+      out.push(pool.splice(Math.floor(this.f() * pool.length), 1)[0]);
+    }
+    return out;
+  }
+  chance(p: number): boolean {
+    return this.f() < p;
+  }
+  coin(): boolean {
+    return this.f() < 0.5;
+  }
+}
+
+/**
  * THE RUN RNG
  *
  * Play-time randomness draws from a stream separate from generation, so
@@ -16,9 +82,6 @@
  * that needs seeded randomness at runtime takes the `RollRng` interface —
  * `{ next(): number }` — which both satisfy.
  */
-
-import { Rng } from "../../generation/content/blueprint.ts";
-import type { RollRng } from "../../rules/knave/rolls.ts";
 
 export class CountingRng implements RollRng {
   readonly seed: number;

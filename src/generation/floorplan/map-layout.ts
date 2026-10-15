@@ -31,11 +31,8 @@
 
 import type { BlockPlan } from "./blockplan.ts";
 import type { Dungeon } from "./graph.ts";
-
-export interface Point {
-  x: number;
-  y: number;
-}
+import { pairKey } from "../../shared/utils/grid.ts";
+import type { Point } from "../../shared/utils/grid.ts";
 
 export type Shape =
   | { kind: "circle"; at: Point; r: number }
@@ -501,7 +498,6 @@ export function floorplanLayout(
   };
 }
 
-const pairKey = (a: number, b: number) => `${Math.min(a, b)}-${Math.max(a, b)}`;
 
 /**
  * The cell nearest the middle of the room.

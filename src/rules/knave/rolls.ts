@@ -17,10 +17,7 @@
  * knows nothing about entities.
  */
 
-/** Anything that yields a float in [0,1). `Rng` satisfies it, as does CountingRng. */
-export interface RollRng {
-  next(): number;
-}
+import type { RollRng } from "../../shared/utils/rng.ts";
 
 export type Edge = "none" | "advantage" | "disadvantage";
 

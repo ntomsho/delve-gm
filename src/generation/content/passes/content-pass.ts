@@ -19,14 +19,14 @@
  */
 
 import {
-  Rng,
-  makeId,
   type DungeonBlueprintSeed,
   type InhabitantGroup,
   type MonsterSeed,
   type NpcSeed,
   type Tier,
 } from "../blueprint.ts";
+import { makeId } from "../../../shared/utils/id.ts";
+import { Rng } from "../../../shared/utils/rng.ts";
 import {
   addFixture,
   createCreatureFromGroup,

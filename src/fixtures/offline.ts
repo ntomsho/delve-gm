@@ -35,7 +35,8 @@ import {
   type SeamsPassResponse,
 } from "../generation/content/passes/seams-pass.ts";
 import { generateBlueprint, type Dungeon } from "../generation/floorplan/graph.ts";
-import { generateBlueprintSeed, Rng, type Size } from "../generation/content/blueprint.ts";
+import { generateBlueprintSeed, type Size } from "../generation/content/blueprint.ts";
+import { Rng } from "../shared/utils/rng.ts";
 import { blockPlanValid, roomSizes, type BlockPlan } from "../generation/floorplan/blockplan.ts";
 import { runEntitiesPass } from "../generation/content/entities-pass.ts";
 import { siteRooms } from "../generation/floorplan/geometry.ts";

@@ -32,7 +32,8 @@ import {
   renderDungeonPassPrompt,
 } from "../generation/content/passes/dungeon-pass.ts";
 import { generateBlueprint, type Dungeon } from "../generation/floorplan/graph.ts";
-import { generateBlueprintSeed, Rng, type Size } from "../generation/content/blueprint.ts";
+import { generateBlueprintSeed, type Size } from "../generation/content/blueprint.ts";
+import { Rng } from "../shared/utils/rng.ts";
 import { resolveBase } from "../shared/world/entities.ts";
 import { runEntitiesPass } from "../generation/content/entities-pass.ts";
 import { siteRooms } from "../generation/floorplan/geometry.ts";

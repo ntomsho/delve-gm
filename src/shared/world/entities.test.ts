@@ -13,7 +13,7 @@ import {
   type CreatureStats,
   type IEntity,
 } from "./entities.ts";
-import { Rng } from "../../generation/content/blueprint.ts";
+import { Rng } from "../utils/rng.ts";
 import { hitDiceFor } from "../../generation/content/entities-pass.ts";
 
 // ===========================================================================

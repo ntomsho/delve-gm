@@ -32,7 +32,8 @@ import {
 } from "./content/passes/seams-pass.ts";
 import { blockPlanValid, roomSizes, type BlockPlan } from "./floorplan/blockplan.ts";
 import { generateBlueprint } from "./floorplan/graph.ts";
-import { generateBlueprintSeed, Rng, type Size } from "./content/blueprint.ts";
+import { generateBlueprintSeed, type Size } from "./content/blueprint.ts";
+import { Rng } from "../shared/utils/rng.ts";
 import { isSurfaceExit, resolveBase } from "../shared/world/entities.ts";
 import { runEntitiesPass } from "./content/entities-pass.ts";
 import { siteRooms } from "./floorplan/geometry.ts";

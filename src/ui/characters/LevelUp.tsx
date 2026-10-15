@@ -42,7 +42,8 @@ import {
 } from "../../rules/knave/level-up.ts";
 import { slotCapacity, type PlayerCharacter } from "../../rules/knave/character.ts";
 import { type Ability } from "../../shared/world/entities.ts";
-import { Button, LABEL, MONO_LABEL, signed } from "../create/shared.tsx";
+import { Button, LABEL, MONO_LABEL } from "../create/shared.tsx";
+import { signed } from "../../shared/utils/format.ts";
 
 const ABILITY_NAME: Record<Ability, string> = {
   str: "Strength",

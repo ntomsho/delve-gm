@@ -40,7 +40,9 @@
  * runtime.
  */
 
-import { Rng, makeId, rollBookSubject } from "../../generation/content/blueprint.ts";
+import { rollBookSubject } from "../maze-rats/tables.ts";
+import { makeId } from "../../shared/utils/id.ts";
+import { Rng } from "../../shared/utils/rng.ts";
 import type {
   AnyItem,
   ArmorFacts,

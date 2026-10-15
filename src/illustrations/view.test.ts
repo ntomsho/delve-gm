@@ -18,7 +18,7 @@ import {
   viewFrom,
   type IllustrationViewInput,
 } from "./view.ts";
-import { type Point } from "../generation/floorplan/floorplan.ts";
+import type { Point } from "../shared/utils/grid.ts";
 
 /** Every cell in a w x h box with its top-left at (x, y). */
 function box(x: number, y: number, w: number, h: number): Point[] {

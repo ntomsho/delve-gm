@@ -35,10 +35,10 @@ import { positionPhrase } from "../../generation/floorplan/fixtures.ts";
 import type { TurnRecord } from "../state/store.ts";
 import type { RolledOutcome } from "../turn.ts";
 import type { DrawOffer } from "../mechanics/challenges.ts";
+import { signed } from "../../shared/utils/format.ts";
 
 const ABILITY_ORDER = ["str", "dex", "con", "int", "wis", "cha"] as const;
 
-const sign = (n: number) => (n >= 0 ? `+${n}` : `${n}`);
 
 /** Drop empty lines a conditional field left behind. */
 const lines = (xs: (string | undefined)[]): string => xs.filter((x) => x !== undefined).join("\n");
@@ -50,7 +50,7 @@ const lines = (xs: (string | undefined)[]): string => xs.filter((x) => x !== und
 export function renderCharacter(pc: CharacterView): string {
   const abilities = ABILITY_ORDER.map((k) => {
     const a = pc.abilities.find((x) => x.key === k)!;
-    return `${k.toUpperCase()} ${sign(a.bonus)} (defense ${a.defense})`;
+    return `${k.toUpperCase()} ${signed(a.bonus)} (defense ${a.defense})`;
   }).join(" · ");
 
   const carried = pc.inventory.length
@@ -67,7 +67,7 @@ export function renderCharacter(pc: CharacterView): string {
     `**${pc.name}** — level ${pc.level}, referred to in diffs as \`player\`.`,
     `Hit points **${pc.hp.current}/${pc.hp.max}**.`,
     abilities,
-    `Armour defense ${pc.armorDefense} · melee attack ${sign(pc.meleeBonus)} · ranged attack ${sign(pc.rangedBonus)}`,
+    `Armour defense ${pc.armorDefense} · melee attack ${signed(pc.meleeBonus)} · ranged attack ${signed(pc.rangedBonus)}`,
     `Inventory slots ${pc.slots.used}/${pc.slots.capacity}${pc.slots.overburdened ? " — OVERBURDENED" : ""}`,
     pc.conditions.length ? `Conditions: ${pc.conditions.join(", ")}` : `Conditions: none`,
     ``,
@@ -167,7 +167,7 @@ function renderEntity(e: EntityView, indent = ""): string {
       e.activity ? `${indent}    doing: ${e.activity}` : undefined,
       e.combat
         ? `${indent}    defenses ${ABILITY_ORDER.map((a) => `${a} ${e.combat!.defenses[a]}`).join(" ")}` +
-          ` · armour defense ${e.combat.armorDefense} · attack ${sign(e.combat.attackBonus)}` +
+          ` · armour defense ${e.combat.armorDefense} · attack ${signed(e.combat.attackBonus)}` +
           ` · damage ${e.combat.damage} · morale ${e.combat.morale}`
         : undefined,
       itemDetail(e) ? `${indent}    ${itemDetail(e)}` : undefined,
@@ -345,7 +345,7 @@ export function renderRoll(o: RolledOutcome): string {
     `They attempted: ${o.spec.description}`,
     `${o.spec.kind} on ${o.spec.ability.toUpperCase()}, edge ${o.spec.edge}` +
       (o.spec.targetId ? `, against [${o.spec.targetId}]` : ""),
-    `d20 ${dice} ${sign(o.spec.bonus)} = **${o.total}** against ${o.spec.dc} — **${o.success ? "SUCCESS" : "FAILURE"}**`,
+    `d20 ${dice} ${signed(o.spec.bonus)} = **${o.total}** against ${o.spec.dc} — **${o.success ? "SUCCESS" : "FAILURE"}**`,
     o.nat20 ? `Natural 20: the defender's armour loses a point of currentQuality.` : undefined,
     o.nat1 ? `Natural 1: the attacker's weapon loses a point of currentQuality.` : undefined,
     o.damage
