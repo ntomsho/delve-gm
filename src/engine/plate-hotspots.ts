@@ -63,6 +63,12 @@ export interface Hotspot {
   around?: { x: number; y: number; turn: "left" | "right" };
   /** off-frame: the edge of the plate to put the arrow on */
   edge?: HotspotEdge;
+  /**
+   * off-frame: where along that edge, 0 to 1, from the bearing — top to bottom
+   * on a side (the further behind, the lower), left to right on the bottom.
+   * The page uses it to order the arrows sharing an edge.
+   */
+  along?: number;
 }
 
 /**
@@ -88,18 +94,24 @@ function inFieldOfView(eye: Eye, p: Point): boolean {
   return ahead > 0 && Math.abs(across) <= ahead * Math.tan((PLATE_HALF_FOV_DEG * Math.PI) / 180);
 }
 
-function edgeToward(eye: Eye, p: Point, z: number): HotspotEdge {
+function edgeToward(eye: Eye, p: Point, z: number): { edge: HotspotEdge; along: number } {
   const ahead = (p.x - eye.x) * eye.forward.x + (p.y - eye.y) * eye.forward.y;
   const across = (p.x - eye.x) * eye.right.x + (p.y - eye.y) * eye.right.y;
   const deg = (Math.abs(Math.atan2(across, ahead)) * 180) / Math.PI;
-  if (deg > HOTSPOT_BEHIND_DEG) return "bottom";
+  const clamp = (n: number) => Math.min(1, Math.max(0, n));
+  // Behind: dead behind is the middle of the bottom, more to one side is further toward it.
+  if (deg > HOTSPOT_BEHIND_DEG) {
+    const off = (0.5 * (180 - deg)) / (180 - HOTSPOT_BEHIND_DEG);
+    return { edge: "bottom", along: clamp(across < 0 ? 0.5 - off : 0.5 + off) };
+  }
   // Straight ahead but under the frame — a thing at the viewer's feet — is
-  // down, not to one side.
+  // down, not to one side, and as far across as it is.
   if (deg <= PLATE_HALF_FOV_DEG) {
     const q = projectToFrame(eye, { ...p, z });
-    if (!q || q.y > 1) return "bottom";
+    if (!q || q.y > 1) return { edge: "bottom", along: q ? clamp(q.x) : 0.5 };
   }
-  return across < 0 ? "left" : "right";
+  const along = clamp((deg - PLATE_HALF_FOV_DEG) / (HOTSPOT_BEHIND_DEG - PLATE_HALF_FOV_DEG));
+  return { edge: across < 0 ? "left" : "right", along };
 }
 
 /**
@@ -197,10 +209,10 @@ function unseen(
       return { status: "around", points: [], around: { ...at, turn: turnAt(eye, corner, path[1] ?? sighted) } };
     }
     // The corner is off the frame too: point the way the walk starts.
-    if (!points.length) return { status: "off-frame", points, edge: edgeToward(eye, corner, CORNER_Z) };
+    if (!points.length) return { status: "off-frame", points, ...edgeToward(eye, corner, CORNER_Z) };
   }
   if (points.length) return { status: "behind-wall", points };
-  return { status: "off-frame", points, edge: edgeToward(eye, anchor, anchor.z) };
+  return { status: "off-frame", points, ...edgeToward(eye, anchor, anchor.z) };
 }
 
 /**

@@ -66,10 +66,10 @@ const ready: PlateAnswer = {
   status: "ready",
   url: "https://cdn.example/plates/a.png",
   spots: [
-    { id: "c1", x: 0.25, y: 0.5 },
-    { id: "f1", x: 0.6, y: 0.8 },
+    { id: "c1", how: "shown", x: 0.25, y: 0.5 },
+    { id: "f1", how: "shown", x: 0.6, y: 0.8 },
     // Not on the map yet, so not on the plate either.
-    { id: "f-unseen", x: 0.9, y: 0.9 },
+    { id: "f-unseen", how: "shown", x: 0.9, y: 0.9 },
   ],
 };
 
@@ -117,6 +117,72 @@ describe("a plate's buttons", () => {
     const r = await shown(<Plate id="here" subject="The here" load={async () => ready} map={map} />);
     expect(spot(r, "f1")!.getAttribute("data-shape")).toBe("diamond");
     expect(spot(r, "f1")!.hasAttribute("data-door")).toBe(false);
+  });
+
+  it("keeps a button for what is out of the picture, saying which way to go", async () => {
+    const urn: MapFixtureView = { ...bench, id: "f2", shape: "circle" };
+    const well: MapFixtureView = { ...bench, id: "f3", shape: "star" };
+    const crate: MapFixtureView = { ...bench, id: "f4", shape: "square" };
+    const out: PlateAnswer = {
+      status: "ready",
+      url: "https://cdn.example/plates/a.png",
+      spots: [
+        { id: "c1", how: "edge", edge: "left", along: 0.8 },
+        { id: "f1", how: "edge", edge: "left", along: 0.2 },
+        { id: "f2", how: "around", x: 0.7, y: 0.4, turn: "right" },
+        { id: "f3", how: "around", x: 0.7, y: 0.4, turn: "right" },
+        { id: "f4", how: "behind-wall", x: 0.3, y: 0.3 },
+        // Off the picture and not on the map yet: no button anywhere.
+        { id: "f-unseen", how: "edge", edge: "bottom", along: 0.5 },
+      ],
+    };
+    const r = await shown(
+      <Plate id="here" subject="The here" load={async () => out} map={{ ...map, fixtures: [bench, urn, well, crate] }} />
+    );
+    // Off the left: a rail inside that edge, in bearing order, each pointing out.
+    const rail = r.one('[data-rail="left"]');
+    expect([...rail.querySelectorAll("[data-plate-spot]")].map((e) => e.getAttribute("data-plate-spot"))).toEqual(["f1", "c1"]);
+    expect(spot(r, "c1")!.getAttribute("data-hint")).toBe("edge");
+    // The door is still the door: same arch, same arrow.
+    expect(spot(r, "c1")!.getAttribute("data-heading")).toBe("e");
+    expect(r.container.querySelector('[data-rail="bottom"]')).toBeNull();
+    // Round the same corner: side by side there, with the turn.
+    const corner = r.one("[data-corner]") as HTMLElement;
+    expect(corner.style.left).toBe("70%");
+    expect(corner.querySelectorAll("[data-plate-spot]")).toHaveLength(2);
+    expect(spot(r, "f2")!.getAttribute("data-turn")).toBe("right");
+    // Behind a wall: where it would be, dashed.
+    expect(spot(r, "f4")!.style.left).toBe("30%");
+    expect(spot(r, "f4")!.getAttribute("data-hint")).toBe("dashed");
+    expect(spot(r, "f4")!.querySelector("path")!.getAttribute("stroke-dasharray")).toBe("3 2.2");
+    expect(spot(r, "f-unseen")).toBeNull();
+  });
+
+  it("takes spots from a server older than out-of-shot buttons, and does not crash on a kind it does not know", async () => {
+    // What a not-yet-restarted API sends: no `how`. It crashed the page (2026-10-15).
+    const old = {
+      status: "ready",
+      url: "https://cdn.example/plates/a.png",
+      spots: [
+        { id: "c1", x: 0.25, y: 0.5 },
+        { id: "f1", how: "teleport", x: 0.6, y: 0.8 },
+      ],
+    } as unknown as PlateAnswer;
+    const r = await shown(<Plate id="here" subject="The here" load={async () => old} map={map} />);
+    expect(spot(r, "c1")!.style.left).toBe("25%");
+    expect(spot(r, "f1")).toBeNull();
+  });
+
+  it("asks the map's question from an edge button too", async () => {
+    const off: PlateAnswer = { ...ready, spots: [{ id: "c1", how: "edge", edge: "bottom", along: 0.5 }] };
+    const r = await shown(
+      <HoverProvider acting onAct={() => {}} reachable={new Set(["c1"])}>
+        <Plate id="here" subject="The here" load={async () => off} map={map} />
+        <ActionPill />
+      </HoverProvider>
+    );
+    await press(spot(r, "c1")!);
+    expect(pill()!.textContent).toBe("Go Through?");
   });
 
   it("is only a picture without a map", async () => {

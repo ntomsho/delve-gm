@@ -20,7 +20,8 @@ import tailwindcss from "@tailwindcss/vite";
  *
  * What is left is a proxy from `/api` to the API running beside this one, so
  * the browser sees a single origin in development exactly as it will in
- * production. Run both: `npm run api` and `npm run dev`.
+ * production. `npm run dev` starts both (the API under `node --watch`, so it
+ * restarts when the server changes); `npm run dev:web` is this one alone.
  */
 export default defineConfig(() => {
   const api = process.env.API_URL ?? "http://localhost:8787";

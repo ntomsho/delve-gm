@@ -137,7 +137,7 @@ describe("a plate's buttons", () => {
     { kind: "arrival" as const, text: "A hall.", roomId: "r1", turn: 1 },
     { kind: "arrival" as const, text: "A cell.", roomId: "r2", turn: 2 },
   ];
-  const spots = (roomId: string) => [{ id: `door-${roomId}`, x: 0.5, y: 0.5 }];
+  const spots = (roomId: string) => [{ id: `door-${roomId}`, how: "shown" as const, x: 0.5, y: 0.5 }];
   const map = {
     bounds: { w: 10, h: 10 },
     rooms: [],

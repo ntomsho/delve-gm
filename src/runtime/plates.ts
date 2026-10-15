@@ -32,6 +32,7 @@ import {
   touches,
   unseenReason,
   type Hotspot,
+  type HotspotEdge,
   type IRoomConnector,
   type PlateView,
   type Presence,
@@ -331,24 +332,45 @@ export function roomFigures(
   return p ? plateFigures(p.input, p.view, roomClusters(creatures)) : [];
 }
 
-/** One button on a plate: what it is, and where, as fractions of the plate from its top-left. */
-export interface PlateSpot {
-  id: string;
-  x: number;
-  y: number;
-}
+/**
+ * One button on a plate: what it is, and where, as fractions of the plate from
+ * its top-left — or, for something out of the picture, which edge it is off.
+ *
+ * - shown: on the thing, where the guide put its tag.
+ * - behind-wall: where the thing would be, walled off.
+ * - around: at the corner in the picture to go round, and which way to turn.
+ * - edge: off the left, right or bottom of the picture; `along` (0 to 1) orders
+ *   the buttons sharing an edge.
+ */
+export type PlateSpot =
+  | { id: string; how: "shown"; x: number; y: number }
+  | { id: string; how: "behind-wall"; x: number; y: number }
+  | { id: string; how: "around"; x: number; y: number; turn: "left" | "right" }
+  | { id: string; how: "edge"; edge: HotspotEdge; along: number };
 
 /**
- * The plate's buttons: one at each point where the guide put a tag, and nowhere
- * else — so a button sits on the thing the image model was told to draw there.
- * The same test as `plateSketchSvg`'s tags: shown, and tagged (a door or an
- * object; surfaces have none).
+ * The plate's buttons: every door and every object, in the picture or not.
+ * One in the picture sits at each point where the guide put a tag, so a button
+ * sits on the thing the image model was told to draw there. Surfaces have
+ * none: they are drawn over the room, not at a spot, so there is nowhere to
+ * put one and nothing for an arrow to point at.
  */
 export function plateSpots(p: RoomPlate): PlateSpot[] {
-  const tags = plateTags(p);
+  const surfaces = new Set(p.features.filter((f) => f.presence !== "object").map((f) => f.id));
   return p.hotspots
-    .filter((h) => h.status === "shown" && tags.has(h.id))
-    .flatMap((h) => h.points.map((q) => ({ id: h.id, x: q.x, y: q.y })));
+    .filter((h) => !surfaces.has(h.id))
+    .flatMap((h): PlateSpot[] => {
+      switch (h.status) {
+        case "shown":
+          return h.points.map((q) => ({ id: h.id, how: "shown", x: q.x, y: q.y }));
+        case "behind-wall":
+          return h.points.map((q) => ({ id: h.id, how: "behind-wall", x: q.x, y: q.y }));
+        case "around":
+          return h.around ? [{ id: h.id, how: "around", x: h.around.x, y: h.around.y, turn: h.around.turn }] : [];
+        case "off-frame":
+          return h.edge ? [{ id: h.id, how: "edge", edge: h.edge, along: h.along ?? 0.5 }] : [];
+      }
+    });
 }
 
 /**

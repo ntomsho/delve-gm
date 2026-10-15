@@ -806,7 +806,21 @@ Differences from the design above:
     Narrower, plates sit under each arrival's heading as before. Phones keep them in the
     chat, never sticky, and have a **Room** tab between Chat and Character
     (`RoomTab` in `PlayScreen.tsx`): the current room's name and plate, with buttons.
-  - Not built yet: the `around`, `behind-wall` and `off-frame` arrows.
+  - **Out-of-shot buttons are BUILT (2026-10-15).** Every door and object keeps its
+    button when it is not in the picture: the same arch or shape, card, verb and `lit`
+    id. Only where it sits changes. `PlateSpot` is a union on `how`:
+    - **around:** at the corner, with a bent arrow for the turn. Several things round
+      the same corner stand in a row there.
+    - **behind-wall:** where the thing would be, with a dashed rim.
+    - **edge:** in a rail inside the left, right or bottom edge, with a chevron
+      pointing out.
+      - A rail, not exact places, so two buttons on one edge cannot overlap on a phone.
+      - `Hotspot.along` (0–1, from the bearing) only orders a rail: on a side, the
+        further behind, the lower; on the bottom, behind-left to behind-right.
+    - Surfaces get none, in or out of the picture: they have no spot to point at.
+    - Measured on `live-4201`, the Frozen Chancel and the Droll Scholars (69 views):
+      194 shown, 19 around, 35 edge, no behind-wall. **No rail or corner ever held more
+      than one**, so the row and the rail order are insurance.
 
 **Dungeon covers are BUILT (2026-10-13).** A cover is the dungeon's exterior: the picture
 on its library card, beside it in run setup, and above its opening.
