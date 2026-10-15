@@ -178,20 +178,23 @@ export async function serveCover(
 }
 
 /**
- * The claim, the draw and the store, for anything kept in `plates`.
+ * The claim, the draw and the store, for anything kept in `plates`: room
+ * plates, covers, and creature sprites (`src/server/sprites.ts`).
  *
  *   ready    → the URL
  *   pending  → "ask again", unless the claim is stale
  *   missing  → claim it, draw it, store it, return the URL
  *   failed   → claim it again while attempts are left; past that, none
  */
-async function serveKeyed(
+export async function serveKeyed(
   key: string,
   model: string,
   label: string,
-  work: PlateWork,
+  work: Pick<PlateWork, "upload" | "urlOf">,
   store: PlateStore,
-  make: () => Promise<Buffer>
+  make: () => Promise<Buffer>,
+  /** the model's picture as stored: a plate's ink by default; a sprite's masks */
+  finish: (picture: Buffer) => Promise<Buffer> = inkPng
 ): Promise<PlateAnswer> {
   const row = await store.getPlate(key);
   if (row?.status === "ready" && row.path) return { status: "ready", url: work.urlOf(row.path) };
@@ -212,7 +215,7 @@ async function serveKeyed(
   try {
     const picture = await make();
     const path = `${key}.png`;
-    await work.upload(path, await inkPng(picture));
+    await work.upload(path, await finish(picture));
     await store.finishPlate(key, path);
     return { status: "ready", url: work.urlOf(path) };
   } catch (e) {
@@ -298,7 +301,7 @@ export function livePlateWork(): PlateWork | undefined {
 }
 
 /** The image a fal endpoint answered with. */
-async function fetchImage(data: unknown): Promise<Buffer> {
+export async function fetchImage(data: unknown): Promise<Buffer> {
   const url = (data as { images?: { url: string }[] }).images?.[0]?.url;
   if (!url) throw new Error(`no image in the response: ${JSON.stringify(data).slice(0, 300)}`);
   const got = await fetch(url);

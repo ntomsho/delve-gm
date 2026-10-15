@@ -29,6 +29,9 @@
  *
  * PLATES are the real ones when the bucket has them (fetched by `plateKey`),
  * and otherwise drawn here exactly as the server would, without storing them.
+ * Since the floor was reserved in the game itself, every plate drawn now keeps
+ * the patch; the plates under out/sprites/<dungeon>/plates/ that do not were
+ * drawn before, and are the spike's "before".
  *
  * CACHED ON DISK under out/sprites/<dungeon id>/, so a rerun pays only for
  * what is missing. Costs are estimates; fal's billing is the truth.
@@ -54,7 +57,6 @@ import type { GeneratedDungeon } from "../runtime/generate.ts";
 import { callForJson, configureTransport } from "../runtime/llm/client.ts";
 import { IMAGE_MODELS } from "../runtime/llm/models.ts";
 import { plateEntries, roomPlate, type RoomPlate } from "../runtime/plates.ts";
-import { plateSketchSvg } from "../runtime/plate-sketch.ts";
 import { plateImagePrompt } from "../runtime/plate-visual.ts";
 import { guidePng, oneBitPng, PLATE_H, PLATE_THRESHOLD, PLATE_W } from "../server/plate-image.ts";
 import { livePlateWork, PLATE_REFS_DIR, plateKey, plateUrl } from "../server/plates.ts";
@@ -596,59 +598,9 @@ async function composite(
  */
 const STAGE_FT = { behind: 1.5, ahead: 7.5, side: 6 };
 
-const STAGE_NOTE =
-  "The area inside the DOTTED outline in the guide is kept clear for figures who will be added to the " +
-  "picture later. Draw it as plain, bare, level floor, continuous with the floor around it: no pit, " +
-  "crack, chasm, water, rubble, furniture, feature, doorway or steps inside it. Do not draw the dotted " +
-  "outline itself.";
-
-/** The patch's outline as guide marks: dotted, and only where it lies on floor the eye can see. */
-function stageSvg(p: RoomPlate, at: Point, W: number): string {
-  const H = W / 1.5;
-  const { eye } = p.view;
-  const sight = plateSight(p.input, eye);
-  const floor = new Set(p.input.floor.map((c) => `${c.x},${c.y}`));
-  const onFloor = (q: Point) => floor.has(`${Math.floor(q.x / CELL_FEET)},${Math.floor(q.y / CELL_FEET)}`);
-  const place = (ahead: number, across: number): Point => ({
-    x: at.x + eye.forward.x * ahead + eye.right.x * across,
-    y: at.y + eye.forward.y * ahead + eye.right.y * across,
-  });
-  const { behind, ahead, side } = STAGE_FT;
-  const corners = [place(-behind, -side), place(-behind, side), place(ahead, side), place(ahead, -side)];
-  const runs: Point[][] = [];
-  let run: Point[] = [];
-  for (let k = 0; k < 4; k++) {
-    const a = corners[k];
-    const b = corners[(k + 1) % 4];
-    const n = Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / 0.25);
-    for (let i = 0; i <= n; i++) {
-      const q = { x: a.x + ((b.x - a.x) * i) / n, y: a.y + ((b.y - a.y) * i) / n };
-      if (onFloor(q) && sight(q)) run.push(q);
-      else if (run.length) {
-        runs.push(run);
-        run = [];
-      }
-    }
-  }
-  if (run.length) runs.push(run);
-  return runs
-    .filter((r) => r.length > 1)
-    .map((r) => {
-      const pts = r
-        .map((q) => projectToFrame(eye, { ...q, z: 0.05 }))
-        .filter((x): x is Point => x !== null)
-        .map((x) => `${(x.x * W).toFixed(1)},${(x.y * H).toFixed(1)}`);
-      return `<polyline points="${pts.join(" ")}" fill="none" stroke="#000" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="0.1 4"/>`;
-    })
-    .join("\n");
-}
-
-/** The marked guide with the reserved patch added, at the plate's size: `guidePng` plus the dots. */
-function stageGuidePng(p: RoomPlate, at: Point): Promise<Buffer> {
-  const drawnAt = 480;
-  const svg = plateSketchSvg(p, { marks: true, width: drawnAt }).replace("</svg>", `${stageSvg(p, at, drawnAt)}\n</svg>`);
-  return sharp(Buffer.from(svg), { density: (72 * PLATE_W) / drawnAt }).resize(PLATE_W, PLATE_H).png().toBuffer();
-}
+// The patch itself, its dots in the guide and its line in the prompt are the
+// game's now (`plateStage`, `stageOutline`, `PLATE_OPEN_FLOOR_NOTE`): every
+// plate keeps one, so --stage draws exactly what the server draws.
 
 // ---------------------------------------------------------------------------
 // WORDS
@@ -1103,11 +1055,11 @@ async function main() {
           const at = candidatesFor(p)[0]?.at;
           if (!at) return;
           const path = join(dir, "plates-stage", `${roomId}.png`);
-          const guide = await stageGuidePng(p, at);
+          const guide = await guidePng(p, true);
           write(join(dir, "plates-stage", `${roomId}.guide.png`), guide);
           if (!existsSync(path)) {
             const visual = await work.visual(p);
-            const prompt = `${plateImagePrompt(p, "marks", setting, visual, undefined, work.references)}\n\nOPEN FLOOR\n${STAGE_NOTE}`;
+            const prompt = plateImagePrompt(p, "marks", setting, visual, undefined, work.references);
             write(join(dir, "plates-stage", `${roomId}.prompt.txt`), prompt);
             write(path, await work.draw(prompt, guide));
             spent += 0.015;

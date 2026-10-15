@@ -29,6 +29,7 @@ import {
   PLATE_HALF_FOV_DEG,
   PLATE_WALL_FT,
   plateSight,
+  stageOutline,
   type Point,
 } from "../engine/index.ts";
 import { traceOutline } from "./layout.ts";
@@ -264,6 +265,18 @@ export function plateSketchSvg(p: RoomPlate, opts: SketchOptions = {}): string {
         }
       }
     });
+    // THE OPEN FLOOR: the patch kept clear for creatures, dotted so it reads
+    // as neither a wall nor a feature's dashes. Only on floor in sight.
+    if (p.stage) {
+      for (const run of stageOutline(p.input, p.view, p.stage)) {
+        out.push(
+          line3(
+            run.map((q) => at3(q, 0.05)),
+            `stroke="${INK}" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="0.1 4"`
+          )
+        );
+      }
+    }
     for (const h of p.hotspots) {
       const t = tags.get(h.id);
       if (h.status === "shown" && t) for (const q of h.points) tag(q, t);

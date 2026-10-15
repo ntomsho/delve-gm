@@ -5,7 +5,7 @@
   "functions": {
     "api/index.js": {
       "maxDuration": 300,
-      "includeFiles": "assets/plate-refs/*.png"
+      "includeFiles": "assets/*-refs/*.png"
     }
   },
   "rewrites": [

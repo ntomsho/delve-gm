@@ -15,6 +15,8 @@ import { D20, Die, DiceRoll } from "./DiceRoll.tsx";
 import { Plate } from "./Plate.tsx";
 import { PLATE_TIP, ThingTooltip } from "./hover.tsx";
 import type { PlateAnswer } from "../../runtime/plates.ts";
+import type { SpriteAnswer } from "../../runtime/sprites.ts";
+import type { PlateFigure } from "../../engine/index.ts";
 import type { MapView } from "../../store/selectors.ts";
 import type { LogEntry } from "../../store/game.ts";
 import type { RolledOutcome } from "../../runtime/types.ts";
@@ -240,6 +242,8 @@ export function Narration({
   compact = false,
   plate,
   cover,
+  sprite,
+  figures,
   map,
   here,
   resumed,
@@ -249,6 +253,14 @@ export function Narration({
   plate?: (roomId: string) => Promise<PlateAnswer>;
   /** the dungeon's cover, above the opening; absent on a local run */
   cover?: () => Promise<PlateAnswer>;
+  /** a creature's sprite; absent on a local run */
+  sprite?: (spriteId: string) => Promise<SpriteAnswer>;
+  /**
+   * The creatures in the room the player is standing in, stood in its plate:
+   * the same plate that carries the buttons. A plate they have left keeps the
+   * figures it last showed.
+   */
+  figures?: PlateFigure[];
   /** what the plates' buttons are: each one is the map's marker for the same thing */
   map?: MapView;
   /**
@@ -314,6 +326,7 @@ export function Narration({
         subject={item.roomName}
         load={() => plate!(item.roomId)}
         {...(map && i === buttonsAt ? { map, ...(here?.cameFrom ? { cameFrom: here.cameFrom } : {}) } : {})}
+        {...(sprite && figures && i === buttonsAt ? { sprite, figures } : {})}
       />
     );
   };

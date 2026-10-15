@@ -169,3 +169,57 @@ describe("doorHeading", () => {
     expect(doorHeading({ at, through: { x: 4, y: 9 } })).toBe("w");
   });
 });
+
+describe("the creatures stood in a plate", () => {
+  /** jsdom loads no images; this one says it is 200 × 400, two 100-wide halves. */
+  class LoadedImage {
+    naturalWidth = 200;
+    naturalHeight = 400;
+    onload: (() => void) | null = null;
+    set src(_: string) {
+      queueMicrotask(() => this.onload?.());
+    }
+  }
+
+  const figure = { sprite: "monks", x: 0.5, y: 0.8, perFoot: 0.05, flop: true };
+  const sprite = async () => ({ status: "ready", url: "https://cdn.example/plates/s.png", size: "medium" }) as const;
+
+  it("stands each figure feet-first at its point, as tall as its size, and keeps it after they leave", async () => {
+    const real = globalThis.Image;
+    globalThis.Image = LoadedImage as unknown as typeof Image;
+    try {
+      const r = await shown(
+        <Plate id="here" subject="The here" load={async () => ready} map={map} sprite={sprite} figures={[figure]} />
+      );
+      await act(async () => {});
+      const el = r.container.querySelector('[data-figure="monks"]') as HTMLElement;
+      expect(el).not.toBeNull();
+      expect(el.style.left).toBe("50%");
+      expect(el.style.top).toBe("80%");
+      // 0.05 of the plate per foot × 6 ft (medium) × FIGURE_SCALE 1.4 = 42%.
+      expect(parseFloat(el.style.height)).toBeCloseTo(42, 5);
+      expect(parseFloat(el.style.aspectRatio)).toBe(0.25);
+      expect(el.style.transform).toContain("scaleX(-1)");
+
+      // They walk out: the plate loses its live figures but keeps the last it showed.
+      r.update(<Plate id="here" subject="The here" load={async () => ready} sprite={sprite} />);
+      await act(async () => {});
+      expect(r.container.querySelector('[data-figure="monks"]')).not.toBeNull();
+    } finally {
+      globalThis.Image = real;
+    }
+  });
+
+  it("a sprite still being drawn is not there yet", async () => {
+    const r = await shown(
+      <Plate
+        id="here"
+        subject="The here"
+        load={async () => ready}
+        sprite={async () => ({ status: "none" })}
+        figures={[figure]}
+      />
+    );
+    expect(r.container.querySelector("[data-figure]")).toBeNull();
+  });
+});

@@ -733,6 +733,7 @@ export default function App() {
       // `?offline` and `?stub` never ask for a plate; their session has no `plate`.
       {...(!LOCAL && session.plate ? { plate: (roomId: string) => session.plate!(roomId) } : {})}
       {...(!LOCAL && session.cover ? { cover: () => session.cover!() } : {})}
+      {...(!LOCAL && session.sprite ? { sprite: (key: string) => session.sprite!(key) } : {})}
     />
   );
 }

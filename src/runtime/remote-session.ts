@@ -48,6 +48,7 @@ import { createGameStore, type RunState } from "../store/game.ts";
 import { acceptsInput, isTerminal, type Stage, type Step } from "./types.ts";
 import type { GeneratedDungeon, GenerationProgress } from "./generate.ts";
 import type { PlateAnswer } from "./plates.ts";
+import type { SpriteAnswer } from "./sprites.ts";
 import type { PlayableSession, RunRequest } from "./session.ts";
 import type { PlayerCharacter } from "../engine/index.ts";
 
@@ -232,17 +233,17 @@ export function createRemoteSession(opts: RemoteOptions = {}): PlayableSession {
    * ask while the first is still drawing (a re-mount, a second panel) waits on
    * the same request instead of being told "pending" by its own claim.
    */
-  const plates = new Map<string, Promise<PlateAnswer>>();
+  const plates = new Map<string, Promise<PlateAnswer | SpriteAnswer>>();
 
   /** One ask of a plate-like route, kept until it is an answer. See `plates`. */
-  function askOnce(key: string, path: string): Promise<PlateAnswer> {
-    let asked = plates.get(key);
+  function askOnce<T extends PlateAnswer | SpriteAnswer>(key: string, path: string): Promise<T> {
+    let asked = plates.get(key) as Promise<T> | undefined;
     if (!asked) {
-      asked = (async (): Promise<PlateAnswer> => {
+      asked = (async (): Promise<T> => {
         const res = await http(`${base}${path}`);
         // A picture is never worth an error on the page: anything but an answer is none.
-        return res.ok ? ((await res.json()) as PlateAnswer) : { status: "none" };
-      })().catch((): PlateAnswer => ({ status: "none" }));
+        return res.ok ? ((await res.json()) as T) : ({ status: "none" } as T);
+      })().catch((): T => ({ status: "none" }) as T);
       plates.set(key, asked);
       // "Ask again later" is not an answer to keep.
       void asked.then((a) => a.status === "pending" && plates.delete(key));
@@ -257,7 +258,7 @@ export function createRemoteSession(opts: RemoteOptions = {}): PlayableSession {
    */
   function cover(): Promise<PlateAnswer> {
     if (!runId) return Promise.resolve({ status: "none" });
-    return askOnce("cover", `/api/runs/${runId}/cover`);
+    return askOnce<PlateAnswer>("cover", `/api/runs/${runId}/cover`);
   }
 
   return {
@@ -265,7 +266,12 @@ export function createRemoteSession(opts: RemoteOptions = {}): PlayableSession {
 
     plate(roomId: string): Promise<PlateAnswer> {
       if (!runId) return Promise.resolve({ status: "none" });
-      return askOnce(`room:${roomId}`, `/api/runs/${runId}/plates/${encodeURIComponent(roomId)}`);
+      return askOnce<PlateAnswer>(`room:${roomId}`, `/api/runs/${runId}/plates/${encodeURIComponent(roomId)}`);
+    },
+
+    sprite(spriteId: string): Promise<SpriteAnswer> {
+      if (!runId) return Promise.resolve({ status: "none" });
+      return askOnce<SpriteAnswer>(`sprite:${spriteId}`, `/api/runs/${runId}/sprites/${encodeURIComponent(spriteId)}`);
     },
 
     cover,

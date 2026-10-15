@@ -18,10 +18,19 @@
  * the same `lit` id, so pointing at a button lights the map and the room card
  * and pointing at either lights the button. A thing the map does not show yet
  * gets no button, so the plate is fogged exactly as the map is.
+ *
+ * THE FIGURES. The plate of the room they are standing in has its creatures
+ * stood in it, each a sprite laid down in two coats: the page's paper where the
+ * figure is, hiding the plate behind it, then the page's ink. Where each stands
+ * is worked out from the run as it is now (`roomFigures`), so a creature slain
+ * is gone at once. A plate they have walked out of keeps the figures it last
+ * showed: the scrollback is a record of what was there.
  */
 
 import { useEffect, useRef, useState } from "react";
 import type { PlateAnswer, PlateSpot } from "../../runtime/plates.ts";
+import type { SpriteAnswer } from "../../runtime/sprites.ts";
+import { figureHeight, type PlateFigure } from "../../engine/index.ts";
 import type { MapView } from "../../store/selectors.ts";
 import type { FixtureShape } from "../../store/selectors.ts";
 import { doorHover, fixtureHover, grows } from "./DungeonMap.tsx";
@@ -188,6 +197,106 @@ function Spots({ spots, map, cameFrom }: { spots: PlateSpot[]; map: MapView; cam
 }
 
 /**
+ * Ask until there is an answer: again every `PLATE_POLL_MS` while somebody's
+ * request is drawing it, and give up as none past `PLATE_POLL_TRIES`. A new
+ * `id` restarts the asking. Read through a ref, so a parent that hands over a
+ * new function every render does not restart it.
+ */
+function useAnswer<T extends { status: string }>(id: string, load: () => Promise<T>): T | { status: "pending" } {
+  const [answer, setAnswer] = useState<T | { status: "pending" }>({ status: "pending" });
+  const loadRef = useRef(load);
+  loadRef.current = load;
+
+  useEffect(() => {
+    let live = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    setAnswer({ status: "pending" });
+    const ask = async (tries: number) => {
+      const got = await loadRef.current().catch(() => ({ status: "none" }) as T);
+      if (!live) return;
+      if (got.status === "pending" && tries < PLATE_POLL_TRIES) {
+        timer = setTimeout(() => void ask(tries + 1), PLATE_POLL_MS);
+        return;
+      }
+      setAnswer(got.status === "pending" ? ({ status: "none" } as T) : got);
+    };
+    void ask(1);
+    return () => {
+      live = false;
+      if (timer) clearTimeout(timer);
+    };
+  }, [id]);
+
+  return answer;
+}
+
+/** One coat of a sprite: the page's paper or ink, masked by one half of the stored image. */
+function coat(url: string, fill: string, half: "body" | "ink") {
+  const position = half === "body" ? "0% 0%" : "100% 0%";
+  return {
+    backgroundColor: fill,
+    maskImage: `url("${url}")`,
+    WebkitMaskImage: `url("${url}")`,
+    maskSize: "200% 100%",
+    WebkitMaskSize: "200% 100%",
+    maskPosition: position,
+    WebkitMaskPosition: position,
+    maskRepeat: "no-repeat",
+    WebkitMaskRepeat: "no-repeat",
+  };
+}
+
+/**
+ * One creature, feet at its point. Laid down only once its sprite is drawn and
+ * its shape known; until then the room shows without it, as it did before.
+ */
+function Figure({ figure, sprite }: { figure: PlateFigure; sprite: (spriteId: string) => Promise<SpriteAnswer> }) {
+  const answer = useAnswer(figure.sprite, () => sprite(figure.sprite));
+  // Width over height of one half of the stored image: the figure's own shape.
+  const [aspect, setAspect] = useState<number>();
+  const url = answer.status === "ready" ? answer.url : undefined;
+  useEffect(() => {
+    if (!url) return;
+    let live = true;
+    const img = new Image();
+    img.onload = () => live && img.naturalHeight > 0 && setAspect(img.naturalWidth / 2 / img.naturalHeight);
+    img.src = url;
+    return () => {
+      live = false;
+    };
+  }, [url]);
+  if (answer.status !== "ready" || !aspect) return null;
+  const tall = figureHeight(figure, answer.size);
+  return (
+    <div
+      className="pointer-events-none absolute"
+      data-figure={figure.sprite}
+      style={{
+        left: `${figure.x * 100}%`,
+        top: `${figure.y * 100}%`,
+        height: `${tall * 100}%`,
+        aspectRatio: String(aspect),
+        transform: `translate(-50%, -100%)${figure.flop ? " scaleX(-1)" : ""}`,
+      }}
+    >
+      <div className="absolute inset-0" style={coat(answer.url, "var(--color-paper)", "body")} />
+      <div className="absolute inset-0" style={coat(answer.url, "var(--color-ink)", "ink")} />
+    </div>
+  );
+}
+
+/** Every figure, back to front as `plateFigures` ordered them. */
+function Figures({ figures, sprite }: { figures: PlateFigure[]; sprite: (spriteId: string) => Promise<SpriteAnswer> }) {
+  return (
+    <>
+      {figures.map((f, i) => (
+        <Figure key={`${i}:${f.sprite}`} figure={f} sprite={sprite} />
+      ))}
+    </>
+  );
+}
+
+/**
  * `id` names what is being drawn — a room, or the dungeon's cover — and a new
  * one restarts the asking. `subject` is said to a screen reader: "A drawing of …".
  * `map` turns the plate's spots into buttons; without it, it is only a picture.
@@ -199,6 +308,8 @@ export function Plate({
   load,
   map,
   cameFrom,
+  sprite,
+  figures,
 }: {
   id: string;
   subject: string;
@@ -206,32 +317,19 @@ export function Plate({
   map?: MapView;
   /** the connector they walked in by, marked with a U-turn */
   cameFrom?: string;
+  /** a creature's sprite; with `figures`, the creatures are stood in the plate */
+  sprite?: (spriteId: string) => Promise<SpriteAnswer>;
+  /** who stands where now; passed only while the player is in this room */
+  figures?: PlateFigure[];
 }) {
-  const [answer, setAnswer] = useState<PlateAnswer>({ status: "pending" });
+  const answer = useAnswer<PlateAnswer>(id, load);
   const [open, setOpen] = useState(false);
-  // Read through a ref so a parent that hands over a new function every render
-  // does not restart the asking.
-  const loadRef = useRef(load);
-  loadRef.current = load;
-
+  // The last figures this plate was given, kept once the player walks out.
+  const [shown, setShown] = useState(figures);
   useEffect(() => {
-    let live = true;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const ask = async (tries: number) => {
-      const got = await loadRef.current().catch((): PlateAnswer => ({ status: "none" }));
-      if (!live) return;
-      if (got.status === "pending" && tries < PLATE_POLL_TRIES) {
-        timer = setTimeout(() => void ask(tries + 1), PLATE_POLL_MS);
-        return;
-      }
-      setAnswer(got.status === "pending" ? { status: "none" } : got);
-    };
-    void ask(1);
-    return () => {
-      live = false;
-      if (timer) clearTimeout(timer);
-    };
-  }, [id]);
+    if (figures) setShown(figures);
+  }, [figures]);
+  const people = sprite && shown?.length ? <Figures figures={shown} sprite={sprite} /> : null;
 
   useEffect(() => {
     if (!open) return;
@@ -267,6 +365,7 @@ export function Plate({
           onClick={() => setOpen(true)}
           aria-label={`A drawing of ${subject}. Open it full size.`}
         />
+        {people}
         {map && answer.spots && <Spots spots={answer.spots} map={map} {...(cameFrom ? { cameFrom } : {})} />}
       </div>
       {open && (
@@ -276,7 +375,11 @@ export function Plate({
           role="dialog"
           aria-label={`A drawing of ${subject}`}
         >
-          <div className="aspect-[3/2] w-full max-w-[1536px]" style={{ ...inkStyle(answer.url), maxHeight: "100%" }} />
+          {/* Kept at exactly 3:2, so the figures, placed as fractions of the frame, stay on the drawing. */}
+          <div className="relative aspect-[3/2]" style={{ width: "min(100%, 1536px, calc((100vh - 2rem) * 1.5))" }}>
+            <div className="absolute inset-0" style={inkStyle(answer.url)} />
+            {people}
+          </div>
         </div>
       )}
     </>

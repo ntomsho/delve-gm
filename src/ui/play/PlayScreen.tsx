@@ -34,7 +34,9 @@ import { acceptsInput, isTerminal } from "../../runtime/types.ts";
 import { characterView, mapView, roomView, shownRoom, type MapView } from "../../store/selectors.ts";
 import type { GeneratedDungeon } from "../../runtime/generate.ts";
 import type { RunState } from "../../store/game.ts";
-import type { PlateAnswer } from "../../runtime/plates.ts";
+import { roomFigures, type PlateAnswer } from "../../runtime/plates.ts";
+import type { SpriteAnswer } from "../../runtime/sprites.ts";
+import { drawableCreatures, type PlateFigure } from "../../engine/index.ts";
 import { PHONE, TOUCH, useMediaQuery } from "../media.ts";
 
 export interface PlayScreenProps {
@@ -57,6 +59,8 @@ export interface PlayScreenProps {
   plate?: (roomId: string) => Promise<PlateAnswer>;
   /** the dungeon's cover, above the opening. Absent on a local run. */
   cover?: () => Promise<PlateAnswer>;
+  /** a creature's sprite, to stand it in the current room's plate. Absent on a local run. */
+  sprite?: (spriteId: string) => Promise<SpriteAnswer>;
 }
 
 export function PlayScreen({
@@ -71,6 +75,7 @@ export function PlayScreen({
   onMainMenu,
   plate,
   cover,
+  sprite,
 }: PlayScreenProps) {
   const [draft, setDraft] = useState("");
   const phone = useMediaQuery(PHONE);
@@ -138,6 +143,22 @@ export function PlayScreen({
     return { roomId: shown, ...(cameFrom ? { cameFrom } : {}) };
   }, [shown, room]);
   const explored = useMemo(() => map.rooms.filter((r) => r.known).length, [map]);
+  /**
+   * The creatures in the room they are reading about, stood in its plate.
+   * Worked out again only when who is there changes — arriving, leaving, dying,
+   * a pack's count — not on every commit; the plate's camera search is not free.
+   */
+  const crowd = here
+    ? `${here.roomId}|${drawableCreatures(run.entities.creatures, here.roomId)
+        .map((c) => `${c.id}:${c.count ?? 1}`)
+        .join(",")}`
+    : "";
+  const figures = useMemo(
+    () => (here && sprite ? roomFigures(dungeon, run, here.roomId) : undefined),
+    // `run` is read through `crowd`: the figures depend only on who is in the room.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [crowd, dungeon, sprite !== undefined]
+  );
 
   /**
    * The sweep under the narration: on whenever the game is working.
@@ -210,6 +231,7 @@ export function PlayScreen({
         compact={phone}
         {...(plate ? { plate } : {})}
         {...(cover ? { cover } : {})}
+        {...(sprite && figures ? { sprite, figures } : {})}
         map={map}
         resumed={resumed}
         {...(here ? { here } : {})}
@@ -308,6 +330,7 @@ export function PlayScreen({
                 name={room?.name}
                 {...(plate && here ? { load: () => plate(here.roomId), roomId: here.roomId } : {})}
                 {...(here?.cameFrom ? { cameFrom: here.cameFrom } : {})}
+                {...(sprite && figures ? { sprite, figures } : {})}
                 map={map}
               />
             }
@@ -361,12 +384,16 @@ function RoomTab({
   load,
   cameFrom,
   map,
+  sprite,
+  figures,
 }: {
   name?: string;
   roomId?: string;
   load?: () => Promise<PlateAnswer>;
   cameFrom?: string;
   map: MapView;
+  sprite?: (spriteId: string) => Promise<SpriteAnswer>;
+  figures?: PlateFigure[];
 }) {
   return (
     // Centred in the tab, which is otherwise a picture floating at the top of an empty screen.
@@ -380,6 +407,7 @@ function RoomTab({
           load={load}
           map={map}
           {...(cameFrom ? { cameFrom } : {})}
+          {...(sprite && figures ? { sprite, figures } : {})}
         />
       ) : (
         <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-ash">No picture of this room</p>

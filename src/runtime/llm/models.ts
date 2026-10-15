@@ -29,7 +29,12 @@ export type Task =
    * a room plate's words: the room's fiction cut down to what an illustrator
    * would draw — its shell, and a short look for each thing in the frame
    */
-  | "plate-visual";
+  | "plate-visual"
+  /**
+   * a creature sprite's words: what the figure looks like, and a size word
+   * the code turns into feet
+   */
+  | "sprite-look";
 
 /**
  * Everything is on Haiku 4.5 while the pipeline is being built: it is the
@@ -60,6 +65,7 @@ export const MODELS: Record<Task, string> = {
   "room-entry": "claude-haiku-4-5",
   "turn-loop": "claude-haiku-4-5",
   "plate-visual": "claude-haiku-4-5",
+  "sprite-look": "claude-haiku-4-5",
 };
 
 /**
@@ -82,6 +88,8 @@ export const MAX_TOKENS: Record<Task, number> = {
   "turn-loop": 4096,
   // A sentence for the room and a short phrase per thing in the picture.
   "plate-visual": 1024,
+  // Thirty-odd words and one size word.
+  "sprite-look": 512,
 };
 
 export function modelFor(task: Task): string {
@@ -128,3 +136,11 @@ export const PLATE_MODEL: ImageModel = "gpt-image-2";
  * endpoint takes no references.
  */
 export const COVER_MODEL: ImageModel = "flux-2-klein-4b";
+
+/**
+ * What draws a creature sprite: GPT Image 2 at low quality, against the sprite
+ * style references (BUILD-PLAN, *Illustrations*, "Sprite spike"). Klein
+ * blanked body horror to a black square even with its safety checker off.
+ * Part of every sprite's key, so changing it redraws from then on.
+ */
+export const SPRITE_MODEL: ImageModel = "gpt-image-2";

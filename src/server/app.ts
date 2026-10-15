@@ -52,6 +52,8 @@ import {
   type PlateWork,
 } from "./plates.ts";
 import { plateEntryFor } from "../runtime/plates.ts";
+import { drawableCreatures, spriteKeyOf } from "../engine/index.ts";
+import { liveSpriteWork, serveSprite, type SpriteAnswer, type SpriteWork } from "./sprites.ts";
 import { waitUntil } from "@vercel/functions";
 
 // ---------------------------------------------------------------------------
@@ -566,6 +568,30 @@ export function createApp(): Hono<AuthEnv> {
   });
 
   /**
+   * A creature's sprite, for standing it in a plate. See `sprites.ts`.
+   *
+   * Only a kind this run can see: some creature carrying the key (`spriteKeyOf`)
+   * that is not hidden and stands in a room the run has entered. A sprite of
+   * anything else is a look at a creature the player has not met. Read from
+   * the run's entities, so a creature brought in mid-run is drawn too.
+   *
+   * `202` while somebody else's request is drawing it; the page asks again.
+   */
+  app.get("/api/runs/:id/sprites/:spriteId", async (c) => {
+    const user = currentUser(c);
+    const run = await mustGetRun(c.req.param("id"), user.id);
+    const spriteId = c.req.param("spriteId");
+    if (!mayDrawSprite(run.state, spriteId)) {
+      throw new HTTPException(404, { message: "no sprite for a creature this run has not met" });
+    }
+    const work = spriteWorker();
+    if (!work) return c.json({ status: "none" } satisfies SpriteAnswer);
+    const dungeon = await mustGetDungeon(run.dungeonId, user.id);
+    const answer = await serveSprite(run.state.entities, dungeon.doc.pass.theme, spriteId, work);
+    return c.json(answer, answer.status === "pending" ? 202 : 200);
+  });
+
+  /**
    * The dungeon's cover, for the opening. Drawn by the first ask — the client
    * sends one the moment a run starts — and served from then on.
    *
@@ -676,10 +702,22 @@ async function playTurn(c: Context<AuthEnv>, act: Action): Promise<Response> {
     plateStarted.add(room);
     const work = plateWorker();
     const entryId = work && plateEntryFor(dungeon.doc, r, room);
-    if (!work || !entryId) return;
-    waitUntil(
-      servePlate(dungeon.doc, room, entryId, work).catch((e) => console.error("[plate] early start failed", e))
-    );
+    if (work && entryId) {
+      waitUntil(
+        servePlate(dungeon.doc, room, entryId, work).catch((e) => console.error("[plate] early start failed", e))
+      );
+    }
+    // The creatures in it too, one sprite per kind, for the same reason.
+    const sprites = spriteWorker();
+    if (!sprites) return;
+    const keys = new Set(drawableCreatures(r.entities.creatures, room).map(spriteKeyOf));
+    for (const key of keys) {
+      waitUntil(
+        serveSprite(r.entities, dungeon.doc.pass.theme, key, sprites).catch((e) =>
+          console.error("[sprite] early start failed", e)
+        )
+      );
+    }
   };
   startPlate(run.state);
   const stopWatching = session.store.subscribe((s) => s.run && startPlate(s.run as RunState));
@@ -746,6 +784,21 @@ let plateWork: PlateWork | null | undefined;
 function plateWorker(): PlateWork | undefined {
   if (plateWork === undefined) plateWork = livePlateWork() ?? null;
   return plateWork ?? undefined;
+}
+
+/** The sprite worker, made on first use for the same reason as the plate worker. */
+let spriteWork: SpriteWork | null | undefined;
+function spriteWorker(): SpriteWork | undefined {
+  if (spriteWork === undefined) spriteWork = liveSpriteWork() ?? null;
+  return spriteWork ?? undefined;
+}
+
+/** Some creature carrying this sprite key is in sight in a room the run has entered. */
+function mayDrawSprite(state: RunState, spriteId: string): boolean {
+  const entered = new Set([state.currentRoomId, ...state.log.flatMap((e) => (e.kind === "arrival" && e.roomId ? [e.roomId] : []))]);
+  return [...entered].some((room) =>
+    drawableCreatures(state.entities.creatures, room).some((c) => spriteKeyOf(c) === spriteId)
+  );
 }
 
 async function mustGetRun(id: string, owner: string) {

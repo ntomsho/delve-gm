@@ -138,6 +138,17 @@ export interface DrawnThing {
   doorway: boolean;
 }
 
+/**
+ * The patch of floor every plate keeps clear for creatures, which are stood in
+ * it afterwards (`plateStage`, src/engine/plate-figures.ts). Only with the
+ * marked guide, which carries the dotted outline it refers to.
+ */
+export const PLATE_OPEN_FLOOR_NOTE =
+  "The area inside the DOTTED outline in the guide is kept clear for figures who will be added to the " +
+  "picture later. Draw it as plain, bare, level floor, continuous with the floor around it: no pit, " +
+  "crack, chasm, water, rubble, furniture, feature, doorway or steps inside it. Do not draw the dotted " +
+  "outline itself.";
+
 export interface RoomPromptParts {
   guide: GuideMode;
   /** how many style reference images ride along after the guide; 0 or absent for none */
@@ -153,6 +164,8 @@ export interface RoomPromptParts {
   drawn: DrawnThing[];
   /** treatments of the whole room: stains, haze, growth */
   surfaces: { look: string; where: string }[];
+  /** the guide marks a patch of floor to keep clear (marked guide only) */
+  openFloor?: boolean;
 }
 
 export function roomPlatePrompt(p: RoomPromptParts): string {
@@ -172,6 +185,7 @@ export function roomPlatePrompt(p: RoomPromptParts): string {
     L.push("", "OVER THE WALLS, FLOOR OR AIR");
     for (const s of p.surfaces) L.push(`- ${s.look} — ${s.where}`);
   }
+  if (p.openFloor && p.guide === "marks") L.push("", "OPEN FLOOR", PLATE_OPEN_FLOOR_NOTE);
   return L.join("\n");
 }
 

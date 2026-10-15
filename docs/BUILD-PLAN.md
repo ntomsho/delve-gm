@@ -899,7 +899,7 @@ Frozen Chancel, The Attic of the Droll Scholars): 13 sprites, 10 rooms.
   lines at the plate's threshold and reads faint. Shrinking the ink as greyscale and
   calling a pixel black at ≥20% ink matches the plate's line weight. Thickening the lines
   first was tried and fills small figures solid.
-- **Reserved floor: recommended for every plate, awaiting the author's call.** With the point chosen
+- **Reserved floor: DECIDED and BUILT, every plate keeps a patch clear.** With the point chosen
   after the plate is drawn, GPT's drawing drifted from the guide enough to stand figures
   over a widened chasm or in a doorway in 3 of 10 rooms. With the patch chosen first —
   the spot with the most open, visible floor in a 12 × 9 ft patch around it — drawn as a
@@ -942,6 +942,38 @@ is multiplied; feet stay where the camera puts them. The reserved patch is sized
 so a big group now spills past it a little, harmlessly so far. Shrinking the guide's door
 and wall heights instead would be the principled fix, at the cost of redrawing every plate,
 and is only worth it if 1.4 proves uneven across more rooms.
+
+**Creature sprites are BUILT (2026-10-14)** as above:
+- **The reserved floor** is the game's own: `plateStage` / `stageOutline`
+  (`src/engine/plate-figures.ts`), `RoomPlate.stage`, the dotted patch in `plateSketchSvg`
+  and `PLATE_OPEN_FLOOR_NOTE` in the prompt (marked guide only). It changes the guide and
+  prompt, so **every plate's key changed: plates redraw from then on.**
+- **Who stands where** is pure and in the engine: `roomClusters` (the author's rules),
+  `plateFigures` (stand points through `projectToFrame`, back to front) and `figureHeight`
+  (`FIGURE_SIZE_FT` × `FIGURE_SCALE`, capped `FIGURE_HEADROOM` below the top: a large
+  creature near the eye ran off the frame, head and all).
+- **Sprites** are served like plates: `GET /api/runs/:id/sprites/:spriteId`
+  (`serveSprite`, `src/server/sprites.ts`), stored in `plates` and the same bucket through
+  the shared `serveKeyed`. The look and size word are one Haiku call (`sprite-look` task),
+  kept in `plate_words` under `sprite-look:<key>`. The key hashes the Haiku request, the
+  prompt's fixed text, `SPRITE_MODEL`, the quality and the number of references — never
+  Haiku's answer. `SPRITE_STYLE_VERSION` redraws them all.
+  - Only a kind the run can see: some creature carrying the key, not hidden, in a room the
+    run has entered. Read from the run's entities, so a creature brought in mid-run is drawn.
+  - Started, like the plate, the moment a turn puts the player in a new room.
+  - `assets/*-refs/*.png` are bundled with the function (`vercel.json`).
+- **The stored sprite is two masks side by side** (`spriteMasksPng`,
+  `src/server/sprite-image.ts`): body left, ink right, 512 px tall, ink kept at ≥25% of a
+  stored pixel. **The page shrinks them smoothly and never re-thresholds.** Forcing small
+  figures back to pure black and white clumped their hatching into dark patches that read
+  as shading on the back row; the author asked for it gone.
+- **On the page** (`Plate.tsx`): the current room's plate gets `roomFigures` from the run
+  as it is now, worked out again only when who is in the room changes. Each figure is two
+  coats, the page's paper then its ink, feet at its point, mirrored on the right of the back
+  row. A plate the player has walked out of keeps the figures it last showed.
+- **Not built:** figures on a plate after a reload of a room left earlier (the scrollback
+  keeps them only in memory), and figures on resumed runs' earlier rooms, which have no
+  plate asked for anyway.
 
 **3. Item illustrations — two very different costs.**
 

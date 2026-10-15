@@ -37,6 +37,7 @@ import { challengeStateOf } from "./challenges.ts";
 import { generateDungeon, type GeneratedDungeon, type GenerateOptions } from "./generate.ts";
 import { MODELS } from "./llm/models.ts";
 import type { PlateAnswer } from "./plates.ts";
+import type { SpriteAnswer } from "./sprites.ts";
 import type { PlayerCharacter, Size } from "../engine/index.ts";
 
 /** What a run is: a seed, how big, how dangerous, and who walked in. */
@@ -124,6 +125,8 @@ export interface PlayableSession {
   plate?(roomId: string): Promise<PlateAnswer>;
   /** The dungeon's cover, above the opening. Absent on a local run, like `plate`. */
   cover?(): Promise<PlateAnswer>;
+  /** A creature's sprite, to stand it in a plate (`spriteKeyOf`). Absent on a local run, like `plate`. */
+  sprite?(spriteId: string): Promise<SpriteAnswer>;
   /**
    * Start a run in a world that is already written.
    *

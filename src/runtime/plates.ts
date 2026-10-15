@@ -20,7 +20,13 @@ import {
   featurePresence,
   featureWhere,
   isSurfaceExit,
+  drawableCreatures,
+  plateFigures,
   plateHotspots,
+  plateStage,
+  roomClusters,
+  type ICreature,
+  type PlateFigure,
   plateView,
   resolveBase,
   touches,
@@ -71,6 +77,12 @@ export interface RoomPlate {
   senses: PlateSubject[];
   /** where every way out and drawable feature lands on the plate, for the page's buttons */
   hotspots: Hotspot[];
+  /**
+   * The floor kept clear for creatures, in feet: marked in the guide, named in
+   * the prompt, and where the first cluster stands (`plateFigures`). Absent
+   * when the room has nowhere in the frame that will do.
+   */
+  stage?: Point;
 }
 
 const pairKey = (a: number, b: number) => `${Math.min(a, b)}-${Math.max(a, b)}`;
@@ -160,6 +172,7 @@ export function roomPlate(d: GeneratedDungeon, roomId: string, entryId: string):
     features: features.map((f) => ({ id: f.id, cells: cellsOf.get(f.id) ?? [] })),
   };
   const view = plateView(input);
+  const stage = plateStage(input, view);
 
   return {
     roomId,
@@ -178,6 +191,7 @@ export function roomPlate(d: GeneratedDungeon, roomId: string, entryId: string):
     features,
     senses,
     hotspots: plateHotspots(input, view),
+    ...(stage ? { stage } : {}),
   };
 }
 
@@ -295,6 +309,26 @@ export function plateEntryFor(
   if (wanted && entries.includes(wanted)) return wanted;
   const surface = d.entities.connectors.find((c) => entries.includes(c.id) && isSurfaceExit(c));
   return surface?.id ?? entries[0];
+}
+
+/**
+ * The creatures in a room, stood in its plate: who stands where, as the page
+ * lays the sprites down. Live — from the run's entities as they stand now — so
+ * a creature slain is gone and a pack worn down shows fewer. The plate is the
+ * same one the server drew (`plateEntryFor`, `roomPlate`), so the first
+ * cluster stands on the floor it kept clear. Empty when the room has no plate
+ * or no one in it.
+ */
+export function roomFigures(
+  d: GeneratedDungeon,
+  run: Parameters<typeof plateEntryFor>[1] & { entities: { creatures: ICreature[] } },
+  roomId: string
+): PlateFigure[] {
+  const creatures = drawableCreatures(run.entities.creatures, roomId);
+  if (!creatures.length) return [];
+  const entryId = plateEntryFor(d, run, roomId);
+  const p = entryId ? roomPlate(d, roomId, entryId) : undefined;
+  return p ? plateFigures(p.input, p.view, roomClusters(creatures)) : [];
 }
 
 /** One button on a plate: what it is, and where, as fractions of the plate from its top-left. */

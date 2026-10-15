@@ -219,3 +219,7 @@ export * from "./plate-view.ts";
 export * from "./plate-hotspots.ts";
 export * from "./feature-presence.ts";
 export * from "./plate-prompt.ts";
+// Creatures stood in a plate: the floor it keeps clear, who stands where, and
+// what the sprite models are told.
+export * from "./plate-figures.ts";
+export * from "./sprite-prompt.ts";
