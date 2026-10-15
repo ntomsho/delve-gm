@@ -225,6 +225,8 @@ export interface AnchorProps {
   "data-verb"?: string;
   /** what answering it sends */
   "data-verb-text"?: string;
+  /** the travel something is in the way of, shown greyed beside the question */
+  "data-verb-blocked"?: string;
   /** with a mouse */
   onMouseEnter?(): void;
   onMouseLeave?(): void;
@@ -254,6 +256,7 @@ export function useAnchor(tip: string) {
       "data-hover-body": card.body,
       "data-verb": acting ? verb?.label : undefined,
       "data-verb-text": acting ? verb?.sentence : undefined,
+      "data-verb-blocked": acting ? verb?.blocked : undefined,
     };
     if (touch) {
       return {
@@ -418,9 +421,24 @@ function Pill({
 }) {
   const label = anchor?.getAttribute("data-verb") ?? "";
   const sentence = anchor?.getAttribute("data-verb-text") ?? "";
+  const blocked = anchor?.getAttribute("data-verb-blocked") ?? "";
   if (label === "" || sentence === "") return null;
 
   return (
+    <>
+    {blocked !== "" && (
+      // Greyed and never sent: the way is there, and something is in it.
+      <button
+        type="button"
+        disabled
+        data-blocked
+        title="Something is in the way"
+        className="cursor-not-allowed px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] line-through opacity-50"
+        style={{ color: color.paper }}
+      >
+        {blocked}
+      </button>
+    )}
     <button
       type="button"
       // The sentence is not shown, but it is on the element that sends it — so a
@@ -434,6 +452,7 @@ function Pill({
     >
       {label}
     </button>
+    </>
   );
 }
 
@@ -566,6 +585,17 @@ export function InspectSheet({ className, onActed }: { className?: string; onAct
 
       {verb && (
         <div className="mt-3">
+          {acting && verb.blocked && (
+            // Greyed and never sent: the way is there, and something is in it.
+            <button
+              type="button"
+              disabled
+              data-blocked
+              className="mb-2 h-12 w-full cursor-not-allowed border border-rule font-mono text-[12px] uppercase tracking-[0.14em] text-pencil line-through"
+            >
+              {verb.blocked}
+            </button>
+          )}
           {acting ? (
             <button
               type="button"

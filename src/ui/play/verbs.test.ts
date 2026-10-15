@@ -119,14 +119,19 @@ describe("a way through", () => {
     expect(wayVerb(way({ toUnknown: true }), false).label).toBe("Examine?");
   });
 
-  it("offers only a look when something is in the way", () => {
+  it("offers a look when something is in the way, with the travel shown greyed", () => {
     // The reversal of `TravelConfirm`, which offered travel through anything and
     // let the referee say no. A pill sends immediately, so this would spend a
-    // turn to be told what the room card already says.
+    // turn to be told what the room card already says — but the door still
+    // shows it is a way through.
     expect(wayVerb(way({ toUnknown: true, blocked: true }), true)).toEqual({
       label: "Examine?",
       sentence: "I examine the iron door.",
+      blocked: "Go Through?",
     });
+    // Nothing greyed where travel would not be offered anyway.
+    expect(wayVerb(way({ toUnknown: true, blocked: true }), false).blocked).toBeUndefined();
+    expect(wayVerb(way({ blocked: true }), true).blocked).toBeUndefined();
   });
 
   it("offers to leave the dungeon through the way out", () => {
@@ -140,7 +145,10 @@ describe("a way through", () => {
   });
 
   it("will not offer to leave through a way out that is shut", () => {
-    expect(wayVerb(way({ surface: true, blocked: true }), true).label).toBe("Examine?");
+    expect(wayVerb(way({ surface: true, blocked: true }), true)).toMatchObject({
+      label: "Examine?",
+      blocked: "Leave the Dungeon?",
+    });
   });
 
   it("falls back to a phrase when the connector has no name", () => {
