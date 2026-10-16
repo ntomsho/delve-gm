@@ -10,7 +10,7 @@
 
 import { z } from "zod";
 import type { DungeonPassResponse } from "./dungeon-pass.ts";
-import type { ContentPassResponse } from "./content-pass.ts";
+import type { ContentPassResponse } from "./content-pass/response.ts";
 import type { Omission } from "../types.ts";
 import type { SeamsPassResponse } from "./seams-pass.ts";
 import type { KeysPassResponse } from "./keys-pass.ts";

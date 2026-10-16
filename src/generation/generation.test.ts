@@ -1,12 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { applyContentPass } from "./content/passes/content-pass/apply.ts";
+import { renderContentPassPrompt } from "./content/passes/content-pass/prompt.ts";
 import {
-  applyContentPass,
-  buildContentPassPayload,
   contentPassOmissions,
-  renderContentPassPrompt,
-  type ContentPassPayload,
   type ContentPassResponse,
-} from "./content/passes/content-pass.ts";
+} from "./content/passes/content-pass/response.ts";
+import {
+  buildContentPassPayload,
+  type ContentPassPayload,
+} from "./content/passes/content-pass/build.ts";
 import {
   applyDungeonPass,
   buildDungeonPassPayload,

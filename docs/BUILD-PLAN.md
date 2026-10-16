@@ -543,7 +543,7 @@ strings beside the code that sends them:
 | Instructions | Where now | Fills in values from code |
 |---|---|---|
 | `DUNGEON_PASS_INSTRUCTIONS` (99 lines) | `generation/content/passes/dungeon-pass.ts` | none |
-| `CONTENT_PASS_INSTRUCTIONS` (169 lines) | `generation/content/passes/content-pass.ts` | 5 |
+| `CONTENT_PASS_INSTRUCTIONS` (169 lines) | `generation/content/passes/content-pass/prompt.ts` | 5 |
 | `SEAMS_PASS_INSTRUCTIONS` (24 lines) | `generation/content/passes/seams-pass.ts` | 2 |
 | `KEYS_PASS_INSTRUCTIONS` (33 lines) | `generation/content/passes/keys-pass.ts` | none |
 | `TALLY_INSTRUCTIONS` (33 lines) | `gameplay/tally/tally-pass.ts` | none |

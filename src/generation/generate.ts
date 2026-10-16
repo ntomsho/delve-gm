@@ -22,13 +22,13 @@
  * until the player walks in on it; room entry is a runtime pass.
  */
 
+import { applyContentPass } from "./content/passes/content-pass/apply.ts";
+import { renderContentPassPrompt } from "./content/passes/content-pass/prompt.ts";
 import {
-  applyContentPass,
-  buildContentPassPayload,
   contentPassOmissions,
-  renderContentPassPrompt,
   type ContentPassResponse,
-} from "./content/passes/content-pass.ts";
+} from "./content/passes/content-pass/response.ts";
+import { buildContentPassPayload } from "./content/passes/content-pass/build.ts";
 import {
   applyDungeonPass,
   buildDungeonPassPayload,

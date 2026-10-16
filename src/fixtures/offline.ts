@@ -11,12 +11,12 @@
  * it, and is imported by the suites that need a world to work on.
  */
 
+import { applyContentPass } from "../generation/content/passes/content-pass/apply.ts";
+import type { ContentPassResponse } from "../generation/content/passes/content-pass/response.ts";
 import {
-  applyContentPass,
   buildContentPassPayload,
   type ContentPassPayload,
-  type ContentPassResponse,
-} from "../generation/content/passes/content-pass.ts";
+} from "../generation/content/passes/content-pass/build.ts";
 import {
   applyDungeonPass,
   buildDungeonPassPayload,

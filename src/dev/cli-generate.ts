@@ -23,10 +23,8 @@
 import { readFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { blockPlanValid, roomSizes, type BlockPlan } from "../generation/floorplan/blockplan.ts";
-import {
-  buildContentPassPayload,
-  renderContentPassPrompt,
-} from "../generation/content/passes/content-pass.ts";
+import { renderContentPassPrompt } from "../generation/content/passes/content-pass/prompt.ts";
+import { buildContentPassPayload } from "../generation/content/passes/content-pass/build.ts";
 import {
   buildDungeonPassPayload,
   renderDungeonPassPrompt,

@@ -14,7 +14,8 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { applyContentPass, buildContentPassPayload } from "./content/passes/content-pass.ts";
+import { applyContentPass } from "./content/passes/content-pass/apply.ts";
+import { buildContentPassPayload } from "./content/passes/content-pass/build.ts";
 import {
   applyKeysPass,
   buildKeysPassPayload,
