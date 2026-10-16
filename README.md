@@ -1,4 +1,4 @@
-# Dungeon Crawler
+# Delve GM
 
 A single-player dungeon crawl run by an LLM game master. You type what your character
 does in plain language; the game master works out what happens, asks for a roll when

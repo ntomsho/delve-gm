@@ -72,11 +72,11 @@ export function SignIn({ onSignIn, onGuest, notice }: Props) {
           className="text-3xl mb-2"
           style={{ fontFamily: font.display, color: color.ink, letterSpacing: "-0.02em" }}
         >
-          AI Dungeon
+          Delve GM
         </h1>
         <p className="text-sm mb-8" style={{ fontFamily: font.prose, color: color.graphite }}>
-          An online platform to generate dynamic procedural dungeons and run
-          through them with an AI-powered dungeonmaster.
+          A single-player dungeon crawl with an AI game master, in dungeons
+          written before you enter them.
         </p>
 
         {notice && (
