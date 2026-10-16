@@ -24,13 +24,13 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ntomsho/aidungeon.git"
+    "url": "git+https://github.com/ntomsho/delve-gm.git"
   },
   "type": "module",
   "bugs": {
-    "url": "https://github.com/ntomsho/aidungeon/issues"
+    "url": "https://github.com/ntomsho/delve-gm/issues"
   },
-  "homepage": "https://github.com/ntomsho/aidungeon#readme",
+  "homepage": "https://github.com/ntomsho/delve-gm#readme",
   "dependencies": {
     "@fal-ai/client": "1.10.1",
     "@hono/node-server": "^2.1.1",
