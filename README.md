@@ -6,7 +6,7 @@ there is something at stake, and narrates the result. The rules are
 Knave 1.0, and the dungeons are stocked from the
 tables of *Maze Rats* and *Cairn*.
 
-**Play it at [aidungeon.vercel.app](https://aidungeon.vercel.app)**: sign in with Google
+**Play it at [delve-gm.vercel.app](https://delve-gm.vercel.app)**: sign in with Google
 or play as a guest.
 
 ## What makes it work

@@ -237,8 +237,8 @@ var IMAGE_MODELS = {
 };
 /**
 * What draws a room illustration in the game: GPT Image 2 at low quality, from the
-* marked guide and the style references (BUILD-PLAN, *Illustrations*, "Spike
-* outcome"). Part of every illustration's key, so changing it redraws from then on.
+* marked guide and the style references. Of the models tried, it followed the
+* prompt and the guide most closely, and medium quality was no better. Part of every illustration's key, so changing it redraws from then on.
 */
 var ILLUSTRATION_MODEL = "gpt-image-2";
 /**
@@ -249,7 +249,7 @@ var ILLUSTRATION_MODEL = "gpt-image-2";
 var COVER_MODEL = "flux-2-klein-4b";
 /**
 * What draws a creature sprite: GPT Image 2 at low quality, against the sprite
-* style references (BUILD-PLAN, *Illustrations*, "Sprite spike"). Klein
+* style references. Klein
 * blanked body horror to a black square even with its safety checker off.
 * Part of every sprite's key, so changing it redraws from then on.
 */
@@ -5425,7 +5425,7 @@ var EQUIPMENT_SHARE = .5;
 var CARRIED_SHARE = .6;
 /** How many of the goal room's keyable properties get a placed key, beyond its location. */
 var GOAL_PROPERTY_KEYS = [1, 3];
-/** The game master's ad-hoc allowance, held out of the partition. See REWARDS-SPEC §7.1. */
+/** The game master's ad-hoc allowance, held out of the partition. See ARCHITECTURE §8.2. */
 var ALLOWANCE_SHARE = .1;
 /**
 * What a key is worth when it is not a catalog item. Deliberately small: a key
@@ -11198,8 +11198,7 @@ function featureWhere(s) {
 *
 * An illustration is drawn once and shared; the creatures in a room change every turn.
 * So the illustration is drawn with no one in it and the creatures are stood in it
-* afterwards, each a sprite drawn once per kind (BUILD-PLAN, *Illustrations*,
-* "2. Creature sprites"). Everything here is geometry and rules, no pixels:
+* afterwards, each a sprite drawn once per kind (ARCHITECTURE §10.2). Everything here is geometry and rules, no pixels:
 *
 *   illustrationStage     the patch of open floor every illustration keeps clear for figures,
 *                  chosen before the illustration is drawn and marked in its guide
@@ -11363,7 +11362,7 @@ function figureRole(c) {
 /**
 * The sprite a creature is drawn with. A named person is keyed by template and
 * name, not by entity: generation can write one person into two rooms as two
-* entities (BUILD-PLAN, "One leader, one entity"), and they should still be one
+* entities (ROADMAP, "One leader, one entity"), and they should still be one
 * drawing. Everyone else is their template, so a group's nameless members in
 * every room — and a pack worn down to one — share a drawing.
 */
@@ -11796,7 +11795,7 @@ function illustrationHotspots(input, view) {
 * The join between a generated dungeon and `illustrationView`. This is where a room's
 * entities become cells and doors, and where CONCEALMENT IS FILTERED OUT: a
 * illustration is a picture for the player, and a hidden feature or a secret door fed
-* to an image model is a picture of the secret (BUILD-PLAN, Illustrations).
+* to an image model is a picture of the secret (ARCHITECTURE §10.1).
 *
 * Reads the dungeon as GENERATED, never the run, so a room's illustration does not
 * depend on what one player has found — it is the dungeon's, and every player
@@ -14164,7 +14163,7 @@ function slayCreature(ctx, creature) {
 *
 * Two things are settled here rather than there. A route that does not exist is
 * a REJECTION, so the reasons reach the game master and it gets the one retry
-* BUILD-PLAN §2.2 allows — and so is one stopped before its first step, which goes nowhere; a
+* ARCHITECTURE §5.2 allows — and so is one stopped before its first step, which goes nowhere; a
 * route that ends short is APPLIED, because getting as far as the Torture Room
 * and finding something in it is a real outcome and not an error.
 * The event says so, and the arrival pass describes wherever they actually are.
@@ -14552,7 +14551,7 @@ function applyOne(ctx, diff) {
 * The write above deliberately moves nothing, so there is exactly one stepper
 * and no case where a creature covers two rooms for one turn.
 *
-* `roomId` is the whole of the move: occupancy is relational (BUILD-PLAN §2.9),
+* `roomId` is the whole of the move: occupancy is relational (ARCHITECTURE §4.2),
 * so leaving one room and joining another is one assignment and there is no
 * second list to keep in step with it.
 *
@@ -15256,7 +15255,7 @@ var signed = (n) => `${n >= 0 ? "+" : ""}${n}`;
 * THE DICE TOOL
 * =============
 *
-* The game master's half of the split described in BUILD-PLAN §2.7. The player's
+* The game master's half of the split described in ARCHITECTURE §7. The player's
 * roll is thrown by the interface and arrives with their next message; every
 * other roll in the game — the creature that strikes back, the nerve that
 * breaks, the ceiling that comes down — is asked for here.
@@ -15954,7 +15953,7 @@ function renderRoll(o) {
 	]);
 }
 /**
-* Completed turns, as structure rather than prose — BUILD-PLAN §2.8. The paragraphs are
+* Completed turns, as structure rather than prose — ARCHITECTURE §5.3. The paragraphs are
 * gone; what a finished turn owes the next one is a few facts.
 */
 function renderRecords(records) {
@@ -16268,7 +16267,7 @@ var gameMasterStep = z.enum([
 * — but the four cases named so the game master reads what each one covers.
 *
 * `long` is on the wire and is refused on the way back in until Rest exists to
-* produce it (BUILD-PLAN §3); the description says so, because a model offered a value it
+* produce it (ROADMAP, *Rest*); the description says so, because a model offered a value it
 * cannot use will reach for it.
 */
 var timeSpent = z.enum([
@@ -16607,7 +16606,7 @@ function missingPost(req, c) {
 * twice for one move.
 *
 * `long` IS A NIGHT'S REST AND THERE IS NO WAY TO SAY SO YET. Rest is a feature
-* still to build (BUILD-PLAN §3, *Rest*) and arrives as a button, resolved
+* still to build (ROADMAP, *Rest*) and arrives as a button, resolved
 * client-side like the player's own d20; until it exists a `long` turn is the
 * game master inventing an hour that nothing in the interface offered. It is on
 * the wire so Rest does not have to reopen the schema, and refused here so it
@@ -16628,7 +16627,7 @@ var IDLE_STAGES = [
 /**
 * The cross-field rules a JSON Schema cannot state.
 *
-* BUILD-PLAN §2.5 wants these caught as schema violations rather than left to
+* ARCHITECTURE §5.2 wants these caught as schema violations rather than left to
 * confuse the interface — a `roll_offered` with nothing to roll is a game
 * sitting on a Roll button that does nothing. Returned as text because that is
 * what goes back to the model.
@@ -17084,7 +17083,7 @@ function describeFoeRolls(rolls) {
 *
 * WHAT THIS FILE DECIDES, as against what the game master decides:
 *
-*   - that a refused commit is worth exactly one more ask (BUILD-PLAN §2.2:
+*   - that a refused commit is worth exactly one more ask (ARCHITECTURE §5.2:
 *     no partial fallback, and a second failure surfaces)
 *   - when a turn has CLOSED, and so when the clock ticks and the exchange is
 *     thrown away
@@ -17993,7 +17992,7 @@ function spriteLookMessage(s) {
 *
 * The subject is read from the run's entities rather than the dungeon's, so a
 * creature the game master brought in mid-run can be drawn too. A base is never
-* written at runtime (BUILD-PLAN §2.4), so for a generated creature the two agree and its
+* written at runtime (ARCHITECTURE §4.1), so for a generated creature the two agree and its
 * sprite's key is the same in every run of the dungeon.
 */
 /** The creature a sprite key draws, from any one entity that carries it. */
@@ -18707,16 +18706,15 @@ function configureAnthropic() {
 	});
 }
 /**
-* Who may call this API from a browser.
-*
-* Was a bare `cors()` — any origin at all — which was survivable while there
-* was nothing behind it worth taking. Now there are accounts, and an open CORS
-* policy means any page the player visits can spend their tokens with their
-* session. `CORS_ORIGINS` exists so a preview deployment or an itch.io embed is
+* Who may call this API from a browser. An open CORS policy would let any page
+* the player visits spend their allowance with their session. The old
+* aidungeon.vercel.app address stays on the list while links to it are still
+* about. `CORS_ORIGINS` exists so a preview deployment or an itch.io embed is
 * an environment variable rather than a redeploy.
 */
 function allowedOrigins() {
 	return [
+		"https://delve-gm.vercel.app",
 		"https://aidungeon.vercel.app",
 		"http://localhost:5173",
 		...(process.env.CORS_ORIGINS ?? "").split(",").map((s) => s.trim()).filter((s) => s !== "")
@@ -18734,7 +18732,7 @@ function createApp() {
 	*
 	* `/api/health` is the one exception and is registered before this: it is what
 	* the twice-weekly Vercel cron hits to stop Supabase pausing the project
-	* when idle), a cron holds no session, and it reads and writes nothing.
+	* when idle; a cron holds no session, and it reads and writes nothing.
 	*
 	* This API spends an Anthropic key, so this is the line that keeps it from
 	* being open to anyone.

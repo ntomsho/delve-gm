@@ -62,7 +62,9 @@ function configureAnthropic(): void {
 
 /**
  * Who may call this API from a browser. An open CORS policy would let any page
- * the player visits spend their allowance with their session. `CORS_ORIGINS` exists so a preview deployment or an itch.io embed is
+ * the player visits spend their allowance with their session. The old
+ * aidungeon.vercel.app address stays on the list while links to it are still
+ * about. `CORS_ORIGINS` exists so a preview deployment or an itch.io embed is
  * an environment variable rather than a redeploy.
  */
 function allowedOrigins(): string[] {
@@ -70,7 +72,12 @@ function allowedOrigins(): string[] {
     .split(",")
     .map((s) => s.trim())
     .filter((s) => s !== "");
-  return ["https://aidungeon.vercel.app", "http://localhost:5173", ...extra];
+  return [
+    "https://delve-gm.vercel.app",
+    "https://aidungeon.vercel.app",
+    "http://localhost:5173",
+    ...extra,
+  ];
 }
 
 export function createApp(): Hono<AuthEnv> {
