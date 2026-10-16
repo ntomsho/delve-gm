@@ -6277,7 +6277,664 @@ function mintGoalProperties(res, payload, sd) {
 	return minted;
 }
 //#endregion
-//#region src/generation/content/passes/content-pass.ts
+//#region src/generation/content/passes/content-pass/apply.ts
+/** Every entity carries the procgen rolls behind it, keyed by source table. */
+/**
+* EVERY NAME IN THE RESPONSE, CAPITALISED, IN ONE PLACE.
+*
+* A dozen sites below lift `name` off the response and onto an entity — rooms,
+* written entities, fixtures, promotions, connectors, groups, distinct
+* specimens, the goal — and normalising at each of them means the thirteenth
+* one, whenever it is written, ships lower-case names again. This is the
+* chokepoint instead: past here, no name in `res` is unnormalised.
+*
+* Keyed on the field NAME, which is safe because every `name` in
+* `ContentPassResponse` is a thing the player reads. What is deliberately not
+* touched: `kind` and `form` and `position`, which are vocabulary the code
+* matches on and would break if their case moved.
+*
+* On a copy. The raw response is what the journal recorded and what a replay
+* reads back; rewriting it underneath them would make the record disagree with
+* the call it is a record of.
+*/
+function withProperNames(res) {
+	const copy = structuredClone(res);
+	const walk = (node) => {
+		if (Array.isArray(node)) {
+			for (const v of node) walk(v);
+			return;
+		}
+		if (node === null || typeof node !== "object") return;
+		const rec = node;
+		for (const [k, v] of Object.entries(rec)) if (k === "name" && typeof v === "string") rec[k] = properName(v);
+		else walk(v);
+	};
+	walk(copy);
+	return copy;
+}
+function applyContentPass(raw, payload, ep, bp, sd, rng) {
+	const res = withProperNames(raw);
+	const roomById = new Map(ep.rooms.map((r) => [r.id, r]));
+	const roomByRef = new Map(sd.rooms.map((r) => [`room_${r.index}`, r.roomId]));
+	const mobById = new Map(sd.mobiles.map((m) => [m.id, m]));
+	const groupById = /* @__PURE__ */ new Map();
+	for (const g of [...bp.inhabitants, ...sd.wandererGroups]) groupById.set(g.id, g);
+	const featureById = new Map(ep.features.map((f) => [f.id, f]));
+	const itemById = new Map(ep.items.map((i) => [i.id, i]));
+	const hazardById = new Map(ep.hazards.map((h) => [h.id, h]));
+	const connectorById = new Map(ep.connectors.map((c) => [c.id, c]));
+	const detailByText = new Map(ep.detailCandidates.map((d) => [`${d.roomId}:${d.text}`, d]));
+	const briefByRoom = new Map(payload.rooms.map((r) => [r.ref, r]));
+	const entityKw = /* @__PURE__ */ new Map();
+	const encounterBrief = /* @__PURE__ */ new Map();
+	for (const r of payload.rooms) {
+		for (const e of r.entities) entityKw.set(e.ref, e.keywords);
+		for (const en of r.encounters) encounterBrief.set(en.ref, en);
+	}
+	const withheld = withheldKeyItems(sd, ep);
+	const created = [];
+	/**
+	* Which mobile each created creature came from.
+	*
+	* The roster this pass writes REPLACES the placeholder creatures the entities
+	* pass emitted, with new ids — so the `mobileId` bindings written back there
+	* point at entities that no longer exist the moment a chunk lands. Anything
+	* downstream that has to get from a stocking-level mobile to the creature
+	* standing in the room needs the mapping rebuilt, and this is the only place
+	* that knows it. See the binding rewrite at the foot of this function.
+	*/
+	const createdFor = [];
+	let goalEntity;
+	for (const rr of res.rooms) {
+		const roomId = roomByRef.get(rr.ref);
+		if (!roomId) continue;
+		const brief = briefByRoom.get(rr.ref);
+		const room = roomById.get(roomId);
+		if (room) {
+			room.name = rr.name;
+			room.base = rr.base;
+			room.keywords = brief?.keywords ?? {};
+		}
+		const site = payload.ground?.[rr.ref];
+		const taken = /* @__PURE__ */ new Set();
+		const place = (word) => {
+			if (!site) return void 0;
+			return placeAt(word !== void 0 && isPositionWord(word) ? word : "centre", site.ground, site.geometry, rng, { taken });
+		};
+		for (const w of rr.entities ?? []) {
+			const kw = entityKw.get(w.ref) ?? {};
+			const f = featureById.get(w.ref);
+			if (f) {
+				f.name = w.name;
+				f.base = w.base;
+				f.keywords = kw;
+				f.place = place(w.position);
+				continue;
+			}
+			const it = itemById.get(w.ref);
+			if (it) {
+				if (withheld.has(w.ref)) continue;
+				it.name = w.name;
+				it.base = w.base;
+				it.keywords = kw;
+				if (it.parentId === roomId) it.place = place(w.position);
+				continue;
+			}
+			const hz = hazardById.get(w.ref);
+			if (hz) {
+				hz.name = w.name;
+				hz.keywords = kw;
+				const seed = ep.registry.hazards[hz.blueprintId];
+				if (seed) seed.base = w.base;
+			}
+		}
+		for (const it of ep.items) {
+			if (!withheld.has(it.id) || it.parentId !== roomId) continue;
+			it.place = place(rng.pick(POSITION_WORDS));
+		}
+		for (const fx of (rr.fixtures ?? []).slice(0, site ? fixtureCap(site.geometry) : 0)) {
+			if (!isFixtureKind(fx.kind)) continue;
+			const word = isPositionWord(fx.position) ? fx.position : "centre";
+			const placed = placeFixture({
+				kind: fx.kind,
+				position: word
+			}, site.ground, site.geometry, rng, { taken });
+			if (!placed) continue;
+			const f = addFixture(roomId, ep);
+			f.name = fx.name;
+			f.base = fx.base;
+			f.keywords = { Fixture: fx.kind };
+			f.place = placed;
+		}
+		for (const pr of rr.promotions ?? []) {
+			const cand = detailByText.get(`${roomId}:${pr.text}`);
+			if (!cand) continue;
+			const f = promoteDetail(cand, ep);
+			f.name = pr.name;
+			f.base = pr.base;
+			f.keywords = { "Room Detail": pr.text };
+			if (pr.hidden) f.isHidden = true;
+			f.place = place(pr.position);
+		}
+		for (const cr of rr.connectors ?? []) {
+			const conn = connectorById.get(cr.ref);
+			if (!conn) continue;
+			if (brief?.connectors.find((c) => c.ref === cr.ref)?.seam) continue;
+			conn.name = cr.name;
+			conn.base = cr.form;
+			conn.keywords = {};
+			if (cr.requirement) conn.conditional = cr.requirement || "[gated -- condition not yet written]";
+		}
+		if (rr.goal && roomId === ep.pendingGoal.roomId) {
+			goalEntity = createGoalEntity(rr.goal, roomId, sd, rng, ep);
+			ep.goalEntityId = goalEntity.id;
+			if (goalEntity.type === "Creature") created.push(goalEntity);
+			if (goalEntity.type === "Item" || goalEntity.type === "RoomFeature") goalEntity.place = place(rr.goal.position);
+		}
+		for (const er of rr.encounters ?? []) {
+			const m = mobById.get(er.ref);
+			if (!m) continue;
+			const en = encounterBrief.get(er.ref);
+			const group = m.groupId ? groupById.get(m.groupId) : void 0;
+			if (er.group && en?.group) {
+				const c = group ? createCreatureFromGroup(group, roomId, sd.level, rng, { name: er.group.name }) : createCreatureFromSeed(m.monster ?? m.npc, roomId, sd.level, m.monster?.complexity ?? "simple", ep.registry, rng, { name: er.group.name });
+				c.count = en.group.count;
+				c.activity = er.group.activity;
+				c.keywords = en.group.keywords;
+				if (er.group.stats) mergeStats(c.stats, er.group.stats);
+				if (group) {
+					const tpl = ep.registry.groups[group.id] ??= { id: group.id };
+					tpl.base ??= er.group.base;
+					tpl.name ??= er.group.name;
+				} else c.base = er.group.base;
+				created.push(c);
+				createdFor.push({
+					mobileId: er.ref,
+					creature: c
+				});
+			}
+			for (const d of er.distinct ?? []) {
+				const c = mintDistinct(d, m, group, roomId, sd.level, rng, ep);
+				c.count = 1;
+				c.activity = d.activity;
+				c.keywords = en?.distinct.find((x) => x.kind === d.kind && x.member === d.member)?.keywords ?? {};
+				if (d.stats) mergeStats(c.stats, d.stats);
+				created.push(c);
+				createdFor.push({
+					mobileId: er.ref,
+					creature: c
+				});
+			}
+		}
+	}
+	const writtenRoomIds = new Set(res.rooms.map((rr) => roomByRef.get(rr.ref)).filter((x) => !!x));
+	ep.creatures = ep.creatures.filter((c) => !writtenRoomIds.has(c.roomId));
+	ep.creatures.push(...created);
+	const rebound = new Set(createdFor.map((c) => c.mobileId));
+	ep.bindings = ep.bindings.filter((b) => !(b.element === "creature" && b.mobileId !== void 0 && rebound.has(b.mobileId)));
+	for (const { mobileId, creature } of createdFor) ep.bindings.push({
+		entityId: creature.id,
+		roomId: creature.roomId,
+		element: "creature",
+		keywords: creature.activity ? [creature.activity] : [],
+		mobileId
+	});
+	return {
+		goalEntity,
+		createdCreatures: created
+	};
+}
+function mintDistinct(d, m, group, roomId, level, rng, ep) {
+	if (d.kind === "elite" && group && group.kind === "monsters" && group.biggerSpecimen) {
+		const c = createCreatureFromSeed(group.biggerSpecimen, roomId, level, group.biggerSpecimen.complexity, ep.registry, rng, {
+			name: d.name,
+			isLeader: d.isLeader,
+			affiliationGroupId: group.id
+		});
+		ep.registry.creatures[c.narrative.blueprintId].base = d.base;
+		return c;
+	}
+	if (d.kind === "named" && group && group.kind === "people") {
+		const c = createCreatureFromGroup(group, roomId, level, rng, {
+			member: d.member,
+			isLeader: d.isLeader,
+			name: d.name
+		});
+		c.base = d.base;
+		return c;
+	}
+	const c = createCreatureFromSeed(m.monster ?? m.npc, roomId, level, m.monster?.complexity ?? "simple", ep.registry, rng, {
+		name: d.name,
+		isLeader: d.isLeader
+	});
+	ep.registry.creatures[c.narrative.blueprintId].base = d.base;
+	return c;
+}
+function mergeStats(spine, dev) {
+	if (dev.damage) spine.damage = dev.damage;
+	if (dev.armorDefense !== void 0) spine.armorDefense = dev.armorDefense;
+	if (dev.morale !== void 0) spine.morale = dev.morale;
+	if (dev.modifiers) spine.modifiers = {
+		...spine.modifiers,
+		...dev.modifiers
+	};
+}
+function createGoalEntity(goal, roomId, sd, rng, ep) {
+	const kw = {
+		Reward: ep.pendingGoal.reward,
+		Mission: ep.pendingGoal.mission
+	};
+	if (goal.entityType === "Item") {
+		const it = {
+			id: makeId(),
+			name: goal.name,
+			type: "Item",
+			base: goal.base,
+			parentId: roomId,
+			slots: 1,
+			value: goalItemValue(sd.rooms.flatMap((r) => r.rewards), rng)
+		};
+		it.keywords = kw;
+		ep.items.push(it);
+		return it;
+	}
+	if (goal.entityType === "Creature") {
+		const c = createCreatureFromSeed({
+			complexity: "major",
+			silhouette: "humanoid",
+			traitsAndAbilities: [],
+			featuresAndMutations: [],
+			tactic: "",
+			weaknesses: [],
+			personality: ""
+		}, roomId, sd.level, "major", ep.registry, rng, { name: goal.name });
+		ep.registry.creatures[c.narrative.blueprintId].base = goal.base;
+		c.keywords = kw;
+		return c;
+	}
+	const f = {
+		id: makeId(),
+		name: goal.name,
+		type: "RoomFeature",
+		base: goal.base,
+		roomId
+	};
+	f.keywords = kw;
+	ep.features.push(f);
+	return f;
+}
+//#endregion
+//#region src/generation/content/passes/content-pass/prompt.ts
+/**
+* THE CONTENT PASS'S PROMPT: a chunk's payload rendered into the call, and the
+* standing instructions the model writes the region against.
+*/
+var kwLine = (kw) => Object.entries(kw).map(([t, v]) => `${t}=${v}`).join("  |  ") || "--";
+function renderContentPassPrompt(p) {
+	const L = [];
+	L.push(p.instructions, "");
+	L.push("=== DUNGEON FICTION (shared context) ===", p.dungeonContext, "");
+	L.push(`=== ROOMS TO WRITE (${p.rooms.length}) ===`, "");
+	for (const r of p.rooms) {
+		L.push(`--- ${r.ref} ---`);
+		L.push(`identity: ${r.identity}`);
+		if (r.role !== "normal") L.push(`role: ${r.role}`);
+		L.push(`depth: ${r.depth}   tension: ${r.tension}${r.isDeadEnd ? "   dead end" : ""}`);
+		L.push(`headline: ${r.headline}${r.stacked ? ` + ${r.stacked}` : ""}`);
+		L.push(`room keywords: ${kwLine(r.keywords)}`);
+		if (r.geometry) L.push(`as drawn: ${r.geometry}`);
+		for (const e of r.entities) L.push(`entity [${e.ref}] ${e.kind} (${e.entity})${e.hidden ? " HIDDEN" : ""}: ${kwLine(e.keywords)}` + (e.note ? ` -- ${e.note}` : ""));
+		for (const d of r.detailCandidates) L.push(`promotable detail [${kwLine(d.keywords)}] -- make it an entity only if a player would act on it`);
+		for (const c of r.connectors) {
+			const where = c.wall ? ` in ${c.wall}` : "";
+			if (c.surface) {
+				L.push(`connector [${c.ref}] OUT OF THE DUNGEON${where} -- the way the party came in and the only way back to daylight; realise it from [${kwLine(c.surface)}] and say what it physically is. Name it as a thing, not as an exit.`);
+				continue;
+			}
+			if (c.seam) {
+				L.push(`way out [${c.ref}]${where} to ${c.toRef} (${c.toIdentity})${c.gated ? " GATED" : ""} -- WRITTEN ELSEWHERE. It leaves this region, so it is written by a later pass that can see both rooms. Count it among this room's ways out; do not name it, describe it, or return it.`);
+				continue;
+			}
+			const flags = `${c.gated ? " GATED" : ""}${c.hidden ? " CONCEALED" : ""}`;
+			const asks = [c.hidden ? "write it as the thing a person would walk past -- a seam, a draught, a panel that rings hollow -- not as a door" : "say what it physically is", c.gated ? "and what blocks it, from here" : "no barrier"].join("; ");
+			L.push(`connector [${c.ref}]${where} to ${c.toRef} (${c.toIdentity})${flags} -- ${asks}`);
+		}
+		for (const en of r.encounters) {
+			L.push(`encounter [${en.ref}] ${en.tier}, ${en.affiliation}, currently ${en.activity}, disposition ${en.disposition}`);
+			if (en.group) L.push(`    mass: ${en.group.count} x rank-and-file -> ONE consolidated entity, one stat block  [${kwLine(en.group.keywords)}]`);
+			for (const d of en.distinct) L.push(`    distinct ${d.kind}${d.member ? ` [${d.member}]` : ""}${d.isLeader ? " (leader)" : ""} -> its own entity  [${kwLine(d.keywords)}]`);
+			for (const line of en.template.split("\n")) L.push(`      ${line}`);
+		}
+		if (r.goal) {
+			L.push(`GOAL HERE: reward "${r.goal.reward}" + mission "${r.goal.mission}".`);
+			L.push(`  ${GOAL_INSTRUCTION}`);
+		}
+		if (r.gatedExits.length) L.push(`gated exits: ${r.gatedExits.join(", ")}`);
+		if (r.openExits.length) L.push(`open exits: ${r.openExits.join(", ")}`);
+		if (r.fixtures) L.push(`fixtures: up to ${r.fixtures.cap}, or none` + (r.fixtures.corridor ? " -- A PASSAGE: starred kinds only" : ""));
+		L.push("");
+	}
+	if (p.borders.length) {
+		L.push(`=== BORDER ROOMS -- context only, do NOT write ===`, "");
+		for (const b of p.borders) L.push(`${b.ref}: ${b.identity} (${b.headline}) -- ${b.summary}; connects to ${b.connectsTo.join(", ")}`);
+		L.push("");
+	}
+	L.push("=== RESPONSE FORMAT ===", p.responseSchema);
+	return L.join("\n");
+}
+/**
+* A connector is read from both ends, and it is one entity with one name.
+*
+* Name it "Corridor to the Kennel" and the player standing IN the Kennel reads
+* "Corridor to the Kennel" on the way out — pointing at where they already are.
+* A game master asked to route "go back to the Laboratory" then has two exits both
+* claiming to lead to the Kennel and picks by coin toss. So the name carries the
+* nature of the crossing and nothing else, and `renderRoom` appends the room on
+* the far side, correct from whichever end is being read.
+*/
+var CONNECTOR_NAMING = `Its NAME is what the thing physically is and
+  NOTHING else -- "Iron door", "Low archway", "Spiral stair", "Flooded crawl",
+  "Rope bridge". Name NEITHER room it joins: no "to the", no "from the", no room
+  name, no direction. One connector is walked both ways and read from both ends,
+  so a name that points is wrong from one of them. Where it leads is appended
+  when it is read, and is not yours to write.`;
+/**
+* A stair has a top and a bottom, and one entity read from both ends has no
+* "up" of its own.
+*
+* So the form says which ROOM is the upper one, by name. That is the one phrasing
+* that survives being read from either side, and without it the same flight of
+* steps is written as descending from both of its rooms -- which is what a player
+* walking back the way they came finds out.
+*
+* Both rooms are named by whoever is writing: a chunk writes only the connectors
+* whose two rooms it is naming in the same response, and the seams pass is handed
+* the names the chunks settled.
+*/
+var CONNECTOR_HEIGHT = `Where it changes level -- a stair, a ladder, a
+  shaft, a ramp, a hole in the floor, a drop -- the FORM must say which of the two
+  rooms is above and which below, BY NAME: "a stair, the Counting Room at its head
+  and the Sump at its foot". Not "leads down", which is true from only one end.`;
+var GOAL_INSTRUCTION = "Create exactly one entity that embodies the objective. Read the fiction and decide what type it needs to be -- an Item, a RoomFeature, or a Creature -- so that a party acting on it plausibly satisfies the mission. Then name and write it.";
+var CONTENT_PASS_INSTRUCTIONS = `You are writing one region of a dungeon: six rooms and everything in them.
+
+WHAT YOU ARE GIVEN
+Every room, entity, connector, and creature has already been decided by procgen.
+Counts and hit dice are already rolled. Your job is to realise it in prose and
+settle the few things procgen leaves to you -- not to choose what is there. Each
+line lists the rolled keywords behind it as table=value; those are seeds to
+realise, not text to echo.
+
+PER ROOM
+- name + base: the room's standing description. base is IMMUTABLE -- only what is
+  true of the place itself, not what a party is doing in it, nothing that changes
+  when its contents change.
+- Each listed entity's name + base, written the same way: fixed identity, concrete
+  to this fiction.
+- Each connector: name + what it physically IS -- a door, a stair, a corridor, a
+  crawl, a short drop, a collapsed arch, whatever separates the two rooms, even if
+  mundane. ${CONNECTOR_NAMING}
+  For a GATED connector also write what blocks it, seen from this room; do not
+  invent the key.
+  ${CONNECTOR_HEIGHT}
+- Promotable details: a detail is always part of the room's description. Make it
+  its own entity ONLY if a player would act on it. Most stay as description.
+- Fixtures: up to the number the room gives, off the one menu. See FIXTURES.
+
+THE ROOM AS DRAWN
+Each room has already been drawn on the map. "as drawn" gives you its real size
+in feet, its proportions, whether its outline is square-cornered or broken up,
+and how many ways out are in each wall; each connector says which wall it is in.
+
+WRITE TO THE DRAWING, NOT TO THE IDENTITY. The rolled identity says what the
+place was built as; the drawing says what it came out as, and where the two
+disagree the drawing wins. A room rolled "Banquet hall" and drawn twenty feet
+square is not a long hall -- it is what became of one, or a service room off one,
+or a hall the collapse took most of. Say so. A player looking at the map and
+reading your prose must not be looking at two different rooms.
+
+Two hard rules about direction:
+- Compass only. North, south, east and west are on the map and are safe. "Left",
+  "right", "ahead", "behind" depend on which way the party is facing and you do
+  not know that; a party that walks back through will read them as lies.
+- Do not invent an exit, a window, or a level change that is not listed. The ways
+  out are exactly the connectors given.
+
+And two about the ways out, both of them because base is IMMUTABLE and there is
+no later pass that can correct it:
+- DO NOT COUNT THEM IN THE ROOM'S BASE. "Four ways out: east, south, and two to
+  the west" stops being true the first time one is opened, barred, collapsed or
+  found, and the description cannot be rewritten to catch up -- so the number goes
+  on being read aloud to the player long after it is wrong. The map draws the ways
+  out and the game lists them fresh every turn. Describe the room; let the
+  counting be done by something that is allowed to change its mind.
+- A CONCEALED way is NOT part of the room's description. Write what it physically
+  is on the connector itself -- that is the text the player reads on FINDING it --
+  and keep it out of the room's base entirely, not even as a hint or a draught. A
+  room whose standing description mentions the crack in the west wall has no
+  secret door in it, because that description is read out on arrival. Where a
+  concealed way is meant to be findable, procgen lists a clue as its own entity.
+
+Feet are given so the prose can be concrete. Round them, compare them to
+something, or ignore them -- but do not contradict them.
+
+FIXTURES -- WHAT IS STANDING IN THE ROOM
+The menu, once. Starred kinds also fit in a passage; the rest need a chamber.
+
+  ${fixtureMenu()}
+
+Each room says how many it may hold. Choose up to that many, or NONE AT ALL --
+an empty room is a real room, and a dungeon of uniformly furnished ones reads as
+a catalogue. Pick what the fiction has already earned: a barracks has bunks, a
+shrine has an altar, a collapsed gallery has rubble.
+
+Each fixture gets a "kind" from the menu, a "position", a name and a base, and is
+written exactly like any other feature -- a thing in this dungeon, not a generic
+one. Positions, and nothing else: ${POSITION_WORDS.join(", ")}.
+
+A fixture is furniture, never a way somewhere. "stair" on the menu means steps
+INSIDE the room -- up to a dais, down into water -- that arrive nowhere else. If
+you want a way between two rooms, it is one of the connectors and it is already
+listed. See A WAY THROUGH IS NEVER A FEATURE.
+
+DO NOT say how many there are. "Pillars" is your decision; six pillars is not --
+the count is rolled, and the map will draw whatever it rolled. Name them in a way
+that survives either number, and write the base about what they ARE rather than
+about how many.
+
+Anything already listed as an entity may ALSO take a "position", from the same
+words, saying where in the room it sits. That is what puts the chest, the clue
+and the hazard on the map alongside the furniture.
+
+NAMING A ROOM
+The name comes from whatever DOMINATES the room, not from the identity it was
+rolled from. The rolled identity says what the place was built as; the name says
+what a party walking in would call it. A kennel whose stalls stand empty, with an
+iron bridge over a chasm running through the middle of it, is not the Kennel --
+the bridge and the chasm are what anyone would remember it by, and what they will
+say when they mean "back to the room with the bridge". So read the room's
+entities and its detail, work out what the biggest thing in there actually is,
+and name it for that. Short, concrete, and sayable out loud.
+
+EVERYTHING IS THERE FOR A REASON
+Before you write a room or a feature, know why it is in THIS dungeon. Usually the
+answer is ordinary and needs no room on the page -- a barracks in a fort, a sump
+at the bottom of a mine. But anything that does NOT obviously belong is the first
+thing a party will notice and ask about, and the fiction has to be able to answer.
+A theatre inside a prison must have a story behind it: who built it, for whom, and
+what became of it. Put that answer in the base, as a clause, not a lecture. An
+incongruity with a reason behind it is the best thing in a dungeon; one without is
+a mistake the player can see from the doorway.
+
+A WAY THROUGH IS NEVER A FEATURE
+If something you are about to write reads as a way to somewhere else -- a stair,
+a shaft, a hole in the wall, a rent in the floor, a tunnel, a door -- it is a
+CONNECTOR, not a RoomFeature and not a promoted detail. Spend the idea on one of
+the connectors this room already has: each is listed with the room it leads to,
+so pick the one whose far side suits it and write it as that connector's name
+and form. The rooms are joined the way they are joined; you are describing those
+joins, not adding to them.
+
+A player will try to walk through anything that looks like a passage. Written as
+a feature it leads nowhere, and they find that out by trying.
+
+The ONE exception is the connector marked OUT OF THE DUNGEON, which is a real
+way through to no room at all. It is already in your list. Do not invent others.
+
+CREATURES -- CONSOLIDATE
+The count is already rolled. A mass of one creature type is ONE entity with a
+single stat block; do NOT split it into individuals. "5 x rank-and-file" is one
+entity you name in the plural ("Fen-seals") and write once. Only a specimen
+marked "distinct" -- an elite, a named person -- becomes its own entity alongside
+the mass. Write the group's shared base once (the mass); write each distinct
+specimen its own base. Give the mass and each distinct one a one-line current
+activity fitting the encounter. Stats: you are given the hit-dice spine; return
+only DEVIATIONS the keywords imply (a heavier die for claws, armour, a morale or
+ability shift). Leave stats out for an average body.
+
+BEASTS -- WHAT THE REFERENCE ANIMALS ARE FOR
+A beastlike monster is listed with one reference animal or two. That was decided
+by the roll, not left to you: one means one, two means both. They are the starting
+point for a body, NOT the description of it. Take the general shape and bearing
+from them -- how it stands, how it moves, how much of the room it takes up -- and
+then write SPECIFIC borrowed parts: the shape of the snout, what it has instead of
+ears, the horn or the antler, the set of the eyes, the feet, the hide.
+
+What you must not do is name the animal and stop. "Badger-like", "part badger,
+part Pteranodon", "resembles a heron" -- that is the reference showing through
+where a creature should be. Name an animal only when the naming does real work
+("the flat spade-shaped digging claws of a badger" both names it and tells you
+something); otherwise the player should be able to picture the thing without ever
+learning what it was built out of.
+
+THE GOAL
+One room is marked GOAL. ${GOAL_INSTRUCTION}
+
+HARD RULES
+1. Every listed entity, encounter, and connector must appear exactly once -- except
+   a way out marked WRITTEN ELSEWHERE, which you must NOT return. That one leaves
+   this region and is written by a pass that can see the room on the other side.
+   Do not add a creature, hazard, or connector that was not listed.
+2. Keywords are seeds, not labels. Realise them into the place; do not gloss.
+3. Do not contradict the fiction. Material, history, and the state of the ruin are
+   settled.
+4. Depth and tension are tone, never content. A calm room holding a lethal thing
+   still holds it.
+5. A clue must point at what it is said to point at, written as something noticed.
+
+MAKE THEM DISTINCT
+These rooms are read in sequence. Give each one something the others lack. If two
+would read the same, change one.`;
+var CONTENT_PASS_SCHEMA = `Return JSON only, no prose outside it:
+
+{
+  "rooms": [
+    {
+      "ref": "<room ref, exactly as given>",
+      "name": "<short room name>",
+      "base": "<the room's standing description>",
+      "entities": [ { "ref": "<entity ref>", "name": "<name>", "base": "<identity>", "position": "<one of the position words>" } ],
+      "fixtures": [ { "kind": "<one from THIS room's menu>", "position": "<one of the position words>", "name": "<name>", "base": "<identity>" } ],
+      "promotions": [ { "text": "<detail text as given>", "name": "<name>", "base": "<identity>", "hidden": false, "position": "<one of the position words>" } ],
+      "connectors": [ { "ref": "<connector ref>", "name": "<what it is, naming neither room>", "form": "<what it physically is>", "requirement": "<gated only: what blocks it>" } ],
+      "encounters": [
+        {
+          "ref": "<encounter ref>",
+          "group": { "name": "<plural name>", "base": "<shared identity>", "activity": "<one line>", "stats": { "damage": "1d8" } },
+          "distinct": [
+            { "kind": "elite|named", "member": "<named: person id>", "name": "<name>", "base": "<identity>", "isLeader": false, "activity": "<one line>", "stats": { "armorDefense": 14 } }
+          ]
+        }
+      ],
+      "goal": { "entityType": "Item|RoomFeature|Creature", "name": "<name>", "base": "<identity>", "position": "<one of the position words>" }
+    }
+  ]
+}
+
+Include each key only when the room has it; "group" only when a mass is listed;
+"distinct" only for specimens marked distinct; omit "goal" except in the GOAL
+room. Leave "stats" out for an average creature.
+
+"fixtures" and every "position" are optional and are omitted entirely for a room
+with no "as drawn" line. NEVER put a count, a dimension, or a coordinate in any
+of them: "kind" and "position" are words off the lists and nothing else.`;
+//#endregion
+//#region src/generation/content/passes/content-pass/response.ts
+/**
+* EVERYTHING THIS CHUNK WAS ASKED ABOUT AND DID NOT WRITE.
+*
+* A response answering five of six connectors is valid JSON against a valid
+* schema. Zod checks shape, and nothing about the shape says how many connectors
+* there should be -- so the omission passes, the chunk applies, and the gap
+* surfaces only when `validateWritten` sweeps at the end, by which point the pass
+* is over and the one retry has gone unspent. That is how a live run finished
+* with three of ~90 written things unwritten, one of them a connector between two
+* rooms in the same chunk, which no seam could explain.
+*
+* This turns an omission into exactly the zod-shaped failure the retry already
+* knows how to take. It lives here rather than in the schema because only the
+* PAYLOAD knows what was asked for, and the schema never sees the payload.
+*
+* WHAT IS DELIBERATELY NOT CHECKED, all for one reason -- the model chose, so
+* there is nothing it can have left out: fixtures, promoted details, and the
+* seam connectors carried as context, which HARD RULE 1 tells it not to return.
+*/
+function contentPassOmissions(payload, res) {
+	const out = [];
+	const roomByRef = new Map((res.rooms ?? []).map((r) => [r.ref, r]));
+	const absent = (want, got) => {
+		const have = new Set(got);
+		return want.filter((ref) => !have.has(ref));
+	};
+	for (const brief of payload.rooms) {
+		const rr = roomByRef.get(brief.ref);
+		if (!rr) {
+			out.push({
+				path: `rooms.${brief.ref}`,
+				message: `room ${brief.ref} was listed and is missing from the response entirely`
+			});
+			continue;
+		}
+		const at = `rooms.${brief.ref}`;
+		for (const ref of absent(brief.entities.map((e) => e.ref), (rr.entities ?? []).map((e) => e.ref))) out.push({
+			path: `${at}.entities`,
+			message: `entity ${ref} was listed and is not in the response; every listed entity must be written exactly once`
+		});
+		for (const ref of absent(brief.connectors.filter((c) => !c.seam).map((c) => c.ref), (rr.connectors ?? []).map((c) => c.ref))) out.push({
+			path: `${at}.connectors`,
+			message: `connector ${ref} was listed and is not in the response; a way out with no form is one the game cannot describe when a player walks up to it`
+		});
+		if (brief.goal && !rr.goal) out.push({
+			path: `${at}.goal`,
+			message: `this room is the GOAL room and no "goal" was written for it`
+		});
+		const written = new Map((rr.encounters ?? []).map((e) => [e.ref, e]));
+		for (const en of brief.encounters) {
+			const er = written.get(en.ref);
+			if (!er) {
+				out.push({
+					path: `${at}.encounters`,
+					message: `encounter ${en.ref} was listed and is not in the response`
+				});
+				continue;
+			}
+			if (en.group && !er.group) out.push({
+				path: `${at}.encounters.${en.ref}.group`,
+				message: `encounter ${en.ref} lists a group of ${en.group.count} and the response wrote no "group" for it`
+			});
+			for (const d of en.distinct) {
+				if ((er.distinct ?? []).some((x) => x.kind === d.kind && x.member === d.member)) continue;
+				out.push({
+					path: `${at}.encounters.${en.ref}.distinct`,
+					message: `encounter ${en.ref} lists a distinct ${d.kind}` + (d.member ? ` (member ${d.member})` : "") + ` and the response has no entry matching it`
+				});
+			}
+		}
+	}
+	return out;
+}
+//#endregion
+//#region src/generation/content/passes/content-pass/build.ts
 function monsterKeywords(m) {
 	const r = {
 		Complexity: m.complexity,
@@ -6633,653 +7290,6 @@ function buildContentPassPayload(sd, bp, ep, chunk, dungeonContext, site) {
 		responseSchema: CONTENT_PASS_SCHEMA,
 		ground
 	};
-}
-var kwLine = (kw) => Object.entries(kw).map(([t, v]) => `${t}=${v}`).join("  |  ") || "--";
-function renderContentPassPrompt(p) {
-	const L = [];
-	L.push(p.instructions, "");
-	L.push("=== DUNGEON FICTION (shared context) ===", p.dungeonContext, "");
-	L.push(`=== ROOMS TO WRITE (${p.rooms.length}) ===`, "");
-	for (const r of p.rooms) {
-		L.push(`--- ${r.ref} ---`);
-		L.push(`identity: ${r.identity}`);
-		if (r.role !== "normal") L.push(`role: ${r.role}`);
-		L.push(`depth: ${r.depth}   tension: ${r.tension}${r.isDeadEnd ? "   dead end" : ""}`);
-		L.push(`headline: ${r.headline}${r.stacked ? ` + ${r.stacked}` : ""}`);
-		L.push(`room keywords: ${kwLine(r.keywords)}`);
-		if (r.geometry) L.push(`as drawn: ${r.geometry}`);
-		for (const e of r.entities) L.push(`entity [${e.ref}] ${e.kind} (${e.entity})${e.hidden ? " HIDDEN" : ""}: ${kwLine(e.keywords)}` + (e.note ? ` -- ${e.note}` : ""));
-		for (const d of r.detailCandidates) L.push(`promotable detail [${kwLine(d.keywords)}] -- make it an entity only if a player would act on it`);
-		for (const c of r.connectors) {
-			const where = c.wall ? ` in ${c.wall}` : "";
-			if (c.surface) {
-				L.push(`connector [${c.ref}] OUT OF THE DUNGEON${where} -- the way the party came in and the only way back to daylight; realise it from [${kwLine(c.surface)}] and say what it physically is. Name it as a thing, not as an exit.`);
-				continue;
-			}
-			if (c.seam) {
-				L.push(`way out [${c.ref}]${where} to ${c.toRef} (${c.toIdentity})${c.gated ? " GATED" : ""} -- WRITTEN ELSEWHERE. It leaves this region, so it is written by a later pass that can see both rooms. Count it among this room's ways out; do not name it, describe it, or return it.`);
-				continue;
-			}
-			const flags = `${c.gated ? " GATED" : ""}${c.hidden ? " CONCEALED" : ""}`;
-			const asks = [c.hidden ? "write it as the thing a person would walk past -- a seam, a draught, a panel that rings hollow -- not as a door" : "say what it physically is", c.gated ? "and what blocks it, from here" : "no barrier"].join("; ");
-			L.push(`connector [${c.ref}]${where} to ${c.toRef} (${c.toIdentity})${flags} -- ${asks}`);
-		}
-		for (const en of r.encounters) {
-			L.push(`encounter [${en.ref}] ${en.tier}, ${en.affiliation}, currently ${en.activity}, disposition ${en.disposition}`);
-			if (en.group) L.push(`    mass: ${en.group.count} x rank-and-file -> ONE consolidated entity, one stat block  [${kwLine(en.group.keywords)}]`);
-			for (const d of en.distinct) L.push(`    distinct ${d.kind}${d.member ? ` [${d.member}]` : ""}${d.isLeader ? " (leader)" : ""} -> its own entity  [${kwLine(d.keywords)}]`);
-			for (const line of en.template.split("\n")) L.push(`      ${line}`);
-		}
-		if (r.goal) {
-			L.push(`GOAL HERE: reward "${r.goal.reward}" + mission "${r.goal.mission}".`);
-			L.push(`  ${GOAL_INSTRUCTION}`);
-		}
-		if (r.gatedExits.length) L.push(`gated exits: ${r.gatedExits.join(", ")}`);
-		if (r.openExits.length) L.push(`open exits: ${r.openExits.join(", ")}`);
-		if (r.fixtures) L.push(`fixtures: up to ${r.fixtures.cap}, or none` + (r.fixtures.corridor ? " -- A PASSAGE: starred kinds only" : ""));
-		L.push("");
-	}
-	if (p.borders.length) {
-		L.push(`=== BORDER ROOMS -- context only, do NOT write ===`, "");
-		for (const b of p.borders) L.push(`${b.ref}: ${b.identity} (${b.headline}) -- ${b.summary}; connects to ${b.connectsTo.join(", ")}`);
-		L.push("");
-	}
-	L.push("=== RESPONSE FORMAT ===", p.responseSchema);
-	return L.join("\n");
-}
-/**
-* A connector is read from both ends, and it is one entity with one name.
-*
-* Name it "Corridor to the Kennel" and the player standing IN the Kennel reads
-* "Corridor to the Kennel" on the way out — pointing at where they already are.
-* A game master asked to route "go back to the Laboratory" then has two exits both
-* claiming to lead to the Kennel and picks by coin toss. So the name carries the
-* nature of the crossing and nothing else, and `renderRoom` appends the room on
-* the far side, correct from whichever end is being read.
-*/
-var CONNECTOR_NAMING = `Its NAME is what the thing physically is and
-  NOTHING else -- "Iron door", "Low archway", "Spiral stair", "Flooded crawl",
-  "Rope bridge". Name NEITHER room it joins: no "to the", no "from the", no room
-  name, no direction. One connector is walked both ways and read from both ends,
-  so a name that points is wrong from one of them. Where it leads is appended
-  when it is read, and is not yours to write.`;
-/**
-* A stair has a top and a bottom, and one entity read from both ends has no
-* "up" of its own.
-*
-* So the form says which ROOM is the upper one, by name. That is the one phrasing
-* that survives being read from either side, and without it the same flight of
-* steps is written as descending from both of its rooms -- which is what a player
-* walking back the way they came finds out.
-*
-* Both rooms are named by whoever is writing: a chunk writes only the connectors
-* whose two rooms it is naming in the same response, and the seams pass is handed
-* the names the chunks settled.
-*/
-var CONNECTOR_HEIGHT = `Where it changes level -- a stair, a ladder, a
-  shaft, a ramp, a hole in the floor, a drop -- the FORM must say which of the two
-  rooms is above and which below, BY NAME: "a stair, the Counting Room at its head
-  and the Sump at its foot". Not "leads down", which is true from only one end.`;
-var GOAL_INSTRUCTION = "Create exactly one entity that embodies the objective. Read the fiction and decide what type it needs to be -- an Item, a RoomFeature, or a Creature -- so that a party acting on it plausibly satisfies the mission. Then name and write it.";
-var CONTENT_PASS_INSTRUCTIONS = `You are writing one region of a dungeon: six rooms and everything in them.
-
-WHAT YOU ARE GIVEN
-Every room, entity, connector, and creature has already been decided by procgen.
-Counts and hit dice are already rolled. Your job is to realise it in prose and
-settle the few things procgen leaves to you -- not to choose what is there. Each
-line lists the rolled keywords behind it as table=value; those are seeds to
-realise, not text to echo.
-
-PER ROOM
-- name + base: the room's standing description. base is IMMUTABLE -- only what is
-  true of the place itself, not what a party is doing in it, nothing that changes
-  when its contents change.
-- Each listed entity's name + base, written the same way: fixed identity, concrete
-  to this fiction.
-- Each connector: name + what it physically IS -- a door, a stair, a corridor, a
-  crawl, a short drop, a collapsed arch, whatever separates the two rooms, even if
-  mundane. ${CONNECTOR_NAMING}
-  For a GATED connector also write what blocks it, seen from this room; do not
-  invent the key.
-  ${CONNECTOR_HEIGHT}
-- Promotable details: a detail is always part of the room's description. Make it
-  its own entity ONLY if a player would act on it. Most stay as description.
-- Fixtures: up to the number the room gives, off the one menu. See FIXTURES.
-
-THE ROOM AS DRAWN
-Each room has already been drawn on the map. "as drawn" gives you its real size
-in feet, its proportions, whether its outline is square-cornered or broken up,
-and how many ways out are in each wall; each connector says which wall it is in.
-
-WRITE TO THE DRAWING, NOT TO THE IDENTITY. The rolled identity says what the
-place was built as; the drawing says what it came out as, and where the two
-disagree the drawing wins. A room rolled "Banquet hall" and drawn twenty feet
-square is not a long hall -- it is what became of one, or a service room off one,
-or a hall the collapse took most of. Say so. A player looking at the map and
-reading your prose must not be looking at two different rooms.
-
-Two hard rules about direction:
-- Compass only. North, south, east and west are on the map and are safe. "Left",
-  "right", "ahead", "behind" depend on which way the party is facing and you do
-  not know that; a party that walks back through will read them as lies.
-- Do not invent an exit, a window, or a level change that is not listed. The ways
-  out are exactly the connectors given.
-
-And two about the ways out, both of them because base is IMMUTABLE and there is
-no later pass that can correct it:
-- DO NOT COUNT THEM IN THE ROOM'S BASE. "Four ways out: east, south, and two to
-  the west" stops being true the first time one is opened, barred, collapsed or
-  found, and the description cannot be rewritten to catch up -- so the number goes
-  on being read aloud to the player long after it is wrong. The map draws the ways
-  out and the game lists them fresh every turn. Describe the room; let the
-  counting be done by something that is allowed to change its mind.
-- A CONCEALED way is NOT part of the room's description. Write what it physically
-  is on the connector itself -- that is the text the player reads on FINDING it --
-  and keep it out of the room's base entirely, not even as a hint or a draught. A
-  room whose standing description mentions the crack in the west wall has no
-  secret door in it, because that description is read out on arrival. Where a
-  concealed way is meant to be findable, procgen lists a clue as its own entity.
-
-Feet are given so the prose can be concrete. Round them, compare them to
-something, or ignore them -- but do not contradict them.
-
-FIXTURES -- WHAT IS STANDING IN THE ROOM
-The menu, once. Starred kinds also fit in a passage; the rest need a chamber.
-
-  ${fixtureMenu()}
-
-Each room says how many it may hold. Choose up to that many, or NONE AT ALL --
-an empty room is a real room, and a dungeon of uniformly furnished ones reads as
-a catalogue. Pick what the fiction has already earned: a barracks has bunks, a
-shrine has an altar, a collapsed gallery has rubble.
-
-Each fixture gets a "kind" from the menu, a "position", a name and a base, and is
-written exactly like any other feature -- a thing in this dungeon, not a generic
-one. Positions, and nothing else: ${POSITION_WORDS.join(", ")}.
-
-A fixture is furniture, never a way somewhere. "stair" on the menu means steps
-INSIDE the room -- up to a dais, down into water -- that arrive nowhere else. If
-you want a way between two rooms, it is one of the connectors and it is already
-listed. See A WAY THROUGH IS NEVER A FEATURE.
-
-DO NOT say how many there are. "Pillars" is your decision; six pillars is not --
-the count is rolled, and the map will draw whatever it rolled. Name them in a way
-that survives either number, and write the base about what they ARE rather than
-about how many.
-
-Anything already listed as an entity may ALSO take a "position", from the same
-words, saying where in the room it sits. That is what puts the chest, the clue
-and the hazard on the map alongside the furniture.
-
-NAMING A ROOM
-The name comes from whatever DOMINATES the room, not from the identity it was
-rolled from. The rolled identity says what the place was built as; the name says
-what a party walking in would call it. A kennel whose stalls stand empty, with an
-iron bridge over a chasm running through the middle of it, is not the Kennel --
-the bridge and the chasm are what anyone would remember it by, and what they will
-say when they mean "back to the room with the bridge". So read the room's
-entities and its detail, work out what the biggest thing in there actually is,
-and name it for that. Short, concrete, and sayable out loud.
-
-EVERYTHING IS THERE FOR A REASON
-Before you write a room or a feature, know why it is in THIS dungeon. Usually the
-answer is ordinary and needs no room on the page -- a barracks in a fort, a sump
-at the bottom of a mine. But anything that does NOT obviously belong is the first
-thing a party will notice and ask about, and the fiction has to be able to answer.
-A theatre inside a prison must have a story behind it: who built it, for whom, and
-what became of it. Put that answer in the base, as a clause, not a lecture. An
-incongruity with a reason behind it is the best thing in a dungeon; one without is
-a mistake the player can see from the doorway.
-
-A WAY THROUGH IS NEVER A FEATURE
-If something you are about to write reads as a way to somewhere else -- a stair,
-a shaft, a hole in the wall, a rent in the floor, a tunnel, a door -- it is a
-CONNECTOR, not a RoomFeature and not a promoted detail. Spend the idea on one of
-the connectors this room already has: each is listed with the room it leads to,
-so pick the one whose far side suits it and write it as that connector's name
-and form. The rooms are joined the way they are joined; you are describing those
-joins, not adding to them.
-
-A player will try to walk through anything that looks like a passage. Written as
-a feature it leads nowhere, and they find that out by trying.
-
-The ONE exception is the connector marked OUT OF THE DUNGEON, which is a real
-way through to no room at all. It is already in your list. Do not invent others.
-
-CREATURES -- CONSOLIDATE
-The count is already rolled. A mass of one creature type is ONE entity with a
-single stat block; do NOT split it into individuals. "5 x rank-and-file" is one
-entity you name in the plural ("Fen-seals") and write once. Only a specimen
-marked "distinct" -- an elite, a named person -- becomes its own entity alongside
-the mass. Write the group's shared base once (the mass); write each distinct
-specimen its own base. Give the mass and each distinct one a one-line current
-activity fitting the encounter. Stats: you are given the hit-dice spine; return
-only DEVIATIONS the keywords imply (a heavier die for claws, armour, a morale or
-ability shift). Leave stats out for an average body.
-
-BEASTS -- WHAT THE REFERENCE ANIMALS ARE FOR
-A beastlike monster is listed with one reference animal or two. That was decided
-by the roll, not left to you: one means one, two means both. They are the starting
-point for a body, NOT the description of it. Take the general shape and bearing
-from them -- how it stands, how it moves, how much of the room it takes up -- and
-then write SPECIFIC borrowed parts: the shape of the snout, what it has instead of
-ears, the horn or the antler, the set of the eyes, the feet, the hide.
-
-What you must not do is name the animal and stop. "Badger-like", "part badger,
-part Pteranodon", "resembles a heron" -- that is the reference showing through
-where a creature should be. Name an animal only when the naming does real work
-("the flat spade-shaped digging claws of a badger" both names it and tells you
-something); otherwise the player should be able to picture the thing without ever
-learning what it was built out of.
-
-THE GOAL
-One room is marked GOAL. ${GOAL_INSTRUCTION}
-
-HARD RULES
-1. Every listed entity, encounter, and connector must appear exactly once -- except
-   a way out marked WRITTEN ELSEWHERE, which you must NOT return. That one leaves
-   this region and is written by a pass that can see the room on the other side.
-   Do not add a creature, hazard, or connector that was not listed.
-2. Keywords are seeds, not labels. Realise them into the place; do not gloss.
-3. Do not contradict the fiction. Material, history, and the state of the ruin are
-   settled.
-4. Depth and tension are tone, never content. A calm room holding a lethal thing
-   still holds it.
-5. A clue must point at what it is said to point at, written as something noticed.
-
-MAKE THEM DISTINCT
-These rooms are read in sequence. Give each one something the others lack. If two
-would read the same, change one.`;
-var CONTENT_PASS_SCHEMA = `Return JSON only, no prose outside it:
-
-{
-  "rooms": [
-    {
-      "ref": "<room ref, exactly as given>",
-      "name": "<short room name>",
-      "base": "<the room's standing description>",
-      "entities": [ { "ref": "<entity ref>", "name": "<name>", "base": "<identity>", "position": "<one of the position words>" } ],
-      "fixtures": [ { "kind": "<one from THIS room's menu>", "position": "<one of the position words>", "name": "<name>", "base": "<identity>" } ],
-      "promotions": [ { "text": "<detail text as given>", "name": "<name>", "base": "<identity>", "hidden": false, "position": "<one of the position words>" } ],
-      "connectors": [ { "ref": "<connector ref>", "name": "<what it is, naming neither room>", "form": "<what it physically is>", "requirement": "<gated only: what blocks it>" } ],
-      "encounters": [
-        {
-          "ref": "<encounter ref>",
-          "group": { "name": "<plural name>", "base": "<shared identity>", "activity": "<one line>", "stats": { "damage": "1d8" } },
-          "distinct": [
-            { "kind": "elite|named", "member": "<named: person id>", "name": "<name>", "base": "<identity>", "isLeader": false, "activity": "<one line>", "stats": { "armorDefense": 14 } }
-          ]
-        }
-      ],
-      "goal": { "entityType": "Item|RoomFeature|Creature", "name": "<name>", "base": "<identity>", "position": "<one of the position words>" }
-    }
-  ]
-}
-
-Include each key only when the room has it; "group" only when a mass is listed;
-"distinct" only for specimens marked distinct; omit "goal" except in the GOAL
-room. Leave "stats" out for an average creature.
-
-"fixtures" and every "position" are optional and are omitted entirely for a room
-with no "as drawn" line. NEVER put a count, a dimension, or a coordinate in any
-of them: "kind" and "position" are words off the lists and nothing else.`;
-/**
-* EVERYTHING THIS CHUNK WAS ASKED ABOUT AND DID NOT WRITE.
-*
-* A response answering five of six connectors is valid JSON against a valid
-* schema. Zod checks shape, and nothing about the shape says how many connectors
-* there should be -- so the omission passes, the chunk applies, and the gap
-* surfaces only when `validateWritten` sweeps at the end, by which point the pass
-* is over and the one retry has gone unspent. That is how a live run finished
-* with three of ~90 written things unwritten, one of them a connector between two
-* rooms in the same chunk, which no seam could explain.
-*
-* This turns an omission into exactly the zod-shaped failure the retry already
-* knows how to take. It lives here rather than in the schema because only the
-* PAYLOAD knows what was asked for, and the schema never sees the payload.
-*
-* WHAT IS DELIBERATELY NOT CHECKED, all for one reason -- the model chose, so
-* there is nothing it can have left out: fixtures, promoted details, and the
-* seam connectors carried as context, which HARD RULE 1 tells it not to return.
-*/
-function contentPassOmissions(payload, res) {
-	const out = [];
-	const roomByRef = new Map((res.rooms ?? []).map((r) => [r.ref, r]));
-	const absent = (want, got) => {
-		const have = new Set(got);
-		return want.filter((ref) => !have.has(ref));
-	};
-	for (const brief of payload.rooms) {
-		const rr = roomByRef.get(brief.ref);
-		if (!rr) {
-			out.push({
-				path: `rooms.${brief.ref}`,
-				message: `room ${brief.ref} was listed and is missing from the response entirely`
-			});
-			continue;
-		}
-		const at = `rooms.${brief.ref}`;
-		for (const ref of absent(brief.entities.map((e) => e.ref), (rr.entities ?? []).map((e) => e.ref))) out.push({
-			path: `${at}.entities`,
-			message: `entity ${ref} was listed and is not in the response; every listed entity must be written exactly once`
-		});
-		for (const ref of absent(brief.connectors.filter((c) => !c.seam).map((c) => c.ref), (rr.connectors ?? []).map((c) => c.ref))) out.push({
-			path: `${at}.connectors`,
-			message: `connector ${ref} was listed and is not in the response; a way out with no form is one the game cannot describe when a player walks up to it`
-		});
-		if (brief.goal && !rr.goal) out.push({
-			path: `${at}.goal`,
-			message: `this room is the GOAL room and no "goal" was written for it`
-		});
-		const written = new Map((rr.encounters ?? []).map((e) => [e.ref, e]));
-		for (const en of brief.encounters) {
-			const er = written.get(en.ref);
-			if (!er) {
-				out.push({
-					path: `${at}.encounters`,
-					message: `encounter ${en.ref} was listed and is not in the response`
-				});
-				continue;
-			}
-			if (en.group && !er.group) out.push({
-				path: `${at}.encounters.${en.ref}.group`,
-				message: `encounter ${en.ref} lists a group of ${en.group.count} and the response wrote no "group" for it`
-			});
-			for (const d of en.distinct) {
-				if ((er.distinct ?? []).some((x) => x.kind === d.kind && x.member === d.member)) continue;
-				out.push({
-					path: `${at}.encounters.${en.ref}.distinct`,
-					message: `encounter ${en.ref} lists a distinct ${d.kind}` + (d.member ? ` (member ${d.member})` : "") + ` and the response has no entry matching it`
-				});
-			}
-		}
-	}
-	return out;
-}
-/** Every entity carries the procgen rolls behind it, keyed by source table. */
-/**
-* EVERY NAME IN THE RESPONSE, CAPITALISED, IN ONE PLACE.
-*
-* A dozen sites below lift `name` off the response and onto an entity — rooms,
-* written entities, fixtures, promotions, connectors, groups, distinct
-* specimens, the goal — and normalising at each of them means the thirteenth
-* one, whenever it is written, ships lower-case names again. This is the
-* chokepoint instead: past here, no name in `res` is unnormalised.
-*
-* Keyed on the field NAME, which is safe because every `name` in
-* `ContentPassResponse` is a thing the player reads. What is deliberately not
-* touched: `kind` and `form` and `position`, which are vocabulary the code
-* matches on and would break if their case moved.
-*
-* On a copy. The raw response is what the journal recorded and what a replay
-* reads back; rewriting it underneath them would make the record disagree with
-* the call it is a record of.
-*/
-function withProperNames(res) {
-	const copy = structuredClone(res);
-	const walk = (node) => {
-		if (Array.isArray(node)) {
-			for (const v of node) walk(v);
-			return;
-		}
-		if (node === null || typeof node !== "object") return;
-		const rec = node;
-		for (const [k, v] of Object.entries(rec)) if (k === "name" && typeof v === "string") rec[k] = properName(v);
-		else walk(v);
-	};
-	walk(copy);
-	return copy;
-}
-function applyContentPass(raw, payload, ep, bp, sd, rng) {
-	const res = withProperNames(raw);
-	const roomById = new Map(ep.rooms.map((r) => [r.id, r]));
-	const roomByRef = new Map(sd.rooms.map((r) => [`room_${r.index}`, r.roomId]));
-	const mobById = new Map(sd.mobiles.map((m) => [m.id, m]));
-	const groupById = /* @__PURE__ */ new Map();
-	for (const g of [...bp.inhabitants, ...sd.wandererGroups]) groupById.set(g.id, g);
-	const featureById = new Map(ep.features.map((f) => [f.id, f]));
-	const itemById = new Map(ep.items.map((i) => [i.id, i]));
-	const hazardById = new Map(ep.hazards.map((h) => [h.id, h]));
-	const connectorById = new Map(ep.connectors.map((c) => [c.id, c]));
-	const detailByText = new Map(ep.detailCandidates.map((d) => [`${d.roomId}:${d.text}`, d]));
-	const briefByRoom = new Map(payload.rooms.map((r) => [r.ref, r]));
-	const entityKw = /* @__PURE__ */ new Map();
-	const encounterBrief = /* @__PURE__ */ new Map();
-	for (const r of payload.rooms) {
-		for (const e of r.entities) entityKw.set(e.ref, e.keywords);
-		for (const en of r.encounters) encounterBrief.set(en.ref, en);
-	}
-	const withheld = withheldKeyItems(sd, ep);
-	const created = [];
-	/**
-	* Which mobile each created creature came from.
-	*
-	* The roster this pass writes REPLACES the placeholder creatures the entities
-	* pass emitted, with new ids — so the `mobileId` bindings written back there
-	* point at entities that no longer exist the moment a chunk lands. Anything
-	* downstream that has to get from a stocking-level mobile to the creature
-	* standing in the room needs the mapping rebuilt, and this is the only place
-	* that knows it. See the binding rewrite at the foot of this function.
-	*/
-	const createdFor = [];
-	let goalEntity;
-	for (const rr of res.rooms) {
-		const roomId = roomByRef.get(rr.ref);
-		if (!roomId) continue;
-		const brief = briefByRoom.get(rr.ref);
-		const room = roomById.get(roomId);
-		if (room) {
-			room.name = rr.name;
-			room.base = rr.base;
-			room.keywords = brief?.keywords ?? {};
-		}
-		const site = payload.ground?.[rr.ref];
-		const taken = /* @__PURE__ */ new Set();
-		const place = (word) => {
-			if (!site) return void 0;
-			return placeAt(word !== void 0 && isPositionWord(word) ? word : "centre", site.ground, site.geometry, rng, { taken });
-		};
-		for (const w of rr.entities ?? []) {
-			const kw = entityKw.get(w.ref) ?? {};
-			const f = featureById.get(w.ref);
-			if (f) {
-				f.name = w.name;
-				f.base = w.base;
-				f.keywords = kw;
-				f.place = place(w.position);
-				continue;
-			}
-			const it = itemById.get(w.ref);
-			if (it) {
-				if (withheld.has(w.ref)) continue;
-				it.name = w.name;
-				it.base = w.base;
-				it.keywords = kw;
-				if (it.parentId === roomId) it.place = place(w.position);
-				continue;
-			}
-			const hz = hazardById.get(w.ref);
-			if (hz) {
-				hz.name = w.name;
-				hz.keywords = kw;
-				const seed = ep.registry.hazards[hz.blueprintId];
-				if (seed) seed.base = w.base;
-			}
-		}
-		for (const it of ep.items) {
-			if (!withheld.has(it.id) || it.parentId !== roomId) continue;
-			it.place = place(rng.pick(POSITION_WORDS));
-		}
-		for (const fx of (rr.fixtures ?? []).slice(0, site ? fixtureCap(site.geometry) : 0)) {
-			if (!isFixtureKind(fx.kind)) continue;
-			const word = isPositionWord(fx.position) ? fx.position : "centre";
-			const placed = placeFixture({
-				kind: fx.kind,
-				position: word
-			}, site.ground, site.geometry, rng, { taken });
-			if (!placed) continue;
-			const f = addFixture(roomId, ep);
-			f.name = fx.name;
-			f.base = fx.base;
-			f.keywords = { Fixture: fx.kind };
-			f.place = placed;
-		}
-		for (const pr of rr.promotions ?? []) {
-			const cand = detailByText.get(`${roomId}:${pr.text}`);
-			if (!cand) continue;
-			const f = promoteDetail(cand, ep);
-			f.name = pr.name;
-			f.base = pr.base;
-			f.keywords = { "Room Detail": pr.text };
-			if (pr.hidden) f.isHidden = true;
-			f.place = place(pr.position);
-		}
-		for (const cr of rr.connectors ?? []) {
-			const conn = connectorById.get(cr.ref);
-			if (!conn) continue;
-			if (brief?.connectors.find((c) => c.ref === cr.ref)?.seam) continue;
-			conn.name = cr.name;
-			conn.base = cr.form;
-			conn.keywords = {};
-			if (cr.requirement) conn.conditional = cr.requirement || "[gated -- condition not yet written]";
-		}
-		if (rr.goal && roomId === ep.pendingGoal.roomId) {
-			goalEntity = createGoalEntity(rr.goal, roomId, sd, rng, ep);
-			ep.goalEntityId = goalEntity.id;
-			if (goalEntity.type === "Creature") created.push(goalEntity);
-			if (goalEntity.type === "Item" || goalEntity.type === "RoomFeature") goalEntity.place = place(rr.goal.position);
-		}
-		for (const er of rr.encounters ?? []) {
-			const m = mobById.get(er.ref);
-			if (!m) continue;
-			const en = encounterBrief.get(er.ref);
-			const group = m.groupId ? groupById.get(m.groupId) : void 0;
-			if (er.group && en?.group) {
-				const c = group ? createCreatureFromGroup(group, roomId, sd.level, rng, { name: er.group.name }) : createCreatureFromSeed(m.monster ?? m.npc, roomId, sd.level, m.monster?.complexity ?? "simple", ep.registry, rng, { name: er.group.name });
-				c.count = en.group.count;
-				c.activity = er.group.activity;
-				c.keywords = en.group.keywords;
-				if (er.group.stats) mergeStats(c.stats, er.group.stats);
-				if (group) {
-					const tpl = ep.registry.groups[group.id] ??= { id: group.id };
-					tpl.base ??= er.group.base;
-					tpl.name ??= er.group.name;
-				} else c.base = er.group.base;
-				created.push(c);
-				createdFor.push({
-					mobileId: er.ref,
-					creature: c
-				});
-			}
-			for (const d of er.distinct ?? []) {
-				const c = mintDistinct(d, m, group, roomId, sd.level, rng, ep);
-				c.count = 1;
-				c.activity = d.activity;
-				c.keywords = en?.distinct.find((x) => x.kind === d.kind && x.member === d.member)?.keywords ?? {};
-				if (d.stats) mergeStats(c.stats, d.stats);
-				created.push(c);
-				createdFor.push({
-					mobileId: er.ref,
-					creature: c
-				});
-			}
-		}
-	}
-	const writtenRoomIds = new Set(res.rooms.map((rr) => roomByRef.get(rr.ref)).filter((x) => !!x));
-	ep.creatures = ep.creatures.filter((c) => !writtenRoomIds.has(c.roomId));
-	ep.creatures.push(...created);
-	const rebound = new Set(createdFor.map((c) => c.mobileId));
-	ep.bindings = ep.bindings.filter((b) => !(b.element === "creature" && b.mobileId !== void 0 && rebound.has(b.mobileId)));
-	for (const { mobileId, creature } of createdFor) ep.bindings.push({
-		entityId: creature.id,
-		roomId: creature.roomId,
-		element: "creature",
-		keywords: creature.activity ? [creature.activity] : [],
-		mobileId
-	});
-	return {
-		goalEntity,
-		createdCreatures: created
-	};
-}
-function mintDistinct(d, m, group, roomId, level, rng, ep) {
-	if (d.kind === "elite" && group && group.kind === "monsters" && group.biggerSpecimen) {
-		const c = createCreatureFromSeed(group.biggerSpecimen, roomId, level, group.biggerSpecimen.complexity, ep.registry, rng, {
-			name: d.name,
-			isLeader: d.isLeader,
-			affiliationGroupId: group.id
-		});
-		ep.registry.creatures[c.narrative.blueprintId].base = d.base;
-		return c;
-	}
-	if (d.kind === "named" && group && group.kind === "people") {
-		const c = createCreatureFromGroup(group, roomId, level, rng, {
-			member: d.member,
-			isLeader: d.isLeader,
-			name: d.name
-		});
-		c.base = d.base;
-		return c;
-	}
-	const c = createCreatureFromSeed(m.monster ?? m.npc, roomId, level, m.monster?.complexity ?? "simple", ep.registry, rng, {
-		name: d.name,
-		isLeader: d.isLeader
-	});
-	ep.registry.creatures[c.narrative.blueprintId].base = d.base;
-	return c;
-}
-function mergeStats(spine, dev) {
-	if (dev.damage) spine.damage = dev.damage;
-	if (dev.armorDefense !== void 0) spine.armorDefense = dev.armorDefense;
-	if (dev.morale !== void 0) spine.morale = dev.morale;
-	if (dev.modifiers) spine.modifiers = {
-		...spine.modifiers,
-		...dev.modifiers
-	};
-}
-function createGoalEntity(goal, roomId, sd, rng, ep) {
-	const kw = {
-		Reward: ep.pendingGoal.reward,
-		Mission: ep.pendingGoal.mission
-	};
-	if (goal.entityType === "Item") {
-		const it = {
-			id: makeId(),
-			name: goal.name,
-			type: "Item",
-			base: goal.base,
-			parentId: roomId,
-			slots: 1,
-			value: goalItemValue(sd.rooms.flatMap((r) => r.rewards), rng)
-		};
-		it.keywords = kw;
-		ep.items.push(it);
-		return it;
-	}
-	if (goal.entityType === "Creature") {
-		const c = createCreatureFromSeed({
-			complexity: "major",
-			silhouette: "humanoid",
-			traitsAndAbilities: [],
-			featuresAndMutations: [],
-			tactic: "",
-			weaknesses: [],
-			personality: ""
-		}, roomId, sd.level, "major", ep.registry, rng, { name: goal.name });
-		ep.registry.creatures[c.narrative.blueprintId].base = goal.base;
-		c.keywords = kw;
-		return c;
-	}
-	const f = {
-		id: makeId(),
-		name: goal.name,
-		type: "RoomFeature",
-		base: goal.base,
-		roomId
-	};
-	f.keywords = kw;
-	ep.features.push(f);
-	return f;
 }
 //#endregion
 //#region src/generation/content/passes/dungeon-pass.ts
@@ -9382,84 +9392,7 @@ function roomSizes(rooms) {
 	return rooms.map((cells) => classOf(cells.length));
 }
 //#endregion
-//#region src/generation/content/stock.ts
-/**
-* stock.ts
-*
-* Phase C -- the rooms loop. Takes the Phase A graph (pure topology) plus the
-* dungeon blueprint seed (the genome) and stocks every room, producing the
-* bundles that the LLM composition pass turns into prose.
-*
-* Sources:
-*   - Maze Rats v4.3 by Ben Milton (CC BY 4.0)          -- THE MAZE tables
-*   - Cairn 2e "Dungeon Seeds", Yochai Gal (CC BY-SA 4.0) -- Special/Feature/Clue
-*
-* PIPELINE
-*   0.  structural pre-pass  -- entrance pick, BFS depth, dead ends, eccentricity,
-*                               core/secret selection, connector promotion
-*   1.  load-bearing         -- entrance features, goal entity, one base room per
-*                               inhabitant group
-*   2.  identity             -- every room gets a name/function. No blank rooms.
-*   3.  headline quota       -- target mix over ALL rooms, minus load-bearing
-*                               claims. The remainder is a conserved budget.
-*   4.  headline placement   -- assign the budget by depth fit, then local swaps
-*                               to break up same-category neighbours (pacing)
-*   5.  danger scoring       -- per room, from headline + occupancy + depth
-*   6.  reward distribution  -- fixed budget K. Guarantees off the top, remainder
-*                               by weighted draw. Conserved, so an empty monster
-*                               room pushes its share elsewhere.
-*   7.  content layers       -- details, hazards/specials, clues-with-pointers
-*   8.  emit                 -- room bundles + mobile entity list
-*
-* DESIGN INVARIANTS
-*   - Headlines and rewards are BUDGETS, not per-room rolls. Load-bearing
-*     placement has already skewed the pool; only subtraction can correct it.
-*   - Headline mix is level-agnostic. Level moves reward GRADE only.
-*   - Creatures are mobile entities referencing a room via locationRoomId. They
-*     are never children of the room.
-*   - Everything is seeded. Same seed in, same dungeon out.
-*
-* NOTE ON TABLES: the MAZE / Cairn tables live inline here for convenience while
-* we test this phase. They are destined for their own module(s) alongside the
-* blueprint tables -- nothing here should assume they stay local.
-*
-* NOTE ON IMPORTS: this expects `genMonster`, `genNpc`, `Rng` and the treasure
-* tables to be exported from blueprint.ts (a one-word change each in the
-* source; they are currently module-private).
-*/
-var t = (s) => s.split("|");
-var DUNGEON_ACTIVITIES = t("Besiege|Capture|City Activity|Collect|Construct|Control|Deliver|Demolish|Escape|Feed|Fortify|Guard|Hide|Hunt|Loot|Map|Mine|{Monster} Tactic|Negotiate|Patrol|Perform ritual|Purge|Question|Raid|Repair|Rescue|Research|Revive|Riddle|Scavenge|Seize|Tunnel|Unearth|Vandalize|Wild. Activity|Worship");
-var CAIRN_SPECIAL = t("Books|Bridge|Contraption|Creature|Door|Flames|Furniture|Hole|Liquid|Mirror|Mural|Pool|Shadows|Smoke|Statue|Surface|Treasure|Voices|Wheel|Writing");
-var CAIRN_FEATURE = t("Ages|Alarms|Animates|Attracts|Charges|Closes|Falls|Glows|Grows|Illusion|Levitates|Locks|Opens|Reflects|Repels|Reveals|Shifts|Silences|Teleport|Transforms");
-var CAIRN_CLUE = t("Decay|Decor|Draft|Echoes|Footprints|Leavings|Light|Markings|Moisture|Noise|Paraphernalia|Residue|Scurrying|Signs|Smell|Stains|Tapping|Temperature|Vibrations|Writing");
-var CASCADE_TABLES = {
-	"Building Room": BUILDING_ROOMS,
-	"Dungeon Room": DUNGEON_ROOMS,
-	"L. Cl. Building": LOWER_CLASS_BUILDINGS,
-	"U. Cl. Building": UPPER_CLASS_BUILDINGS,
-	"Treasure Item": TREASURE_ITEMS,
-	"Val. Material": VALUABLE_MATERIALS,
-	"Weapon Item": WEAPON_ITEMS
-};
-/** Entity cascades emit a stub for the LLM instead of recursing. */
-var ENTITY_CASCADES = /* @__PURE__ */ new Set([
-	"Monster",
-	"NPC",
-	"faction",
-	"monster"
-]);
-var MAX_CASCADE_DEPTH = 2;
-function resolveCascades(entry, rng, depth = 0) {
-	return entry.replace(/\{([^}]+)\}/g, (_m, key) => {
-		if (ENTITY_CASCADES.has(key)) return key;
-		const table = CASCADE_TABLES[key];
-		if (!table || depth >= MAX_CASCADE_DEPTH) return key;
-		return resolveCascades(rng.pick(table), rng, depth + 1);
-	});
-}
-function roll(table, rng) {
-	return resolveCascades(rng.pick(table), rng);
-}
+//#region src/generation/content/stock/steps.ts
 function buildAdjacency(rooms, edges) {
 	const adj = rooms.map(() => []);
 	for (const e of edges) {
@@ -9736,7 +9669,11 @@ function resolveClueTargets(rooms, byIndex, s, connectors, mobiles, rng) {
 		} else room.clue.about = "the dungeon at large";
 	}
 }
+//#endregion
+//#region src/generation/content/stock/ids.ts
 /**
+* MOBILE IDS.
+*
 * Mobile ids are derived from the stocking seed and a counter that resets at
 * the top of every stockDungeon() call, so stocking the same seed twice in one
 * process yields the same ids. A bare module-level counter did not: the second
@@ -9752,6 +9689,263 @@ function resetMobileIds(seed) {
 function mobileId() {
 	return `${mobilePrefix}_${(++mobileCounter).toString(36)}`;
 }
+//#endregion
+//#region src/generation/content/stock/tables.ts
+/**
+* THE TABLES ONLY STOCKING ROLLS ON, and the cascade roller over them.
+*
+* This roller is separate from the Maze Rats one in `rules/maze-rats/tables.ts`
+* because its cascade map names a different set of tables. Merging the two is
+* a change to what gets rolled, so it waits for a session that can show the
+* generation snapshots are unchanged.
+*/
+var t = (s) => s.split("|");
+var DUNGEON_ACTIVITIES = t("Besiege|Capture|City Activity|Collect|Construct|Control|Deliver|Demolish|Escape|Feed|Fortify|Guard|Hide|Hunt|Loot|Map|Mine|{Monster} Tactic|Negotiate|Patrol|Perform ritual|Purge|Question|Raid|Repair|Rescue|Research|Revive|Riddle|Scavenge|Seize|Tunnel|Unearth|Vandalize|Wild. Activity|Worship");
+var CAIRN_SPECIAL = t("Books|Bridge|Contraption|Creature|Door|Flames|Furniture|Hole|Liquid|Mirror|Mural|Pool|Shadows|Smoke|Statue|Surface|Treasure|Voices|Wheel|Writing");
+var CAIRN_FEATURE = t("Ages|Alarms|Animates|Attracts|Charges|Closes|Falls|Glows|Grows|Illusion|Levitates|Locks|Opens|Reflects|Repels|Reveals|Shifts|Silences|Teleport|Transforms");
+var CAIRN_CLUE = t("Decay|Decor|Draft|Echoes|Footprints|Leavings|Light|Markings|Moisture|Noise|Paraphernalia|Residue|Scurrying|Signs|Smell|Stains|Tapping|Temperature|Vibrations|Writing");
+var CASCADE_TABLES = {
+	"Building Room": BUILDING_ROOMS,
+	"Dungeon Room": DUNGEON_ROOMS,
+	"L. Cl. Building": LOWER_CLASS_BUILDINGS,
+	"U. Cl. Building": UPPER_CLASS_BUILDINGS,
+	"Treasure Item": TREASURE_ITEMS,
+	"Val. Material": VALUABLE_MATERIALS,
+	"Weapon Item": WEAPON_ITEMS
+};
+/** Entity cascades emit a stub for the LLM instead of recursing. */
+var ENTITY_CASCADES = /* @__PURE__ */ new Set([
+	"Monster",
+	"NPC",
+	"faction",
+	"monster"
+]);
+var MAX_CASCADE_DEPTH = 2;
+function resolveCascades(entry, rng, depth = 0) {
+	return entry.replace(/\{([^}]+)\}/g, (_m, key) => {
+		if (ENTITY_CASCADES.has(key)) return key;
+		const table = CASCADE_TABLES[key];
+		if (!table || depth >= MAX_CASCADE_DEPTH) return key;
+		return resolveCascades(rng.pick(table), rng, depth + 1);
+	});
+}
+function roll(table, rng) {
+	return resolveCascades(rng.pick(table), rng);
+}
+//#endregion
+//#region src/generation/content/stock/creatures.ts
+/**
+* STOCKING'S CREATURES: each inhabitant group as a mobile, its minions, the
+* wanderers, and how each is disposed toward the player.
+*/
+/**
+* A Creature entity is a STACK, not an individual: a statblock template, a
+* count, and a location. Any group of creatures sharing a room and a statline
+* is one entity. It splits when part of the group is sent elsewhere and merges
+* back when they reunite, so entity identity is not stable over play.
+*
+* DEFERRED -- counts and split/merge live in `state` for now rather than being
+* modelled here. Two things to pick up if that stops being good enough:
+*   - merging needs a stable key (same template + same room), so templates want
+*     an id rather than being compared structurally
+*   - a split produces a new entity that shares its parent's immutable `base`
+*     while diverging in `state`; base is template-level, state is stack-level
+*
+* The blueprint already carries the template split this implies: people Hordes
+* get one named leader plus `undefinedUnderlings`, monster Hordes get `monster`
+* (simple minions) alongside `biggerSpecimen` (same silhouette, higher tier).
+* Named NPCs are just count-1 stacks whose stats happen to be unique, so they
+* never merge with anything.
+*/
+function groupLabel(g, gi) {
+	return g.kind === "monsters" ? `Group ${gi + 1} (${g.tier} ${g.monster.silhouette} monsters)` : `Group ${gi + 1} (${g.tier} ${g.faction})`;
+}
+function makeGroupMobile(group, gi, roomId, isBase, rng) {
+	const m = {
+		id: mobileId(),
+		kind: "group-member",
+		name: `${groupLabel(group, gi)}${isBase ? " -- BASE" : " -- outpost"}`,
+		locationRoomId: roomId,
+		groupIndex: gi,
+		groupId: group.id,
+		isBase,
+		tier: group.tier
+	};
+	if (group.kind === "monsters") m.monster = group.monster;
+	return m;
+}
+/**
+* Downgrade a Solo's statline to something a satellite can carry: same creature,
+* fewer moving parts. Matches what genMonster would have produced at "simple"
+* (one trait/ability line, one feature/mutation line).
+*
+* The weakness is deliberately INHERITED rather than trimmed. Young share the
+* parent's flaw, so a party that fights the brood can learn how to kill the
+* thing that spawned it -- which is the same cross-link the knowledge parcels
+* lean on, arrived at from the other direction.
+*/
+function downgradeToSimple(m) {
+	return {
+		...m,
+		complexity: "simple",
+		traitsAndAbilities: m.traitsAndAbilities.slice(0, 1),
+		featuresAndMutations: m.featuresAndMutations.slice(0, 1),
+		weaknesses: m.weaknesses.slice(0, 1)
+	};
+}
+/**
+* A Solo is one creature and cannot literally appear twice, but it can have a
+* minions. For people, that is a handful of hirelings under their command. For
+* monsters, a knot of simple creatures related to it by blood, thrall, or
+* ecology.
+*/
+function makeMinion(group, gi, roomId, rng) {
+	const base = {
+		id: mobileId(),
+		kind: "group-member",
+		name: "",
+		locationRoomId: roomId,
+		groupIndex: gi,
+		groupId: group.id,
+		isBase: false,
+		tier: group.tier
+	};
+	if (group.kind === "people") return {
+		...base,
+		name: `${groupLabel(group, gi)} -- hirelings`,
+		minion: "hirelings",
+		notes: "A handful of hired hands under the Solo's command. Undefined as individuals unless one of them earns a name in play."
+	};
+	const kind = rng.pick([
+		"young",
+		"thrall",
+		"ecology"
+	]);
+	if (kind === "young") return {
+		...base,
+		name: `${groupLabel(group, gi)} -- young`,
+		minion: "young",
+		monster: downgradeToSimple(group.monster),
+		notes: "The Solo's brood. Same creature, scaled down; shares its weakness."
+	};
+	if (kind === "thrall") return {
+		...base,
+		name: `${groupLabel(group, gi)} -- thralls`,
+		minion: "thrall",
+		monster: genMonster("simple", rng),
+		notes: "Simple creatures held under the Solo's control, not its kin."
+	};
+	return {
+		...base,
+		name: `${groupLabel(group, gi)} -- attendant creatures`,
+		minion: "ecology",
+		monster: genMonster("simple", rng),
+		notes: "Tied to the Solo by ecology rather than obedience or blood. Composition pass establishes the relationship (prey, scavenger, symbiote, parasite...)."
+	};
+}
+/**
+* Spend one unit of Creature budget. With probability `cohesion` the encounter
+* belongs to the roster; otherwise it is unaffiliated. Cohesion is rolled once
+* per dungeon, so some dungeons read as tightly populated by their inhabitants
+* and others as a menagerie of unrelated things -- which is its own valid vibe,
+* not a failure mode.
+*
+* Solos now participate, but through minions rather than by duplicating
+* themselves, and they weight lower than Bands and Hordes so they still mostly
+* stay home.
+*/
+function makeMinionOrWanderer(bp, roomId, cohesion, wandererGroups, rng) {
+	const eligible = bp.inhabitants.map((g, gi) => ({
+		g,
+		gi
+	}));
+	if (eligible.length && rng.chance(cohesion)) {
+		const weights = eligible.map(({ g }) => g.tier === "Horde" ? 3 : g.tier === "Band" ? 1.5 : .6);
+		const total = weights.reduce((a, b) => a + b, 0);
+		let x = rng.next() * total;
+		let k = 0;
+		for (; k < eligible.length; k++) {
+			x -= weights[k];
+			if (x <= 0) break;
+		}
+		if (k >= eligible.length) k = eligible.length - 1;
+		const { g, gi } = eligible[k];
+		return g.tier === "Solo" ? makeMinion(g, gi, roomId, rng) : makeGroupMobile(g, gi, roomId, false, rng);
+	}
+	const tier = rng.pick([
+		"Solo",
+		"Band",
+		"Horde"
+	]);
+	if (rng.chance(.5)) {
+		const group = genMonsterGroup(tier, rng);
+		wandererGroups.push(group);
+		return {
+			id: mobileId(),
+			kind: "wanderer-monster",
+			name: "Unaffiliated creature",
+			locationRoomId: roomId,
+			tier,
+			groupId: group.id,
+			monster: group.monster
+		};
+	}
+	const group = genPeopleGroup(tier, rng, "wanderer");
+	wandererGroups.push(group);
+	return {
+		id: mobileId(),
+		kind: "wanderer-npc",
+		name: "Unaffiliated person",
+		locationRoomId: roomId,
+		tier,
+		groupId: group.id,
+		npc: group.npcs[0]
+	};
+}
+/**
+* Disposition is a property of the encounter, not of the category. Inhabitants
+* are usually hostile but genuinely need not be -- a faction whose goal aligns
+* with the party's has obvious reason to parley.
+*/
+function rollDisposition(bp, m, rng) {
+	if (m.groupIndex !== void 0) {
+		const g = bp.inhabitants[m.groupIndex];
+		if (g.kind === "people") {
+			if (g.goalBranch === "opposed") return rng.chance(.85) ? "hostile" : "neutral";
+			if (g.goalBranch === "same") {
+				const r = rng.next();
+				return r < .45 ? "hostile" : r < .8 ? "neutral" : "friendly";
+			}
+			const r = rng.next();
+			return r < .55 ? "hostile" : r < .85 ? "neutral" : "friendly";
+		}
+		return rng.chance(.8) ? "hostile" : "neutral";
+	}
+	const r = rng.next();
+	return r < .6 ? "hostile" : r < .88 ? "neutral" : "friendly";
+}
+function rollSpecial(rng) {
+	if (rng.coin()) {
+		if (rng.coin()) return {
+			kind: "hazard",
+			hazard: roll(DUNGEON_HAZARDS, rng)
+		};
+		return {
+			kind: "hazard",
+			trapTrigger: roll(TRAP_TRIGGERS, rng),
+			trapEffect: roll(TRAP_EFFECTS, rng)
+		};
+	}
+	const useTrick = rng.chance(.4);
+	return {
+		kind: "obstacle",
+		subject: roll(CAIRN_SPECIAL, rng),
+		behaviour: useTrick ? roll(DUNGEON_TRICKS, rng) : roll(CAIRN_FEATURE, rng),
+		behaviourSource: useTrick ? "mr-trick" : "cairn-feature"
+	};
+}
+//#endregion
+//#region src/generation/content/stock/stock.ts
 /**
 * Pick the rooms that are passages rather than places.
 *
@@ -9962,212 +10156,6 @@ function stockDungeon(dungeon, blueprint, opts = {}) {
 		reserve: placement.reserve,
 		pot: placement.pot,
 		rewardBudget: placement.stats
-	};
-}
-/**
-* A Creature entity is a STACK, not an individual: a statblock template, a
-* count, and a location. Any group of creatures sharing a room and a statline
-* is one entity. It splits when part of the group is sent elsewhere and merges
-* back when they reunite, so entity identity is not stable over play.
-*
-* DEFERRED -- counts and split/merge live in `state` for now rather than being
-* modelled here. Two things to pick up if that stops being good enough:
-*   - merging needs a stable key (same template + same room), so templates want
-*     an id rather than being compared structurally
-*   - a split produces a new entity that shares its parent's immutable `base`
-*     while diverging in `state`; base is template-level, state is stack-level
-*
-* The blueprint already carries the template split this implies: people Hordes
-* get one named leader plus `undefinedUnderlings`, monster Hordes get `monster`
-* (simple minions) alongside `biggerSpecimen` (same silhouette, higher tier).
-* Named NPCs are just count-1 stacks whose stats happen to be unique, so they
-* never merge with anything.
-*/
-function groupLabel(g, gi) {
-	return g.kind === "monsters" ? `Group ${gi + 1} (${g.tier} ${g.monster.silhouette} monsters)` : `Group ${gi + 1} (${g.tier} ${g.faction})`;
-}
-function makeGroupMobile(group, gi, roomId, isBase, rng) {
-	const m = {
-		id: mobileId(),
-		kind: "group-member",
-		name: `${groupLabel(group, gi)}${isBase ? " -- BASE" : " -- outpost"}`,
-		locationRoomId: roomId,
-		groupIndex: gi,
-		groupId: group.id,
-		isBase,
-		tier: group.tier
-	};
-	if (group.kind === "monsters") m.monster = group.monster;
-	return m;
-}
-/**
-* Downgrade a Solo's statline to something a satellite can carry: same creature,
-* fewer moving parts. Matches what genMonster would have produced at "simple"
-* (one trait/ability line, one feature/mutation line).
-*
-* The weakness is deliberately INHERITED rather than trimmed. Young share the
-* parent's flaw, so a party that fights the brood can learn how to kill the
-* thing that spawned it -- which is the same cross-link the knowledge parcels
-* lean on, arrived at from the other direction.
-*/
-function downgradeToSimple(m) {
-	return {
-		...m,
-		complexity: "simple",
-		traitsAndAbilities: m.traitsAndAbilities.slice(0, 1),
-		featuresAndMutations: m.featuresAndMutations.slice(0, 1),
-		weaknesses: m.weaknesses.slice(0, 1)
-	};
-}
-/**
-* A Solo is one creature and cannot literally appear twice, but it can have a
-* minions. For people, that is a handful of hirelings under their command. For
-* monsters, a knot of simple creatures related to it by blood, thrall, or
-* ecology.
-*/
-function makeMinion(group, gi, roomId, rng) {
-	const base = {
-		id: mobileId(),
-		kind: "group-member",
-		name: "",
-		locationRoomId: roomId,
-		groupIndex: gi,
-		groupId: group.id,
-		isBase: false,
-		tier: group.tier
-	};
-	if (group.kind === "people") return {
-		...base,
-		name: `${groupLabel(group, gi)} -- hirelings`,
-		minion: "hirelings",
-		notes: "A handful of hired hands under the Solo's command. Undefined as individuals unless one of them earns a name in play."
-	};
-	const kind = rng.pick([
-		"young",
-		"thrall",
-		"ecology"
-	]);
-	if (kind === "young") return {
-		...base,
-		name: `${groupLabel(group, gi)} -- young`,
-		minion: "young",
-		monster: downgradeToSimple(group.monster),
-		notes: "The Solo's brood. Same creature, scaled down; shares its weakness."
-	};
-	if (kind === "thrall") return {
-		...base,
-		name: `${groupLabel(group, gi)} -- thralls`,
-		minion: "thrall",
-		monster: genMonster("simple", rng),
-		notes: "Simple creatures held under the Solo's control, not its kin."
-	};
-	return {
-		...base,
-		name: `${groupLabel(group, gi)} -- attendant creatures`,
-		minion: "ecology",
-		monster: genMonster("simple", rng),
-		notes: "Tied to the Solo by ecology rather than obedience or blood. Composition pass establishes the relationship (prey, scavenger, symbiote, parasite...)."
-	};
-}
-/**
-* Spend one unit of Creature budget. With probability `cohesion` the encounter
-* belongs to the roster; otherwise it is unaffiliated. Cohesion is rolled once
-* per dungeon, so some dungeons read as tightly populated by their inhabitants
-* and others as a menagerie of unrelated things -- which is its own valid vibe,
-* not a failure mode.
-*
-* Solos now participate, but through minions rather than by duplicating
-* themselves, and they weight lower than Bands and Hordes so they still mostly
-* stay home.
-*/
-function makeMinionOrWanderer(bp, roomId, cohesion, wandererGroups, rng) {
-	const eligible = bp.inhabitants.map((g, gi) => ({
-		g,
-		gi
-	}));
-	if (eligible.length && rng.chance(cohesion)) {
-		const weights = eligible.map(({ g }) => g.tier === "Horde" ? 3 : g.tier === "Band" ? 1.5 : .6);
-		const total = weights.reduce((a, b) => a + b, 0);
-		let x = rng.next() * total;
-		let k = 0;
-		for (; k < eligible.length; k++) {
-			x -= weights[k];
-			if (x <= 0) break;
-		}
-		if (k >= eligible.length) k = eligible.length - 1;
-		const { g, gi } = eligible[k];
-		return g.tier === "Solo" ? makeMinion(g, gi, roomId, rng) : makeGroupMobile(g, gi, roomId, false, rng);
-	}
-	const tier = rng.pick([
-		"Solo",
-		"Band",
-		"Horde"
-	]);
-	if (rng.chance(.5)) {
-		const group = genMonsterGroup(tier, rng);
-		wandererGroups.push(group);
-		return {
-			id: mobileId(),
-			kind: "wanderer-monster",
-			name: "Unaffiliated creature",
-			locationRoomId: roomId,
-			tier,
-			groupId: group.id,
-			monster: group.monster
-		};
-	}
-	const group = genPeopleGroup(tier, rng, "wanderer");
-	wandererGroups.push(group);
-	return {
-		id: mobileId(),
-		kind: "wanderer-npc",
-		name: "Unaffiliated person",
-		locationRoomId: roomId,
-		tier,
-		groupId: group.id,
-		npc: group.npcs[0]
-	};
-}
-/**
-* Disposition is a property of the encounter, not of the category. Inhabitants
-* are usually hostile but genuinely need not be -- a faction whose goal aligns
-* with the party's has obvious reason to parley.
-*/
-function rollDisposition(bp, m, rng) {
-	if (m.groupIndex !== void 0) {
-		const g = bp.inhabitants[m.groupIndex];
-		if (g.kind === "people") {
-			if (g.goalBranch === "opposed") return rng.chance(.85) ? "hostile" : "neutral";
-			if (g.goalBranch === "same") {
-				const r = rng.next();
-				return r < .45 ? "hostile" : r < .8 ? "neutral" : "friendly";
-			}
-			const r = rng.next();
-			return r < .55 ? "hostile" : r < .85 ? "neutral" : "friendly";
-		}
-		return rng.chance(.8) ? "hostile" : "neutral";
-	}
-	const r = rng.next();
-	return r < .6 ? "hostile" : r < .88 ? "neutral" : "friendly";
-}
-function rollSpecial(rng) {
-	if (rng.coin()) {
-		if (rng.coin()) return {
-			kind: "hazard",
-			hazard: roll(DUNGEON_HAZARDS, rng)
-		};
-		return {
-			kind: "hazard",
-			trapTrigger: roll(TRAP_TRIGGERS, rng),
-			trapEffect: roll(TRAP_EFFECTS, rng)
-		};
-	}
-	const useTrick = rng.chance(.4);
-	return {
-		kind: "obstacle",
-		subject: roll(CAIRN_SPECIAL, rng),
-		behaviour: useTrick ? roll(DUNGEON_TRICKS, rng) : roll(CAIRN_FEATURE, rng),
-		behaviourSource: useTrick ? "mr-trick" : "cairn-feature"
 	};
 }
 //#endregion
@@ -13436,6 +13424,19 @@ function acceptsInput(stage) {
 //#endregion
 //#region src/rules/knave/character-creation.ts
 /**
+* `Ability` is `dungeon-entities`', not a second copy — a creature's six and a
+* character's six are the same six, and two unions that must agree are one
+* union.
+*/
+var ABILITIES = [
+	"str",
+	"dex",
+	"con",
+	"int",
+	"wis",
+	"cha"
+];
+/**
 * Nobody holds it yet. `finishCharacter` binds every item's `parentId` to the
 * character it mints, which is the last moment at which a kit is still a kit
 * rather than somebody's belongings.
@@ -13913,21 +13914,6 @@ function grantCoin(world, cs, turn) {
 	};
 }
 //#endregion
-//#region src/gameplay/mechanics/occupancy.ts
-/** Everything whose own link field points straight at `holderId`. */
-function directContents(holderId, e) {
-	const out = [];
-	for (const c of e.creatures) if (c.roomId === holderId) out.push(c);
-	for (const f of e.features) if (f.roomId === holderId) out.push(f);
-	for (const i of e.items) if (i.parentId === holderId) out.push(i);
-	for (const x of e.effects) if (x.roomIds.includes(holderId)) out.push(x);
-	return out;
-}
-/** Items held by `holderId`, one level deep. */
-function heldItems(holderId, e) {
-	return e.items.filter((i) => i.parentId === holderId);
-}
-//#endregion
 //#region src/gameplay/mechanics/travel.ts
 /**
 * WALKING ACROSS THE DUNGEON
@@ -14271,27 +14257,7 @@ function writablePaths(kind) {
 /** The id the game master uses for the player character. */
 var PLAYER_ID = "player";
 //#endregion
-//#region src/gameplay/diffs/apply.ts
-/**
-* THE APPLIER
-* ===========
-*
-* The single chokepoint between what the game master says happened and what the
-* save file contains.
-*
-* ATOMIC BY CONSTRUCTION. The batch is applied to a deep clone; the clone is
-* adopted only if every diff succeeded. That is stronger than validating first
-* and applying second, and it is the only approach that copes with a batch
-* whose later diffs depend on its earlier ones — unequip the shield, then take
-* up the two-handed sword. Validating both against the starting state would
-* refuse the second for a conflict that the first had already resolved.
-*
-* The invariants are not re-implemented here. `equip`, `addItem`, `removeItem`
-* and `validateEquipment` already own them, so the handlers call those. A
-* well-formed write straight to `equipped.shield` would pass any path check and
-* still produce a shield worn alongside a two-hander; routing through `equip`
-* cannot.
-*/
+//#region src/gameplay/diffs/context.ts
 function indexWorld(w) {
 	const m = /* @__PURE__ */ new Map();
 	m.set(PLAYER_ID, {
@@ -14349,6 +14315,27 @@ function resolveId(ctx, id) {
 function requireEntity(ctx, id) {
 	return ctx.index.get(resolveId(ctx, id)) ?? fail(`no entity with id ${JSON.stringify(id)}`);
 }
+//#endregion
+//#region src/gameplay/mechanics/occupancy.ts
+/** Everything whose own link field points straight at `holderId`. */
+function directContents(holderId, e) {
+	const out = [];
+	for (const c of e.creatures) if (c.roomId === holderId) out.push(c);
+	for (const f of e.features) if (f.roomId === holderId) out.push(f);
+	for (const i of e.items) if (i.parentId === holderId) out.push(i);
+	for (const x of e.effects) if (x.roomIds.includes(holderId)) out.push(x);
+	return out;
+}
+/** Items held by `holderId`, one level deep. */
+function heldItems(holderId, e) {
+	return e.items.filter((i) => i.parentId === holderId);
+}
+//#endregion
+//#region src/gameplay/diffs/handlers.ts
+/**
+* WHAT EACH KIND OF PATH DOES: removing a thing from the world, and one handler
+* per entity kind. `apply.ts` routes each diff to one of these.
+*/
 function removeFromWorld(ctx, entity) {
 	const e = ctx.world.entities;
 	const drop = (list) => {
@@ -14680,6 +14667,32 @@ function roomContaining(ctx, id) {
 	const item = [...e.items, ...ctx.world.pc.inventory].find((i) => i.id === id);
 	return item ? roomContaining(ctx, item.parentId) : void 0;
 }
+//#endregion
+//#region src/gameplay/diffs/apply.ts
+/**
+* THE APPLIER
+* ===========
+*
+* The single chokepoint between what the game master says happened and what the
+* save file contains.
+*
+* ATOMIC BY CONSTRUCTION. The batch is applied to a deep clone; the clone is
+* adopted only if every diff succeeded. That is stronger than validating first
+* and applying second, and it is the only approach that copes with a batch
+* whose later diffs depend on its earlier ones — unequip the shield, then take
+* up the two-handed sword. Validating both against the starting state would
+* refuse the second for a conflict that the first had already resolved.
+*
+* The invariants are not re-implemented here. `equip`, `addItem`, `removeItem`
+* and `validateEquipment` already own them, so the handlers call those. A
+* well-formed write straight to `equipped.shield` would pass any path check and
+* still produce a shield worn alongside a two-hander; routing through `equip`
+* cannot.
+*
+* This file is the dispatch and the entry point. What each kind of path does is
+* in `handlers.ts`; the index and per-commit context they share is in
+* `context.ts`.
+*/
 function applyOne(ctx, diff) {
 	const raw = diff.path;
 	const path = normalizePath(raw);
@@ -15674,19 +15687,10 @@ function renderOutcomes(outcomes) {
 	return outcomes.map((o) => `${o.id}: ${o.line}`).join("\n");
 }
 //#endregion
-//#region src/gameplay/view/selectors.ts
+//#region src/gameplay/view/entities.ts
 /**
-* VIEW MODELS
-* ===========
-*
-* Everything the interface renders, derived here rather than in JSX. Components
-* that compute their own view state put logic somewhere it cannot be tested and
-* duplicate it the moment a second component needs the same answer.
-*
-* Framework-free on purpose: these are plain functions over state, so the turn
-* machine can use the same room view for prompt assembly that the screen uses
-* for display. One place where "what is in this room" is decided means the
-* player and the game master cannot end up looking at different rooms.
+* ONE ENTITY, AS THE SCREEN AND THE GAME MASTER SEE IT: its view, and the
+* combat numbers only the game master is shown.
 */
 function toView(entity, entities, registry, stats = false) {
 	const view = {
@@ -15733,6 +15737,103 @@ function toView(entity, entities, registry, stats = false) {
 	}
 	return view;
 }
+//#endregion
+//#region src/gameplay/view/character.ts
+function characterView(run) {
+	const pc = run.pc;
+	const registry = run.entities.registry;
+	return {
+		name: pc.name,
+		level: pc.level,
+		hp: { ...pc.hp },
+		abilities: ABILITIES.map((key) => ({
+			key,
+			bonus: pc.abilities[key],
+			defense: pc.abilities[key] + 10
+		})),
+		armorDefense: armorDefense(pc),
+		meleeBonus: meleeAttackBonus(pc),
+		rangedBonus: rangedAttackBonus(pc),
+		slots: inventoryStatus(pc),
+		inventory: pc.inventory.map((i) => toView(i, run.entities, registry)),
+		equipped: EQUIP_SLOTS.map((slot) => {
+			const item = heldItem(pc, pc.equipped[slot]);
+			return {
+				slot,
+				item: item ? toView(item, run.entities, registry) : void 0,
+				summary: item ? itemSummary(item) : void 0
+			};
+		}),
+		conditions: [...pc.conditions],
+		traits: pc.traits
+	};
+}
+//#endregion
+//#region src/gameplay/view/census.ts
+/**
+* THE CENSUS: every creature in the dungeon the player is not standing next to.
+* For the game master only.
+*/
+/**
+* ALL OF THEM, EVERY CALL.
+*
+* The whole design turns on how many there are, so it was measured before it
+* was designed: the largest dump in the repo — 18 rooms — holds 12 creature
+* entities across 6 rooms, and a full census one line each is about 625 tokens
+* against ~11,500 for a resolution turn. There is no version of this worth
+* being clever about, so there is no filtering, no radius and no budget.
+*
+* WHAT IS NOT IN IT is the room the player is standing in. `roomView` already
+* carries those creatures with `base`, `state`, `composed`, `activity`,
+* defenses and hit points; a census line for them would be a second, poorer
+* copy, and two renderings of one creature is an invitation for the two to
+* disagree.
+*
+* A GROUP OF NONE IS GONE. `count: 0` is a wiped-out group the applier has not
+* removed, and listing it invites the game master to send a dead pack somewhere.
+*
+* Distances come from `roomDistances`, which walks the graph WITHOUT the
+* visited-only rule `shortestPath` applies to the player — a creature knows its
+* own home. One BFS answers for every line.
+*/
+function censusView(run) {
+	const e = run.entities;
+	const away = roomDistances(run, run.currentRoomId);
+	return e.creatures.filter((c) => c.roomId !== run.currentRoomId).filter((c) => c.count === void 0 || c.count > 0).map((c) => {
+		const room = e.rooms.find((r) => r.id === c.roomId);
+		const distance = away.get(c.roomId);
+		return {
+			id: c.id,
+			name: c.name,
+			count: c.count ?? 1,
+			roomId: c.roomId,
+			roomName: room?.name ?? "(nowhere)",
+			...distance !== void 0 ? { roomsAway: distance } : {},
+			roomVisited: room?.composed !== void 0,
+			wounded: c.stats.hp < maxHp(c.stats),
+			...c.activity !== void 0 ? { activity: c.activity } : {}
+		};
+	});
+}
+//#endregion
+//#region src/gameplay/view/room.ts
+/**
+* VIEW MODELS: THE CURRENT ROOM
+* =============================
+*
+* Everything the interface renders, derived here rather than in JSX. Components
+* that compute their own view state put logic somewhere it cannot be tested and
+* duplicate it the moment a second component needs the same answer.
+*
+* Framework-free on purpose: these are plain functions over state, so the turn
+* machine can use the same room view for prompt assembly that the screen uses
+* for display. One place where "what is in this room" is decided means the
+* player and the game master cannot end up looking at different rooms.
+*
+* The other view models sit beside this one: `entities.ts` (one entity, as
+* either reader sees it), `census.ts` (every other creature in the dungeon),
+* `character.ts` (the character panel) and `map.ts`.
+*/
 function roomView(run, dungeon, roomId = run.currentRoomId, opts = {}) {
 	const e = run.entities;
 	const room = e.rooms.find((r) => r.id === roomId);
@@ -15778,56 +15879,6 @@ function roomView(run, dungeon, roomId = run.currentRoomId, opts = {}) {
 		geometry: drawn && describeGeometry(drawn.geometry, { omit: concealed })
 	};
 }
-/**
-* ALL OF THEM, EVERY CALL.
-*
-* The whole design turns on how many there are, so it was measured before it
-* was designed: the largest dump in the repo — 18 rooms — holds 12 creature
-* entities across 6 rooms, and a full census one line each is about 625 tokens
-* against ~11,500 for a resolution turn. There is no version of this worth
-* being clever about, so there is no filtering, no radius and no budget.
-*
-* WHAT IS NOT IN IT is the room the player is standing in. `roomView` already
-* carries those creatures with `base`, `state`, `composed`, `activity`,
-* defenses and hit points; a census line for them would be a second, poorer
-* copy, and two renderings of one creature is an invitation for the two to
-* disagree.
-*
-* A GROUP OF NONE IS GONE. `count: 0` is a wiped-out group the applier has not
-* removed, and listing it invites the game master to send a dead pack somewhere.
-*
-* Distances come from `roomDistances`, which walks the graph WITHOUT the
-* visited-only rule `shortestPath` applies to the player — a creature knows its
-* own home. One BFS answers for every line.
-*/
-function censusView(run) {
-	const e = run.entities;
-	const away = roomDistances(run, run.currentRoomId);
-	return e.creatures.filter((c) => c.roomId !== run.currentRoomId).filter((c) => c.count === void 0 || c.count > 0).map((c) => {
-		const room = e.rooms.find((r) => r.id === c.roomId);
-		const distance = away.get(c.roomId);
-		return {
-			id: c.id,
-			name: c.name,
-			count: c.count ?? 1,
-			roomId: c.roomId,
-			roomName: room?.name ?? "(nowhere)",
-			...distance !== void 0 ? { roomsAway: distance } : {},
-			roomVisited: room?.composed !== void 0,
-			wounded: c.stats.hp < maxHp(c.stats),
-			...c.activity !== void 0 ? { activity: c.activity } : {}
-		};
-	});
-}
-/**
-* One room's drawing, as the sentence and the per-connector walls.
-*
-* MEMOISED ON THE DUNGEON, because `roomView` runs on every render and on every
-* prompt assembly while `siteRooms` covers all thirty rooms. It is pure and the
-* inputs are write-once — `blockplan` and `graph` are set at generation and
-* never written again — so a WeakMap keyed on the dungeon is a cache that
-* cannot go stale and cannot leak.
-*/
 /**
 * The GEOMETRY is memoised, not the sentence it renders to.
 *
@@ -15917,43 +15968,6 @@ function needsComposition(run, roomId = run.currentRoomId) {
 	if (!room) return [];
 	return [...needsComposition$1(room) ? [room] : [], ...directContents(roomId, e).filter(needsComposition$1)];
 }
-var ABILITIES = [
-	"str",
-	"dex",
-	"con",
-	"int",
-	"wis",
-	"cha"
-];
-function characterView(run) {
-	const pc = run.pc;
-	const registry = run.entities.registry;
-	return {
-		name: pc.name,
-		level: pc.level,
-		hp: { ...pc.hp },
-		abilities: ABILITIES.map((key) => ({
-			key,
-			bonus: pc.abilities[key],
-			defense: pc.abilities[key] + 10
-		})),
-		armorDefense: armorDefense(pc),
-		meleeBonus: meleeAttackBonus(pc),
-		rangedBonus: rangedAttackBonus(pc),
-		slots: inventoryStatus(pc),
-		inventory: pc.inventory.map((i) => toView(i, run.entities, registry)),
-		equipped: EQUIP_SLOTS.map((slot) => {
-			const item = heldItem(pc, pc.equipped[slot]);
-			return {
-				slot,
-				item: item ? toView(item, run.entities, registry) : void 0,
-				summary: item ? itemSummary(item) : void 0
-			};
-		}),
-		conditions: [...pc.conditions],
-		traits: pc.traits
-	};
-}
 //#endregion
 //#region src/prompts/game-master/SKILL.md?raw
 var SKILL_default = "---\r\nname: dungeon-loop\r\ndescription: Run one turn of the dungeon crawl at runtime, as its game master. Use this whenever the player has typed an action in the chat and you need to resolve it against the current room, the player character, and the dungeon. It carries the action-resolution heuristic — the ordered steps for turning \"I search the desk\" or \"I steal the guard's keys\" into a legitimate, consistent outcome — beginning with determining the target of the action. Consult this on every player action, not just complex ones; the heuristic is what keeps player suggestions inside the established fiction.\r\n---\r\n\r\n# Dungeon Loop\r\n\r\nThis is the runtime game master for the dungeon crawl. The dungeon was built before play, and the current room has already been composed and read to the player. Your job now is the interactive loop: take what the player types and resolve it, honestly and consistently, against the world as it stands.\r\n\r\n## The turn cycle\r\n\r\n1. **Present the current room** — already done by room entry; the room's composed prose is what the player just read.\r\n2. **Await the player's action** — free text in the chat: what they want to do.\r\n3. **Resolve the action** through the heuristic pipeline below, one step at a time.\r\n4. **Resolution applies results, takes other creatures' turns, recomposes what changed, narrates the outcome, and checks for death or victory** (the tail of the pipeline).\r\n5. Return to 2.\r\n\r\n## Standing context (always in front of you)\r\n\r\nEvery turn, hold these three things in mind. They are ground truth, and they are the yardstick for judging whether anything a player proposes \"reasonably exists.\"\r\n\r\n- **The player character** — the full sheet: the six abilities as bonuses (a defense is bonus + 10), HP, level, the eleven traits, current conditions, and inventory as Item entities with slot usage. This tells you what the character can perceive, reach, and carry.\r\n- **The full current room** — the room entity and everything composed within it: its features, occupants (creatures), items, exits (connectors), effects, and hazards, each with its current state.\r\n- **Every other creature in the dungeon** — one line each, under *\"Every other creature in this dungeon\"*: where it is, how many rooms that is from the player, whether it is hurt, and what it is doing. Everything alive down here is in front of you, not only what is in the room.\r\n- **The top-level dungeon** — theme, history, and the party's goal.\r\n\r\n**That census is yours and not the character's.** It sits with creature defenses and concealed things: things you are told so you can judge honestly, which the player has no way to know. It names rooms they have never seen — marked, where that is so — precisely so you can judge what the character could plausibly have heard from where they stand. Never write it into a post.\r\n\r\nEstablished fiction means anything written into these: an entity's base or state, the room's composed description, the dungeon's fiction. When you weigh a player's suggestion, you weigh it against this — not against what would be convenient or dramatic.\r\n\r\n## The player moves quietly unless they say otherwise\r\n\r\nAssume the character is going carefully and quietly — keeping to the wall, easing\r\ndoors rather than swinging them, keeping their voice down. That is what anyone\r\ndoes in a place like this, and the player should not have to type it every turn\r\nto get it.\r\n\r\nThey spend the quiet when their words spend it: \"I run down the hall\", \"I kick\r\nthe door in\", \"I shout to the prisoner\", \"I charge them\". Take those at their\r\nword — the noise is the point of them — and let the place hear it.\r\n\r\nWhat this settles is whether the creatures in a room know the player is there.\r\nRoom entry decides that on arrival; step 3 decides what it costs to act while\r\nthey still do not.\r\n\r\n## The action-resolution heuristic\r\n\r\nAn action is resolved step by step. Each step either **advances** to the next or **bounces back to \"await input.\"** Do not skip ahead, and do not resolve consequences before the earlier steps have cleared the action.\r\n\r\n- **Step 1 — Determine the target.** What is the action focused on, and is the player allowed to target it? → `steps/1-determine-target.md`\r\n- **Step 2 — Determine validity and action type.** Is the action a legitimate attempt, and if so, is it an information or standard action? → `steps/2-validate-and-classify.md`\r\n- **Step 3 — Handle the action by type.** Resolve the action according to its type. → `steps/3-handle-by-type.md`\r\n- **Step 4 — Roll confirmation.** For a standard action that needs a roll: confirm, clarify, or renegotiate its terms while it sits on the table waiting to be taken. → `steps/4-confirm-and-roll.md`\r\n- **Step 5 — Action resolution.** Decide what happened, take other creatures' turns, update state and stats, narrate the outcome, and check for death or the dungeon goal. → `steps/5-resolution.md`\r\n\r\nRolls are made two ways, and the difference matters. **The player's roll is made by the interface** — you offer it, they take it, and the result arrives with their next message. **Every other roll is yours**, made through the `roll` tool described at the end of this file. Either way the numbers come from seeded code and never from you.\r\n\r\n**You never throw the player's own roll — not by hand, and not through the `roll` tool.** An action of theirs that needs dice *ends your turn*: commit `nextStage: \"roll_offered\"` with the terms as the `rollRequest`, and stop there. They take it when they are ready and you pick the action up again at step 5 with the result in front of you. Resolving it yourself takes the roll out of their hands and tells them the outcome of an attempt they were never asked to commit to — the one move this game cannot make. A roll asked for at one of the player's own bonuses is refused and costs you the round.\r\n\r\n## Conventions that hold across every step\r\n\r\n- **Rejections never change the world.** If a step turns the action away, do not update any entity state, do not recompose anything. Say what needs saying to the player and return to \"await input.\"\r\n- **Carry a target record forward.** When a step approves, it hands the next step a compact record of what was approved — the existing entities involved, a part of an entity, or a newly established element. Each step's file defines the record it produces.\r\n- **Speak to the player only when a step tells you to.** Most of the heuristic is internal reasoning. The player hears from you when a step rejects something, asks them to justify something, or (later) narrates an outcome — not a play-by-play of your deliberation.\r\n- **Describe only what you were handed.** Atmosphere is yours to invent freely — the cold, the smell, the light, the sound of water somewhere below. Anything a player could *act on* is not: a ledge, a rope, a gap, a body, a door. If it is not in a `base`, a `state`, or a description they have already read, then either you create it properly in the commit or it does not exist. **Ways out are the strictest case of this** — the exits you are given are all the exits there are, and a passage you mention in passing is a passage the player will walk into and find missing.\r\n- **Describe only where they are.** You are handed the room the player is standing in, and the *contents* of no other. Rooms they can see the door to, rooms they are about to enter, rooms beyond a grate — you have not been told what is in any of them, and inventing it is how a place gets described twice, differently. The census is the one exception and it is not a licence: it tells you which creatures are elsewhere so you can move them, and nothing whatever about the rooms they are standing in.\r\n\r\n## Ending a turn: the commit\r\n\r\n### What the player reads, and what they do not\r\n\r\n**The words meant for the player are the `post` field of `commit_state`. Nothing you write outside the tool call is ever shown.**\r\n\r\n```\r\nStep 1: the target is the desk — an existing entity, approved.\r\nStep 2: valid, and an information action.\r\nStep 3: a careful look; nothing concealed here rewards it.\r\n\r\ncommit_state({\r\n  post: \"The desk is oak and much older than the room around it. Someone has\r\n         gone through the drawers already — they hang open, and the papers in\r\n         them are ruined.\",\r\n  nextStage: \"awaiting_action\",\r\n  nextStep:  \"1-target\",\r\n  timeSpent: \"instant\",\r\n  diffs: [ ... ]\r\n})\r\n```\r\n\r\nThis is what lets you work through the heuristic in the open. None of it reaches the player. Only `post` is printed, and it is printed exactly as written — so nothing in it should be a heading, a record, or a note about your own process.\r\n\r\n**Keep the working-out to short notes, like the three lines above.** One line per step: the decision and the reason, in a few words. The records the step files describe are for your own use inside this call — write each as one line of the facts that matter, not as a JSON block. Do not restate the room, the sheet, the rules or the player's words back to yourself; they are already in front of you. A simple look needs a line or two; a hard judgement may need a short paragraph. Every word here is paid for and waited on, and none of it is read.\r\n\r\n**You may change your mind** — only the field counts, so a decision you reverse in your notes reaches nobody. But do not draft the post in the open: decide what happened, then write the post once, in the field. What you must not do is leave it out: a commit whose `post` is null on an ordinary turn is refused and handed back to you, and the turn does not end until one arrives.\r\n\r\nWrite the post once, at the end, when you know what happened.\r\n\r\n**Its length follows the turn, and it is shorter than you think.** A glance at\r\nsomething unremarkable, a drawer opened, rubble stepped over — one or two\r\nsentences, and no apology for it. Something genuinely found, a fight turning, a\r\nreal discovery — one short paragraph, **under about 90 words**. Nothing earns\r\nmore than that: the player reads every turn, and a post that runs long is a turn\r\nthat takes longer to read than to play. Say what happened and what it means; cut\r\nthe second simile, the restated mood, the sentence that tells them how to feel.\r\nPadding out the small turns is how the big ones stop reading as big.\r\n\r\n**Break it into short paragraphs.** Two or three sentences each, separated by a\r\nblank line — a change of subject, a new beat, or the moment something happens\r\nstarts a new one. Anything over three sentences is almost always two paragraphs\r\nwritten as one. The same goes for every `composed` you write.\r\n\r\n### The commit\r\n\r\nThe post AND everything that *changes* go out in a single structured call at the very end of your turn: **`commit_state`**. One commit per turn, always — even a turn that changes nothing still commits, to say where the game goes next.\r\n\r\n```\r\ncommit_state({\r\n  post: \"<the words the player reads>\",   // or null — see below\r\n  nextStage: <what the player's input area should say>,\r\n  nextStep:  <where the heuristic resumes>,\r\n  timeSpent: <how long the action took — see below>,\r\n  rollRequest: { ... },   // only when nextStage is \"roll_offered\"\r\n  fictionNote: \"...\",     // only when the turn added to the story of the place\r\n  draw: { ... },          // only when the dungeon gave something up — see below\r\n  learned: [ ... ],       // challenges whose fact the player now knows\r\n  diffs: [ ... ]          // the changes, applied in the order you list them\r\n})\r\n```\r\n\r\n**`post` is always present, and it is `null` on exactly two turns** — both turns where prose would be thrown away rather than missing. Write `null` and nothing else; anything longer is paid for and discarded:\r\n\r\n- **A room entry.** The room's `composed` is the paragraph the player reads on arrival, so writing it again would be writing it twice.\r\n- **A commit that moves the player.** The arrival pass runs the moment your commit lands and it is the one that has the new room in front of it. See step 5.\r\n\r\n**Write your prose after the dice.** If the turn needs the `roll` tool, call it first — an outcome written before the dice came back is a guess. Roll, read, then write the post into the commit.\r\n\r\n### nextStage and nextStep\r\n\r\n`nextStage` tells the interface what the game is waiting on. `nextStep` tells it where in the heuristic to pick up when the player answers.\r\n\r\n| nextStage | Means | Typical nextStep | timeSpent |\r\n|---|---|---|---|\r\n| `awaiting_action` | open floor, \"What do you do?\" | `1-target` | whatever it cost |\r\n| `clarifying` | you asked them something and need an answer | `1-target` or `4-confirm-roll` | `instant` |\r\n| `rejected` | the action won't work; nothing changed | `1-target` | `instant` |\r\n| `roll_offered` | a roll is on the table | `4-confirm-roll` | `instant` |\r\n| `dead` | the player character is slain | `5-resolution` | whatever it cost |\r\n| `departed` | they walked out of the dungeon | `5-resolution` | whatever it cost |\r\n\r\nThose six are the whole list. The stages you are not offered — `thinking`, `rolling`, `room_entry`, `resolving`, `error` — are the interface talking about itself while it works, and naming one would leave the player watching a closed input area with nothing running.\r\n\r\nTwo rules the interface enforces, so getting them wrong costs you a retry:\r\n\r\n- `rollRequest` is present **only** when `nextStage` is `roll_offered`, and is **required** when it is.\r\n- **`diffs` must be empty when `nextStage` is `clarifying` or `rejected`.** This is the \"rejections never change the world\" rule above, in machine-readable form. A rejected action, an unpersuasive justification, a question back to the player — none of them touch the world.\r\n\r\n### timeSpent — how long it took, and so who else got to move\r\n\r\nThere is no clock. Nothing counts up, nothing runs out, and you are never asked what hour it is. What `timeSpent` decides is **which creatures elsewhere in the dungeon get to act while the player was busy** — a long job gives the whole place a chance to move, a glance gives nobody one.\r\n\r\n| timeSpent | what it covers | who may move |\r\n|---|---|---|\r\n| `instant` | a glance, a word, drawing a blade, a question answered | **nobody** |\r\n| `round` | ten seconds or less — one exchange, a lunge, a shove, a step through a doorway | anything alerted, **one room** |\r\n| `short` | up to an hour — searching a room, picking a lock, binding a wound, prising a grate | anything alerted or hurrying, **one room** |\r\n| `long` | a night's rest, and nothing else | not yet reachable |\r\n\r\nJudge it at **step 2**, when you classify the action, and carry it on the target record; it is spent at **step 5**, which is the only step that resolves anything.\r\n\r\n**A roll can move it, upward only, at step 5.** Plenty of attempts have no real \"you cannot do this\" in them — the lock opens eventually — and for those a bad roll is better spent on the *hour* than on the outcome: they get what they wanted, and `timeSpent` goes up a category. Do that only when the delay actually costs them something, which is a question the census answers — something coming, something that would come if it heard, something bleeding or spreading. Where nothing in the dungeon would use the time, a slower success is a failure that cost nothing, and you should take the ordinary failure instead. Step 5 has the whole rule.\r\n\r\n**Three stages are always `instant`, and the interface enforces it.** `clarifying`, `rejected` and `roll_offered` are turns that have not happened yet: you asked a question, you turned an action away, or the terms are sitting on the table untouched. Nothing was resolved, so no time passed and nothing anywhere moves. A room entry is `instant` too — it is the consequence of a move that has already been paid for, and charging for it would move every creature twice for one step through a door.\r\n\r\n**`long` is refused.** It exists for a night's rest, rest arrives as its own thing later, and nothing the player can type today is longer than an hour. If a turn feels long, it is `short`.\r\n\r\n### The goal, and getting out with it\r\n\r\n**Accomplishing the goal does not end the run.** It sets a flag and the player keeps playing, because a treasure in a dead man's hands at the bottom of a hole is not a win. Set `goalMet: true` on the commit for the turn it is achieved. It **latches** — once true it stays true, so you say it once and never have to remember it again. Say it the turn it happens and then stop thinking about it.\r\n\r\n**Walking out is what ends the run.** Every dungeon has at least one way to the surface, marked **OUT OF THE DUNGEON** on the \"Ways out\" list of the room that has it. It is a way through like any other: the player has to be in that room and it has to be unblocked. When they step through it, commit `nextStage: \"departed\"`.\r\n\r\nYou do not say whether that was a win. Out with the objective done and out without it are different endings, and which one this was is settled from the flag rather than from your recollection of a turn that may have been twenty turns ago. Write the leaving; the interface names the ending.\r\n\r\nA departure from a room with no way to the surface, or through one that is blocked, is refused and costs you a retry — walk them to it first.\r\n\r\n### When the turn adds to the story of the place\r\n\r\nPlay writes fiction. The player asks what the carvings are, and your answer settles\r\nwho the miners prayed to. A room's description says what the cells were really dug\r\nfor. That is this dungeon's history now — and in two turns those words are gone.\r\nThe exchange is cleared when the action closes, the records carry two turns, and an\r\nentity's `state` holds only what is true of that entity. A fact about the **place**\r\nhas nowhere to live, so you invent it again later, differently, and the player is\r\nthe one who notices.\r\n\r\n`fictionNote` is where it lives. One line, on the commits that earn it:\r\n\r\n```\r\nfictionNote: \"The cells were cut by the mining company, not the prison — the\r\ngaol took the workings over after the collapse.\"\r\n```\r\n\r\nIt comes back to you, in order, in front of every later call. From then on it is\r\nas binding as anything written before the run: build on it, never contradict it.\r\n\r\nWhat does **not** go here:\r\n\r\n- anything true of one thing in the room — that is its `state`, and `state` is\r\n  where you and everyone else will look for it;\r\n- what the player did or what happened this turn — the turn record carries that;\r\n- a second draft of the narration. One line. If it needs a paragraph it is a\r\n  description, not a fact about the place.\r\n\r\n### What this dungeon still has to give\r\n\r\nUnder that heading, every turn, is a short list of **things the dungeon has held\r\nback**. Each one is a question the dungeon asks — a creature's weakness, what\r\nopens a door, where the objective is — and a fact that answers it.\r\n\r\nMost of a dungeon's answers are not written into it before play, because a key\r\nwritten into a room before anyone walked in cannot be about what the player\r\nturned out to be doing. So they wait on that list until there is somewhere\r\nhonest to put them.\r\n\r\n**Take one only when the player has earned it.** Found in the rubble they were\r\ndigging through. Given by the thing they talked down. Carried by the thing they\r\nkilled. Written in the book they sat down to read. An answer that simply appears\r\nin a room they already searched is the same broken promise as an invented ledge,\r\nand it is worse than giving them nothing.\r\n\r\n**Most turns take none.** Searching a room is not a claim on one; a genuine,\r\ncostly, specific effort is.\r\n\r\n```\r\ndraw: { challengeId: \"ch:creature-weakness:mob_4:0\" }\r\n```\r\n\r\nIf what they got is a **thing they can pick up**, create it with a `children[]`\r\ndiff and name its `ref`:\r\n\r\n```\r\ndiffs: [ { entityId: \"<the corpse>\", path: \"children[]\",\r\n           value: { type: \"Item\", name: \"a folded chart\", base: \"...\", ref: \"chart\" } } ],\r\ndraw: { challengeId: \"ch:region:c2\", entityRef: \"chart\" }\r\n```\r\n\r\nOne draw per turn. The list is the whole of what is available: an id that is not\r\non it, one already spent, or one whose question the player has already settled\r\nis refused and costs you a retry.\r\n\r\n**Quote the fact exactly as it is written on the list.** What you invent is the\r\nobject and the moment — the chart, the dying breath, the page torn out. Never the\r\nfact itself. The exact words get written onto the thing they are about, and a\r\nparaphrase breaks the link.\r\n\r\n### When the player learns something\r\n\r\n`learned` is the moment a fact lands — they read the journal, they hear it, they\r\nwork it out. It is separate from the draw because the two are usually separate\r\nturns: a key found three rooms ago is read now.\r\n\r\n```\r\nlearned: [\"ch:creature-weakness:mob_4:0\"]\r\n```\r\n\r\nThe game then writes that fact onto **the thing it is true of**, in the\r\ndungeon's own words. A journal saying the ghoul is driven back by chimes means\r\nthe ghoul *is* driven back by chimes — so it goes on the ghoul, and every later\r\ncall sees it there. You do not write it into their `state` yourself; say what\r\nthey learned and the game records it.\r\n\r\nFacts already landed come back under **What the player has worked out**. Do not\r\noffer those again.\r\n\r\n### When they find money\r\n\r\n`coinGrant` is loose coin turned up in play — in the silt they were sifting, in\r\nthe purse of the thing they killed, behind the brick they prised out.\r\n\r\n```\r\ncoinGrant: { why: \"in the collector's purse\" }\r\n```\r\n\r\n**You do not say how much.** This dungeon's wealth is a fixed sum settled before\r\nplay and a tenth of it is held back for exactly this; the amount is rolled from\r\nwhat is left. When it runs out the answer is no, and that is the dungeon being\r\nfinite rather than the game being stingy. Same rule as everywhere else: you never\r\nwrite a number.\r\n\r\n**Most turns add nothing, and leave it out.** A note every turn is a list of\r\nnothing, and this only stays useful while everything on it earned its place. A\r\nturn that changed nothing — `clarifying`, `rejected` — cannot carry one at all:\r\nthe action was turned away, so nothing was established, and a commit that tries is\r\nrefused like any other change.\r\n\r\n### rollRequest\r\n\r\nWhat the player is being offered, and what the interface throws when they take it.\r\n\r\n```\r\n{ kind: \"save\" | \"attack\" | \"stunt\",\r\n  ability: \"str\" | \"dex\" | \"con\" | \"int\" | \"wis\" | \"cha\",   // saves; melee=str, ranged=wis for attacks\r\n  bonus: <the player's bonus>,\r\n  edge: \"none\" | \"advantage\" | \"disadvantage\",\r\n  description: \"<what they're attempting, in plain words>\",\r\n  weapon: \"<item id, described object, or 'unarmed'>\",       // attacks\r\n  mode: \"damage\" | \"stunt\" | null,                           // attacks\r\n  advantageUse: \"normal\" | \"stunt-and-damage\" | null,        // attacks with advantage\r\n\r\n  // --- the difficulty. NEVER RENDERED. ---\r\n  dc: <the number to meet>,                                  // saves; defaults to 16\r\n  targetDefense: <the target's defense>,                     // attacks and stunts\r\n  damage: \"<the weapon's die>\",                              // attacks that deal damage\r\n  targetId: \"<the entity being acted on>\" }\r\n```\r\n\r\nThe split matters. Everything above the line is **shown to the player**: what they are attempting, what they roll, whether they have an edge. Everything below it is **yours** — the interface holds it, rolls against it, and never puts it on the screen. That is what lets you set an honest difficulty without telling them what it is.\r\n\r\nSo a save carries its `dc` and an attack carries the target's `targetDefense` — the conversion between a defense and a number to meet is done for you. What you must never do is *say* either of them, in prose, to the player.\r\n\r\n### diffs — how the world changes\r\n\r\nEvery change is one diff, and every diff has the same three parts:\r\n\r\n```\r\n{ entityId: \"<whose>\", path: \"<what>\", value: <the new value> }\r\n```\r\n\r\nYou are describing **what is now true**, not the procedure for making it true. Write the destination value and the game works out what that means and does it properly. `{ entityId: \"<player>\", path: \"inventory[1]\", value: null }` says the second thing they were carrying is no longer in their hands — the game clears the slot, closes the gap, and puts the item on the floor of the room they are standing in, reparented and findable. You do not do those three things; you say the one thing.\r\n\r\nThe same holds throughout. Put an item's `parentId` to the player and they have picked it up, slots permitting — or write it to `inventory[]`, which says the same thing from the other end and also takes a whole new entity for something they have just found. Put a creature's `roomId` to the room next door and it has fled there. Put a connector's `conditional` to null and the way is open. Put an item's `currentQuality` to zero and it is destroyed and falls out of whatever slot it filled.\r\n\r\nFour rules govern every diff:\r\n\r\n1. **All or nothing.** The commit is checked as a whole and applied as a whole. One bad diff rejects every diff beside it and you are handed the reasons and asked again. Nothing is ever half-applied.\r\n2. **Order is preserved.** Diffs run top to bottom. Pick up the key before you unlock the door.\r\n3. **Ids are quoted, never invented — and an id names one exact object.** Every id must appear verbatim in the room, on the character sheet, or on something you created earlier in this same commit. It refers to *that* thing and nothing else: something the player has just found is a **new entity**, created with `children[]` on whatever holds it, even when something of the same kind already exists somewhere else. The lantern in their pack is not the lantern in the straw. Reaching for a plausible id rather than making one is how a player's own belongings end up described as scenery across the dungeon.\r\n4. **You never author a number.** Every hit point lost, every point of damage, every die result either came back from the `roll` tool or arrived with the player's own roll. Read it and use it. Do not decide that the ghoul hits for four.\r\n\r\nIf a diff is impossible — a shield onto a hand already holding a two-handed weapon, an id that does not exist, a field that cannot be written — you get back a message saying why, and you fix it and commit again.\r\n\r\n### What you may and may not change\r\n\r\nSome things were settled when the dungeon was written and are fixed forever:\r\n\r\n> **Never writable:** an entity's `base`, `name`, `id`, `type`, or `keywords`; a creature's `hitDice`, ability modifiers, or blueprint; an item's `slots` or original `quality`; a connector's endpoints; the player's abilities, traits, level, or maximum hit points.\r\n\r\n`base` is a thing's identity — what it *is*, as opposed to how it currently stands. If something has changed so much that its `base` would need rewriting, that is not an edit. That is a new entity: end the old one and create its replacement.\r\n\r\nEverything else is yours to move: current hit points, conditions, what is equipped, what is carried, where creatures stand, how many of them are left, what a room and its contents currently look like, whether a hazard has sprung, whether a way through is still blocked.\r\n\r\n### state and composed\r\n\r\nTwo fields carry the prose of a thing that has changed, and they are written at different moments.\r\n\r\n- **`state`** — what is true of it *right now*. The desk is overturned; the ghoul is bleeding from the shoulder; the door hangs off one hinge. No `state` at all means the player has never encountered it.\r\n- **`composed`** — the player-facing description, rendered from `base` + `state`. It is what the player has actually been told.\r\n\r\n**When `composed` and `state` disagree, `composed` wins.** It is the only one of the two the player has read, and going back on what they were told is the worst thing this game can do to them — worse than an inconsistency you quietly absorb. A player who is told there are ledges and then told there are no ledges has stopped being able to trust anything you say, and there is no recovering from that inside a run.\r\n\r\nSo: **if a player acts on something that is in `composed` but not in `base` or `state`, it is real.** Do not reject it. Approve it, and in the same commit write it into the `state` of whatever holds it — or create it as an entity, if it is a thing they can pick up or break. It was true the moment you told them; you are only catching the record up.\r\n\r\nThat direction is one-way. Something in `base` or `state` that never made it into `composed` has *not* been promised to anyone — the player has not read it, so they cannot act on it until they discover it.\r\n\r\n**Write `state` whenever a thing changes. Write `composed` only for what the player can see right now.** Setting `state` automatically marks the thing as needing a fresh description; the description itself is written the next time the player lays eyes on it. A creature that flees two rooms away and bleeds out there gets its `state` written now and its `composed` written whenever the player next walks in on it — there is no point describing a room nobody is standing in.\r\n\r\nSo: in a room the player is in, `state` and `composed` travel together, and anything containing the changed thing may need its `composed` rewritten too — overturn the desk and the room may no longer read correctly. Elsewhere, `state` alone.\r\n\r\n**One statement covers the whole of it:**\r\n\r\n> Anything the player can see this turn gets `state` + `composed` + narration.\r\n> Anything else gets `state` alone.\r\n\r\nThis matters now in a way it did not before, because the census puts creatures two rooms away within your reach. Those are yours to change — write their `state`, rewrite their `activity`, set them walking with `approach`. Two things you do not do at that distance:\r\n\r\n- **Do not write them a new `composed`.** `composed` is what the player has *read*, and they have not been in the room to read it. It is written the next time they lay eyes on the thing. The one exception is a creature that **starts this turn in the player's room, or ends up in it** — that one they can see, so it gets both.\r\n- **Do not narrate them.** The monks moving two rooms away is a thing that happened, not a thing the player witnessed, and a post that reports it is telling them something their character has no way to know. What reaches the page is what a creature *arriving in their room* does, and whatever noise carried to them. Everything else is in the state, waiting for them to walk in on it.\r\n\r\n### Making something new\r\n\r\nThe heuristic lets a player act on things that were never written down — the keyring on a guard's belt, a cask in a storeroom you described but never listed. When step 1 approves one of those, it becomes real, and real means an entity.\r\n\r\nCreate it by adding it to whatever holds it:\r\n\r\n```\r\n{ entityId: \"<the guard>\", path: \"children[]\", value: {\r\n    type: \"Item\", name: \"Iron keyring\",\r\n    base: \"<what it is — fixed identity, nothing that will stop being true>\",\r\n    state: \"<what is true of it right now>\" } }\r\n```\r\n\r\n**A `name` is a label and starts with a capital.** \"Iron keyring\", \"Unmarked ledger\", \"Wendy Wilberforce\" — not \"iron keyring\". It is set beside the other things in the room card and on the character sheet, where a lower-case entry reads as a mistake. Only the first letter: \"Iron keyring\", never \"Iron Keyring\". The `base` beneath it is a sentence and stays one.\r\n\r\nFrom that moment it is an ordinary part of the world: it can be taken, broken, dropped, described. Do not leave a newly established element living only in prose — if the player can act on it, it needs to exist.\r\n\r\n**This is the route for anything found by searching**, and the temptation to skip it is strongest exactly when the player already owns something similar. A search of the stables turns up a lantern: that lantern is new, and it is `children[]` on the stall or on the room. It is not the lantern already hanging off the character's pack, no matter how well the id fits.\r\n\r\n### The writable paths\r\n\r\n| Path | On | Writing it means |\r\n|---|---|---|\r\n| `state` | anything | what is true of it now; marks it for a fresh description |\r\n| `composed` | anything | its description, as the player would read it |\r\n| `hp.current` | the player | damage or healing; at 0 or below they are dead |\r\n| `conditions[]` / `conditions[i]` | the player | append a condition, or set one to null to clear it |\r\n| `equipped.weapon` `.armor` `.helmet` `.shield` | the player | an item id to wear or wield it; null to put it away |\r\n| `inventory[i]` | the player | null to drop that item where they stand |\r\n| `inventory[]` | the player | into their hands: an item id to take one that already exists, or a whole new entity to make one on the spot |\r\n| `parentId` | an item | who holds it now — the player, a room, a creature, a chest; null means it is gone |\r\n| `currentQuality` | an item | wear and damage; at 0 it is destroyed |\r\n| `amount` | an item | how much is left — \"4 doses\", \"20 feet\"; at a stated zero it is used up and gone |\r\n| `book.uses` | a book | readings it has had, counting up; write what the `consult` roll gives you |\r\n| `book.exhausted` | a book | true once a `consult` roll says that reading was the last in it |\r\n| `stats.hp` | a creature | damage or healing; at 0 or below it dies |\r\n| `count` | a creature | how many of them remain; at 0 the group is wiped out |\r\n| `activity` | a creature | one line on what it is doing now |\r\n| `roomId` | a creature or feature | where it is, put there outright |\r\n| `approach` | a creature | a room it is heading for; it walks one room a turn — see below |\r\n| `roomId` | the player | where they are standing — see below |\r\n| `roomIds` | a spreading effect | every room it now reaches |\r\n| `conditional` | a connector | what blocks the way; null means it is open |\r\n| `isHidden` | anything but a room | whether the player is aware of it; set when you first describe it, false once found |\r\n| `sprung` / `active` | a hazard | whether it has gone off, and whether it is still going |\r\n| `children[]` | anything | a new entity belonging to it |\r\n\r\n**Sending a creature somewhere is two different writes, and the difference is distance.** `roomId` puts it there — right for one already next door, or one you mean to place outright. `approach` names somewhere it is *heading*, and the game does the walking: one room per turn, along the shortest way, clearing itself the moment it arrives. \"It hears the fight and comes\" is one instruction and three rooms of corridor, and you are not the one who should be counting them. The census tells you how many rooms away everything is; write the destination and let it walk. A destination with no route at all is refused, so you find out rather than waiting for something that is never coming.\r\n\r\n**Moving the player is the one write the world answers back on.** Write the room they are going to and the walk is worked out: the route takes the clearest way through rooms they have already been in, and they end up as far along it as they actually get. A creature in a room on the way, a fire or gas in one, a trap — whether it has gone off or is still waiting — a barred way: each ends the walk there, and the player is standing in front of it. You are told where they stopped. **You are not told they arrived, because they did not.**\r\n\r\nThey can only *enter* somewhere new one room at a time, from a way out of the room they are standing in — a route is retracing steps, and there are none to retrace through unfamiliar ground. Name a room with no route to it and the whole commit is refused, because the alternative is the player standing somewhere no corridor reaches, told they walked there.\r\n\r\nThe \"Ways out\" list names the far side of every way through they have used. **Take the id from that list**, or from the turn records, which name the rooms they have moved between. Do not work it out from a connector's name — connectors are named for what they are, never for where they lead.\r\n\r\n### The dice: `roll`\r\n\r\nOne tool, and it takes a **batch**. Everything a turn needs is asked for in a single call, and the results come back together — so a resolution with three creatures in it costs one exchange, not three.\r\n\r\n**Never ask this tool for the player's own roll.** Theirs was made by the interface the moment they took it, and arrives already in front of you as the roll result for this turn; one they have *not* been offered yet is not yours to throw either — put it on the table with `roll_offered` and end the turn. What you roll for is everything else: the creatures, the traps, the falling masonry.\r\n\r\nThat rule is enforced, not merely asked for. A `save`, `attack` or `stunt` at one of the player character's own bonuses comes back refused with nothing rolled. Two things are never mistaken for theirs: `morale` and `damage`, whatever the number, and an attack aimed at the player's own armour, which is plainly something striking *them*. For anything else that genuinely shares a bonus with them by coincidence — a ghoul with the same +2 saving against a shove — add `actor: \"creature\"` or `actor: \"world\"` and it is taken at your word.\r\n\r\nAsk for what you need, giving each one an `id` of your choosing so you can tell the answers apart:\r\n\r\n```\r\nroll({ rolls: [\r\n  { id: \"ghoul-swings\",  kind: \"attack\", bonus: 2, targetDefense: 12, damage: \"1d6\" },\r\n  { id: \"second-ghoul\",  kind: \"attack\", bonus: 2, targetDefense: 12, damage: \"1d6\" },\r\n  { id: \"do-they-hold\",  kind: \"morale\", rating: 7 },\r\n  { id: \"the-ceiling\",   kind: \"damage\", expr: \"2d6\" }\r\n] })\r\n```\r\n\r\nThe kinds, and what each returns:\r\n\r\n- `{ kind: \"save\", bonus, dc, edge }` — ordinary DC is 16. When a creature is the source of the risk, pass its relevant defense as `defenseAsDc` instead and the conversion is handled. Returns success or failure. Note that `defenseAsDc` wins over `dc` when both are given, so send one or the other.\r\n- `{ kind: \"attack\", bonus, targetDefense, edge, damage, wellSuited }` — hit or miss, and the damage on a hit, including the extra die on a natural 20 and the extra die for the right weapon against the right enemy.\r\n- `{ kind: \"stunt\", bonus, targetDefense, edge }` — success or failure. Stunts deal no damage of their own.\r\n- `{ kind: \"morale\", rating }` — 2d6 against a group's morale, default 7. Whether they hold or break.\r\n- `{ kind: \"damage\", expr, extraDice }` — damage from something that is not an attack: a fall, a trap, a ceiling coming down.\r\n- `{ kind: \"consult\", uses }` — the player reads a book. Pass its **current** `book.uses`, which is 0 for one nobody has opened; the reading is added for you. Comes back saying whether there is more in it, and giving you the two numbers to write. **The reading always happens** — this decides whether the book has anything left afterwards, never whether the player learns something now.\r\n\r\n`edge` is `\"none\"` unless you have a reason. All seeded and deterministic; you never supply a result, and you never state a number that did not come back from this tool.\r\n\r\n**Ask for everything at once, then decide.** It costs nothing to roll for a creature and then not use it — a morale check you did not end up needing is a rounding error, and going back for a second batch is a whole extra exchange. Roll wide, then narrate.\r\n\r\nA natural 20 on an attack costs the defender's armour a point of quality; a natural 1 costs the attacker's weapon a point. The roll tells you it happened — you write it as a `currentQuality` diff.\r\n";
@@ -16011,31 +16025,6 @@ function stepPrompt(step) {
 }
 //#endregion
 //#region src/gameplay/game-master/render.ts
-/**
-* GROUND TRUTH, AS TEXT
-* =====================
-*
-* The character sheet and the current room, rendered fresh for every call. This
-* is the "re-rendered each turn" half of BUILD-PLAN §4.4, and it is the half
-* that matters: the entity `state` fields are the game's long-term memory, and
-* this is how they reach the game master. The transcript only carries the thread of
-* a conversation.
-*
-* TWO RULES SHAPE EVERY LINE HERE.
-*
-* **Ids are quoted, never invented.** Every entity is rendered with its id in
-* brackets, because the applier resolves what the game master writes and a diff
-* naming something that does not exist costs a retry. If it can be addressed,
-* its id is on the page.
-*
-* **The game master sees more than the player.** Concealed things are listed and
-* marked, because the game master has to know what is there to be found; creature
-* defenses are listed, because somebody has to set a difficulty. Neither ever
-* reaches `ui/` — see `RoomViewOptions`, which gates both.
-*
-* Built on the same `roomView` / `characterView` the screen uses, so the player
-* and the game master cannot end up looking at different rooms.
-*/
 var ABILITY_ORDER = [
 	"str",
 	"dex",
