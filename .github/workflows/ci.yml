@@ -1,0 +1,45 @@
+# Every push and pull request: typecheck, the whole headless and jsdom suite,
+# and both builds. Nothing here needs a key or a network service — `test:db`
+# is opt-in and stays local.
+#
+# The last step is the reason `api/index.js` can stay committed. Vercel checks
+# that the function's file exists before it builds, so the bundle lives in the
+# repo; Vercel then rebuilds it from source anyway. This step fails when the
+# committed copy has fallen behind its source, so the repo never shows a bundle
+# that is not what the source builds. The build is deterministic across
+# platforms: prompts are checked out with LF everywhere (.gitattributes), and
+# nothing machine-specific is inlined.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm test
+
+      # Typecheck, the client and the API.
+      - run: npm run build
+
+      - name: The committed API bundle matches its source
+        run: |
+          if ! git diff --quiet -- api/index.js; then
+            echo "::error file=api/index.js::api/index.js is stale. Run 'npm run build:api' and commit it."
+            git diff --stat -- api/index.js
+            exit 1
+          fi

@@ -95,6 +95,9 @@ Vercel serves `dist/` and one function, `api/index.js`. The API is bundled by Vi
 Vercel's own bundler doesn't understand that. The bundle is committed because Vercel
 checks that the function's file exists before it runs the build.
 
+CI (`.github/workflows/ci.yml`) runs the tests and both builds on every push and pull
+request, and fails if the committed `api/index.js` is not what its source builds.
+
 ## Documents
 
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): how it's built and the rules the code
