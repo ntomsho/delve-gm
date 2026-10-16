@@ -39,6 +39,7 @@ import { requestSpriteLook, spriteSubject, type SpriteAnswer, type SpriteLook, t
 import * as repo from "../db/repo.ts";
 import { fetchImage, liveIllustrationWork, serveKeyed, type IllustrationStore, type IllustrationWork } from "./serve.ts";
 import { cutOut, spriteMasksPng } from "./sprite-image.ts";
+import { beforeImage, recordImage } from "../spend.ts";
 
 export type { SpriteAnswer };
 
@@ -50,7 +51,7 @@ export const SPRITE_DRAW = { width: 1024, height: 1536 } as const;
 export const SPRITE_REFS_DIR = "assets/sprite-refs";
 
 /** Where a sprite's words and pixels come from. The real ones are `liveSpriteWork`; tests pass fakes. */
-export interface SpriteWork extends Pick<IllustrationWork, "upload" | "urlOf"> {
+export interface SpriteWork extends Pick<IllustrationWork, "upload" | "urlOf" | "mayDraw"> {
   look(s: SpriteSubject, theme: string): Promise<SpriteLook>;
   /** the figure on white, from the prompt; the references are the worker's own */
   draw(prompt: string): Promise<Buffer>;
@@ -136,8 +137,10 @@ export function liveSpriteWork(): SpriteWork | undefined {
     references: refFiles.length,
     upload: illustrations.upload,
     urlOf: illustrations.urlOf,
+    mayDraw: illustrations.mayDraw,
     look: async (s, theme) => (await requestSpriteLook(s, theme)).value,
     async draw(prompt) {
+      await beforeImage();
       const res = await fal.subscribe(IMAGE_MODELS[SPRITE_MODEL].guided, {
         input: {
           prompt,
@@ -147,6 +150,7 @@ export function liveSpriteWork(): SpriteWork | undefined {
           image_urls: await refs(),
         },
       });
+      await recordImage("sprite", SPRITE_MODEL);
       const png = await fetchImage(res.data);
       // A moderated answer is a black square, not an error.
       if ((await sharp(png).greyscale().stats()).channels[0].mean < 5) throw new Error("blank image");

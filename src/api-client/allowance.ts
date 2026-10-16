@@ -30,6 +30,11 @@ export interface Allowance {
    * one rides on its writing, so it is free even with none left.
    */
   unplayed: string[];
+  /**
+   * The game has spent its money for today: nothing may start, whatever `left`
+   * says, until `resetsAt`.
+   */
+  closed: boolean;
 }
 
 export async function fetchAllowance(): Promise<Allowance> {

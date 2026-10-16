@@ -58,6 +58,7 @@ import {
 import { coverDescription, illustrationSpots, roomIllustration, type IllustrationAnswer, type RoomIllustration } from "../../illustrations/room-illustration.ts";
 import * as repo from "../db/repo.ts";
 import { guidePng, inkPng, ILLUSTRATION_H, ILLUSTRATION_W } from "./image.ts";
+import { beforeImage, mayStart, recordImage } from "../spend.ts";
 
 /** An illustration is tried this many times in all, across every run that asks. */
 export const ILLUSTRATION_MAX_ATTEMPTS = 3;
@@ -86,6 +87,11 @@ export interface IllustrationWork {
   scene(description: string): Promise<string>;
   /** the cover's picture, from the prompt alone */
   drawScene(prompt: string, seed: number): Promise<Buffer>;
+  /**
+   * Whether a picture nobody has drawn may be drawn now: false once the day's
+   * budget is spent (`spend.ts`). Absent is yes, which is what tests want.
+   */
+  mayDraw?(): Promise<boolean>;
 }
 
 /** The statements, as `repo.ts` has them; a parameter so tests need no database. */
@@ -187,12 +193,14 @@ export async function serveCover(
  *   pending  → "ask again", unless the claim is stale
  *   missing  → claim it, draw it, store it, return the URL
  *   failed   → claim it again while attempts are left; past that, none
+ *
+ * Missing or failed on a day whose budget is spent is none, unclaimed.
  */
 export async function serveKeyed(
   key: string,
   model: string,
   label: string,
-  work: Pick<IllustrationWork, "upload" | "urlOf">,
+  work: Pick<IllustrationWork, "upload" | "urlOf" | "mayDraw">,
   store: IllustrationStore,
   make: () => Promise<Buffer>,
   /** the model's picture as stored: an illustration's ink by default; a sprite's masks */
@@ -202,6 +210,8 @@ export async function serveKeyed(
   if (row?.status === "ready" && row.path) return { status: "ready", url: work.urlOf(row.path) };
   if (row?.status === "pending" && row.ageMs < ILLUSTRATION_CLAIM_STALE_MS) return { status: "pending" };
   if (row?.status === "failed" && row.attempts >= ILLUSTRATION_MAX_ATTEMPTS) return { status: "none" };
+  // Before the claim, so a closed day costs the picture none of its attempts.
+  if (work.mayDraw && !(await work.mayDraw())) return { status: "none" };
 
   const mine = await store.claimIllustration(key, model, {
     staleMs: ILLUSTRATION_CLAIM_STALE_MS,
@@ -261,7 +271,9 @@ export function liveIllustrationWork(): IllustrationWork | undefined {
     references: refFiles.length,
     setting: async (theme) => (await requestIllustrationSetting(theme)).value,
     visual: async (p) => (await requestIllustrationVisual(p)).value,
+    mayDraw: mayStart,
     async draw(prompt, guide) {
+      await beforeImage();
       const guideUrl = await fal.storage.upload(new Blob([new Uint8Array(guide)], { type: "image/png" }));
       const res = await fal.subscribe(IMAGE_MODELS[ILLUSTRATION_MODEL].guided, {
         input: {
@@ -272,15 +284,18 @@ export function liveIllustrationWork(): IllustrationWork | undefined {
           image_urls: [guideUrl, ...(await refs())],
         },
       });
+      await recordImage("illustration", ILLUSTRATION_MODEL);
       return fetchImage(res.data);
     },
     scene: async (description) => (await requestIllustrationExterior(description)).value,
     async drawScene(prompt, seed) {
       const endpoint = IMAGE_MODELS[COVER_MODEL].unguided;
       if (!endpoint) throw new Error(`${COVER_MODEL} has no prompt-only endpoint`);
+      await beforeImage();
       const res = await fal.subscribe(endpoint, {
         input: { prompt, image_size: { width: ILLUSTRATION_W, height: ILLUSTRATION_H }, seed, output_format: "png" },
       });
+      await recordImage("cover", COVER_MODEL);
       return fetchImage(res.data);
     },
     async upload(path, png) {

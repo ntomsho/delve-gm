@@ -100,18 +100,17 @@ version of `docs/BUILD-PLAN.md` in git history
 
 ## Running it for strangers
 
-The guest accounts and daily run allowances are built (`src/server/allowance.ts`). Left:
+The guest accounts, daily run allowances (`src/server/allowance.ts`), the spend ledger
+and the daily budget and ceiling (`src/server/spend.ts`) are built. Left:
 
-- **A spend ledger.** One row per paid call, the cost computed in code from prices kept
-  beside the model names, written at the transport. Capture the cache-read and
-  cache-write token counts the client drops today, which also shows whether prompt
-  caching is paying.
-- **A daily budget and a hard ceiling.** The budget gates starting things (generation,
-  runs, illustrations); the ceiling, set above it, gates every call. Plus prepaid
-  provider credit with auto-reload off.
+- **Prepaid provider credit** on Anthropic and fal with auto-reload off, under the
+  spend ceiling, in case the ceiling itself has a bug.
+- **Image prices from the invoice.** `IMAGE_PRICES` estimates GPT Image 2 at $0.03 with
+  references; check it against fal's usage page once the ledger has a week of rows.
 - **A turn cap per run** and a **sweep of stale guest accounts.**
 - **A cheaper turn.** Play is 84–97% of a run's cost, and input tokens are most of
-  that. Measure the cache hit rate first, then the size of the turn prompt.
+  that. Measure the cache hit rate first (the query is in the `spend` migration), then
+  the size of the turn prompt.
 - **A curated shelf** of finished, pre-illustrated dungeons for guests, shared rather
   than copied.
 - **Dungeons as a generation cache.** Hand a player any complete world of the right size

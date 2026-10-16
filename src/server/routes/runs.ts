@@ -12,6 +12,7 @@ import { MODELS } from "../../llm/models.ts";
 import type { PlayerCharacter } from "../../rules/knave/character.ts";
 import * as repo from "../db/repo.ts";
 import { allowanceOf, mayStartRunIn, refusal } from "../allowance.ts";
+import { closed } from "../spend.ts";
 import { mustGetDungeon, mustGetRun } from "./lookup.ts";
 
 export function runRoutes(app: Hono<AuthEnv>): void {
@@ -72,6 +73,8 @@ export function runRoutes(app: Hono<AuthEnv>): void {
     // of runs. The first run into a dungeon they wrote is free — the writing was
     // the run. See `allowance.ts`.
     const allowance = await allowanceOf(user);
+    // Even a run that rides on its writing: the writing was paid for, the turns are not.
+    if (allowance.closed) throw closed();
     if (!mayStartRunIn(allowance, stored.id)) {
       return c.json({ error: refusal(allowance), allowance }, 429);
     }

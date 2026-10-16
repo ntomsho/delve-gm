@@ -97,6 +97,28 @@ export function modelFor(task: Task): string {
 }
 
 // ---------------------------------------------------------------------------
+// PRICES
+// ---------------------------------------------------------------------------
+
+/**
+ * What a million tokens cost, in US dollars, for every model in `MODELS`. Kept
+ * beside the names so changing a model and changing its price are one edit;
+ * `cost.test.ts` fails if a model in `MODELS` has no row here.
+ *
+ * Cache writes are the 5-minute kind, 1.25× input; cache reads are 0.1× input.
+ */
+export interface TextPrice {
+  input: number;
+  output: number;
+  cacheWrite: number;
+  cacheRead: number;
+}
+
+export const TEXT_PRICES: Record<string, TextPrice> = {
+  "claude-haiku-4-5": { input: 1, output: 5, cacheWrite: 1.25, cacheRead: 0.1 },
+};
+
+// ---------------------------------------------------------------------------
 // IMAGE MODELS
 // ---------------------------------------------------------------------------
 
@@ -144,3 +166,23 @@ export const COVER_MODEL: ImageModel = "flux-2-klein-4b";
  * Part of every sprite's key, so changing it redraws from then on.
  */
 export const SPRITE_MODEL: ImageModel = "gpt-image-2";
+
+/**
+ * What one image costs, in US dollars, at the size and quality this app draws it.
+ * From fal's model pages, read 2026-10-16:
+ *
+ *   - GPT Image 2 at low quality is $0.018 for 1024x1536, and the page prices
+ *     one input image; an illustration sends the guide and four references, a
+ *     sprite more, and fal says more input costs more. $0.03 is the estimate
+ *     until fal's usage page says otherwise.
+ *   - FLUX.2 [klein] 4B is $0.005 a megapixel; a cover is 1536x1024, 1.57 MP.
+ *   - FLUX.2 [pro] and FLUX.1 [pro] Canny are not drawn by the game, only by
+ *     the spike scripts, which record nothing. Their $0.05 is a placeholder,
+ *     not looked up, so the table is whole; look it up before the game uses one.
+ */
+export const IMAGE_PRICES: Record<ImageModel, number> = {
+  "gpt-image-2": 0.03,
+  "flux-2-klein-4b": 0.008,
+  "flux-2-pro": 0.05,
+  "flux-1-pro-canny": 0.05,
+};

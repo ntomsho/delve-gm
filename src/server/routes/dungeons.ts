@@ -17,6 +17,7 @@ import { createJournal } from "../../journal/journal.ts";
 import type { Size } from "../../generation/content/blueprint.ts";
 import * as repo from "../db/repo.ts";
 import { allowanceOf, hasRunLeft, refusal } from "../allowance.ts";
+import { closed } from "../spend.ts";
 import { coverKey, illustrationUrl } from "../illustrations/serve.ts";
 import { mustGetDungeon } from "./lookup.ts";
 
@@ -48,7 +49,9 @@ export function dungeonRoutes(app: Hono<AuthEnv>): void {
     // THE ONLY GATE ON GENERATION, and it sits on the first of the three
     // requests: once a structure exists, its chunks and its join are the same
     // dungeon being finished, not a new one being started. See `allowance.ts`.
+    // A closed day (`spend.ts`) is asked first: it is nobody's allowance.
     const allowance = await allowanceOf(currentUser(c));
+    if (allowance.closed) throw closed();
     if (!hasRunLeft(allowance)) {
       return c.json({ error: refusal(allowance), allowance }, 429);
     }

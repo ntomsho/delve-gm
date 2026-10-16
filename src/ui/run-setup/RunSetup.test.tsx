@@ -215,6 +215,7 @@ describe("the daily allowance", () => {
     maxSize: 1,
     resetsAt: new Date(Date.now() + 3 * 3_600_000).toISOString(),
     unplayed: [],
+    closed: false,
     ...over,
   });
   it("says how many are left, and offers a guest Google", () => {
@@ -252,6 +253,17 @@ describe("the daily allowance", () => {
     expect(text(page)).toContain("paid for when it was written");
     await press(byText(page, "Go down"));
     expect(chosen[0]).toMatchObject({ world: "existing", dungeonId: "d-1" });
+  });
+
+  it("will not go down on a day the game has spent its budget, even a free run", async () => {
+    const shut = allowance({ unplayed: ["d-1"], closed: true });
+    const { page, chosen } = setup([world()], undefined, shut);
+    await press(byText(page, "The Drowned Aviary"));
+    expect((byText(page, "Go down") as HTMLButtonElement).disabled).toBe(true);
+    expect(text(page)).toMatch(/Closed for today · the game has spent its budget · opens in 3 hours/i);
+
+    await press(byText(page, "Go down"));
+    expect(chosen).toEqual([]);
   });
 
   it("limits nothing for an unlimited account", () => {

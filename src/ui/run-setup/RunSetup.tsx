@@ -245,6 +245,9 @@ export function RunSetup({
   // wrote and has not been down yet costs nothing more, even with none left.
   const free = world !== undefined && (allowance?.unplayed.includes(world.id) ?? false);
   const outOfRuns = noneLeft && !free;
+  // Nothing starts on a day the game has spent its money, free runs included:
+  // the writing was paid for, the turns are not.
+  const closed = allowance?.closed ?? false;
 
   return (
     <main className="min-h-screen bg-desk text-ink">
@@ -358,7 +361,7 @@ export function RunSetup({
         <div className="border-t border-rule-faint pt-8">
           <button
             type="button"
-            disabled={!character || outOfRuns}
+            disabled={!character || outOfRuns || closed}
             onClick={() =>
               character &&
               onConfirm(
@@ -372,7 +375,9 @@ export function RunSetup({
             Go down
           </button>
           <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.14em] text-graphite">
-            {outOfRuns
+            {closed && allowance
+              ? `Closed for today · the game has spent its budget · opens ${untilReset(allowance.resetsAt)}`
+              : outOfRuns
               ? `No runs left today · more ${untilReset(allowance.resetsAt)}`
               : fresh
                 ? "The dungeon starts being written the moment you press it"

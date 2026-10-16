@@ -29,15 +29,15 @@
  * more writing calls and, more to the point, a longer and dearer run.
  *
  * THE DAY IS UTC. One clock for everybody, the same one the budget ceiling will
- * use, and the reset time is sent to the client rather than computed there.
+ * uses, and the reset time is sent to the client rather than computed there.
  *
  * `unlimited` (the author, and whoever they choose) is exempt from all of it —
- * the count, the generation gate and the size cap. It will not be exempt from
- * the ceiling when that exists.
+ * the count, the generation gate and the size cap. It is not exempt from the
+ * spend ceiling (`spend.ts`), which `closed` carries.
  *
  * KNOWN RACE, ACCEPTED. Two runs started in the same instant can both be
  * counted before either is written, and both go through. That is one extra run
- * for somebody racing their own account, which the ceiling covers.
+ * for somebody racing their own account, which the spend ceiling covers.
  *
  * Node only.
  */
@@ -45,6 +45,7 @@
 import type postgres from "postgres";
 import { db } from "./db/connection.ts";
 import type { AuthUser } from "./auth.ts";
+import { gateFor, limitsFrom, spentToday } from "./spend.ts";
 
 /** Runs a guest may start per UTC day. */
 export const GUEST_RUNS_PER_DAY = 1;
@@ -78,6 +79,12 @@ export interface Allowance {
    * into one of these rides on its writing, so it is free even at 0 left.
    */
   unplayed: string[];
+  /**
+   * The game has spent its money for today (`spend.ts`): nothing new may
+   * start, whatever `left` says. True for an `unlimited` account only at the
+   * ceiling.
+   */
+  closed: boolean;
 }
 
 /** The next midnight UTC after `now`. */
@@ -92,9 +99,11 @@ export function allowanceFor(input: {
   used: number;
   now: Date;
   unplayed?: string[];
+  closed?: boolean;
 }): Allowance {
   const resetsAt = nextUtcMidnight(input.now).toISOString();
   const unplayed = input.unplayed ?? [];
+  const closed = input.closed ?? false;
   if (input.tier === "unlimited") {
     return {
       guest: input.guest,
@@ -105,6 +114,7 @@ export function allowanceFor(input: {
       maxSize: 5,
       resetsAt,
       unplayed,
+      closed,
     };
   }
   const limit = input.guest ? GUEST_RUNS_PER_DAY : MEMBER_RUNS_PER_DAY;
@@ -117,10 +127,14 @@ export function allowanceFor(input: {
     maxSize: MAX_GENERATED_SIZE,
     resetsAt,
     unplayed,
+    closed,
   };
 }
 
-/** True when the account may write another dungeon, or start a run that costs one. */
+/**
+ * True when the account may write another dungeon, or start a run that costs one.
+ * Not about money: a closed day is `closed`, checked beside this.
+ */
 export function hasRunLeft(a: Allowance): boolean {
   return a.left === null || a.left > 0;
 }
@@ -141,7 +155,8 @@ export function refusal(a: Allowance): string {
 }
 
 /**
- * Read the tier, today's count and the unplayed dungeons in one round trip.
+ * Read the tier, today's count and the unplayed dungeons in one round trip, and
+ * today's spend beside it.
  *
  * A missing profile is a member. `handle_new_user` makes one for every account,
  * so this only matters in the instant between an account existing and its
@@ -162,7 +177,7 @@ export async function allowanceOf(
   sql: postgres.Sql = db(),
   now: Date = new Date()
 ): Promise<Allowance> {
-  const [row] = await sql<{ tier: Tier | null; used: number; unplayed: string[] | null }[]>`
+  const [[row], spent] = await Promise.all([sql<{ tier: Tier | null; used: number; unplayed: string[] | null }[]>`
     with day as (
       select date_trunc('day', now() at time zone 'utc') at time zone 'utc' as start
     ),
@@ -185,12 +200,15 @@ export async function allowanceOf(
       (select array_agg(d.id::text) from dungeons d
         where d.owner_id = ${user.id} and d.copied_from is null and d.status = 'complete'
           and not exists (select 1 from runs where runs.dungeon_id = d.id)) as unplayed
-  `;
+  `, spentToday(sql)]);
+  const tier = row?.tier === "unlimited" ? "unlimited" : "member";
+  const gate = gateFor({ spent, limits: limitsFrom(process.env), unlimited: tier === "unlimited" });
   return allowanceFor({
     guest: user.guest,
-    tier: row?.tier === "unlimited" ? "unlimited" : "member",
+    tier,
     used: row?.used ?? 0,
     unplayed: row?.unplayed ?? [],
     now,
+    closed: !gate.mayStart,
   });
 }

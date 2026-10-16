@@ -19,6 +19,7 @@ import { serveSprite } from "../illustrations/sprites.ts";
 import { waitUntil } from "@vercel/functions";
 import { mustGetDungeon, mustGetRun } from "./lookup.ts";
 import { illustrationWorker, spriteWorker } from "./illustrations.ts";
+import { closed, gateNow } from "../spend.ts";
 
 export function playRoutes(app: Hono<AuthEnv>): void {
   /**
@@ -77,7 +78,7 @@ export function playRoutes(app: Hono<AuthEnv>): void {
   // `/roll` throws them and saves — no model call, back in milliseconds — and
   // `/resolve` asks the game master what they meant. A run left between the two is
   // `resolving` with the roll in `pending`, and `/retry` picks it up from there.
-  app.post("/api/runs/:id/roll", (c) => playTurn(c, async (s) => s.throwDice()));
+  app.post("/api/runs/:id/roll", (c) => playTurn(c, async (s) => s.throwDice(), { paid: false }));
   app.post("/api/runs/:id/resolve", (c) => playTurn(c, (s) => s.resolve()));
   app.post("/api/runs/:id/retry", (c) => playTurn(c, (s) => s.retry()));
   app.post("/api/runs/:id/turn", (c) =>
@@ -101,7 +102,8 @@ type Action = (session: ReturnType<typeof createGameSession>, body: unknown) => 
  * The order matters and each step earns its place:
  *
  *   1. the version, checked BEFORE anything is spent. A stale tab is turned
- *      away for free rather than after a game master conversation.
+ *      away for free rather than after a game master conversation. A closed
+ *      day (`spend.ts`) is turned away here too.
  *   2. the lock, which is not a correctness mechanism — `commitTurn` is — but
  *      stops a double-click paying for a turn that would be rejected anyway.
  *   3. the journal's starting sequence, so this request's events carry on from
@@ -110,7 +112,12 @@ type Action = (session: ReturnType<typeof createGameSession>, body: unknown) => 
  *   5. the compare-and-swap, with the events in the same transaction, so a
  *      rejected turn leaves nothing at all behind.
  */
-async function playTurn(c: Context<AuthEnv>, act: Action): Promise<Response> {
+async function playTurn(
+  c: Context<AuthEnv>,
+  act: Action,
+  /** false for a request that makes no model call (`/roll`), which a closed day does not stop */
+  { paid = true }: { paid?: boolean } = {}
+): Promise<Response> {
   // Hono types `param` as possibly-undefined on a bare `Context`, which cannot
   // know a route's parameters. Every route below has an `:id`, and a request
   // that somehow arrived without one has no run to name.
@@ -133,6 +140,9 @@ async function playTurn(c: Context<AuthEnv>, act: Action): Promise<Response> {
   if (run.status !== "active") {
     throw new HTTPException(409, { message: `that run is over: ${run.status}` });
   }
+  // A closed day, said before the lock and the session rather than as a turn
+  // that lands on `error` when the meter refuses its first call. See `spend.ts`.
+  if (paid && !(await gateNow()).mayCall) throw closed();
   if (!(await repo.lockRun(id, owner))) {
     return c.json({ error: "busy", current: run }, 409);
   }

@@ -6,6 +6,7 @@ import { createMiddleware } from "hono/factory";
 import { z } from "zod";
 import postgres from "postgres";
 import { createHash } from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { fal } from "@fal-ai/client";
@@ -220,6 +221,12 @@ var MAX_TOKENS = {
 function modelFor(task) {
 	return MODELS[task];
 }
+var TEXT_PRICES = { "claude-haiku-4-5": {
+	input: 1,
+	output: 5,
+	cacheWrite: 1.25,
+	cacheRead: .1
+} };
 var IMAGE_MODELS = {
 	"gpt-image-2": {
 		guided: "openai/gpt-image-2/edit",
@@ -254,6 +261,25 @@ var COVER_MODEL = "flux-2-klein-4b";
 * Part of every sprite's key, so changing it redraws from then on.
 */
 var SPRITE_MODEL = "gpt-image-2";
+/**
+* What one image costs, in US dollars, at the size and quality this app draws it.
+* From fal's model pages, read 2026-10-16:
+*
+*   - GPT Image 2 at low quality is $0.018 for 1024x1536, and the page prices
+*     one input image; an illustration sends the guide and four references, a
+*     sprite more, and fal says more input costs more. $0.03 is the estimate
+*     until fal's usage page says otherwise.
+*   - FLUX.2 [klein] 4B is $0.005 a megapixel; a cover is 1536x1024, 1.57 MP.
+*   - FLUX.2 [pro] and FLUX.1 [pro] Canny are not drawn by the game, only by
+*     the spike scripts, which record nothing. Their $0.05 is a placeholder,
+*     not looked up, so the table is whole; look it up before the game uses one.
+*/
+var IMAGE_PRICES = {
+	"gpt-image-2": .03,
+	"flux-2-klein-4b": .008,
+	"flux-2-pro": .05,
+	"flux-1-pro-canny": .05
+};
 //#endregion
 //#region src/llm/tool-schema.ts
 /**
@@ -403,12 +429,14 @@ var PATH = "/v1/messages";
 */
 var baseUrl;
 var extraHeaders = {};
+var meter;
 function configureTransport(opts) {
 	if (opts.baseUrl !== void 0) baseUrl = opts.baseUrl.replace(/\/$/, "");
 	if (opts.headers) extraHeaders = {
 		...extraHeaders,
 		...opts.headers
 	};
+	if (opts.meter) meter = opts.meter;
 }
 var NO_USAGE = {
 	inputTokens: 0,
@@ -447,11 +475,16 @@ var LlmError = class extends Error {
 var RETRIES = 3;
 var BASE_DELAY_MS = 1e3;
 var sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-async function post(body, signal) {
+async function post(task, body, signal) {
 	if (baseUrl === void 0) throw new Error("LLM transport not configured: call configureTransport before calling the model.");
+	const call = {
+		task,
+		model: body.model
+	};
 	let lastError;
 	for (let attempt = 0; attempt <= RETRIES; attempt++) {
 		if (attempt > 0) await sleep(BASE_DELAY_MS * 2 ** (attempt - 1));
+		await meter?.before(call);
 		let res;
 		try {
 			res = await fetch(`${baseUrl}${PATH}`, {
@@ -468,7 +501,18 @@ async function post(body, signal) {
 			lastError = e;
 			continue;
 		}
-		if (res.ok) return await res.json();
+		if (res.ok) {
+			const json = await res.json();
+			try {
+				await meter?.after({
+					...call,
+					usage: usageOf(json.usage)
+				});
+			} catch (e) {
+				console.warn("[llm] the meter could not record a call; keeping the answer:", e);
+			}
+			return json;
+		}
 		const detail = await res.text().catch(() => "");
 		const err = new LlmError(`${res.status} ${res.statusText}${detail ? ` — ${detail.slice(0, 500)}` : ""}`, res.status, res.status === 429 || res.status >= 500);
 		if (!err.retryable) throw err;
@@ -495,7 +539,7 @@ function toolFor(name, description, schema) {
 * whether what came back finishes the turn, and only the caller knows that.
 */
 async function callWithTools(opts) {
-	const json = await post({
+	const json = await post(opts.task, {
 		model: modelFor(opts.task),
 		max_tokens: opts.maxTokens ?? MAX_TOKENS[opts.task],
 		...opts.system ? { system: opts.system } : {},
@@ -540,7 +584,7 @@ async function callForJson(opts) {
 	const strict = canBeStrict(schema);
 	let usage = NO_USAGE;
 	for (let attempt = 1;; attempt++) {
-		const json = await post({
+		const json = await post(opts.task, {
 			model: modelFor(opts.task),
 			max_tokens: opts.maxTokens ?? MAX_TOKENS[opts.task],
 			...opts.system ? { system: opts.system } : {},
@@ -932,7 +976,7 @@ async function completeDungeon(id, gd, owner, sql = db()) {
 /** How many worlds a batch is, and the most one request may ask for. */
 var LIBRARY_BATCH = 12;
 var LIBRARY_MAX = 48;
-var UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+var UUID$1 = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /**
 * A cursor, or nothing — and **validated here rather than by Postgres**.
 *
@@ -953,7 +997,7 @@ function readCursor(cursor) {
 	if (cut <= 0) return void 0;
 	const at = cursor.slice(0, cut);
 	const id = cursor.slice(cut + 1);
-	if (!UUID.test(id) || Number.isNaN(Date.parse(at))) return void 0;
+	if (!UUID$1.test(id) || Number.isNaN(Date.parse(at))) return void 0;
 	return {
 		at,
 		id
@@ -10544,6 +10588,162 @@ function describeDiff(d) {
 	const value = typeof d.value === "string" ? d.value.length > 120 ? `${d.value.slice(0, 117).replace(/\s*\n\s*/g, " ")}…` : d.value.replace(/\s*\n\s*/g, " ") : JSON.stringify(d.value);
 	return `${d.entityId} · ${d.path} = ${value}`;
 }
+//#endregion
+//#region src/llm/cost.ts
+/**
+* WHAT A CALL COST
+* ================
+*
+* Dollars, worked out in code from the prices in `models.ts`. The provider's
+* invoice is the truth; this is the running estimate the daily budget and
+* ceiling are checked against (`src/server/spend.ts`), so it has to be close
+* and it has to err high rather than low.
+*/
+var PER_MILLION = 1e6;
+/**
+* A text call's cost. Throws on a model with no price: a call that cannot be
+* priced is a call the ceiling cannot see, and `cost.test.ts` keeps every model
+* in `MODELS` priced so this never fires in the game.
+*/
+function textCost(model, usage) {
+	const price = TEXT_PRICES[model];
+	if (!price) throw new Error(`no price for ${model}; add it to TEXT_PRICES in src/llm/models.ts`);
+	return (usage.inputTokens * price.input + usage.outputTokens * price.output + usage.cacheWriteTokens * price.cacheWrite + usage.cacheReadTokens * price.cacheRead) / PER_MILLION;
+}
+/** An image call's cost: one picture, at the size and quality the game draws. */
+function imageCost(model, images = 1) {
+	return IMAGE_PRICES[model] * images;
+}
+/** The sentence a player reads when the day's money is gone. */
+var CLOSED = "Delve GM has spent its budget for today. It opens again at midnight UTC.";
+/**
+* The two lines, from the environment. A value that is missing or is not a
+* positive number is the default, and a ceiling below the budget is raised to
+* it: a ceiling under the budget would stop turns while still letting runs start.
+*/
+function limitsFrom(env) {
+	const read = (v) => {
+		const n = Number(v);
+		return v !== void 0 && v.trim() !== "" && Number.isFinite(n) && n > 0 ? n : 5;
+	};
+	const budget = read(env.DAILY_BUDGET_USD);
+	return {
+		budget,
+		ceiling: Math.max(budget, read(env.DAILY_CEILING_USD))
+	};
+}
+/** The rule, without the database, so it can be tested without one. */
+function gateFor(input) {
+	const mayCall = input.spent < input.limits.ceiling;
+	return {
+		mayCall,
+		mayStart: mayCall && (input.unlimited || input.spent < input.limits.budget)
+	};
+}
+var payer = new AsyncLocalStorage();
+var UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+var RUN_PATH = new RegExp(`^/api/runs/(${UUID})(?:/|$)`, "i");
+var DUNGEON_PATH = new RegExp(`^/api/dungeons/(${UUID})(?:/|$)`, "i");
+/**
+* Which run or dungeon a request is about, read off its path. Read here rather
+* than from the route's parameters because this runs before the router has
+* matched one. `POST /api/dungeons` names no dungeon yet, so its structure call
+* is recorded against the player alone.
+*/
+function subjectOf(path) {
+	const run = RUN_PATH.exec(path)?.[1];
+	if (run) return { runId: run };
+	const dungeon = DUNGEON_PATH.exec(path)?.[1];
+	return dungeon ? { dungeonId: dungeon } : {};
+}
+/** Mounted after `requireUser`: everything the request does is paid for by this user. */
+var spendContext = createMiddleware(async (c, next) => {
+	await payer.run({
+		user: currentUser(c),
+		...subjectOf(c.req.path)
+	}, next);
+});
+/** Dollars spent since midnight UTC, by everybody. */
+async function spentToday(sql = db()) {
+	const [row] = await sql`
+    select coalesce(sum(cost_usd), 0)::float8 as spent from spend
+     where at >= date_trunc('day', now() at time zone 'utc') at time zone 'utc'
+  `;
+	return row?.spent ?? 0;
+}
+async function isUnlimited(userId, sql) {
+	const [row] = await sql`select tier from profiles where id = ${userId}`;
+	return row?.tier === "unlimited";
+}
+/** Today's gate for whoever is asking. Outside a request — nobody — only the ceiling applies. */
+async function gateNow(sql = db()) {
+	const p = payer.getStore();
+	const unlimited = p ? p.unlimited ??= isUnlimited(p.user.id, sql) : Promise.resolve(false);
+	const [spent, u] = await Promise.all([spentToday(sql), unlimited]);
+	return gateFor({
+		spent,
+		limits: limitsFrom(process.env),
+		unlimited: u
+	});
+}
+/** Whether the asker may start something new. For `GET /api/allowance` and the drawing workers. */
+async function mayStart() {
+	return (await gateNow()).mayStart;
+}
+/** A 503 carrying `CLOSED` as `{ error }`, the shape every refusal the client reads has. */
+function closed() {
+	return new HTTPException(503, { res: Response.json({ error: CLOSED }, { status: 503 }) });
+}
+async function record(r, sql = db()) {
+	const p = payer.getStore();
+	const u = r.usage;
+	await sql`
+    insert into spend (user_id, run_id, dungeon_id, task, model,
+                       input_tokens, output_tokens, cache_write_tokens, cache_read_tokens,
+                       images, cost_usd)
+    values (${p?.user.id ?? null}, ${p?.runId ?? null}, ${p?.dungeonId ?? null}, ${r.task}, ${r.model},
+            ${u?.inputTokens ?? 0}, ${u?.outputTokens ?? 0}, ${u?.cacheWriteTokens ?? 0}, ${u?.cacheReadTokens ?? 0},
+            ${r.images ?? 0}, ${r.cost})
+  `;
+}
+/** The text meter, handed to `configureTransport` in `app.ts`. */
+var spendMeter = {
+	async before() {
+		if (!(await gateNow()).mayCall) throw closed();
+	},
+	async after({ task, model, usage }) {
+		await record({
+			task,
+			model,
+			usage,
+			cost: textCost(model, usage)
+		});
+	}
+};
+/**
+* Before an image call: refused at the ceiling, like a text call. The budget is
+* checked earlier, before the picture is claimed (`mayDraw` on the workers),
+* so that a closed day does not use up one of the picture's attempts.
+*/
+async function beforeImage() {
+	if (!(await gateNow()).mayCall) throw closed();
+}
+/**
+* After an image call that came back. Never throws, for the meter's reason: the
+* picture is bought, and losing the row is better than losing the picture.
+*/
+async function recordImage(task, model) {
+	try {
+		await record({
+			task,
+			model,
+			images: 1,
+			cost: imageCost(model)
+		});
+	} catch (e) {
+		console.warn("[spend] could not record an image; keeping it:", e);
+	}
+}
 /** The next midnight UTC after `now`. */
 function nextUtcMidnight(now) {
 	return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
@@ -10552,6 +10752,7 @@ function nextUtcMidnight(now) {
 function allowanceFor(input) {
 	const resetsAt = nextUtcMidnight(input.now).toISOString();
 	const unplayed = input.unplayed ?? [];
+	const closed = input.closed ?? false;
 	if (input.tier === "unlimited") return {
 		guest: input.guest,
 		unlimited: true,
@@ -10560,7 +10761,8 @@ function allowanceFor(input) {
 		left: null,
 		maxSize: 5,
 		resetsAt,
-		unplayed
+		unplayed,
+		closed
 	};
 	const limit = input.guest ? 1 : 3;
 	return {
@@ -10571,10 +10773,14 @@ function allowanceFor(input) {
 		left: Math.max(0, limit - input.used),
 		maxSize: 1,
 		resetsAt,
-		unplayed
+		unplayed,
+		closed
 	};
 }
-/** True when the account may write another dungeon, or start a run that costs one. */
+/**
+* True when the account may write another dungeon, or start a run that costs one.
+* Not about money: a closed day is `closed`, checked beside this.
+*/
 function hasRunLeft(a) {
 	return a.left === null || a.left > 0;
 }
@@ -10592,7 +10798,8 @@ function refusal(a) {
 	return `That is your ${a.limit} ${runs} for today. More at midnight UTC.${more}`;
 }
 /**
-* Read the tier, today's count and the unplayed dungeons in one round trip.
+* Read the tier, today's count and the unplayed dungeons in one round trip, and
+* today's spend beside it.
 *
 * A missing profile is a member. `handle_new_user` makes one for every account,
 * so this only matters in the instant between an account existing and its
@@ -10609,7 +10816,7 @@ function refusal(a) {
 * a run belongs to.
 */
 async function allowanceOf(user, sql = db(), now = /* @__PURE__ */ new Date()) {
-	const [row] = await sql`
+	const [[row], spent] = await Promise.all([sql`
     with day as (
       select date_trunc('day', now() at time zone 'utc') at time zone 'utc' as start
     ),
@@ -10632,13 +10839,20 @@ async function allowanceOf(user, sql = db(), now = /* @__PURE__ */ new Date()) {
       (select array_agg(d.id::text) from dungeons d
         where d.owner_id = ${user.id} and d.copied_from is null and d.status = 'complete'
           and not exists (select 1 from runs where runs.dungeon_id = d.id)) as unplayed
-  `;
+  `, spentToday(sql)]);
+	const tier = row?.tier === "unlimited" ? "unlimited" : "member";
+	const gate = gateFor({
+		spent,
+		limits: limitsFrom(process.env),
+		unlimited: tier === "unlimited"
+	});
 	return allowanceFor({
 		guest: user.guest,
-		tier: row?.tier === "unlimited" ? "unlimited" : "member",
+		tier,
 		used: row?.used ?? 0,
 		unplayed: row?.unplayed ?? [],
-		now
+		now,
+		closed: !gate.mayStart
 	});
 }
 //#endregion
@@ -12629,6 +12843,8 @@ async function serveCover(d, key, work, store = repo_exports) {
 *   pending  → "ask again", unless the claim is stale
 *   missing  → claim it, draw it, store it, return the URL
 *   failed   → claim it again while attempts are left; past that, none
+*
+* Missing or failed on a day whose budget is spent is none, unclaimed.
 */
 async function serveKeyed(key, model, label, work, store, make, finish = inkPng) {
 	const row = await store.getIllustration(key);
@@ -12638,6 +12854,7 @@ async function serveKeyed(key, model, label, work, store, make, finish = inkPng)
 	};
 	if (row?.status === "pending" && row.ageMs < 18e4) return { status: "pending" };
 	if (row?.status === "failed" && row.attempts >= 3) return { status: "none" };
+	if (work.mayDraw && !await work.mayDraw()) return { status: "none" };
 	if (!await store.claimIllustration(key, model, {
 		staleMs: 18e4,
 		maxAttempts: 3
@@ -12688,9 +12905,11 @@ function liveIllustrationWork() {
 		references: refFiles.length,
 		setting: async (theme) => (await requestIllustrationSetting(theme)).value,
 		visual: async (p) => (await requestIllustrationVisual(p)).value,
+		mayDraw: mayStart,
 		async draw(prompt, guide) {
+			await beforeImage();
 			const guideUrl = await fal.storage.upload(new Blob([new Uint8Array(guide)], { type: "image/png" }));
-			return fetchImage((await fal.subscribe(IMAGE_MODELS[ILLUSTRATION_MODEL].guided, { input: {
+			const res = await fal.subscribe(IMAGE_MODELS[ILLUSTRATION_MODEL].guided, { input: {
 				prompt,
 				quality: "low",
 				image_size: {
@@ -12699,13 +12918,16 @@ function liveIllustrationWork() {
 				},
 				output_format: "png",
 				image_urls: [guideUrl, ...await refs()]
-			} })).data);
+			} });
+			await recordImage("illustration", ILLUSTRATION_MODEL);
+			return fetchImage(res.data);
 		},
 		scene: async (description) => (await requestIllustrationExterior(description)).value,
 		async drawScene(prompt, seed) {
 			const endpoint = IMAGE_MODELS[COVER_MODEL].unguided;
 			if (!endpoint) throw new Error(`${COVER_MODEL} has no prompt-only endpoint`);
-			return fetchImage((await fal.subscribe(endpoint, { input: {
+			await beforeImage();
+			const res = await fal.subscribe(endpoint, { input: {
 				prompt,
 				image_size: {
 					width: ILLUSTRATION_W,
@@ -12713,7 +12935,9 @@ function liveIllustrationWork() {
 				},
 				seed,
 				output_format: "png"
-			} })).data);
+			} });
+			await recordImage("cover", COVER_MODEL);
+			return fetchImage(res.data);
 		},
 		async upload(path, png) {
 			const res = await fetch(`${supabaseUrl}/storage/v1/object/plates/${path}`, {
@@ -12792,6 +13016,7 @@ function dungeonRoutes(app) {
 			chunks: chunksOf(unfinished.doc)
 		});
 		const allowance = await allowanceOf(currentUser(c));
+		if (allowance.closed) throw closed();
 		if (!hasRunLeft(allowance)) return c.json({
 			error: refusal(allowance),
 			allowance
@@ -15059,6 +15284,7 @@ function runRoutes(app) {
 			dungeonId: busy.dungeonId
 		}, 409);
 		const allowance = await allowanceOf(user);
+		if (allowance.closed) throw closed();
 		if (!mayStartRunIn(allowance, stored.id)) return c.json({
 			error: refusal(allowance),
 			allowance
@@ -18256,15 +18482,19 @@ function liveSpriteWork() {
 		references: refFiles.length,
 		upload: illustrations.upload,
 		urlOf: illustrations.urlOf,
+		mayDraw: illustrations.mayDraw,
 		look: async (s, theme) => (await requestSpriteLook(s, theme)).value,
 		async draw(prompt) {
-			const png = await fetchImage((await fal.subscribe(IMAGE_MODELS[SPRITE_MODEL].guided, { input: {
+			await beforeImage();
+			const res = await fal.subscribe(IMAGE_MODELS[SPRITE_MODEL].guided, { input: {
 				prompt,
 				quality: "low",
 				image_size: SPRITE_DRAW,
 				output_format: "png",
 				image_urls: await refs()
-			} })).data);
+			} });
+			await recordImage("sprite", SPRITE_MODEL);
+			const png = await fetchImage(res.data);
 			if ((await sharp(png).greyscale().stats()).channels[0].mean < 5) throw new Error("blank image");
 			return png;
 		}
@@ -18408,7 +18638,7 @@ function playRoutes(app) {
 		});
 	});
 	app.post("/api/runs/:id/enter", (c) => playTurn(c, (s) => s.enterRoom()));
-	app.post("/api/runs/:id/roll", (c) => playTurn(c, async (s) => s.throwDice()));
+	app.post("/api/runs/:id/roll", (c) => playTurn(c, async (s) => s.throwDice(), { paid: false }));
 	app.post("/api/runs/:id/resolve", (c) => playTurn(c, (s) => s.resolve()));
 	app.post("/api/runs/:id/retry", (c) => playTurn(c, (s) => s.retry()));
 	app.post("/api/runs/:id/turn", (c) => playTurn(c, async (s, body) => {
@@ -18423,7 +18653,8 @@ function playRoutes(app) {
 * The order matters and each step earns its place:
 *
 *   1. the version, checked BEFORE anything is spent. A stale tab is turned
-*      away for free rather than after a game master conversation.
+*      away for free rather than after a game master conversation. A closed
+*      day (`spend.ts`) is turned away here too.
 *   2. the lock, which is not a correctness mechanism — `commitTurn` is — but
 *      stops a double-click paying for a turn that would be rejected anyway.
 *   3. the journal's starting sequence, so this request's events carry on from
@@ -18432,7 +18663,7 @@ function playRoutes(app) {
 *   5. the compare-and-swap, with the events in the same transaction, so a
 *      rejected turn leaves nothing at all behind.
 */
-async function playTurn(c, act) {
+async function playTurn(c, act, { paid = true } = {}) {
 	const id = c.req.param("id");
 	if (!id) throw new HTTPException(400, { message: "no run named" });
 	const owner = currentUser(c).id;
@@ -18445,6 +18676,7 @@ async function playTurn(c, act) {
 		current: run
 	}, 409);
 	if (run.status !== "active") throw new HTTPException(409, { message: `that run is over: ${run.status}` });
+	if (paid && !(await gateNow()).mayCall) throw closed();
 	if (!await lockRun(id, owner)) return c.json({
 		error: "busy",
 		current: run
@@ -18693,6 +18925,9 @@ function reviewRoutes(app) {
 *
 * Once per process. `configureTransport` is module state in the client, which
 * is right for a process that only ever talks to one provider.
+*
+* The meter writes every call to the spend ledger and refuses one once the
+* day is at the ceiling. See `spend.ts`.
 */
 function configureAnthropic() {
 	const key = process.env.ANTHROPIC_API_KEY;
@@ -18702,7 +18937,8 @@ function configureAnthropic() {
 		headers: {
 			"x-api-key": key,
 			"anthropic-version": "2023-06-01"
-		}
+		},
+		meter: spendMeter
 	});
 }
 /**
@@ -18739,6 +18975,7 @@ function createApp() {
 	*/
 	app.get("/api/health", (c) => c.json({ ok: true }));
 	app.use("/api/*", requireUser);
+	app.use("/api/*", spendContext);
 	app.onError((err, c) => {
 		if (err instanceof HTTPException) return err.getResponse();
 		console.error("[api]", err);

@@ -35,6 +35,7 @@ import { runRoutes } from "./routes/runs.ts";
 import { playRoutes } from "./routes/play.ts";
 import { illustrationRoutes } from "./routes/illustrations.ts";
 import { reviewRoutes } from "./routes/review.ts";
+import { spendContext, spendMeter } from "./spend.ts";
 
 // ---------------------------------------------------------------------------
 // THE APP
@@ -50,6 +51,9 @@ import { reviewRoutes } from "./routes/review.ts";
  *
  * Once per process. `configureTransport` is module state in the client, which
  * is right for a process that only ever talks to one provider.
+ *
+ * The meter writes every call to the spend ledger and refuses one once the
+ * day is at the ceiling. See `spend.ts`.
  */
 function configureAnthropic(): void {
   const key = process.env.ANTHROPIC_API_KEY;
@@ -57,6 +61,7 @@ function configureAnthropic(): void {
   configureTransport({
     baseUrl: "https://api.anthropic.com",
     headers: { "x-api-key": key, "anthropic-version": "2023-06-01" },
+    meter: spendMeter,
   });
 }
 
@@ -98,6 +103,8 @@ export function createApp(): Hono<AuthEnv> {
    */
   app.get("/api/health", (c) => c.json({ ok: true }));
   app.use("/api/*", requireUser);
+  // Whose money each call spends, for the ledger. After the gate: it needs the user.
+  app.use("/api/*", spendContext);
 
   app.onError((err, c) => {
     if (err instanceof HTTPException) return err.getResponse();

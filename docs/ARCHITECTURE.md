@@ -480,6 +480,15 @@ One Hono app (`src/server/app.ts`) deployed as a single Vercel function.
   security is the floor under that, not the mechanism.
 - **Allowances** (`src/server/allowance.ts`): guests get one run a day and members three.
   Generated dungeons are capped at size 1. An `unlimited` tier is set by hand.
+- **Spend** (`src/server/spend.ts`): every paid call is a row in the `spend` ledger,
+  its cost worked out in code from the prices in `src/llm/models.ts` (`src/llm/cost.ts`).
+  Text calls are recorded by the meter the server hands `configureTransport`; images by
+  the illustration and sprite workers. Two daily lines, in dollars on the UTC day:
+  the **budget** stops new dungeons, new runs and new pictures, and the **ceiling**
+  refuses every paid call. Both default to $5 (`DAILY_BUDGET_USD`, `DAILY_CEILING_USD`).
+  `unlimited` accounts pass the budget but not the ceiling. Who a call belongs to is
+  carried through the request in an `AsyncLocalStorage`, so nothing in the game is
+  told.
 - **Persistence** is Postgres: a dungeon is written twice (structure, then complete), a
   run on every commit, the character sheet whole in a jsonb column, and the journal of
   every generation and turn event, readable as JSONL or a transcript.

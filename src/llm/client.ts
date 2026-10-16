@@ -41,10 +41,32 @@ const PATH = "/v1/messages";
  */
 let baseUrl: string | undefined;
 let extraHeaders: Record<string, string> = {};
+let meter: Meter | undefined;
 
-export function configureTransport(opts: { baseUrl?: string; headers?: Record<string, string> }): void {
+/**
+ * WHAT THE PROCESS IS TOLD ABOUT EVERY PAID CALL, and its chance to refuse one.
+ *
+ * The server's (`src/server/spend.ts`) writes each call to the spend ledger and
+ * refuses a call once the day's spend is at the ceiling. The dev CLIs set none,
+ * so they pay without counting, as they always have. A hook rather than a
+ * database here because this module stays runnable under vitest with no
+ * environment, and knows nothing of who is asking.
+ */
+export interface Meter {
+  /** Before each request is sent, retries included. Throwing refuses the call. */
+  before(call: { task: Task; model: string }): Promise<void>;
+  /**
+   * After each response that was paid for. Awaited, and its failure is logged
+   * and swallowed: a ledger that could not be written is no reason to throw
+   * away an answer that has already been bought.
+   */
+  after(call: { task: Task; model: string; usage: Usage }): Promise<void>;
+}
+
+export function configureTransport(opts: { baseUrl?: string; headers?: Record<string, string>; meter?: Meter }): void {
   if (opts.baseUrl !== undefined) baseUrl = opts.baseUrl.replace(/\/$/, "");
   if (opts.headers) extraHeaders = { ...extraHeaders, ...opts.headers };
+  if (opts.meter) meter = opts.meter;
 }
 
 export interface Message {
@@ -162,14 +184,16 @@ const BASE_DELAY_MS = 1000;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-async function post(body: unknown, signal?: AbortSignal): Promise<ApiResponse> {
+async function post(task: Task, body: { model: string; [field: string]: unknown }, signal?: AbortSignal): Promise<ApiResponse> {
   if (baseUrl === undefined) {
     throw new Error("LLM transport not configured: call configureTransport before calling the model.");
   }
+  const call = { task, model: body.model };
   let lastError: unknown;
 
   for (let attempt = 0; attempt <= RETRIES; attempt++) {
     if (attempt > 0) await sleep(BASE_DELAY_MS * 2 ** (attempt - 1));
+    await meter?.before(call);
 
     let res: Response;
     try {
@@ -186,7 +210,15 @@ async function post(body: unknown, signal?: AbortSignal): Promise<ApiResponse> {
       continue;
     }
 
-    if (res.ok) return (await res.json()) as ApiResponse;
+    if (res.ok) {
+      const json = (await res.json()) as ApiResponse;
+      try {
+        await meter?.after({ ...call, usage: usageOf(json.usage) });
+      } catch (e) {
+        console.warn("[llm] the meter could not record a call; keeping the answer:", e);
+      }
+      return json;
+    }
 
     const detail = await res.text().catch(() => "");
     const err = new LlmError(
@@ -272,6 +304,7 @@ export interface ToolTurn {
  */
 export async function callWithTools(opts: ToolCallOptions): Promise<ToolTurn> {
   const json = await post(
+    opts.task,
     {
       model: modelFor(opts.task),
       max_tokens: opts.maxTokens ?? MAX_TOKENS[opts.task],
@@ -391,6 +424,7 @@ export async function callForJson<T>(opts: JsonCallOptions<T>): Promise<JsonResu
 
   for (let attempt = 1; ; attempt++) {
     const json = await post(
+      opts.task,
       {
         model: modelFor(opts.task),
         max_tokens: opts.maxTokens ?? MAX_TOKENS[opts.task],
