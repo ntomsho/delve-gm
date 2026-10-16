@@ -23,15 +23,9 @@
  */
 
 
-import { useState } from "react";
-import { PlayScreen } from "../play/PlayScreen.tsx";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { LoadingScreen } from "../run-setup/LoadingScreen.tsx";
 import { Characters } from "../characters/Characters.tsx";
-import { CreateCharacter } from "../create/CreateCharacter.tsx";
-import { Shop } from "../shop/Shop.tsx";
-import { LevelUp } from "../characters/LevelUp.tsx";
-import { RunSetup } from "../run-setup/RunSetup.tsx";
-import { Library } from "../run-setup/Library.tsx";
 import { SignIn } from "../sign-in/SignIn.tsx";
 import { purse } from "../../rules/knave/character-creation.ts";
 import type { PlayerCharacter } from "../../rules/knave/character.ts";
@@ -54,9 +48,55 @@ import { useSetupData } from "./use-setup.ts";
  */
 type Screen = "characters" | "create" | "setup" | "library" | "generating";
 
-const say = (e: unknown) => (e instanceof Error ? e.message : String(e));
+/**
+ * THE SCREENS PAST THE ROSTER, FETCHED SEPARATELY.
+ *
+ * A first visit needs the sign-in screen and nothing else, so the play screen
+ * (the map, the illustrations, the tooltips), character creation, the market,
+ * the level-up modal, the library and run setup are each their own chunk.
+ * `preload` starts all of them as soon as the app has mounted, so by the time
+ * a player has clicked anything they are already there; the split buys a
+ * faster first paint, not a wait later.
+ */
+const chunks = {
+  play: () => import("../play/PlayScreen.tsx"),
+  create: () => import("../create/CreateCharacter.tsx"),
+  shop: () => import("../shop/Shop.tsx"),
+  levelUp: () => import("../characters/LevelUp.tsx"),
+  setup: () => import("../run-setup/RunSetup.tsx"),
+  library: () => import("../run-setup/Library.tsx"),
+};
+const PlayScreen = lazy(() => chunks.play().then((m) => ({ default: m.PlayScreen })));
+const CreateCharacter = lazy(() => chunks.create().then((m) => ({ default: m.CreateCharacter })));
+const Shop = lazy(() => chunks.shop().then((m) => ({ default: m.Shop })));
+const LevelUp = lazy(() => chunks.levelUp().then((m) => ({ default: m.LevelUp })));
+const RunSetup = lazy(() => chunks.setup().then((m) => ({ default: m.RunSetup })));
+const Library = lazy(() => chunks.library().then((m) => ({ default: m.Library })));
+
+function preload() {
+  for (const load of Object.values(chunks)) void load();
+}
+
+/**
+ * The empty desk: the paper colour and nothing on it. Shown while the stored
+ * session is read and while a screen's chunk arrives — one paint either way, and
+ * a flash of "loading" before a flash of the app is worse than a moment of the
+ * desk.
+ */
+const desk = <div className="min-h-screen" style={{ background: "#EDE7DA" }} />;
 
 export default function App() {
+  useEffect(preload, []);
+  return (
+    <Suspense fallback={desk}>
+      <Screens />
+    </Suspense>
+  );
+}
+
+const say = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+function Screens() {
   const [screen, setScreen] = useState<Screen>(BYPASS ? "generating" : "characters");
   const play = useRun({ onWaiting: () => setScreen("generating") });
   const { account, ready, signOut } = useAccount();
@@ -108,10 +148,7 @@ export default function App() {
    * has none.
    */
   if (!OFFLINE) {
-    // The blank frame while the stored session is read. Deliberately empty
-    // rather than a spinner — it is one paint, and a flash of "loading" before
-    // a flash of the app is worse than a moment of the desk.
-    if (!ready) return <div className="min-h-screen" style={{ background: "#EDE7DA" }} />;
+    if (!ready) return desk;
     if (!account) return <SignIn onSignIn={signIn} onGuest={signInAsGuest} />;
   }
 
@@ -214,7 +251,9 @@ export default function App() {
        * the roster says so in the server's own words rather than leaving them
        * believing they are two hit points better off than they are.
        */}
+      {/* Its own boundary, so the roster stays painted behind it while it loads. */}
       {levelling && (
+        <Suspense fallback={null}>
         <LevelUp
           pc={levelling}
           onCancel={() => setLevelling(undefined)}
@@ -223,6 +262,7 @@ export default function App() {
             void roster.save(next);
           }}
         />
+        </Suspense>
       )}
       </>
     );

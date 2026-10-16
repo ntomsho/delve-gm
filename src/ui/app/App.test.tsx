@@ -43,11 +43,15 @@ const settle = () => act(async () => void (await new Promise((r) => setTimeout(r
 describe("?offline=1", () => {
   it("generates, walks in, and takes a turn", async () => {
     const page = renderDom(h(App));
-    await settle();
 
     // Past the loading screen: the briefing and the first room are on the page.
+    // Waited for rather than settled once, because the play screen is its own
+    // chunk and arrives a tick or two after the run does.
     const text = () => page.container.textContent ?? "";
-    expect(text()).toContain("You were paid half in advance");
+    await vi.waitFor(async () => {
+      await settle();
+      expect(text()).toContain("You were paid half in advance");
+    });
     expect(text()).not.toContain("Could not build a dungeon");
 
     const input = page.one("textarea") as HTMLTextAreaElement;

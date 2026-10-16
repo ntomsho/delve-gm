@@ -4,7 +4,8 @@
 
 import { describe, expect, it } from "vitest";
 import { act, createElement as h } from "react";
-import { Narration, toItems } from "./Narration.tsx";
+import { Narration } from "./Narration.tsx";
+import { toItems } from "./narration-items.ts";
 import { renderDom } from "../test-utils/dom.ts";
 
 describe("what a turn cost, under the prose", () => {

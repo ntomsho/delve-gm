@@ -27,12 +27,19 @@
  * guest who signs up keeps their characters.
  */
 
-import { createClient, type Session, type SupabaseClient } from "@supabase/supabase-js";
+import { GoTrueClient, type Session } from "@supabase/auth-js";
 
-let cached: SupabaseClient | undefined;
+let cached: GoTrueClient | undefined;
 
 /**
- * The Supabase client, MADE ON FIRST USE AND NOT AT IMPORT.
+ * Supabase's auth client, MADE ON FIRST USE AND NOT AT IMPORT.
+ *
+ * AUTH ONLY, NOT `createClient`. The browser never reads a table, a bucket or a
+ * channel (everything goes through our API), and the full client brings the
+ * database, storage, realtime and functions clients with it: about 110 kB of
+ * the first download for nothing. This builds the auth client exactly as
+ * `createClient` would, down to the storage key, so a session saved by either
+ * is read by the other and nobody is signed out by the change.
  *
  * Laziness is load-bearing, not tidiness. `?offline` is played
  * entirely in the browser and need no account, no project and no keys — and
@@ -41,7 +48,7 @@ let cached: SupabaseClient | undefined;
  * anything imported the app without a `.env.local`, which took `App.test.tsx`
  * down with it. Nothing local should have to own a Supabase project to run.
  */
-export function client(): SupabaseClient {
+function client(): GoTrueClient {
   if (cached) return cached;
 
   const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
@@ -56,15 +63,19 @@ export function client(): SupabaseClient {
     );
   }
 
-  return (cached = createClient(url, key, {
-    auth: {
-      // The session survives a reload, and the library refreshes it before it
-      // expires — which is what stops a long session dying mid-run.
-      persistSession: true,
-      autoRefreshToken: true,
-      // The OAuth redirect comes back with the session in the URL fragment.
-      detectSessionInUrl: true,
-    },
+  const project = new URL(url);
+  return (cached = new GoTrueClient({
+    url: new URL("auth/v1", project).href,
+    headers: { Authorization: `Bearer ${key}`, apikey: key },
+    // `createClient`'s own key: `sb-<project ref>-auth-token`.
+    storageKey: `sb-${project.hostname.split(".")[0]}-auth-token`,
+    // The session survives a reload, and the library refreshes it before it
+    // expires — which is what stops a long session dying mid-run.
+    persistSession: true,
+    autoRefreshToken: true,
+    // The OAuth redirect comes back with the session in the URL fragment.
+    detectSessionInUrl: true,
+    flowType: "implicit",
   }));
 }
 
@@ -98,7 +109,7 @@ export function accountOf(session: Session | null): Account | undefined {
  * where the Site URL is production.
  */
 export async function signIn(): Promise<void> {
-  const { error } = await client().auth.signInWithOAuth({
+  const { error } = await client().signInWithOAuth({
     provider: "google",
     options: { redirectTo: window.location.origin },
   });
@@ -113,7 +124,7 @@ export async function signIn(): Promise<void> {
  * ignored.
  */
 export async function signInAsGuest(captchaToken?: string): Promise<void> {
-  const { error } = await client().auth.signInAnonymously(
+  const { error } = await client().signInAnonymously(
     captchaToken ? { options: { captchaToken } } : undefined
   );
   if (error) throw error;
@@ -127,7 +138,7 @@ export async function signInAsGuest(captchaToken?: string): Promise<void> {
  * `identity_already_exists` in the URL — see `linkWasRefused`.
  */
 export async function upgradeToGoogle(): Promise<void> {
-  const { error } = await client().auth.linkIdentity({
+  const { error } = await client().linkIdentity({
     provider: "google",
     options: { redirectTo: window.location.origin },
   });
@@ -149,7 +160,7 @@ export function linkWasRefused(): boolean {
 }
 
 export async function signOut(): Promise<void> {
-  await client().auth.signOut();
+  await client().signOut();
 }
 
 /**
@@ -160,7 +171,7 @@ export async function signOut(): Promise<void> {
  * the session is made of. Fires once with the stored session on subscribe.
  */
 export function onAuthChange(cb: (account: Account | undefined) => void): () => void {
-  const { data } = client().auth.onAuthStateChange((_event, session) => cb(accountOf(session)));
+  const { data } = client().onAuthStateChange((_event, session) => cb(accountOf(session)));
   return () => data.subscription.unsubscribe();
 }
 
@@ -172,7 +183,7 @@ export function onAuthChange(cb: (account: Account | undefined) => void): () => 
  * middle of a two-hour run.
  */
 export async function accessToken(): Promise<string | undefined> {
-  const { data } = await client().auth.getSession();
+  const { data } = await client().getSession();
   return data.session?.access_token;
 }
 
@@ -205,7 +216,7 @@ export async function authedFetch(
   const res = await fetch(input, { ...init, headers });
 
   if (res.status === 401) {
-    await client().auth.signOut();
+    await client().signOut();
     throw new NotSignedIn();
   }
   return res;

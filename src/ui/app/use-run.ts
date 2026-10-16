@@ -12,7 +12,7 @@ import type { GenerationProgress } from "../../generation/generate.ts";
 import type { PlayerCharacter } from "../../rules/knave/character.ts";
 import { duplicateDungeon, type DungeonSummary } from "../../api-client/dungeons.ts";
 import { describeFailure } from "../../llm/json.ts";
-import { toItems } from "../play/Narration.tsx";
+import { toItems } from "../play/narration-items.ts";
 import { useGame } from "../shared/use-game.ts";
 import { makeSession } from "./local-run.ts";
 
