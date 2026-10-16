@@ -68,8 +68,8 @@ export type EquipSlot = keyof EquippedSlots;
  * there because `PlayerCharacter` carries it and that module already imports
  * this one; the other direction would be a cycle.
  *
- * Optional: the test character and anything made before Phase 5 has no mode,
- * and a missing one means nothing more interesting than "we do not know".
+ * Optional: the test character has no mode, and a missing one means nothing
+ * more interesting than "we do not know".
  */
 export type CreationMode = "normal" | "hardcore";
 

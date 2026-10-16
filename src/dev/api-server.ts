@@ -15,8 +15,7 @@
  *
  * TWO SECRETS, both from `.env.local`, both read in Node and neither reaching a
  * browser: `ANTHROPIC_API_KEY` and `DATABASE_URL`. This file loads that file
- * itself because nothing else will — Vite used to, and Vite is no longer in
- * this path.
+ * itself because nothing else will: Vite is not in this path.
  */
 
 import { readFileSync } from "node:fs";

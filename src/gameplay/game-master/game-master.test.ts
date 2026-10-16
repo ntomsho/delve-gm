@@ -44,7 +44,7 @@ const reply = (...content: unknown[]) => ({
 /**
  * A commit, with a post on it unless the test is about not having one.
  *
- * The post is a FIELD now (§8a A9), so an ordinary commit carrying none is the
+ * The post is a FIELD now, so an ordinary commit carrying none is the
  * unusual case rather than the default — and a game master that writes one is what
  * these tests are mostly standing in for. Pass `post: null` to build the
  * blank-screen case on purpose — the key is required, so null is how a
@@ -95,7 +95,7 @@ const gameMaster = (maxRounds = 4) => createModelGameMaster({ store: useGame, ma
 // ---------------------------------------------------------------------------
 
 /*
- * THE POST IS A FIELD OF THE COMMIT (§8a A9).
+ * THE POST IS A FIELD OF THE COMMIT.
  *
  * It was loose assistant text, gathered across rounds and separated from the
  * working-out by `<post>` tags. That could not survive a game master changing its

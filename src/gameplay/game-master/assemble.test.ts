@@ -1,5 +1,5 @@
 /**
- * Prompt assembly, snapshotted — BUILD-PLAN §8.
+ * Prompt assembly, snapshotted.
  *
  * The point of a snapshot here is that a prompt change becomes a visible diff
  * in review. Prompts are the part of this system with no type checker and no
@@ -221,7 +221,7 @@ describe("the messages", () => {
 });
 
 // ===========================================================================
-// 8a A1 — A REFUSED COMMIT MUST NOT THROW THE TURN AWAY
+// A REFUSED COMMIT MUST NOT THROW THE TURN AWAY
 // ===========================================================================
 
 /**
@@ -418,7 +418,7 @@ describe("what the game master is told that the player is not", () => {
     expect(census).toContain("THE PLAYER HAS NOT BEEN HERE");
   });
 
-  // 8f. A concealed WAY OUT used to arrive here dressed exactly like an open
+  // A concealed WAY OUT used to arrive here dressed exactly like an open
   // one: `renderEntity` marks a concealed thing standing in a room, and nothing
   // marked a door. The game master then counted it among the ways out and described
   // it, which is the one thing a secret door must not survive.

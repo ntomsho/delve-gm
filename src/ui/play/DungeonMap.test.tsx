@@ -13,7 +13,7 @@
  * Two kinds of fixture, on purpose:
  *
  *   THE REAL DUNGEON for anything about counts and correspondence — fog, the
- *   §7 boundary between the two layouts, one mark per cell. Those are the
+ *   boundary between the two layouts, one mark per cell. Those are the
  *   assertions that have to hold against data nobody arranged.
  *
  *   A HAND-BUILT `MapView` for the interaction branches. Clicking the right one
@@ -178,7 +178,7 @@ describe("fog of war", () => {
 });
 
 // ===========================================================================
-// THE §7 BOUNDARY
+// THE LAYOUT BOUNDARY
 // ===========================================================================
 //
 // One component, two layouts. This is what the `Layout` interface was for, and
@@ -208,7 +208,7 @@ describe("both layouts render through the one component", () => {
 
     // A room is the SAME `<path>` element either way — `roomPath` answers the
     // discriminated union with arcs here and with corners over the floorplan,
-    // and swapping the two is the whole of what §7 promised the map component.
+    // and swapping the two is the whole of what the `Layout` interface promises the map component.
     const d = r.one("svg > path").getAttribute("d")!;
     expect(d).toContain("a"); // an arc
     expect(d).not.toContain("L"); // no straight run

@@ -219,7 +219,7 @@ function writeMap(
   if (!plan) {
     console.error(
       `\n[map] no layout: untangling did not clear every crossing on this graph. ` +
-        `A live run throws the graph away and generates another — see CODING-PLAN §6a.3.`
+        `A live run throws the graph away and generates another.`
     );
     return;
   }

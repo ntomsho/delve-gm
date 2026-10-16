@@ -1,6 +1,6 @@
 /**
- * THE POINT OF PHASE 9, AS A TEST
- * ===============================
+ * ONE SESSION PER RUN, AS A TEST
+ * ==============================
  *
  * Everything else about the session refactor is invisible: the same game, the
  * same turns, the same journal. What changed is that the store and the journal
@@ -129,7 +129,7 @@ describe("a session", () => {
 // ---------------------------------------------------------------------------
 
 /**
- * CODING-PLAN §6.7. "Could not build a dungeon: response did not match the
+ * "Could not build a dungeon: response did not match the
  * expected shape" was the whole of what a failed generation said, on the screen
  * and in the journal, while the error itself was carrying the field-by-field
  * complaints the entire time.

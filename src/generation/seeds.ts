@@ -21,7 +21,7 @@ import type { Size } from "./content/blueprint.ts";
 export interface RunSeeds {
   /** the user-facing number: URL, save file, "seed 1005" */
   dungeonSeed: number;
-  /** phase A wants a string */
+  /** the graph generator wants a string */
   graphSeed: string;
   /** the rolled genome */
   blueprintSeed: number;

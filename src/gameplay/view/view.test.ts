@@ -72,7 +72,7 @@ describe("pointLayout", () => {
   });
 
   // Every way BETWEEN rooms. A way out of the dungeon has no second point to
-  // draw to, and is left to whatever real geometry pass replaces this — §7.
+  // draw to, and is left to the block plan's layout.
   const interior = dungeon.entities.connectors.filter((c) => !isSurfaceExit(c));
 
   it("covers every room and connector exactly once", () => {
@@ -575,7 +575,7 @@ describe("mapView over the floorplan", () => {
 
   it("draws the way out of the dungeon, which is on no graph edge", () => {
     // The regression this exists for: the surface connector is minted by the
-    // entities pass, not Phase A, so it is absent from `graph.edges` and every
+    // entities pass, not the graph, so it is absent from `graph.edges` and every
     // door-placing loop walked straight past it.
     const view = mapView(freshRun(), dungeon, layout);
     const out = view.connectors.filter((c) => c.surface);
@@ -658,9 +658,9 @@ describe("roomView geometry", () => {
     expect(view.geometry).toBe(describeGeometry(sited().geometry[i]));
   });
 
-  // 8f. Three sources tell the game master how many ways out a room has and they
+  // Three sources tell the game master how many ways out a room has and they
   // disagreed: the ways-out list filtered concealed connectors, the geometry
-  // sentence counted every one of them, and R2's arrival post duly announced
+  // sentence counted every one of them, and a playtest-R2 arrival post duly announced
   // four ways out of a room with three and described the concealed fissure as
   // one of them. The sentence is a count, and a count cannot be half-believed.
   describe("a concealed way out", () => {

@@ -2,13 +2,13 @@
  * MAP GEOMETRY
  * ============
  *
- * The map component consumes a `Layout` and never `graph.rooms[].pos`. Phase A
+ * The map component consumes a `Layout` and never `graph.rooms[].pos`. The graph
  * gives force-relaxed POINTS — no room shapes, no sizes, no corridor geometry —
  * but the long-term intent is a real dungeon map with outlines. So the shapes
  * here are a discriminated union from the start: when a geometry pass arrives
  * it implements the same interface and the component does not change.
  *
- * WHAT GENERATION HAS TO SUPPLY. Only three things, and Phase A already emits
+ * WHAT GENERATION HAS TO SUPPLY. Only three things, and the graph already emits
  * all of them:
  *
  *   graph.rooms[].pos       force-relaxed x/y, in an arbitrary space
@@ -113,7 +113,7 @@ export interface LayoutConnector {
  * The way out of the dungeon.
  *
  * It carries no connector id because the layout never sees one: the surface
- * connector is minted by the entities pass, not by Phase A, so it is not on
+ * connector is minted by the entities pass, not by the graph, so it is not on
  * `graph.edges` and this module — which knows only geometry — cannot name it.
  * `mapView` joins it to the real connector, which it can find by its null end.
  */
@@ -175,7 +175,7 @@ export interface PointLayoutOptions {
 }
 
 /**
- * Circles and straight lines — the layout Phase A's output can actually
+ * Circles and straight lines — the layout the bare graph can actually
  * support. Everything a richer geometry pass would change lives behind `Shape`
  * and `Path`.
  */
@@ -213,8 +213,8 @@ export function pointLayout(graph: Dungeon, opts: PointLayoutOptions = {}): Layo
     // Edges only, which means ways BETWEEN rooms. A way out of the dungeon
     // joins a room to nothing and has no second point to draw to; showing it
     // means choosing a direction to point it off the page in, and choosing
-    // directions is geometry. It belongs to whatever replaces this (§7), not
-    // to a layout that only knows where the circles go.
+    // directions is geometry. It belongs to the block plan's layout, not to
+    // one that only knows where the circles go.
     connectors: graph.edges.map((edge) => ({
       id: edge.entityId,
       from: byIndex.get(edge.a)!.entityId,

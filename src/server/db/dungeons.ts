@@ -15,13 +15,12 @@ import { db, doc } from "./connection.ts";
 /**
  * A dungeon row.
  *
- * TWO IDS, AND THEY ARE NOT THE SAME THING — the Phase 11 correction. `id`
+ * TWO IDS, AND THEY ARE NOT THE SAME THING. `id`
  * names the ROW and is a meaningless uuid. `dungeonKey` is
  * `dungeon_<seed in base 36>`, derived by the engine
  * (`blueprint.ts:786`), carried inside `doc.id`, and deliberately NOT
  * unique: a seed names a WORLD, and two players may each hold their own copy of
- * one. Phase 10a used the derived name as the primary key, which was fine while
- * there was one copy of each seed and broke the moment there could be two.
+ * one. The derived name as the primary key would allow one copy of each seed.
  *
  * Everything outside this file addresses a dungeon by the ROW id. `doc.id` is
  * the engine's business and is left exactly as generated.
@@ -151,7 +150,7 @@ export async function listDungeons(
  * that completed it.
  *
  * Takes the ROW id explicitly, because `gd.id` is the engine's derived name and
- * is no longer the key. Passing `gd` alone would compile and address the wrong
+ * is not the key. Passing `gd` alone would compile and address the wrong
  * column forever.
  */
 export async function completeDungeon(
@@ -220,8 +219,7 @@ function readCursor(cursor?: string): { at: string; id: string } | undefined {
  * The second of the two cross-owner reads, and it obeys the same rule as
  * `duplicateDungeon`: what crosses the line is a SUMMARY. Never `doc`, which is
  * every answer in the world — browsing must not be a way to read a dungeon you
- * have not walked. `DungeonSummary` has been the shape of that promise since
- * Phase 11 with nothing to serve it; this is what it was for.
+ * have not walked. `DungeonSummary` is the shape of that promise.
  *
  * NO MAKER ATTRIBUTION, deliberately. The only name this project holds for an
  * account is `profiles.email`, and a browse screen that printed it would be a
@@ -311,7 +309,7 @@ export async function listLibrary(
  * Every other read here puts the owner in the `where`, and that rule is not
  * being bent: what this reads cross-owner is the ROW, and what it does with it
  * is write a new one belonging to the caller. Nothing about the source is ever
- * returned. A dungeon is the one thing another player may see (§8.1), and this
+ * returned. A dungeon is the one thing another player may see, and this
  * is the whole of what "see" means — a copy of your own, not a look at theirs.
  *
  * WHAT COMES ACROSS, and what does not:

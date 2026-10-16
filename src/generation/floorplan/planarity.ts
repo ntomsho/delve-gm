@@ -4,8 +4,8 @@
  *
  * The dungeon is drawn on one flat plane with nothing overlapping (stairs and
  * shafts are flavour inside the room that names them; nothing in the model has
- * a z). So the floorplan must be a planar embedding of the Phase A graph, and
- * Phase A has to reject the graphs that have no such drawing.
+ * a z). So the floorplan must be a planar embedding of the room graph, and
+ * `graph.ts` has to reject the graphs that have no such drawing.
  *
  * The answer is more than a boolean. What comes back is the **rotation
  * system** — each vertex's incident edges in cyclic order around it — which is

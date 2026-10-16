@@ -19,7 +19,7 @@
  * See game-master.ts, which owns that loop and the stopping rules.
  *
  * No streaming, deliberately: prose is held back until the commit validates,
- * per BUILD-PLAN §6.
+ * per BUILD-PLAN §2.8.
  */
 
 import { z } from "zod";
@@ -321,7 +321,7 @@ export interface JsonCallOptions<T> extends CallOptions {
   toolName: string;
   toolDescription: string;
   /**
-   * Retry once with the validation errors appended, per BUILD-PLAN §5. A second
+   * Retry once with the validation errors appended, per BUILD-PLAN §2.2. A second
    * failure surfaces; there is no partial-content fallback.
    */
   retryOnInvalid?: boolean;
@@ -349,9 +349,9 @@ export interface JsonCallOptions<T> extends CallOptions {
    * generation events are written on success, so a pass that never succeeded
    * writes nothing at all.
    *
-   * Observed 2026-08-14 on `?stub=1`: one content-pass chunk failed zod twice
-   * and took the whole generation with it, and the journal held four events, of
-   * which the last was the word "shape". See CODING-PLAN §6.7.
+   * Without it, one content-pass chunk that failed zod twice took the whole
+   * generation with it, and the journal held four events, of which the last was
+   * the word "shape".
    *
    * A reporting hook rather than a journal parameter on purpose — this module
    * has no business knowing what a journal is, and the caller is the one that
@@ -469,9 +469,9 @@ export async function callForJson<T>(opts: JsonCallOptions<T>): Promise<JsonResu
       // branch), and it is the only one that leaves the conversation in a
       // shape the model recognises as its own.
       //
-      // It used to re-type the call as prose: `JSON.stringify(call.input)`,
-      // truncated to 4000 characters, pushed as an assistant TEXT turn. Both
-      // halves of that were wrong and the pair was worse than either.
+      // NOT re-typed as prose. Echoing `JSON.stringify(call.input)`, truncated
+      // to 4000 characters, as an assistant TEXT turn is wrong twice over, and
+      // the pair is worse than either.
       //
       //   - A content-pass response is ~14 kB, so the cut landed mid-string and
       //     what the model was shown as its previous answer was invalid JSON.
@@ -485,8 +485,8 @@ export async function callForJson<T>(opts: JsonCallOptions<T>): Promise<JsonResu
       //     optionals against a strict budget of 24, so it goes out
       //     unguaranteed and the API is not checking that `rooms` is an array.
       //
-      // So the retry that exists to recover from a single missing field was
-      // reliably converting it into an unrecoverable failure.
+      // So a retry that echoes the call as text turns the single missing field
+      // it exists to recover from into an unrecoverable failure.
       const objection =
         `${e.feedback}\n\nCall \`${opts.toolName}\` again with the whole input, ` +
         `corrected. Every field must be a real JSON value — an array field is an ` +

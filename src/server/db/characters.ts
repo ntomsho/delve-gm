@@ -188,8 +188,7 @@ export async function saveCharacter(
  * Called only when a run ended with the player alive and out — `escaped` or
  * `goal_met`. The run's own `pc` has been diverging from the sheet since the
  * first turn (gear picked up, coin spent, armour worn down) and on a successful
- * ending it becomes the sheet. Same id, so the Phase 11 upsert lands on the same
- * row.
+ * ending it becomes the sheet. Same id, so the upsert lands on the same row.
  *
  * DEATH AND ABANDONMENT WRITE NOTHING, which is how "the character as they were
  * before the run" is achieved: nothing touches `characters.sheet` during a run,
@@ -225,9 +224,8 @@ export async function saveCharacter(
  *     without ending it;
  *   - rest as a real action with a real cost — rations, a light clock, a
  *     wandering-monster roll — which is where Knave already points and which
- *     `turnCount` was put in `RunState` for (BUILD-PLAN §6, Phase 2);
- *   - healing bought in the shop, which is the other half of Phase 5's
- *     equipment step and is still open (CODING-PLAN §3.6).
+ *     `turnCount` was put in `RunState` for;
+ *   - healing bought in the shop, which is still to build.
  *
  * Whichever one lands, this function is where it goes, and `ownership.dbtest.ts`
  * — "keeps what they carried, and heals them, when they got out alive" — is the

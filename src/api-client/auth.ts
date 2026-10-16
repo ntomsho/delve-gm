@@ -2,7 +2,7 @@
  * WHO IS PLAYING
  * ==============
  *
- * The browser half of Phase 11. It holds a Supabase session, hands out the
+ * The browser half of sign-in. It holds a Supabase session, hands out the
  * access token, and is the ONLY place in the client that attaches one.
  *
  * THE ANON KEY BELONGS IN THE BROWSER, and that is not a hole in the standing

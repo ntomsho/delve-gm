@@ -3,7 +3,7 @@
  *
  * What is worth checking here is not that fetch works — it is that the client
  * sends exactly what the server's contract says and nothing more. The whole
- * security posture of Phase 10 is that the client asserts no rule: it says what
+ * security posture of the API is that the client asserts no rule: it says what
  * the player typed and which version it last saw, and the server decides
  * everything else. A client that quietly grew a `stage` field would break that
  * without breaking anything visible.
@@ -107,7 +107,7 @@ describe("generating through the API", () => {
 });
 
 /*
- * PHASE 13a. A world outlives the run played in it, so going back down one that
+ * A world outlives the run played in it, so going back down one that
  * is already written must not build anything. What is worth pinning here is the
  * ABSENCE of requests: the failure mode is a path that quietly generates anyway
  * and costs N+2 model calls to arrive at a dungeon that was already there.
@@ -327,7 +327,7 @@ describe("while the request is in flight", () => {
 });
 
 /**
- * PHASE 11. The runtime does not know what a token is — it is handed a `fetch`
+ * The runtime does not know what a token is — it is handed a `fetch`
  * and uses it. What these check is that it uses THAT ONE for everything, because
  * the failure mode is a single overlooked call site going out unauthenticated
  * and 401ing in a corner nobody exercises. The 409 resync path was exactly such
@@ -514,7 +514,7 @@ describe("trying again", () => {
 });
 
 /*
- * PHASE 12. A run outlives the tab it was played in, and can be ended by the
+ * A run outlives the tab it was played in, and can be ended by the
  * player rather than only by the fiction.
  */
 

@@ -8,7 +8,7 @@
  *
  * WHICH FILES LOAD, AND WHY IT IS NOT ONE.
  *
- * BUILD-PLAN §4.4 says to load the current step's file and not the whole
+ * BUILD-PLAN §2.8 says to load the current step's file and not the whole
  * playbook, and that is the rule this implements — but the unit is the ENTRY
  * POINT, not the single file. A fresh action runs steps 1, 2 and 3 inside one
  * call: the game master finds the target, judges it, classifies it, and either lets

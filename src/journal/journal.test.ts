@@ -67,7 +67,7 @@ describe("with no sink", () => {
 
   // A run picked up again — the second HTTP request into it, where the session
   // is rebuilt from a row and the events have to carry on from where storage
-  // left off rather than restart on top of them. See CODING-PLAN §7.2.
+  // left off rather than restart on top of them.
   it("carries on from a sequence already written", () => {
     const later: JournalRecord[] = [];
     const resumed = createJournal({ write: (r) => later.push(r) }, 12);
@@ -250,7 +250,7 @@ describe("the transcript", () => {
 
   it("says which pass failed, which chunk, and what was wrong with it", () => {
     // The chunks run in parallel, so a transcript saying "a content-pass call
-    // failed" names nothing. CODING-PLAN §6.7.
+    // failed" names nothing.
     const text = render({
       kind: "generation-error",
       pass: "content-pass",

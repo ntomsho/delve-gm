@@ -133,9 +133,7 @@ const kw = (...r: Array<string | undefined>): string[] =>
 /**
  * WHAT A REWARD BECOMES.
  *
- * Every reward is an ITEM now, and the old split -- loot as an item, knowledge
- * and leverage and boons as features of the room -- went with the parcel types
- * that produced them. A key is an object placed to answer a challenge; treasure
+ * Every reward is an ITEM, never a feature of the room. A key is an object placed to answer a challenge; treasure
  * is a thing you carry off; equipment is one or more catalog entries. None of
  * the three is furniture.
  *
@@ -173,7 +171,7 @@ function rewardItems(
 
 /**
  * One catalog draw, as a carried thing. Name, slots, facts and price all come
- * from the table, and there is no longer any other kind.
+ * from the table, and there is no other kind.
  *
  * THERE WAS A THIRD BRANCH: a rolled draw carrying its own name and nothing
  * else, which was only ever a potion. `rewardKeywords` hands the writing pass

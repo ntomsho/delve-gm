@@ -17,8 +17,7 @@
  * graph of every module that touches game state — the turn machine and the
  * game master included. `src/ui/shared/use-game.ts` holds the one binding that does.
  *
- * ONE STORE PER RUN. There was a module-level `useGame` here until Phase 9, and
- * a singleton is the right shape for exactly one situation: a browser tab, with
+ * ONE STORE PER RUN, never a module-level one. A singleton is the right shape for exactly one situation: a browser tab, with
  * one run in it. A process serving several runs at once would have them
  * overwrite each other's entities, stage, and — worst, because it is silent —
  * each other's `rngDraws`. So the store is made by a factory now, and whoever
@@ -84,7 +83,7 @@ export interface TranscriptEntry {
  * fatal for a page: the player would watch the last hour of play blank itself
  * every time they finished an action. Keeping them apart lets this one hold the
  * game master's actual prose and survive a reload, while the transcript stays the
- * lean thing BUILD-PLAN §4.4 describes.
+ * lean thing BUILD-PLAN §2.8 describes.
  *
  * Never assembled into a prompt.
  */
@@ -116,11 +115,11 @@ export interface LogEntry {
   effects?: Effect[];
   /** `foe` only: the creature rolls that hurt them this turn — see `foeRolls` */
   foe?: FoeRoll[];
-  /** the turn it belongs to, for the Phase 7 log viewer */
+  /** the turn it belongs to, for the log viewer */
   turn: number;
 }
 
-/** One model call, for the Phase 7 call log and for replay cassettes. */
+/** One model call, for the call log and for replay cassettes. */
 export interface CallLogEntry {
   at: number;
   step: Step;

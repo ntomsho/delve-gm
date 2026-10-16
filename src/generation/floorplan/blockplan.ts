@@ -15,12 +15,12 @@
  *
  * This file covers the first two steps only:
  *
- *   1. CENTRES — one cell per room, from Phase A's relaxed positions, spaced so
+ *   1. CENTRES — one cell per room, from the graph's relaxed positions, spaced so
  *      that connected rooms sit 4 to 8 cells apart measured round a corner.
  *   2. PATHS   — a line from each room's centre to each of its neighbours',
  *      turning at most once, no two lines sharing a cell.
  *
- * Step 2 is the only one that can fail, and it is why this returns null. Phase A
+ * Step 2 is the only one that can fail, and it is why this returns null. The graph
  * guarantees the graph *can* be drawn without crossings; it does not guarantee
  * that its force-relaxed positions are such a drawing, and a one-turn line has
  * only two routes to choose between. When it fails the caller advances the seed,
@@ -74,7 +74,7 @@ const manhattan = (p: Point, q: Point) => Math.abs(p.x - q.x) + Math.abs(p.y - q
 /**
  * Space the rooms out.
  *
- * Phase A already relaxed them — connected rooms pulling together, all rooms
+ * The graph already relaxed them — connected rooms pulling together, all rooms
  * pushing apart — so the shape is right and only the scale is wrong. This takes
  * that shape, sizes it so a typical connection comes out in range, and then runs
  * a short relaxation of its own against the actual targets, because scaling
@@ -210,10 +210,10 @@ export function countCrossings(pos: Point[], edges: ReadonlyArray<{ a: number; b
 /**
  * Pull the crossings out of the layout.
  *
- * THIS IS THE ONE THAT MATTERS. Phase A's `relax()` is a plain spring simulation
+ * THIS IS THE ONE THAT MATTERS. The graph's `relax()` is a plain spring simulation
  * with no notion of a crossing, and measured over 25 dungeons a size-4 layout has
  * 3.4 crossing pairs and a size-5 has 6.0 — every single size-4 dungeon has at
- * least one. Phase A validates that the *graph* is planar, which says a
+ * least one. `graph.ts` validates that the *graph* is planar, which says a
  * crossing-free drawing exists; it does not say the positions it hands out are
  * one. Those are different claims and the difference is most of why nothing here
  * would draw.

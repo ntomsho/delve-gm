@@ -6,9 +6,9 @@
  *
  * The machine owns none of the rules and none of the prose. It asks a
  * `Game master` what should happen, hands the answer to the applier, and decides
- * where the game goes next. That division is the whole point: in Phase 3 the
- * game master is a fixture returning canned envelopes, in Phase 4 it is the model,
- * and nothing in this file changes when they swap.
+ * where the game goes next. That division is the whole point: the game master
+ * is the model in play and a fixture returning canned envelopes in tests and
+ * `?offline`, and nothing in this file changes when they swap.
  *
  * Two axes move together here and are easy to confuse. `stage` is what the
  * PLAYER is being told — it opens and closes the input area. `step` is where
@@ -17,8 +17,8 @@
  *
  * WHAT THIS FILE DECIDES, as against what the game master decides:
  *
- *   - that a refused commit is worth exactly one more ask (§5: no partial
- *     fallback, and a second failure surfaces)
+ *   - that a refused commit is worth exactly one more ask (BUILD-PLAN §2.2:
+ *     no partial fallback, and a second failure surfaces)
  *   - when a turn has CLOSED, and so when the clock ticks and the exchange is
  *     thrown away
  *   - that the player moving rooms means a room entry, whatever the game master
@@ -382,9 +382,9 @@ export function createTurnMachine(gameMaster: GameMaster, deps: TurnDeps): TurnM
     if (closed) {
       // WHAT THEY WERE DOING, in their own words. A turn closed by a roll has
       // no input of its own — the words were typed a call or two earlier and
-      // are still in the open exchange — so it used to be recorded as
-      // "(continued)", which is what a death on a roll then reported as the
-      // last thing they tried. The latest line they typed is the action.
+      // are still in the open exchange. Recorded as "(continued)", that is what
+      // a death on a roll would report as the last thing they tried, so the
+      // latest line they typed is the action.
       const action = req.input ?? lastTyped(req.run) ?? "(continued)";
       journal.log({
         kind: "turn",
@@ -452,7 +452,7 @@ export function createTurnMachine(gameMaster: GameMaster, deps: TurnDeps): TurnM
    * prompt was built and the call was going out, and the instruction it wrote
    * on an empty result was "nothing here needs new prose, hand the turn
    * straight back". A full-price round trip to be told nothing happened, and
-   * in the 2026-08-10 playtest that was 5 of 11 arrivals. (8a A4.)
+   * in playtest R1 that was 5 of 11 arrivals.
    */
   async function enterRoom(): Promise<void> {
     const r = run();

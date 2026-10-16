@@ -6,8 +6,8 @@
  * its turn machine, and the sequence that gets it from a seed to a player
  * standing in the first room.
  *
- * That sequence used to live inside `App.tsx`, in a function called `begin`,
- * interleaved with `setScreen` and `setProgress` and a ref guarding React's
+ * That sequence lives here and not in `App.tsx`, where it would be interleaved
+ * with `setScreen` and `setProgress` and a ref guarding React's
  * development double-mount. None of it was React's business — attach a journal,
  * write the first line, generate, start the store, describe the room — and all
  * of it is exactly what a server handler has to do when a player asks for a new
@@ -159,7 +159,7 @@ export interface GameSession extends PlayableSession {
    * Without one it gets a fresh id, because `runId` is stamped with the time
    * and there is nothing in a save to recover the original from.
    *
-   * NAMED `restore` AND NOT `resume`, since Phase 12. `PlayableSession.resume`
+   * NAMED `restore` AND NOT `resume`. `PlayableSession.resume`
    * takes a run id and fetches; this takes a state that has already been
    * fetched. Two shapes under one name on an interface a caller holds
    * polymorphically is how the wrong one gets passed.

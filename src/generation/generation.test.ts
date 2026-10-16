@@ -417,7 +417,7 @@ describe("connector ownership", () => {
     expect(entities.connectors.find((c) => c.id === seam.ref)!.base).toBeUndefined();
   });
 
-  // 8f. One R2 dungeon held "The Residue", "The Cutlass", "The ledger" and
+  // One playtest-R2 dungeon held "The Residue", "The Cutlass", "The ledger" and
   // "unmarked ledger" at once, because a name arrives in whatever register the
   // model's sentence was in. Normalised once, at the top of the apply, so a
   // twelfth assignment site cannot miss it.
@@ -455,7 +455,7 @@ describe("connector ownership", () => {
 // ===========================================================================
 // A WELL-FORMED ANSWER THAT LEAVES SOMETHING OUT
 // ===========================================================================
-// The one live defect out of Phase 1, §1.1. A chunk answering five of six
+// A chunk answering five of six
 // connectors is valid JSON against a valid schema, so zod passes it, apply
 // applies it, and nothing notices until `validateWritten` sweeps at the end —
 // after the pass is over and the one retry has gone unspent. These are the
@@ -747,7 +747,7 @@ describe("chunk completeness", () => {
       expect(sent).toHaveLength(2);
     });
 
-    // CODING-PLAN §6.7. The `generation` event is written on success, so a pass
+    // The `generation` event is written on success, so a pass
     // that never succeeds used to leave nothing but the word "shape" — no pass,
     // no chunk, no field, and no response to look at.
     it("reports every attempt that failed, with what was objected to", async () => {
@@ -1043,7 +1043,7 @@ describe("prompt snapshots", () => {
 });
 
 // ===========================================================================
-// THE PIPELINE, SPLIT ACROSS REQUESTS  (Phase 10a)
+// THE PIPELINE, SPLIT ACROSS REQUESTS
 // ===========================================================================
 //
 // No Vercel invocation may hold more than one model call, so generation is
@@ -1214,7 +1214,7 @@ describe("generation split across requests", () => {
     const some = await Promise.all(chunks.slice(0, -1).map((c) => generateChunk(partial, c)));
 
     // Discovered here, where it can be retried, rather than as an unwritten
-    // entity at the end of a pass nobody can rerun. §1.1.
+    // entity at the end of a pass nobody can rerun.
     await expect(finishGeneration(partial, some)).rejects.toThrow(/region .* was never written/);
   });
 });

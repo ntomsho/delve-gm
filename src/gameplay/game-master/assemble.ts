@@ -2,7 +2,7 @@
  * BUILDING THE CALL
  * =================
  *
- * BUILD-PLAN §4.4, in code. **Rebuilt fresh every call. Never appended to.**
+ * BUILD-PLAN §2.8, in code. **Rebuilt fresh every call. Never appended to.**
  *
  * The layout, and the reason for each part:
  *
@@ -26,9 +26,9 @@
  * (The tool definitions come before all of this — the API's order, not ours —
  * which is why `game-master.ts` sends one tool list on every call.)
  *
- * THE STEP FILES USED TO SIT BEHIND THE ONE BREAKPOINT, AND THEY ARE THE BULK
- * OF IT. `1-target` alone is ~34K characters. In R1 it was sent at full price on
- * all 53 of its calls — about half the input the whole run paid for — because
+ * THE STEP FILES ARE THE BULK OF THE PROMPT, SO THEY GET A BREAKPOINT OF THEIR
+ * OWN. `1-target` alone is ~34K characters. In playtest R1, with only one
+ * breakpoint, it was sent at full price on all 53 of its calls — about half the input the whole run paid for — because
  * the only breakpoint was ahead of it, and the growing fiction block sat
  * between the two so no second breakpoint could have held. A cache read is a
  * tenth of the price.
@@ -68,7 +68,7 @@ import { CHALLENGE_LABEL } from "../../generation/content/challenges.ts";
 
 /**
  * A player renegotiating forever cannot blow the budget: the exchange is cut to
- * its last N messages. §4.4 sets the number.
+ * its last N messages. BUILD-PLAN §2.8 sets the number.
  */
 export const MAX_EXCHANGE = 12;
 
@@ -122,7 +122,7 @@ export function assemble(req: PromptInput): TurnPrompt {
       ...exchange(run),
       // THE FOURTH AND LAST BREAKPOINT, AND ONLY AT STEP 5. Everything above is
       // resent unchanged on every round of one turn, and a resolution nearly
-      // always takes two — the dice, then the commit (all three in R3 did).
+      // always takes two — the dice, then the commit (all three in playtest R3, 2026-10-11, did).
       // Caching it costs a quarter extra on the first round and saves nine
       // tenths on the next. Step 1 usually commits in one round, where the same
       // breakpoint would be a quarter extra for nothing.
@@ -255,14 +255,11 @@ function spoken(e: TranscriptEntry): string {
 // ---------------------------------------------------------------------------
 
 /*
- * THIS SAID `<post>` TAGS FOR TWO MONTHS AFTER THE TAGS WERE GONE.
- *
- * The post moved into `commit_state` (§8a A9) and SKILL.md and the tool's own
- * description were rewritten for it; this line, the last thing the game master
- * reads on every call, was not. So the final instruction was to finish with
- * the prose in the open and THEN commit — which is a turn that can end on the
- * prose. That is the shape of the "you ended your turn without calling
- * `commit_state`" round, which was 17 of R1's 92 calls.
+ * THE LAST THING THE GAME MASTER READS ON EVERY CALL, so it has to agree with
+ * where the post lives: inside `commit_state`. A closing line that told it to
+ * finish with the prose in the open and THEN commit is a turn that can end on
+ * the prose — the "you ended your turn without calling `commit_state`" round,
+ * which was 17 of playtest R1's 92 calls while this line said `<post>` tags.
  */
 const CLOSE = [
   `Work through the heuristic in short notes, a line per step — none of it is shown to the player.`,
@@ -294,7 +291,7 @@ function instruction(req: PromptInput): Message {
  * with the roll missing from it. A game master at step 5 with a rejection notice,
  * no number, and an action it has not resolved does the only coherent thing
  * left and restarts the heuristic, which means offering the same roll a second
- * time. In the 2026-08-10 playtest the player won a DEX save at 20, had the
+ * time. In playtest R1 the player won a DEX save at 20, had the
  * commit refused for an unrelated reason, was asked to roll again, got a 9,
  * and lost what they had already taken.
  *

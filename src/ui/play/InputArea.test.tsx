@@ -37,7 +37,7 @@ function area(stage: Stage, turns: number, over: Partial<InputAreaProps> = {}) {
 }
 
 describe("the turn tracker", () => {
-  // `run.turnCount` is CLOSED turns and has been since Phase 2. The player is
+  // `run.turnCount` is CLOSED turns. The player is
   // living through the next one, which is also the number the game master is given.
   it("counts the turn in progress, not the turns behind it", () => {
     expect(area("awaiting_action", 0)).toContain("Turn 1");
@@ -60,7 +60,7 @@ describe("the turn tracker", () => {
 });
 
 /*
- * PHASE 12. A run can now be ended by the player rather than only by the
+ * A run can now be ended by the player rather than only by the
  * fiction, and every ending has somewhere to go afterwards.
  */
 

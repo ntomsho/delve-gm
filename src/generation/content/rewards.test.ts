@@ -1,9 +1,9 @@
 /**
- * PHASE 17 R1 -- generation, pure, headless.
+ * REWARDS AT GENERATION -- pure, headless.
  *
  * The whole of the challenge enumeration, the taxonomy, the pot and its
  * partition, placement, and the reserve, asserted with no LLM anywhere near it.
- * That is the point of doing R1 first: everything here is arithmetic and graph
+ * That is why it is tested apart from the passes: everything here is arithmetic and graph
  * walking, and it either holds for every seed or it does not hold.
  */
 
@@ -105,7 +105,7 @@ describe("challenges", () => {
   });
 
   it("enumerates the same list called on its own as called inside stocking", () => {
-    // R2's keys pass and R3's ledger both call this outside `stockDungeon`, so
+    // The keys pass and the runtime ledger both call this outside `stockDungeon`, so
     // it has to be a pure reading of the stocked dungeon rather than a step in
     // building one.
     const sd = stockFor(31337, 4);

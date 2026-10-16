@@ -1,5 +1,5 @@
 /**
- * Phase A — dungeon node & connection generator.
+ * THE ROOM GRAPH — dungeon node & connection generator, the first stage of generation.
  *
  * Spec:
  *   - Rooms come in chunks of 6.
@@ -19,7 +19,7 @@ import { checkPlanarity } from "./planarity.ts";
 
 export type { IEntity, IRoom, IRoomConnector };
 
-/** What Phase A hands to content generation. */
+/** What the graph hands to content generation. */
 export interface DungeonBlueprint {
   rooms: Array<Partial<IRoom>>;
   roomConnectors: Array<Partial<IRoomConnector>>;
@@ -52,7 +52,7 @@ export interface Edge {
    * What currently prevents the player from using this connection --
    * locked, blocked, concealed, too dangerous, etc. Absent means freely
    * usable. Cleared (deleted) once the player resolves the condition.
-   * Phase A leaves this unset; gating is applied downstream.
+   * The graph leaves this unset; gating is applied downstream.
    */
   conditional?: string;
 }
@@ -777,7 +777,7 @@ export function generate(seed: string, params: Params): Dungeon {
 
 /**
  * Project the internal graph onto the entity model that content generation
- * consumes. Phase A only knows structure, so name/base/state/composed are
+ * consumes. The graph only knows structure, so name/base/state/composed are
  * emitted blank and everything else is left for later passes to fill.
  */
 export function toBlueprint(d: Dungeon): DungeonBlueprint {
@@ -861,6 +861,5 @@ export function batch(chunks: number, trials: number) {
   );
 }
 
-// The module-load demo block that used to live here touched `process` and so
-// threw in a browser bundle. `batch()` above is still exported for dev use;
-// call it from dev/ rather than at import time.
+// NOTHING RUNS AT IMPORT. `batch()` above is exported for dev use; call it
+// from dev/, because this module also loads in a browser.

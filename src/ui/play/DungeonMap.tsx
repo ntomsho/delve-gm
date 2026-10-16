@@ -15,7 +15,7 @@
  *
  * Shapes come from `Layout` as a discriminated union, so `pointLayout`'s circles
  * and the block plan's polygons render through the same component — which is
- * what the §7 boundary was for.
+ * what keeping layout out of the component is for.
  */
 
 import { useRef, useState } from "react";
@@ -213,8 +213,8 @@ function outward(at: Point, through: Point): Point {
  * What this place is called, and how much of it has been seen.
  *
  * The name is the Dungeon Pass's one piece of prose that names the whole
- * dungeon, and until now it was shown once above the opening and then scrolled
- * away for the rest of the run. The map is where a player looks to ask "where
+ * dungeon. Shown once above the opening, it would scroll away for the rest of
+ * the run. The map is where a player looks to ask "where
  * am I", so it is where the answer to "where is this" belongs.
  *
  * The count is the only progress signal a dungeon crawl naturally has. It is
@@ -268,8 +268,8 @@ export interface DungeonMapProps {
  * WHAT A CLICK DOES lives in `verbs.ts` and `hover.tsx`, not here.
  *
  * Every drawn thing carries the one question it offers, and the pill that raises
- * it is mounted once by `PlayScreen` for both panels. The map used to own a
- * travel callback and the set of doors it applied to; both are now facts about
+ * it is mounted once by `PlayScreen` for both panels. The map owns no travel
+ * callback and no set of doors; both are facts about
  * the game that the hover context carries, so this component takes a drawing and
  * nothing else.
  */
@@ -329,8 +329,8 @@ export function DungeonMap({ map, className, controls = false }: DungeonMapProps
   /**
    * A wheel zooms, and moves what you are pointing at toward the middle.
    *
-   * It used to leave the view's top-left corner pinned, so zooming in walked
-   * off toward the corner and whatever you were looking at slid out of frame.
+   * Pinning the view's top-left corner instead would make zooming in walk off
+   * toward the corner and whatever you were looking at slid out of frame.
    * The cursor is the only statement of intent available here — you point at
    * the room you want a closer look at — so each step takes the view half the
    * way from where it is centred to what is under the pointer. Half rather than
@@ -355,7 +355,7 @@ export function DungeonMap({ map, className, controls = false }: DungeonMapProps
   /**
    * A PRESS IS A TAP UNTIL IT MOVES.
    *
-   * Pointer capture used to start on the press, and while a pointer is captured
+   * Pointer capture does not start on the press, because while a pointer is captured
    * the browser sends the click that ends it to the CAPTURING element — the svg —
    * not to the marker under it. Now capture waits until the press has travelled
    * `TAP_SLOP`, and a press that never does is left alone to become the click it

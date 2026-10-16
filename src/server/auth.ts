@@ -100,7 +100,7 @@ const UNAUTHORIZED = "sign in first";
  * The gate. Everything under `/api` except `/api/health` goes through it.
  *
  * `health` is exempt because it is what the Vercel cron hits twice a week to
- * keep Supabase from pausing the project (CODING-PLAN §7.8), and a cron has no
+ * keep Supabase from pausing an idle project, and a cron has no
  * account. It reads nothing and writes nothing.
  */
 export const requireUser = createMiddleware<AuthEnv>(async (c, next) => {

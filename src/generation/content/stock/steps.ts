@@ -40,7 +40,7 @@ function bfsDepth(adj: number[][], from: number): number[] {
 // ---------------------------------------------------------------------------
 // STEP 0 -- STRUCTURAL PRE-PASS
 // ---------------------------------------------------------------------------
-// Phase A leaves category/tier/role blank and every connector "standard", so
+// The graph leaves category/tier/role blank and every connector "standard", so
 // everything downstream that reads depth or role has to be derived here first.
 
 export interface Structure {
@@ -58,7 +58,7 @@ export function structuralPrePass(d: Dungeon, rng: Rng): Structure {
 
   // ONE entrance, and it is where the player starts.
   //
-  // Phase A currently emits 2-3 of these (see the REVISIT note on
+  // The graph currently emits 2-3 of these (see the REVISIT note on
   // chooseEntrances). That was unintended, and honouring it would wreck the
   // depth gradient that danger, reward weighting and headline placement all
   // read from. We deliberately take entrances[0] and drop the rest; the extras

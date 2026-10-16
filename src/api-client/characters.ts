@@ -2,11 +2,8 @@
  * WHERE CHARACTERS LIVE
  * =====================
  *
- * One module, one job: hand out the saved characters. It was an array with the
- * test character in it; **as of Phase 10 it is the database**, and this file is
- * the only one that changed — nothing above it knew or asked where a character
- * came from, which is what the header here promised in Phase 5 and is now the
- * receipt for it.
+ * One module, one job: hand out the saved characters, which live in the
+ * database. Nothing above it knows or asks where a character comes from.
  *
  * The functions were made async before there was anything to await, and that is
  * why: a component tree built on the assumption that reading a character is
@@ -14,8 +11,7 @@
  * true. One `await` against an array cost nothing then and bought the swap for
  * free now.
  *
- * **A character survives a reload now**, which settles the open question
- * CODING-PLAN §3.6 left deliberately unanswered — what the stored record looks
+ * **A character survives a reload.** That settles what the stored record looks
  * like, and what happens to one saved against an older shape. The record is the
  * sheet, whole, in a jsonb column: `PlayerCharacter` is already the serialisable
  * thing that goes in and out of a run, so there is no second shape to keep in
@@ -81,8 +77,8 @@ export interface CharacterEntry {
 /**
  * Everyone the player has, with their record and their whereabouts.
  *
- * THE ONLY READ, since Phase 12. There were a `listCharacters` and a
- * `getCharacter` beside this returning bare sheets, and they went with the
+ * THE ONLY READ. A `listCharacters` or `getCharacter` returning bare sheets
+ * would go with the
  * screen that could use one: a sheet on its own cannot answer the question the
  * roster asks, which is whether this person can be sent anywhere. Anything
  * wanting sheets alone maps over these, and `RunSetup` does exactly that after

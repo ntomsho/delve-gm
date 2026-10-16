@@ -11,8 +11,8 @@ import * as repo from "../db/repo.ts";
 export function characterRoutes(app: Hono<AuthEnv>): void {
   /**
    * The roster: who the player has, what has happened to them, and where they
-   * are. Was `PlayerCharacter[]`; a sheet alone can no longer answer the
-   * question the screen asks, which is whether this person can be sent anywhere.
+   * are. Not bare sheets: a sheet alone cannot answer the question the screen
+   * asks, which is whether this person can be sent anywhere.
    */
   app.get("/api/characters", async (c) => c.json(await repo.listRoster(currentUser(c).id)));
 

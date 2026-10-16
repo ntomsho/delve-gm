@@ -44,7 +44,7 @@ worlds and the library, the single equipment table, time categories and creature
 the first of three rewards sessions, levelling, and guest accounts with daily run
 allowances (layer 3 of *Paying for strangers*).
 
-**1,398 tests and build clean**, plus a third, explicitly-invoked vitest config
+**1,915 tests and build clean**, plus a third, explicitly-invoked vitest config
 (`npm run test:db`) holding **72** more that need a real database.
 
 Two playtests are the evidence base for most of what is left. Where a feature cites a

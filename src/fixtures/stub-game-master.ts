@@ -13,8 +13,8 @@
  * stub subtracts a flat point of damage, because it has no dice of its own: the
  * player's roll is made by the machine and handed over, but a creature's turn
  * happens inside the resolution, where the game master would call the dice tool.
- * That tool is Phase 4. Until it exists this is the one number in the game not
- * drawn from the RNG, and it is marked at both call sites so it cannot quietly
+ * This fixture never calls it, so this is the one number in the codebase not
+ * drawn from the RNG — test-only, and it is marked at both call sites so it cannot quietly
  * become the pattern.
  *
  * It is NOT a simulation of the game master's judgement. Each branch exists to
@@ -208,7 +208,7 @@ function resolveRoll(req: GameMasterRequest): GameMasterReply {
           { entityId: req.run.currentRoomId, path: "composed", value: "The room, and the thing you forced in it." },
         ]))
       : reply("It does not give, and you come away with a wrenched shoulder.", open([
-          // AUTHORED NUMBER — see the header. Phase 4's dice tool replaces it.
+          // AUTHORED NUMBER — see the header.
           { entityId: PLAYER_ID, path: "hp.current", value: Math.max(1, req.run.pc.hp.current - 1) },
           { entityId: PLAYER_ID, path: "conditions[]", value: "wrenched shoulder" },
         ]));
@@ -223,7 +223,7 @@ function resolveRoll(req: GameMasterRequest): GameMasterReply {
       open([
         { entityId: target.id, path: "activity", value: "pressing the attack" },
         { entityId: target.id, path: "state", value: "unhurt, and no longer curious" },
-        // AUTHORED NUMBER — see the header. Phase 4's dice tool replaces it.
+        // AUTHORED NUMBER — see the header.
         { entityId: PLAYER_ID, path: "hp.current", value: Math.max(1, req.run.pc.hp.current - 1) },
       ])
     );

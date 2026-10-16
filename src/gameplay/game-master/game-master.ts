@@ -239,9 +239,9 @@ function playersOwnDice(req: GameMasterRequest, batch: RollBatchParsed): string[
 /**
  * A TURN THAT WOULD REACH THE PLAYER AS A BLANK SCREEN.
  *
- * The other half of moving the post onto the commit (§8a A9). Once loose text
- * is no longer narration, a game master that writes its paragraph outside the tool
- * call has written it to nobody — so the absence has to be caught here, where it
+ * The other half of carrying the post inside the commit. Loose text is not
+ * narration, so a game master that writes its paragraph outside the tool call
+ * has written it to nobody — so the absence has to be caught here, where it
  * can be handed back as a correction inside the same conversation, rather than
  * discovered by the player.
  *
@@ -286,11 +286,12 @@ function missingPost(req: GameMasterRequest, c: CommitParsed): string[] {
  * Without this line, walking through a door advances every approaching creature
  * twice for one move.
  *
- * `long` IS A NIGHT'S REST AND THERE IS NO WAY TO SAY SO YET. Rest is Phase 16
- * and arrives as a button, resolved client-side like the player's own d20; until
- * that exists a `long` turn is the game master inventing an hour that nothing in the
- * interface offered. It is on the wire so Phase 16 does not have to reopen the
- * schema, and refused here so it cannot be reached early.
+ * `long` IS A NIGHT'S REST AND THERE IS NO WAY TO SAY SO YET. Rest is a feature
+ * still to build (BUILD-PLAN §3, *Rest*) and arrives as a button, resolved
+ * client-side like the player's own d20; until it exists a `long` turn is the
+ * game master inventing an hour that nothing in the interface offered. It is on
+ * the wire so Rest does not have to reopen the schema, and refused here so it
+ * cannot be reached early.
  */
 function timeNotSpent(req: GameMasterRequest, c: CommitParsed): string[] {
   if (c.timeSpent === "long") {
@@ -325,7 +326,7 @@ const IDLE_STAGES: readonly CommitParsed["nextStage"][] = ["clarifying", "reject
 /**
  * The cross-field rules a JSON Schema cannot state.
  *
- * BUILD-PLAN §4.1 wants these caught as schema violations rather than left to
+ * BUILD-PLAN §2.5 wants these caught as schema violations rather than left to
  * confuse the interface — a `roll_offered` with nothing to roll is a game
  * sitting on a Roll button that does nothing. Returned as text because that is
  * what goes back to the model.
@@ -418,7 +419,7 @@ export function createModelGameMaster(opts: ModelGameMasterOptions): GameMaster 
         messages,
         // THE SAME TOOLS EVERY ROUND. The tool list is the first thing in the
         // cached prefix, so a round that drops `roll` misses the whole cache and
-        // writes it again — R3's closing round did, at 22K tokens. Forcing the
+        // writes it again — the closing round of playtest R3 (2026-10-11) did, at 22K tokens. Forcing the
         // choice is what takes the dice off the table; the list stays put.
         tools: [ROLL_TOOL, COMMIT_TOOL],
         toolChoice: last ? { type: "tool", name: "commit_state" } : { type: "auto" },
@@ -530,7 +531,7 @@ export function createModelGameMaster(opts: ModelGameMasterOptions): GameMaster 
  *
  * ON ENTRY, `composed` WINS OVER THE POST. The post on a room entry is `null`
  * by the playbook, and when the game master writes one anyway it is the same
- * paragraph a second time — R4 (2026-10-11) did, and its copy was the one with
+ * paragraph a second time — playtest R4 (2026-10-11) did, and its copy was the one with
  * tool markup run into the end of it. The room's `composed` is the version that
  * is stored, re-read and shown again on the map card; showing the other one
  * means the player reads text the game does not hold. The post is used only
@@ -570,7 +571,7 @@ export function withoutToolMarkup(text: string): string {
  * BLANK PLACEHOLDERS ARE ABSENCE, not errors.
  *
  * A model filling a schema writes `coinGrant: { why: "" }` and `learned: []` for
- * fields it has no use for. Refusing those cost R3 two whole rounds on one
+ * fields it has no use for. Refusing those cost playtest R3 (2026-10-11) two whole rounds on one
  * look at some claw marks, and the third attempt was worse than the blank: it
  * wrote `why: "none"`, which is VALID and would have granted coin for nothing
  * had the post been there too. So a blank optional is read as the field left

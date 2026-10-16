@@ -247,7 +247,7 @@ describe("planarity: generated dungeons", () => {
 });
 
 // ===========================================================================
-// THE COST OF REJECTING  (§6a: measured, not assumed)
+// THE COST OF REJECTING  (measured, not assumed)
 // ===========================================================================
 
 describe("planarity: rejection rate", () => {

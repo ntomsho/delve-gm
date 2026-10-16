@@ -107,8 +107,8 @@ interface Strictable {
 /**
  * Spend the request's strict budget across the tools going out together.
  *
- * Only compiled schemas count against it — the content pass has been sending an
- * unguaranteed 35-optional tool since Phase 1 — so this drops `strict` rather
+ * Only compiled schemas count against it — the content pass sends an
+ * unguaranteed 35-optional tool — so this drops `strict` rather
  * than touching any schema. The tool keeps its real shape either way, and zod
  * still checks whatever comes back.
  *

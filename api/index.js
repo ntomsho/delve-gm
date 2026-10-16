@@ -89,7 +89,7 @@ var UNAUTHORIZED = "sign in first";
 * The gate. Everything under `/api` except `/api/health` goes through it.
 *
 * `health` is exempt because it is what the Vercel cron hits twice a week to
-* keep Supabase from pausing the project (CODING-PLAN §7.8), and a cron has no
+* keep Supabase from pausing an idle project, and a cron has no
 * account. It reads nothing and writes nothing.
 */
 var requireUser = createMiddleware(async (c, next) => {
@@ -341,8 +341,8 @@ function canBeStrict(schema) {
 /**
 * Spend the request's strict budget across the tools going out together.
 *
-* Only compiled schemas count against it — the content pass has been sending an
-* unguaranteed 35-optional tool since Phase 1 — so this drops `strict` rather
+* Only compiled schemas count against it — the content pass sends an
+* unguaranteed 35-optional tool — so this drops `strict` rather
 * than touching any schema. The tool keeps its real shape either way, and zod
 * still checks whatever comes back.
 *
@@ -785,8 +785,7 @@ async function saveCharacter(pc, owner, sql = db()) {
 * Called only when a run ended with the player alive and out — `escaped` or
 * `goal_met`. The run's own `pc` has been diverging from the sheet since the
 * first turn (gear picked up, coin spent, armour worn down) and on a successful
-* ending it becomes the sheet. Same id, so the Phase 11 upsert lands on the same
-* row.
+* ending it becomes the sheet. Same id, so the upsert lands on the same row.
 *
 * DEATH AND ABANDONMENT WRITE NOTHING, which is how "the character as they were
 * before the run" is achieved: nothing touches `characters.sheet` during a run,
@@ -822,9 +821,8 @@ async function saveCharacter(pc, owner, sql = db()) {
 *     without ending it;
 *   - rest as a real action with a real cost — rations, a light clock, a
 *     wandering-monster roll — which is where Knave already points and which
-*     `turnCount` was put in `RunState` for (BUILD-PLAN §6, Phase 2);
-*   - healing bought in the shop, which is the other half of Phase 5's
-*     equipment step and is still open (CODING-PLAN §3.6).
+*     `turnCount` was put in `RunState` for;
+*   - healing bought in the shop, which is still to build.
 *
 * Whichever one lands, this function is where it goes, and `ownership.dbtest.ts`
 * — "keeps what they carried, and heals them, when they got out alive" — is the
@@ -920,7 +918,7 @@ async function listDungeons(owner, sql = db()) {
 * that completed it.
 *
 * Takes the ROW id explicitly, because `gd.id` is the engine's derived name and
-* is no longer the key. Passing `gd` alone would compile and address the wrong
+* is not the key. Passing `gd` alone would compile and address the wrong
 * column forever.
 */
 async function completeDungeon(id, gd, owner, sql = db()) {
@@ -967,8 +965,7 @@ function readCursor(cursor) {
 * The second of the two cross-owner reads, and it obeys the same rule as
 * `duplicateDungeon`: what crosses the line is a SUMMARY. Never `doc`, which is
 * every answer in the world — browsing must not be a way to read a dungeon you
-* have not walked. `DungeonSummary` has been the shape of that promise since
-* Phase 11 with nothing to serve it; this is what it was for.
+* have not walked. `DungeonSummary` is the shape of that promise.
 *
 * NO MAKER ATTRIBUTION, deliberately. The only name this project holds for an
 * account is `profiles.email`, and a browse screen that printed it would be a
@@ -1021,7 +1018,7 @@ async function listLibrary(viewer, opts = {}, sql = db()) {
 * Every other read here puts the owner in the `where`, and that rule is not
 * being bent: what this reads cross-owner is the ROW, and what it does with it
 * is write a new one belonging to the caller. Nothing about the source is ever
-* returned. A dungeon is the one thing another player may see (§8.1), and this
+* returned. A dungeon is the one thing another player may see, and this
 * is the whole of what "see" means — a copy of your own, not a look at theirs.
 *
 * WHAT COMES ACROSS, and what does not:
@@ -1534,8 +1531,8 @@ var repo_exports = /* @__PURE__ */ __exportAll({
 function characterRoutes(app) {
 	/**
 	* The roster: who the player has, what has happened to them, and where they
-	* are. Was `PlayerCharacter[]`; a sheet alone can no longer answer the
-	* question the screen asks, which is whether this person can be sent anywhere.
+	* are. Not bare sheets: a sheet alone cannot answer the question the screen
+	* asks, which is whether this person can be sent anywhere.
 	*/
 	app.get("/api/characters", async (c) => c.json(await listRoster(currentUser(c).id)));
 	/**
@@ -2139,12 +2136,11 @@ var VALUABLE_MATERIALS = t$1("Alabaster|Amber|Aquamarine|Azurite|Beryl|Black Pea
 var WEAPON_ITEMS = t$1("Arming sword|Backsword|Battleaxe|Blowpipe|Claymore|Club|Crossbow|Cutlass|Dagger|Flail|Flanged mace|Glaive|Halberd|Hammer|Hatchet|Horsebow|Hunting knife|Lance|Longbow|Longsword|Mace|Maul|Morningstar|Pike|Scimitar|Shortbow|Sickle|Sling|Spear|Staff|Stake|Stiletto|Throwing axe|Warhammer|Warpick|Whip");
 var TREASURE_ITEMS = t$1("Alchemy recipe|Amulet|Astrolabe|Blueprints|Calligraphy|Carpet|Compass|Contract|Crown|Crystal|Deed|Embroidery|Fine china|Fine liquor|Instrument|Magical book|Microscope|Music box|Orrery|Painting|Perfume|Prayer book|Printing block|Rare textile|Royal robes|Saint's relic|Scrimshaw|Sextant|Sheet music|Signet ring|Silverware|Spices|Spyglass|Tapestry|Telescope|Treasure map");
 /**
-* THE SIX THAT WERE EMPTY — Maze Rats, transcribed.
+* THE SIX REWARD TABLES — Maze Rats, transcribed.
 *
-* They are the tables the reward rows draw on, and every one of them is now
-* filled. `rollTable` and `rollTreasure` in rewards.ts still guard
-* against an empty list, because that guard is what let these ship unfilled;
-* it is now unreachable for these six and stays for the next stub.
+* They are the tables the reward rows draw on. `rollTable` and `rollTreasure`
+* in rewards.ts still guard against an empty list; the guard is unreachable for
+* these six and stays for the next stub.
 *
 * THE CASCADE TOKENS IN HERE RESOLVE THROUGH `CONTENT_CASCADES` BELOW, and
 * every one of them is registered — see the block comment on that table for
@@ -4025,7 +4021,7 @@ function resolveBase(e, reg) {
 *
 * Names are minted by a model in two places — the content pass when it writes
 * the dungeon, and the game master when it creates something mid-run — and both
-* produce whatever register the surrounding sentence was in. One R2 dungeon
+* produce whatever register the surrounding sentence was in. One playtest-R2 dungeon
 * held "The Residue", "The Cutlass", "The ledger" and "unmarked ledger" at the
 * same time. A name is a label, and a label is capitalised.
 *
@@ -4136,9 +4132,7 @@ var kw = (...r) => r.filter((x) => !!x);
 /**
 * WHAT A REWARD BECOMES.
 *
-* Every reward is an ITEM now, and the old split -- loot as an item, knowledge
-* and leverage and boons as features of the room -- went with the parcel types
-* that produced them. A key is an object placed to answer a challenge; treasure
+* Every reward is an ITEM, never a feature of the room. A key is an object placed to answer a challenge; treasure
 * is a thing you carry off; equipment is one or more catalog entries. None of
 * the three is furniture.
 *
@@ -4177,7 +4171,7 @@ function rewardItems(rw, parentId, rng) {
 }
 /**
 * One catalog draw, as a carried thing. Name, slots, facts and price all come
-* from the table, and there is no longer any other kind.
+* from the table, and there is no other kind.
 *
 * THERE WAS A THIRD BRANCH: a rolled draw carrying its own name and nothing
 * else, which was only ever a potion. `rewardKeywords` hands the writing pass
@@ -5431,7 +5425,7 @@ var EQUIPMENT_SHARE = .5;
 var CARRIED_SHARE = .6;
 /** How many of the goal room's keyable properties get a placed key, beyond its location. */
 var GOAL_PROPERTY_KEYS = [1, 3];
-/** The game master's ad-hoc allowance, held out of the partition. See §7.1. */
+/** The game master's ad-hoc allowance, held out of the partition. See REWARDS-SPEC §7.1. */
 var ALLOWANCE_SHARE = .1;
 /**
 * What a key is worth when it is not a catalog item. Deliberately small: a key
@@ -5673,8 +5667,7 @@ function reachableWithout(connectors, entranceRoomId, withoutConnectorId) {
 }
 /**
 * The general budget: how many rewards are simply THERE, whether or not the
-* dungeon asked anything for them. Unchanged from the old parcel budget, and
-* still conserved -- a location that came up empty hands its share elsewhere
+* dungeon asked anything for them. Conserved -- a location that came up empty hands its share elsewhere
 * rather than losing it.
 */
 function generalBudget(roomCount) {
@@ -8521,7 +8514,7 @@ function generate(seed, params) {
 }
 /**
 * Project the internal graph onto the entity model that content generation
-* consumes. Phase A only knows structure, so name/base/state/composed are
+* consumes. The graph only knows structure, so name/base/state/composed are
 * emitted blank and everything else is left for later passes to fill.
 */
 function toBlueprint(d) {
@@ -8583,12 +8576,12 @@ function generateValid(seed, params, maxAttempts = 50) {
 *
 * This file covers the first two steps only:
 *
-*   1. CENTRES — one cell per room, from Phase A's relaxed positions, spaced so
+*   1. CENTRES — one cell per room, from the graph's relaxed positions, spaced so
 *      that connected rooms sit 4 to 8 cells apart measured round a corner.
 *   2. PATHS   — a line from each room's centre to each of its neighbours',
 *      turning at most once, no two lines sharing a cell.
 *
-* Step 2 is the only one that can fail, and it is why this returns null. Phase A
+* Step 2 is the only one that can fail, and it is why this returns null. The graph
 * guarantees the graph *can* be drawn without crossings; it does not guarantee
 * that its force-relaxed positions are such a drawing, and a one-turn line has
 * only two routes to choose between. When it fails the caller advances the seed,
@@ -8608,7 +8601,7 @@ var manhattan = (p, q) => Math.abs(p.x - q.x) + Math.abs(p.y - q.y);
 /**
 * Space the rooms out.
 *
-* Phase A already relaxed them — connected rooms pulling together, all rooms
+* The graph already relaxed them — connected rooms pulling together, all rooms
 * pushing apart — so the shape is right and only the scale is wrong. This takes
 * that shape, sizes it so a typical connection comes out in range, and then runs
 * a short relaxation of its own against the actual targets, because scaling
@@ -8715,10 +8708,10 @@ function countCrossings(pos, edges) {
 /**
 * Pull the crossings out of the layout.
 *
-* THIS IS THE ONE THAT MATTERS. Phase A's `relax()` is a plain spring simulation
+* THIS IS THE ONE THAT MATTERS. The graph's `relax()` is a plain spring simulation
 * with no notion of a crossing, and measured over 25 dungeons a size-4 layout has
 * 3.4 crossing pairs and a size-5 has 6.0 — every single size-4 dungeon has at
-* least one. Phase A validates that the *graph* is planar, which says a
+* least one. `graph.ts` validates that the *graph* is planar, which says a
 * crossing-free drawing exists; it does not say the positions it hands out are
 * one. Those are different claims and the difference is most of why nothing here
 * would draw.
@@ -10400,8 +10393,7 @@ function siteOf(partial) {
 * Rebuilt rather than persisted, and it must be built from UNAPPLIED entities:
 * a payload says what a region needs written, and entities that have been
 * written no longer need writing. So `finishGeneration` builds every payload
-* before it applies anything — which is what the single-process pipeline always
-* did, it just kept them in a local instead.
+* before it applies anything.
 */
 function contentPayload(partial, chunk) {
 	return buildContentPassPayload(partial.stocked, partial.blueprint, partial.entities, chunk, partial.dungeonContext, siteOf(partial));
@@ -13042,8 +13034,7 @@ function dungeonRoutes(app) {
 	*
 	* This was the hole. A pass that throws never reached `appendDungeonEvents`,
 	* so a failed dungeon left the three `generation-error` events on the floor —
-	* the exact records §6.7 was built to keep, gone again the moment the runtime
-	* moved to a server. The console had them; the database did not, and the
+	* the exact records `generation-error` exists to keep. The console had them; the database did not, and the
 	* console belongs to whoever was tailing the function.
 	*
 	* Safe to write on failure here, unlike a turn: the sequence belongs to the
@@ -13091,7 +13082,7 @@ function dungeonRoutes(app) {
 	*
 	* `finishGeneration` refuses if a region is missing, which is the check that
 	* turns a lost chunk into a retryable request rather than an unwritten entity
-	* discovered at the end of a pass nobody can rerun. See §1.1.
+	* discovered at the end of a pass nobody can rerun.
 	*/
 	app.post("/api/dungeons/:id/finish", async (c) => {
 		const stored = await mustGetDungeon(c.req.param("id"), currentUser(c).id);
@@ -13141,8 +13132,8 @@ function dungeonRoutes(app) {
 	* TAKE A COPY OF A WORLD.
 	*
 	* The one route that names a dungeon the caller does not own, and it is why
-	* the Phase 11 key split had to happen first: under 10a's schema, where the
-	* derived `dungeon_<seed>` name WAS the primary key, a second copy of one
+	* a dungeon's row id is not its derived name: were the derived
+	* `dungeon_<seed>` name the primary key, a second copy of one
 	* world collided on it.
 	*
 	* IT STILL SERVES NOTHING OF THE SOURCE. The reply is the id of the caller's
@@ -14386,8 +14377,8 @@ function slayCreature(ctx, creature) {
 * what stops a walk and why the destination itself is never checked.
 *
 * Two things are settled here rather than there. A route that does not exist is
-* a REJECTION, so the reasons reach the game master and it gets the one retry §5
-* allows — and so is one stopped before its first step, which goes nowhere; a
+* a REJECTION, so the reasons reach the game master and it gets the one retry
+* BUILD-PLAN §2.2 allows — and so is one stopped before its first step, which goes nowhere; a
 * route that ends short is APPLIED, because getting as far as the Torture Room
 * and finding something in it is a real outcome and not an error.
 * The event says so, and the arrival pass describes wherever they actually are.
@@ -14775,7 +14766,7 @@ function applyOne(ctx, diff) {
 * The write above deliberately moves nothing, so there is exactly one stepper
 * and no case where a creature covers two rooms for one turn.
 *
-* `roomId` is the whole of the move: occupancy is relational (BUILD-PLAN §4.3),
+* `roomId` is the whole of the move: occupancy is relational (BUILD-PLAN §2.9),
 * so leaving one room and joining another is one assignment and there is no
 * second list to keep in step with it.
 *
@@ -15016,8 +15007,7 @@ function applyCommit(world, commit) {
 * graph of every module that touches game state — the turn machine and the
 * game master included. `src/ui/shared/use-game.ts` holds the one binding that does.
 *
-* ONE STORE PER RUN. There was a module-level `useGame` here until Phase 9, and
-* a singleton is the right shape for exactly one situation: a browser tab, with
+* ONE STORE PER RUN, never a module-level one. A singleton is the right shape for exactly one situation: a browser tab, with
 * one run in it. A process serving several runs at once would have them
 * overwrite each other's entities, stage, and — worst, because it is silent —
 * each other's `rngDraws`. So the store is made by a factory now, and whoever
@@ -15480,7 +15470,7 @@ var signed = (n) => `${n >= 0 ? "+" : ""}${n}`;
 * THE DICE TOOL
 * =============
 *
-* The game master's half of the split described in BUILD-PLAN §4.2. The player's
+* The game master's half of the split described in BUILD-PLAN §2.7. The player's
 * roll is thrown by the interface and arrives with their next message; every
 * other roll in the game — the creature that strikes back, the nerve that
 * breaks, the ceiling that comes down — is asked for here.
@@ -16077,8 +16067,7 @@ function itemDetail(i) {
 * `composed` hangs under the row rather than beside it, and item `base` is not
 * here at all. That is a token decision and it was measured: a `base` averages
 * 453 characters, so ten carried things would be a thousand tokens every turn —
-* larger than the whole creature census, which is the point of the phase this
-* arrived in. `composed` is nearly free by comparison, because the 122 standard
+* larger than the whole creature census, which exists to keep prompts small. `composed` is nearly free by comparison, because the 122 standard
 * equipment templates carry `base: ""` and `mintCommon` falls `composed` back to
 * `base`; carried starting gear renders its name and its amount and nothing
 * else, and a found "Wheel of pale cheese" is exactly what the field is for.
@@ -16234,7 +16223,7 @@ function renderRoll(o) {
 	]);
 }
 /**
-* Completed turns, as structure rather than prose — §4.4. The paragraphs are
+* Completed turns, as structure rather than prose — BUILD-PLAN §2.8. The paragraphs are
 * gone; what a finished turn owes the next one is a few facts.
 */
 function renderRecords(records) {
@@ -16456,7 +16445,7 @@ function instruction(req) {
 * with the roll missing from it. A game master at step 5 with a rejection notice,
 * no number, and an action it has not resolved does the only coherent thing
 * left and restarts the heuristic, which means offering the same roll a second
-* time. In the 2026-08-10 playtest the player won a DEX save at 20, had the
+* time. In playtest R1 the player won a DEX save at 20, had the
 * commit refused for an unrelated reason, was asked to roll again, got a 9,
 * and lost what they had already taken.
 *
@@ -16547,8 +16536,8 @@ var gameMasterStep = z.enum([
 * a turn has passed. Not a duration — see `TimeSpent` for why there is no clock
 * — but the four cases named so the game master reads what each one covers.
 *
-* `long` is on the wire and is refused on the way back in until Phase 16 exists
-* to produce it; the description says so, because a model offered a value it
+* `long` is on the wire and is refused on the way back in until Rest exists to
+* produce it (BUILD-PLAN §3); the description says so, because a model offered a value it
 * cannot use will reach for it.
 */
 var timeSpent = z.enum([
@@ -16622,9 +16611,9 @@ var commitSchema = z.object({
 	/**
 	* WHAT THE PLAYER READS. The only place a post can come from.
 	*
-	* It was loose assistant text until Phase 12 (CODING-PLAN 8a A9): narration
-	* was the concatenation of every text block in the response, and nothing
-	* distinguished a draft from the post. A game master that thought better of a
+	* A FIELD, NOT LOOSE TEXT. When narration was the concatenation of every
+	* text block in the response, nothing distinguished a draft from the post. A
+	* game master that thought better of a
 	* paragraph mid-response — *"Wait, I should not write that post yet… Let me
 	* rewrite"* — had BOTH drafts printed, one after the other, the second in a
 	* different tense and ending in a roll offer. No streaming rule catches that;
@@ -16642,8 +16631,8 @@ var commitSchema = z.object({
 	* describe the real room. Anything else with a null post is refused — see
 	* `missingPost` in game-master.ts.
 	*
-	* It was `.optional()`, and optional is a key the model can simply not write.
-	* It did, a quarter of the time: R3 (2026-10-11) had 4 of 19 calls spent on
+	* REQUIRED, because an optional key is one the model can simply not write.
+	* As `.optional()` it did, a quarter of the time: playtest R3 had 4 of 19 calls spent on
 	* "this commit has no `post`", the game master filling `coinGrant` and `learned`
 	* with blank placeholders and skipping the one field that mattered. `commit_state`
 	* goes out strict, so a required key is one the API will not let it leave out —
@@ -16845,9 +16834,9 @@ function playersOwnDice(req, batch) {
 /**
 * A TURN THAT WOULD REACH THE PLAYER AS A BLANK SCREEN.
 *
-* The other half of moving the post onto the commit (§8a A9). Once loose text
-* is no longer narration, a game master that writes its paragraph outside the tool
-* call has written it to nobody — so the absence has to be caught here, where it
+* The other half of carrying the post inside the commit. Loose text is not
+* narration, so a game master that writes its paragraph outside the tool call
+* has written it to nobody — so the absence has to be caught here, where it
 * can be handed back as a correction inside the same conversation, rather than
 * discovered by the player.
 *
@@ -16886,11 +16875,12 @@ function missingPost(req, c) {
 * Without this line, walking through a door advances every approaching creature
 * twice for one move.
 *
-* `long` IS A NIGHT'S REST AND THERE IS NO WAY TO SAY SO YET. Rest is Phase 16
-* and arrives as a button, resolved client-side like the player's own d20; until
-* that exists a `long` turn is the game master inventing an hour that nothing in the
-* interface offered. It is on the wire so Phase 16 does not have to reopen the
-* schema, and refused here so it cannot be reached early.
+* `long` IS A NIGHT'S REST AND THERE IS NO WAY TO SAY SO YET. Rest is a feature
+* still to build (BUILD-PLAN §3, *Rest*) and arrives as a button, resolved
+* client-side like the player's own d20; until it exists a `long` turn is the
+* game master inventing an hour that nothing in the interface offered. It is on
+* the wire so Rest does not have to reopen the schema, and refused here so it
+* cannot be reached early.
 */
 function timeNotSpent(req, c) {
 	if (c.timeSpent === "long") return ["timeSpent \"long\" is a night's rest, and there is no way to take one yet — it arrives with the Rest button, not out of an action the player typed. Whatever this was, it took an hour at most: say \"short\"."];
@@ -16907,7 +16897,7 @@ var IDLE_STAGES = [
 /**
 * The cross-field rules a JSON Schema cannot state.
 *
-* BUILD-PLAN §4.1 wants these caught as schema violations rather than left to
+* BUILD-PLAN §2.5 wants these caught as schema violations rather than left to
 * confuse the interface — a `roll_offered` with nothing to roll is a game
 * sitting on a Roll button that does nothing. Returned as text because that is
 * what goes back to the model.
@@ -17016,7 +17006,7 @@ function createModelGameMaster(opts) {
 *
 * ON ENTRY, `composed` WINS OVER THE POST. The post on a room entry is `null`
 * by the playbook, and when the game master writes one anyway it is the same
-* paragraph a second time — R4 (2026-10-11) did, and its copy was the one with
+* paragraph a second time — playtest R4 did, and its copy was the one with
 * tool markup run into the end of it. The room's `composed` is the version that
 * is stored, re-read and shown again on the map card; showing the other one
 * means the player reads text the game does not hold. The post is used only
@@ -17050,7 +17040,7 @@ function withoutToolMarkup(text) {
 * BLANK PLACEHOLDERS ARE ABSENCE, not errors.
 *
 * A model filling a schema writes `coinGrant: { why: "" }` and `learned: []` for
-* fields it has no use for. Refusing those cost R3 two whole rounds on one
+* fields it has no use for. Refusing those cost playtest R3 two whole rounds on one
 * look at some claw marks, and the third attempt was worse than the blank: it
 * wrote `why: "none"`, which is VALID and would have granted coin for nothing
 * had the post been there too. So a blank optional is read as the field left
@@ -17352,9 +17342,9 @@ function describeFoeRolls(rolls) {
 *
 * The machine owns none of the rules and none of the prose. It asks a
 * `Game master` what should happen, hands the answer to the applier, and decides
-* where the game goes next. That division is the whole point: in Phase 3 the
-* game master is a fixture returning canned envelopes, in Phase 4 it is the model,
-* and nothing in this file changes when they swap.
+* where the game goes next. That division is the whole point: the game master
+* is the model in play and a fixture returning canned envelopes in tests and
+* `?offline`, and nothing in this file changes when they swap.
 *
 * Two axes move together here and are easy to confuse. `stage` is what the
 * PLAYER is being told — it opens and closes the input area. `step` is where
@@ -17363,8 +17353,8 @@ function describeFoeRolls(rolls) {
 *
 * WHAT THIS FILE DECIDES, as against what the game master decides:
 *
-*   - that a refused commit is worth exactly one more ask (§5: no partial
-*     fallback, and a second failure surfaces)
+*   - that a refused commit is worth exactly one more ask (BUILD-PLAN §2.2:
+*     no partial fallback, and a second failure surfaces)
 *   - when a turn has CLOSED, and so when the clock ticks and the exchange is
 *     thrown away
 *   - that the player moving rooms means a room entry, whatever the game master
@@ -17618,7 +17608,7 @@ function createTurnMachine(gameMaster, deps) {
 	* prompt was built and the call was going out, and the instruction it wrote
 	* on an empty result was "nothing here needs new prose, hand the turn
 	* straight back". A full-price round trip to be told nothing happened, and
-	* in the 2026-08-10 playtest that was 5 of 11 arrivals. (8a A4.)
+	* in playtest R1 that was 5 of 11 arrivals.
 	*/
 	async function enterRoom() {
 		const r = run();
@@ -18071,8 +18061,8 @@ async function tallyRun(req) {
 * its turn machine, and the sequence that gets it from a seed to a player
 * standing in the first room.
 *
-* That sequence used to live inside `App.tsx`, in a function called `begin`,
-* interleaved with `setScreen` and `setProgress` and a ref guarding React's
+* That sequence lives here and not in `App.tsx`, where it would be interleaved
+* with `setScreen` and `setProgress` and a ref guarding React's
 * development double-mount. None of it was React's business — attach a journal,
 * write the first line, generate, start the store, describe the room — and all
 * of it is exactly what a server handler has to do when a player asks for a new
@@ -18330,7 +18320,7 @@ function spriteLookMessage(s) {
 *
 * The subject is read from the run's entities rather than the dungeon's, so a
 * creature the game master brought in mid-run can be drawn too. A base is never
-* written at runtime (§2.4), so for a generated creature the two agree and its
+* written at runtime (BUILD-PLAN §2.4), so for a generated creature the two agree and its
 * sprite's key is the same in every run of the dungeon.
 */
 /** The creature a sprite key draws, from any one entity that carries it. */
@@ -19019,8 +19009,7 @@ function reviewRoutes(app) {
 * earned. The version is opaque, so there is no value more favourable than
 * another — see `commitTurn`.
 *
-* Node only. This is the file `vite.config.ts` used to fake with two middleware
-* shims: the Anthropic proxy and the journal writer.
+* Node only.
 */
 /**
 * WHERE THE MODEL CALLS GO.
@@ -19072,10 +19061,10 @@ function createApp() {
 	*
 	* `/api/health` is the one exception and is registered before this: it is what
 	* the twice-weekly Vercel cron hits to stop Supabase pausing the project
-	* (§7.8), a cron holds no session, and it reads and writes nothing.
+	* when idle), a cron holds no session, and it reads and writes nothing.
 	*
-	* Until Phase 11 this API was open, and it spends an Anthropic key. That is
-	* the hole this line closes.
+	* This API spends an Anthropic key, so this is the line that keeps it from
+	* being open to anyone.
 	*/
 	app.get("/api/health", (c) => c.json({ ok: true }));
 	app.use("/api/*", requireUser);

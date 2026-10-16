@@ -5,11 +5,10 @@
  * The counterpart to `characters.ts`, and it exists for the same reason: one
  * module that knows the API shape, so nothing above it does.
  *
- * A WORLD OUTLIVES THE RUN THAT WAS PLAYED IN IT, and until Phase 13a nothing
- * in the interface said so. A dungeon was written, played once, and then sat in
- * Postgres unreachable — `GET /api/dungeons` had been serving summaries since
- * Phase 10 with nothing fetching them. So every run cost a fresh N+2 generation
- * even when the player wanted to go back down a hole they already owned.
+ * A WORLD OUTLIVES THE RUN THAT WAS PLAYED IN IT. Without these calls a dungeon
+ * is written, played once, and then sits in Postgres unreachable, and every run
+ * costs a fresh N+2 generation even when the player wants to go back down a
+ * hole they already own.
  *
  * NEVER THE `doc`. A summary is name, objective, size, level, seed and status,
  * and that is the whole cross-owner vocabulary — the document holds every

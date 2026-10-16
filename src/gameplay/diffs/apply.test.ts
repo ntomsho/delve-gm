@@ -345,14 +345,14 @@ describe("dropping — inventory[i] = null", () => {
     const r = applyCommit(world, commit({ entityId: PLAYER_ID, path: "inventory[9]", value: null }));
     expect(r.ok).toBe(false);
     // "nothing carried at index 9" is true and useless. A refusal the game master
-    // cannot act on turns a retry into the same mistake twice — 8a A2.
+    // cannot act on turns a retry into the same mistake twice.
     expect(r.rejected[0].reason).toContain("inventory[]");
     expect(r.rejected[0].reason).toContain("parentId");
   });
 });
 
 // ===========================================================================
-// PICKING UP — inventory[…] = an item. 8a A2.
+// PICKING UP — inventory[…] = an item.
 // ===========================================================================
 
 /**
@@ -444,7 +444,7 @@ describe("picking up — inventory[…] = an item", () => {
 });
 
 // ===========================================================================
-// A CARRIED THING CANNOT BE DISCOVERED. 8a A3.
+// A CARRIED THING CANNOT BE DISCOVERED.
 // ===========================================================================
 
 /**
@@ -525,7 +525,7 @@ describe("revealing — isHidden on something the player is holding", () => {
  * The guard asks about the state the turn STARTED in, which is what "they were
  * already holding it" ever meant.
  */
-describe("picking up something concealed — 8a A8", () => {
+describe("picking up something concealed", () => {
   /** A hidden thing standing in the room, on the chest. */
   beforeEach(() => {
     world.entities.items.push(item("ledger", { parentId: "chest", isHidden: true }));
@@ -988,7 +988,7 @@ describe("children[] — newly established things", () => {
     expect(r.events.some((e) => e.kind === "entity-created")).toBe(true);
   });
 
-  // 8f. The name arrives in whatever register the sentence around it was in,
+  // The name arrives in whatever register the sentence around it was in,
   // and it is going to be set beside "Iron chest" in the room card. Capitalised
   // at the mint, first letter only — see `properName`.
   it("capitalises the name it was handed", () => {
@@ -1169,7 +1169,7 @@ describe("approach", () => {
   });
 
   // The whole reason `roomId` and `approach` are different writes: this is the
-  // relational-key rule in BUILD-PLAN §4.3, and one assignment is all of it.
+  // relational-key rule in BUILD-PLAN §2.9, and one assignment is all of it.
   it("leaves the old room's occupancy and joins the new one", () => {
     const w = applyCommit(longWorld(), walks({ entityId: "ghoul", path: "approach", value: ROOM_A })).world!;
     const index = roomIndex(w.entities);

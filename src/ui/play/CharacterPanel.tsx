@@ -18,8 +18,7 @@ export const MARK_MS = 2600;
 /**
  * THE SHEET NOTICES WHEN IT CHANGES.
  *
- * Hit points used to change in silence: the number was different and nothing
- * said so. Now a drop flashes and shows the amount beside the number for a
+ * Hit points never change in silence: a drop flashes and shows the amount beside the number for a
  * couple of seconds, and an item that lost quality flashes in the list. The
  * effects line under the narration is the record; this is the jolt.
  *

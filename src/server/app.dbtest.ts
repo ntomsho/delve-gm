@@ -2,10 +2,10 @@
  * THE HANDLERS, OVER HTTP
  * =======================
  *
- * The gap CODING-PLAN §9.8 named and did not close: `ownership.dbtest.ts` covers
+ * The layer between two other suites: `ownership.dbtest.ts` covers
  * every statement in `repo.ts`, and `auth.test.ts` covers the gate — but nothing
  * covered the layer BETWEEN them, where a request becomes a status code. The
- * refusals Phase 12 added live exactly there:
+ * refusals that matter most live exactly there:
  *
  *   - the 409 that names the run a character is already in;
  *   - the 409 that will not delete somebody still down a hole;
@@ -27,7 +27,7 @@
  * NOTHING SURVIVES. `ownership.dbtest.ts` wraps each case in a rolled-back
  * transaction; that is not available here, because the handlers open their own
  * connections through `db()` and know nothing about a transaction this file is
- * holding. So the cleanup is the schema's instead: every table Phase 11 built
+ * holding. So the cleanup is the schema's instead: every table
  * cascades from `auth.users`, so deleting the one test account at the end takes
  * its characters, dungeons, runs, chunks and events with it.
  *
@@ -199,7 +199,7 @@ describe("starting a run", () => {
   });
 
   /**
-   * THE REFUSAL PHASE 12 IS BUILT AROUND, and the reason the check sits in the
+   * ONE RUN AT A TIME, and the reason the check sits in the
    * handler at all: the partial unique index is what actually holds the rule,
    * but a constraint violation tells the player nothing they can act on. This
    * names the run so the interface can offer to resume it.
@@ -245,7 +245,7 @@ describe("starting a run", () => {
 });
 
 /*
- * PHASE 13b. The shelf, over HTTP. `listLibrary` is covered against the database
+ * The shelf, over HTTP. `listLibrary` is covered against the database
  * in `ownership.dbtest.ts`; what is left here is the layer where a query string
  * becomes an argument — including the one that would be a routing bug rather
  * than a query one.
@@ -304,7 +304,7 @@ describe("browsing the library", () => {
 });
 
 /*
- * PHASE 13a. The route that names a dungeon the caller does not own — and what
+ * The route that names a dungeon the caller does not own — and what
  * has to be true is that it hands over a copy and never the source. The `doc`
  * is every answer in the world; browsing must not be a way to read one.
  */

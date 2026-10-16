@@ -151,8 +151,8 @@ export type CommitResult =
    *
    * `playTurn` reads the run under an owner filter long before reaching here, so
    * this should be unreachable in practice. It exists because the alternative
-   * was what this branch used to do: look the run up AS THE CALLER, find
-   * nothing, and throw "no such run" as a 500. A refusal is not an internal
+   * is to look the run up AS THE CALLER, find nothing, and throw "no such run"
+   * as a 500. A refusal is not an internal
    * error, and the last door in the system should refuse in the shape everything
    * else refuses in. Found by `ownership.dbtest.ts`.
    */

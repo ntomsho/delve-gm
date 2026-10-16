@@ -312,12 +312,11 @@ export const TREASURE_ITEMS = t(
 );
 
 /**
- * THE SIX THAT WERE EMPTY — Maze Rats, transcribed.
+ * THE SIX REWARD TABLES — Maze Rats, transcribed.
  *
- * They are the tables the reward rows draw on, and every one of them is now
- * filled. `rollTable` and `rollTreasure` in rewards.ts still guard
- * against an empty list, because that guard is what let these ship unfilled;
- * it is now unreachable for these six and stays for the next stub.
+ * They are the tables the reward rows draw on. `rollTable` and `rollTreasure`
+ * in rewards.ts still guard against an empty list; the guard is unreachable for
+ * these six and stays for the next stub.
  *
  * THE CASCADE TOKENS IN HERE RESOLVE THROUGH `CONTENT_CASCADES` BELOW, and
  * every one of them is registered — see the block comment on that table for

@@ -15,8 +15,8 @@ export const MONO_LABEL = "font-mono text-[10px] tracking-[0.16em] text-graphite
  * THE CURSOR IS NOT HERE ANY MORE, and neither is the default press.
  *
  * Both moved to `index.css`, where they are `button { cursor: pointer }` and a
- * `:where(button):active` nudge that every button in the app gets — this
- * component used to be the only place in the interface that took the hand, and
+ * `:where(button):active` nudge that every button in the app gets — global,
+ * because if this component were the only place that took the hand,
  * a rule that has to be remembered per button is a rule two thirds of them
  * break. The press below is the exception that rule was written to allow.
  *

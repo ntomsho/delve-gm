@@ -1,8 +1,8 @@
 /**
  * THE LIBRARY — worlds other people wrote.
  *
- * The screen that makes duplicating reachable. Phase 13a built
- * `POST /api/dungeons/:id/duplicate` and a way to walk into a world you already
+ * The screen that makes duplicating reachable: `POST /api/dungeons/:id/duplicate`
+ * and a way to walk into a world you already
  * own, but the only id a player could name was one of their own — so nothing was
  * actually shared. This is the shelf.
  *

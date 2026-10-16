@@ -86,8 +86,8 @@ function slayCreature(ctx: Ctx, creature: ICreature): void {
  * what stops a walk and why the destination itself is never checked.
  *
  * Two things are settled here rather than there. A route that does not exist is
- * a REJECTION, so the reasons reach the game master and it gets the one retry §5
- * allows — and so is one stopped before its first step, which goes nowhere; a
+ * a REJECTION, so the reasons reach the game master and it gets the one retry
+ * BUILD-PLAN §2.2 allows — and so is one stopped before its first step, which goes nowhere; a
  * route that ends short is APPLIED, because getting as far as the Torture Room
  * and finding something in it is a real outcome and not an error.
  * The event says so, and the arrival pass describes wherever they actually are.
@@ -160,7 +160,7 @@ export function applyProse(ctx: Ctx, entity: IEntity, path: string, value: unkno
     // reached for the nearest plausible one — the player's own lantern, which
     // it then described as half-buried in the straw of a room they were only
     // passing through. Every path it wrote is writable on an item, so there
-    // were no grounds to refuse it. (8a A3, seq 454 of the 2026-08-10 run.)
+    // were no grounds to refuse it. (Seen at seq 454 of playtest R1.)
     //
     // `isHidden` on a thing they already had is the part that cannot be
     // anything else. Concealment is read only of things standing in a room;
@@ -177,7 +177,7 @@ export function applyProse(ctx: Ctx, entity: IEntity, path: string, value: unkno
     // inventory the diff above it put the ledger in. Atomicity then took the
     // pickup down with the reveal, and the retry read its own refusal as "they
     // already have it" and committed nothing at all, three turns running.
-    // (8a A8, the Bookyard in the 2026-08-12 run.) `carriedAtStart` is the
+    // (The Bookyard, in the 2026-08-12 run.) `carriedAtStart` is the
     // state the batch began in, which is what "already had it" ever meant.
     //
     // What is deliberately NOT guarded: `parentId` to the room the player is
@@ -399,8 +399,8 @@ export function applyToPlayer(ctx: Ctx, path: string, raw: string, value: unknow
 
   // NULL IS A DROP; A VALUE IS A PICKUP.
   //
-  // This path used to take null and nothing else, and the refusal read
-  // "nothing carried at index 7" — true, and useless. In one playtest the
+  // It takes more than null, because a refusal that reads "nothing carried at
+  // index 7" is true and useless. In one playtest the
   // game master reached for it three times to say "they now have this": twice for
   // things found by searching, once for a lockbox lifted by telekinesis. It is
   // the path that most obviously names where a thing ended up, and stating a
@@ -534,15 +534,15 @@ export function createEntity(ctx: Ctx, holderId: string, value: unknown): void {
       ...(spec.amount ? { amount: spec.amount } : {}),
       // Worth nothing until something says otherwise, and the something cannot
       // be the game master: a price is a number, and the model does not write those.
-      // Grades are gone with `rollItemValue`, so there is no longer even a
-      // judgement it could offer here — what a found thing is worth is decided
+      // There are no grades, so there is not even a judgement it could offer
+      // here — what a found thing is worth is decided
       // at generation, from the conserved pot or from the catalog.
       value: 0,
     };
     if (spec.state) setState(item, spec.state);
     // Through the same door a pickup uses, so something minted straight into
     // the player's hands reports the slot budget exactly as something taken
-    // off the floor does. It used to call `addItem` here and say nothing.
+    // off the floor does, rather than calling `addItem` and saying nothing.
     if (holder.kind === "PlayerCharacter") takeIntoInventory(ctx, item);
     else ctx.world.entities.items.push(item);
     ctx.index.set(id, { kind: "Item", entity: item });

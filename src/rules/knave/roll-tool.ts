@@ -2,7 +2,7 @@
  * THE DICE TOOL
  * =============
  *
- * The game master's half of the split described in BUILD-PLAN §4.2. The player's
+ * The game master's half of the split described in BUILD-PLAN §2.7. The player's
  * roll is thrown by the interface and arrives with their next message; every
  * other roll in the game — the creature that strikes back, the nerve that
  * breaks, the ceiling that comes down — is asked for here.

@@ -20,8 +20,7 @@
  * earned. The version is opaque, so there is no value more favourable than
  * another — see `commitTurn`.
  *
- * Node only. This is the file `vite.config.ts` used to fake with two middleware
- * shims: the Anthropic proxy and the journal writer.
+ * Node only.
  */
 
 import { Hono } from "hono";
@@ -89,10 +88,10 @@ export function createApp(): Hono<AuthEnv> {
    *
    * `/api/health` is the one exception and is registered before this: it is what
    * the twice-weekly Vercel cron hits to stop Supabase pausing the project
-   * (§7.8), a cron holds no session, and it reads and writes nothing.
+   * when idle), a cron holds no session, and it reads and writes nothing.
    *
-   * Until Phase 11 this API was open, and it spends an Anthropic key. That is
-   * the hole this line closes.
+   * This API spends an Anthropic key, so this is the line that keeps it from
+   * being open to anyone.
    */
   app.get("/api/health", (c) => c.json({ ok: true }));
   app.use("/api/*", requireUser);
@@ -101,7 +100,6 @@ export function createApp(): Hono<AuthEnv> {
     if (err instanceof HTTPException) return err.getResponse();
     // `describeFailure` puts the validation complaints into the sentence; a
     // bare "response did not match the expected shape" tells a caller nothing.
-    // See CODING-PLAN §6.7.
     console.error("[api]", err);
     return c.json({ error: describeFailure(err) }, 500);
   });

@@ -298,7 +298,7 @@ describe("describeGeometry", () => {
     }
   });
 
-  // 8f. The sentence COUNTS the ways out, and a count is the one thing a reader
+  // The sentence COUNTS the ways out, and a count is the one thing a reader
   // cannot half-believe: a concealed way inside it is a concealed way described.
   // The runtime hands in the concealed ids; the content pass hands in nothing,
   // because it is the pass that writes what the concealed way physically is.
@@ -552,7 +552,7 @@ describe("placement", () => {
     }
   });
 
-  // 8a A6, the half that made the prose disagree with the drawing: the pool a
+  // A POSITION WORD IT COULD NOT HONOUR made the prose disagree with the drawing: the pool a
   // word admits can be empty, placement falls back through the whole room, and
   // the request used to be stored anyway — so the room block and the map hover
   // both said "along the north wall" about a marker in the middle of the floor.

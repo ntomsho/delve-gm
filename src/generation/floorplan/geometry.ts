@@ -7,9 +7,8 @@
  * each of its exits is in — all of it a bounding box and a compass lookup away,
  * with no new geometry and no model call.
  *
- * WHY IT EXISTS. Until now the writing pass saw a room's rolled identity and
- * nothing else, so it wrote "a long banquet hall" while the plan drew a squarish
- * one. The map and the prose were describing different rooms and only the player
+ * WHY IT EXISTS. A writing pass that sees a room's rolled identity and nothing
+ * else writes "a long banquet hall" while the plan draws a squarish one. The map and the prose were describing different rooms and only the player
  * was in a position to notice. Handing the same derivation to the content pass
  * at generation and to the room block at runtime is what makes them agree.
  *
@@ -85,7 +84,7 @@ const FILL_NOTCHED = 0.6;
 export interface GeometryExit {
   /**
    * The `IRoomConnector` id, or NULL for the way out of the dungeon — which is
-   * minted by the entities pass rather than by Phase A and so is not on
+   * minted by the entities pass rather than by the graph and so is not on
    * `graph.edges` for this module to read an id off. Same convention as
    * `LayoutSurface`.
    */

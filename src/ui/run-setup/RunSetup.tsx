@@ -11,7 +11,7 @@
  * control: the seed stays a URL parameter, where it is a dev affordance rather
  * than a decision the player is asked to have an opinion about.
  *
- * **A WORLD OUTLIVES THE RUN PLAYED IN IT** — Phase 13a, and the first question
+ * **A WORLD OUTLIVES THE RUN PLAYED IN IT**, and that is the first question
  * on the screen rather than a footnote under the last one. Every run before this
  * bought a fresh dungeon whether or not the player already had one they wanted
  * to go back down, because there was no way to say so; a dungeon was written,
@@ -20,8 +20,8 @@
  * a fact about a world that already exists, and offering it beside a chosen
  * dungeon would be offering a control that does nothing.
  *
- * DIFFICULTY IS ASKED, LEVEL IS SENT. The screen used to ask for a dungeon level
- * outright, which is a number the player has no way to judge without holding
+ * DIFFICULTY IS ASKED, LEVEL IS SENT. The screen does not ask for a dungeon
+ * level outright, which is a number the player has no way to judge without holding
  * their own sheet up against it. `levelFor` resolves the offset against the
  * chosen character, so the question is easy/medium/hard and the answer is still
  * the level generation has always taken.

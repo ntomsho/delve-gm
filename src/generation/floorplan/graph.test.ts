@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { generateBlueprint } from "./graph.ts";
 
 // ===========================================================================
-// GRAPH VALIDITY  (phase A's own validator, across a seed spread)
+// GRAPH VALIDITY  (the graph's own validator, across a seed spread)
 // ===========================================================================
 
 describe("graph generation", () => {

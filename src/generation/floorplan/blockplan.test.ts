@@ -64,7 +64,7 @@ beforeAll(() => {
 
 describe("block plan: what a returned plan promises", () => {
   it("produces plans across the size range", () => {
-    // Not every seed draws — see the size-5 note in CODING-PLAN §6a.3 — so this
+    // Not every seed draws — untangling does not always clear every crossing at size 5 — so this
     // establishes that the assertions below are asserting against something.
     expect(CASES.length, "nothing drew, so the rest of this file proves nothing")
       .toBeGreaterThan(12);
@@ -213,7 +213,7 @@ describe("block plan: determinism", () => {
 
 describe("block plan: the layout the drawing rests on", () => {
   it("unties the connections before drawing", () => {
-    // Phase A validates that the GRAPH is planar — that a crossing-free drawing
+    // `graph.ts` validates that the GRAPH is planar — that a crossing-free drawing
     // exists — but `relax()` has no notion of a crossing and its positions
     // routinely contain them. Two rooms sharing a wall cannot cross, so this is
     // a precondition of the whole approach rather than a nicety.
@@ -319,8 +319,8 @@ describe("room size", () => {
 
   it("conditions the identity roll on the size the layout produced", () => {
     // The whole point of the inversion: geometry settles first, and the roll
-    // bends to it. An archetype pin used to be an instruction the packer could
-    // not honour; it is now a condition that is always satisfiable.
+    // bends to it. An archetype pin is a condition on the roll, which is always
+    // satisfiable, not an instruction to the drawing.
     const { graph } = build(4500, 3);
     const bp = generateBlueprintSeed(3, 4500, 1);
     const plan = blockPlanValid(graph, () => false, 31, 60);

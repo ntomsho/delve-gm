@@ -1,8 +1,8 @@
 /**
- * THE KEYS PASS  (R2)
- * ===================
+ * THE KEYS PASS
+ * =============
  *
- * What R1 could not test, because none of it exists until a dungeon has been
+ * What `rewards.test.ts` cannot test, because none of it exists until a dungeon has been
  * WRITTEN: a key needs its lock to have a name before there is anything to write
  * about, and the objective has no keyable properties until a chunk has decided
  * what the objective physically is.
@@ -138,7 +138,7 @@ describe("the keys payload", () => {
     }
 
     // And every placed key made it in. `unwritableKeys` is the honest report of
-    // any that did not, and there should be none: R1 only ever keys a challenge
+    // any that did not, and there should be none: placement only ever keys a challenge
     // it enumerated, and every enumerated challenge names something a pass wrote.
     expect(unwritableKeys(gd.stocked, gd.entities, payload)).toEqual([]);
     expect(payload.keys).toHaveLength(placedKeys(gd).length);

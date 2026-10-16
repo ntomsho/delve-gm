@@ -43,8 +43,7 @@ export const ENDINGS: Record<Ending, { heading: string; body: string; warm: bool
   /*
    * NOT A FAILURE, AND THE COPY HAS TO SAY SO.
    *
-   * This used to read "with your life and nothing else", which was wrong twice
-   * over: they keep the whole pack, and cutting your losses is a decision rather
+   * NOT "with your life and nothing else", which would be wrong twice over: they keep the whole pack, and cutting your losses is a decision rather
    * than a defeat. An escape is the ending a careful player chooses, and the
    * screen should not sound disappointed in them for it.
    */

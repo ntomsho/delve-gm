@@ -7,9 +7,8 @@
  * the dice all live on the server now; this posts what the player did and
  * replaces the store with what came back.
  *
- * WHY THE STORE IS STILL HERE. The interface reads run state through it and has
- * since Phase 3, and none of that has to change because the state now arrives
- * over a wire rather than from a turn machine in the next module. `PlayScreen`
+ * WHY THERE IS A STORE HERE. The interface reads run state through it, and none
+ * of that has to change because the state arrives over a wire rather than from a turn machine in the next module. `PlayScreen`
  * cannot tell the difference, which is the point.
  *
  * WHAT THE CLIENT SENDS: what the player typed, and the version it last saw.
@@ -141,7 +140,7 @@ export function createRemoteSession(opts: RemoteOptions = {}): PlayableSession {
    * the only kind of guess that cannot flatter the player. A busy stage closes
    * the input and asks for nothing; the reply either confirms it or replaces it
    * wholesale a moment later. The client still names no commit, throws no die
-   * and decides no outcome, which is the rule Phase 10 was built on.
+   * and decides no outcome: the server does all three.
    *
    * It doubles as the lock on a second submission, exactly as it does in the
    * turn machine: the store is synchronous, so by the time a second keystroke
@@ -210,7 +209,7 @@ export function createRemoteSession(opts: RemoteOptions = {}): PlayableSession {
    * A character walks into a dungeon that exists — the half of `begin` that is
    * not generation.
    *
-   * Extracted because Phase 13a gave it a second caller. A world outlives the
+   * Its own function because it has two callers. A world outlives the
    * run played in it, so going back down one the player already owns is this
    * and nothing else: no structure pass, no regions, no join, no bill.
    */
@@ -374,7 +373,7 @@ export function createRemoteSession(opts: RemoteOptions = {}): PlayableSession {
      * The guards are not security — the server re-checks everything and is the
      * only thing that decides — they are what stops the interface from offering
      * a move the game is not in a position to accept, and they are the reason a
-     * player can no longer stack four actions into a wait.
+     * player cannot stack four actions into a wait.
      */
 
     enterRoom() {
@@ -405,8 +404,8 @@ export function createRemoteSession(opts: RemoteOptions = {}): PlayableSession {
      *
      * The dice are the server's — the run's RNG is seeded and its draw count is
      * state, so a client that rolled would be inventing a number and desyncing
-     * the stream. They used to come back in the same request as the game master's
-     * prose, so the player watched a spinner for ten seconds over a number the
+     * the stream. In the same request as the game master's prose, the player
+     * would watch a spinner for ten seconds over a number the
      * server already had. Now `/roll` throws and saves and returns at once —
      * `rolling` is as brief as it sounds — the die lands in the log and the
      * screen draws it, and `/resolve` is the wait for the words.

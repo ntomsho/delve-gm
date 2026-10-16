@@ -3,7 +3,7 @@
  * =====================
  *
  * The character sheet and the current room, rendered fresh for every call. This
- * is the "re-rendered each turn" half of BUILD-PLAN §4.4, and it is the half
+ * is the "re-rendered each turn" half of BUILD-PLAN §2.8, and it is the half
  * that matters: the entity `state` fields are the game's long-term memory, and
  * this is how they reach the game master. The transcript only carries the thread of
  * a conversation.
@@ -106,8 +106,7 @@ function itemDetail(i: EntityView): string | undefined {
  * `composed` hangs under the row rather than beside it, and item `base` is not
  * here at all. That is a token decision and it was measured: a `base` averages
  * 453 characters, so ten carried things would be a thousand tokens every turn —
- * larger than the whole creature census, which is the point of the phase this
- * arrived in. `composed` is nearly free by comparison, because the 122 standard
+ * larger than the whole creature census, which exists to keep prompts small. `composed` is nearly free by comparison, because the 122 standard
  * equipment templates carry `base: ""` and `mintCommon` falls `composed` back to
  * `base`; carried starting gear renders its name and its amount and nothing
  * else, and a found "Wheel of pale cheese" is exactly what the field is for.
@@ -354,7 +353,7 @@ export function renderRoll(o: RolledOutcome): string {
 }
 
 /**
- * Completed turns, as structure rather than prose — §4.4. The paragraphs are
+ * Completed turns, as structure rather than prose — BUILD-PLAN §2.8. The paragraphs are
  * gone; what a finished turn owes the next one is a few facts.
  */
 export function renderRecords(records: TurnRecord[]): string {

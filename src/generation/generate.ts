@@ -117,7 +117,7 @@ export interface GeneratedDungeon {
   readonly dungeonContext: string;
   pass: DungeonPassResponse;
   blueprint: DungeonBlueprintSeed;
-  /** phase A output, for the map */
+  /** the room graph (`floorplan/graph.ts`), for the map */
   graph: Dungeon;
   stocked: StockedDungeon;
   /** every entity, plus the registry that resolves their shared bases */
@@ -135,9 +135,8 @@ export interface GeneratedDungeon {
   usage: Usage;
 }
 
-// `floorArea` lived here: a floor a room needed for what the entities pass had
-// put in it, which the old packer used to raise a room's size class. It is gone
-// deliberately. A room's size is now capped by the ground its neighbours left it,
+// NO FLOOR AREA FROM CONTENTS. A room's size is capped by the ground its
+// neighbours left it,
 // so a floor demanded by its contents cannot be honoured — and the entities pass
 // runs after the drawing regardless. Stocking decides what fits in the room
 // rather than the room being sized to the stocking.
@@ -240,8 +239,7 @@ function siteOf(partial: GeneratedDungeon) {
  * Rebuilt rather than persisted, and it must be built from UNAPPLIED entities:
  * a payload says what a region needs written, and entities that have been
  * written no longer need writing. So `finishGeneration` builds every payload
- * before it applies anything — which is what the single-process pipeline always
- * did, it just kept them in a local instead.
+ * before it applies anything.
  */
 function contentPayload(partial: GeneratedDungeon, chunk: number) {
   return buildContentPassPayload(
@@ -315,8 +313,8 @@ export async function generateStructure(opts: GenerateOptions): Promise<Generate
     // derived rather than random.
     //
     // TODO: the real fix is to derive the centres from the planar embedding
-    // Phase A already computes, instead of hill-climbing toward it — see
-    // CODING-PLAN §6a.3 Outstanding 1. Then this loop runs once, always.
+    // the graph already computes, instead of hill-climbing toward it (BUILD-PLAN
+    // §3, *Positions from the planar embedding*). Then this loop runs once, always.
     for (let attempt = 0; ; attempt++) {
       // `generateValid` appends `#n` internally when a graph fails validation,
       // so a different separator keeps these seeds out of that space.
@@ -408,7 +406,7 @@ export async function generateChunk(
     ...(opts.signal ? { signal: opts.signal } : {}),
     // A chunk that answers five of six connectors is well-formed and wrong.
     // Asked here, the omission is a retryable failure; noticed after the
-    // pass, it is an unwritten entity nobody can fix. See §1.1.
+    // pass, it is an unwritten entity nobody can fix.
     check: (v) => contentPassOmissions(payload, v),
     onAttemptFailed: reportFailure(journal, "content-pass", chunk),
   });
@@ -578,7 +576,7 @@ export interface WrittenProblem {
 
 /**
  * Every entity a player can meet must have been written. This is the assertion
- * the CLI runs and the Phase 1 exit criterion: a seed that passes it produced a
+ * the CLI runs: a seed that passes it produced a
  * fully-written dungeon, and one that does not is a bug rather than a taste
  * question.
  *

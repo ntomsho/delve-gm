@@ -2,10 +2,8 @@
  * ONE PLAYER CANNOT REACH ANOTHER'S ANYTHING
  * ==========================================
  *
- * The test Phase 11 exists for, and the first one in this project to run the
- * TypeScript in `repo.ts` against a real Postgres. CODING-PLAN §7.6 has been
- * carrying "the SQL is verified, the driver binding is not" since 10a; this is
- * that gap closed, for the statements that now decide who may read what.
+ * The statements in `repo.ts`, run against a real Postgres: the SQL and the
+ * driver binding together, for the statements that decide who may read what.
  *
  * EVERY TEST RUNS INSIDE A TRANSACTION THAT IS ALWAYS ROLLED BACK. Nothing here
  * survives, including the two `auth.users` rows each test invents to own things.
@@ -116,7 +114,7 @@ describe("characters", () => {
 
       await repo.saveCharacter(character("pc-a", "Alice"), a, tx);
 
-      // Through `listRoster`, which is the only listing read since Phase 12 —
+      // Through `listRoster`, which is the only listing read —
       // this assertion should be made against the query the API actually runs.
       expect((await repo.listRoster(a, tx)).map((e) => e.sheet.name)).toEqual(["Alice"]);
       expect(await repo.listRoster(b, tx)).toEqual([]);
@@ -180,8 +178,8 @@ describe("dungeons", () => {
   });
 
   /**
-   * THE WHOLE POINT OF THE KEY SPLIT. Under Phase 10a's schema the second of
-   * these was a primary-key violation, because the row was named after the seed.
+   * THE WHOLE POINT OF THE KEY SPLIT. Were the row named after the seed, the
+   * second of these would be a primary-key violation.
    * A seed names a WORLD; two players may each hold their own copy of one.
    */
   it("lets two players each hold their own copy of one seed", async () => {
@@ -231,7 +229,7 @@ describe("dungeons", () => {
 });
 
 /*
- * PHASE 13b. The second cross-owner read, and the one that runs to many rows.
+ * The second cross-owner read, and the one that runs to many rows.
  *
  * 🔴 EVERY ROW IN A TEST HERE SHARES `created_at` EXACTLY, and that is a gift
  * rather than a nuisance: the column defaults to `now()`, which is the
@@ -398,7 +396,7 @@ describe("the library", () => {
 });
 
 /*
- * PHASE 13a. The one read in `repo.ts` that does not ask whose row it is — and
+ * The one read in `repo.ts` that does not ask whose row it is — and
  * the rule is not being bent, because what it does with the row is write a NEW
  * one belonging to the caller. Nothing about the source is ever returned.
  */
@@ -629,7 +627,7 @@ describe("profiles", () => {
 });
 
 // ---------------------------------------------------------------------------
-// PHASE 12 — ONE RUN AT A TIME, AND WHAT A RUN LEAVES BEHIND
+// ONE RUN AT A TIME, AND WHAT A RUN LEAVES BEHIND
 // ---------------------------------------------------------------------------
 
 /**

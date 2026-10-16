@@ -72,8 +72,8 @@ export interface EntityView {
   /**
    * How much of it is left — "3 days", "50 feet", "a handful".
    *
-   * Writable since the applier existed and rendered nowhere until Phase 15: the
-   * game master could write how many rations were down to and neither it nor the
+   * Rendered because it is writable: otherwise the game master could write how
+   * many rations were down to and neither it nor the
    * player could read it back. It surfaces here because a meal is the one thing
    * rest cannot happen without.
    */

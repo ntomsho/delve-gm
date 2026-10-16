@@ -477,5 +477,5 @@ export function rollSheet(bp: DungeonBlueprintSeed): string {
   return L.join("\n");
 }
 
-// The module-load demo block that used to live here touched `process` and so
-// threw in a browser bundle. Its job belongs to `dev/cli-generate.ts --dry`.
+// NOTHING RUNS AT IMPORT, because this module also loads in a browser. To see
+// a blueprint, run `dev/cli-generate.ts --dry`.

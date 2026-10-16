@@ -20,7 +20,7 @@ export type Stage =
   /**
    * The action has been sent and the game master is working.
    *
-   * Not in BUILD-PLAN §4.1, and needed because of the narration decision: prose
+   * Not in BUILD-PLAN §2.5, and needed because of the narration decision: prose
    * is held back until the commit validates and applies, so the player is not
    * watching text arrive. Without a stage for it the interface would have
    * nothing honest to show during the wait — and the wait is the normal case,

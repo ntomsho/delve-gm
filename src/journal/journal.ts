@@ -33,8 +33,8 @@
  * with it over a file handle, so every write is wrapped and a failing sink is
  * reported once and then ignored.
  *
- * ONE JOURNAL PER RUN. This was a module singleton until Phase 9 — one `sink`,
- * one sequence counter, one set of steps already written — which is invisible
+ * ONE JOURNAL PER RUN. As a module singleton — one `sink`, one sequence
+ * counter, one set of steps already written — it would be invisible
  * in a browser tab, where there is one run, and wrong everywhere else. A server
  * process holds several runs at once, and a singleton would interleave them
  * into one numbered stream and hand every run whichever sink attached last. So

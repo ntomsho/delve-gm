@@ -7,9 +7,9 @@
  * these; keeping the two apart means a transcription error is a diff in one
  * file with no behaviour in it.
  *
- * WHY THESE ARE NEW AND NOT REUSED. `docs/CODING-PLAN.md` §3 says to check
- * `blueprint.ts` first, because the Maze Rats character tables feeding
- * `genNpc` "overlap heavily" and duplicating a table is how two copies drift.
+ * WHY THESE ARE NEW AND NOT REUSED. The Maze Rats character tables feeding
+ * `genNpc` look as if they overlap with these, and duplicating a table is how
+ * two copies drift.
  * Checked, and they do not overlap: those are **36-entry** d66 tables built for
  * NPCs, and Knave's are **20-entry** d20 tables built for a PC. The pairs that
  * share a name share nothing else —
@@ -146,8 +146,8 @@ export type WeaponClassKey = "light" | "medium" | "heavy" | "sling" | "bow" | "c
  * The Heavy class is **two-handed**, which is what makes `canEquip`'s shield
  * conflict bite in ordinary play rather than as an edge case.
  *
- * NOTE: `CODING-PLAN.md` §3 gives the d10 class `quality 2`. The PDF says
- * 3 quality, and the PDF wins.
+ * NOTE: the d10 class is quality 3, as the PDF prints it. An earlier plan said
+ * 2; the PDF wins.
  */
 /**
  * Every weapon in the book, flat. Declared before the classes rather than

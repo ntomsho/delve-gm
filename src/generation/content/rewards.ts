@@ -23,10 +23,10 @@
  * treasure it takes a share of the conserved pot like everything else worth
  * money, which is both the right number and one fewer place numbers come from.
  *
- * WHAT REPLACED GRADE. The old system set an item's worth from a `ParcelGrade`
- * and nothing else, so a dungeon's total take was whatever its grades happened
- * to roll -- three significant parcels was 3,600-36,000cp against a Knave
- * starting purse of 60-360. Money is now a CONSERVED POT, partitioned across
+ * WHY THERE IS NO GRADE. Setting an item's worth from a grade and nothing else
+ * makes a dungeon's total take whatever its grades happen to roll -- three
+ * significant parcels came to 3,600-36,000cp against a Knave starting purse of
+ * 60-360. So money is a CONSERVED POT, partitioned across
  * the placed treasure before anything reaches the LLM. Which table a treasure
  * parcel draws on is decided by the share it drew, not the other way round,
  * which is what makes grade unnecessary rather than merely unused.
@@ -92,7 +92,7 @@ const CARRIED_SHARE = 0.6;
 /** How many of the goal room's keyable properties get a placed key, beyond its location. */
 const GOAL_PROPERTY_KEYS: readonly [number, number] = [1, 3];
 
-/** The game master's ad-hoc allowance, held out of the partition. See §7.1. */
+/** The game master's ad-hoc allowance, held out of the partition. See REWARDS-SPEC §7.1. */
 const ALLOWANCE_SHARE = 0.1;
 
 /**
@@ -346,7 +346,7 @@ export function rollTreasure(share: number, rng: Rng): { row: TreasureRow; conte
   const item = rollTable(TREASURE_ITEMS, rng) ?? "Treasure";
   if (share < TRAIT_FLOOR) return { row: "item", content: item };
 
-  // TREASURE_TRAITS is filled, so the material fallback is now the unreachable
+  // TREASURE_TRAITS is filled, so the material fallback is the unreachable
   // half. It stays because it is the same idea from the other end and costs a
   // line.
   const trait =
@@ -425,8 +425,7 @@ export function reachableWithout(
 
 /**
  * The general budget: how many rewards are simply THERE, whether or not the
- * dungeon asked anything for them. Unchanged from the old parcel budget, and
- * still conserved -- a location that came up empty hands its share elsewhere
+ * dungeon asked anything for them. Conserved -- a location that came up empty hands its share elsewhere
  * rather than losing it.
  */
 export function generalBudget(roomCount: number): number {
@@ -581,8 +580,7 @@ export function placeRewards(input: PlacementInput): RewardPlacement {
   }
 
   // The budget is conserved. If the guaranteed set could not absorb it, the
-  // remainder goes by the same weighted draw the old contested pool used --
-  // danger, deepened by depth.
+  // remainder goes by a weighted draw -- danger, deepened by depth.
   const pool = eligible.filter((r) => !r.rewards.length);
   const weights = pool.map((r) => {
     const depthNorm = maxDepth ? r.depth / maxDepth : 0;

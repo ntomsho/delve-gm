@@ -9,8 +9,8 @@
  * imported rather than run, so that the raw-markdown hook is registered before
  * the playbook is reached.
  *
- * This is the proof that came out of Phase 9 rather than a convenience. Until
- * the store and the journal stopped being module singletons and the run
+ * This is a proof rather than a convenience. Only because the store and the
+ * journal are not module singletons, and the run
  * lifecycle came out of `App.tsx`, the only way to play a turn was to render a
  * component — which meant the runtime could not be exercised from a script, a
  * test harness, or a server handler. If this file works, a request handler
@@ -75,8 +75,8 @@ function parseArgs(argv: string[]): Args {
     size: size as Size,
     level: num("level", 1),
     offline,
-    // OFFLINE MEANS OFFLINE. It used to swap only the generator in the browser,
-    // and the first room entry then called the model before the player had
+    // OFFLINE MEANS OFFLINE. Swapping only the generator would leave the first
+    // room entry calling the model before the player had
     // typed anything. Same reasoning, same rule — see `switches.ts`.
     stub: offline || argv.includes("--stub"),
   };

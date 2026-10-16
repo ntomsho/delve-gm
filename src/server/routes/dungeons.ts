@@ -61,8 +61,8 @@ export function dungeonRoutes(app: Hono<AuthEnv>): void {
     const partial = await generateStructure({ seed, size, level, journal });
 
     // THE ROW ID, NOT `partial.id`. `partial.id` is the engine's derived name
-    // (`dungeon_<seed>`) and stopped being the key in Phase 11, so that two
-    // players may each hold their own copy of one seed. Everything downstream
+    // (`dungeon_<seed>`) and is not the key, so that two players may each hold
+    // their own copy of one seed. Everything downstream
     // addresses the row.
     const dungeonId = await repo.insertPartialDungeon(partial, currentUser(c).id);
     await repo.appendDungeonEvents(dungeonId, events);
@@ -75,8 +75,7 @@ export function dungeonRoutes(app: Hono<AuthEnv>): void {
    *
    * This was the hole. A pass that throws never reached `appendDungeonEvents`,
    * so a failed dungeon left the three `generation-error` events on the floor —
-   * the exact records §6.7 was built to keep, gone again the moment the runtime
-   * moved to a server. The console had them; the database did not, and the
+   * the exact records `generation-error` exists to keep. The console had them; the database did not, and the
    * console belongs to whoever was tailing the function.
    *
    * Safe to write on failure here, unlike a turn: the sequence belongs to the
@@ -134,7 +133,7 @@ export function dungeonRoutes(app: Hono<AuthEnv>): void {
    *
    * `finishGeneration` refuses if a region is missing, which is the check that
    * turns a lost chunk into a retryable request rather than an unwritten entity
-   * discovered at the end of a pass nobody can rerun. See §1.1.
+   * discovered at the end of a pass nobody can rerun.
    */
   app.post("/api/dungeons/:id/finish", async (c) => {
     const stored = await mustGetDungeon(c.req.param("id"), currentUser(c).id);
@@ -187,8 +186,8 @@ export function dungeonRoutes(app: Hono<AuthEnv>): void {
    * TAKE A COPY OF A WORLD.
    *
    * The one route that names a dungeon the caller does not own, and it is why
-   * the Phase 11 key split had to happen first: under 10a's schema, where the
-   * derived `dungeon_<seed>` name WAS the primary key, a second copy of one
+   * a dungeon's row id is not its derived name: were the derived
+   * `dungeon_<seed>` name the primary key, a second copy of one
    * world collided on it.
    *
    * IT STILL SERVES NOTHING OF THE SOURCE. The reply is the id of the caller's

@@ -9,7 +9,7 @@
  * Two sizes. LIVE is the newest roll while it is being resolved: a d20 that
  * tumbles for under a second and settles on the die that counted, then the sum
  * and the verdict. SETTLED is every roll once its prose has landed: the same
- * facts on one line in the scrollback, with a small die in place of the old ◇.
+ * facts on one line in the scrollback, marked with a small die.
  *
  * WHAT IT NEVER SHOWS: the difficulty. `outcome.spec.dc` is right there and is
  * the one number the player does not get — the same rule the roll offer keeps

@@ -1,9 +1,7 @@
 /**
  * CHARACTERS — the landing screen, and the only one outside a run.
  *
- * Two doors: make a character, or take one into a dungeon. Both are open now;
- * the "not yet" copy that stood in for creation through Phase 4.5 is gone with
- * the thing it apologised for.
+ * Two doors: make a character, or take one into a dungeon.
  *
  * A row is a person, not a record: the name, one sentence of who they are, and
  * the four numbers that decide whether they come back. The prose line is built
@@ -12,12 +10,10 @@
  * here describe themselves the same way.
  *
  * DELETING IS REAL AND UNDOABLE ONLY BY ROLLING ANOTHER, so it asks. It is also
- * what finally makes the empty state reachable — `CODING-PLAN.md` §1.2 item 13
- * has been carrying that as a designed-but-unreachable screen since 4.5.
+ * what makes the empty state reachable.
  *
- * THE BADGES ARRIVED IN PHASE 12, having been deferred here since Phase 5 with
- * the note that a badge computed from a field nobody writes is worse than no
- * badge. Nobody wrote a field in the end: **IN A RUN** is a row in `runs` with
+ * THE BADGES ARE DERIVED, NOT STORED, because a badge computed from a field
+ * nobody writes is worse than no badge. **IN A RUN** is a row in `runs` with
  * `status = 'active'`, and the record beneath a name is those rows grouped by
  * how they ended. Both are derived on read and neither can drift.
  *

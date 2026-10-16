@@ -104,7 +104,7 @@ const describeAll = (): Commit =>
   );
 
 // ===========================================================================
-// RE-ENTRY IS FREE. 8a A4.
+// RE-ENTRY IS FREE.
 // ===========================================================================
 
 /**
@@ -415,7 +415,7 @@ describe("stage transitions", () => {
     });
   });
 
-  // 8a A1, the second half. The roll used to reach the game master through exactly
+  // A RETRY CARRIES THE ROLL. The roll used to reach the game master through exactly
   // one line of `assemble`, and a retry that did not render that line was a
   // retry with no roll in it. It goes in the exchange as well now, so the
   // number survives however the instruction is built.
@@ -662,7 +662,7 @@ describe("a refused commit", () => {
    * `resume` it from the row, act, throw it away. The ask to repeat used to be a
    * closure variable in the machine that failed, so the machine that answered
    * the retry had none and `retry` returned having done nothing — the button
-   * bumped the version and nothing else, for the whole of Phase 10 and 11. It is
+   * bumped the version and nothing else. It is
    * in the run state now, which is the only place that survives the swap.
    */
   it("can be retried by a machine that never made the ask", async () => {
@@ -850,7 +850,7 @@ describe("moving between rooms", () => {
 
   // The failure this whole change is about: a game master guessing between two exits
   // and picking the far one. It is now a rejection with the reason attached, and
-  // the one retry §5 allows is enough to walk it back.
+  // the one retry BUILD-PLAN §2.2 allows is enough to walk it back.
   it("refuses a room the current one does not connect to, and recovers on the retry", async () => {
     const entrance = dungeon.stocked.entranceRoomId;
     const near = new Set(

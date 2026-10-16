@@ -63,8 +63,8 @@ const gameMasterStep = z.enum(["1-target", "4-confirm-roll", "5-resolution"]);
  * a turn has passed. Not a duration — see `TimeSpent` for why there is no clock
  * — but the four cases named so the game master reads what each one covers.
  *
- * `long` is on the wire and is refused on the way back in until Phase 16 exists
- * to produce it; the description says so, because a model offered a value it
+ * `long` is on the wire and is refused on the way back in until Rest exists to
+ * produce it (BUILD-PLAN §3); the description says so, because a model offered a value it
  * cannot use will reach for it.
  */
 const timeSpent = z.enum(["instant", "round", "short", "long"]).describe(
@@ -142,9 +142,9 @@ export const commitSchema = z.object({
   /**
    * WHAT THE PLAYER READS. The only place a post can come from.
    *
-   * It was loose assistant text until Phase 12 (CODING-PLAN 8a A9): narration
-   * was the concatenation of every text block in the response, and nothing
-   * distinguished a draft from the post. A game master that thought better of a
+   * A FIELD, NOT LOOSE TEXT. When narration was the concatenation of every
+   * text block in the response, nothing distinguished a draft from the post. A
+   * game master that thought better of a
    * paragraph mid-response — *"Wait, I should not write that post yet… Let me
    * rewrite"* — had BOTH drafts printed, one after the other, the second in a
    * different tense and ending in a roll offer. No streaming rule catches that;
@@ -162,8 +162,8 @@ export const commitSchema = z.object({
    * describe the real room. Anything else with a null post is refused — see
    * `missingPost` in game-master.ts.
    *
-   * It was `.optional()`, and optional is a key the model can simply not write.
-   * It did, a quarter of the time: R3 (2026-10-11) had 4 of 19 calls spent on
+   * REQUIRED, because an optional key is one the model can simply not write.
+   * As `.optional()` it did, a quarter of the time: playtest R3 (2026-10-11) had 4 of 19 calls spent on
    * "this commit has no `post`", the game master filling `coinGrant` and `learned`
    * with blank placeholders and skipping the one field that mattered. `commit_state`
    * goes out strict, so a required key is one the API will not let it leave out —

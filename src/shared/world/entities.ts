@@ -2,8 +2,8 @@
  * ENTITY LAYER
  * ============
  *
- * Every concrete thing in a running dungeon. Sits on top of Phase A (structure)
- * and the blueprint seed (rolled content).
+ * Every concrete thing in a running dungeon. Sits on top of the room graph
+ * (structure) and the blueprint seed (rolled content).
  *
  * Three prose fields, three different lifetimes:
  *
@@ -304,8 +304,8 @@ export interface IRoomFeature extends IEntity {
   /**
    * This feature is the room's rolled OBSTACLE — the puzzle standing in the way.
    *
-   * Signposted on the entity because it has to survive into play. Until now the
-   * only thing that knew a feature was a puzzle was the generation-time
+   * Signposted on the entity because it has to survive into play. Otherwise the
+   * only thing that knows a feature is a puzzle is the generation-time
    * `ElementBinding`, and bindings do not reach the runtime, so nothing at the
    * table could tell an obstacle from a bas-relief. An obstacle is a challenge
    * — see `content/challenges.ts` — and a challenge that cannot be recognised
@@ -638,7 +638,7 @@ export function resolveBase(e: IEntity, reg: TemplateRegistry): string | undefin
  *
  * Names are minted by a model in two places — the content pass when it writes
  * the dungeon, and the game master when it creates something mid-run — and both
- * produce whatever register the surrounding sentence was in. One R2 dungeon
+ * produce whatever register the surrounding sentence was in. One playtest-R2 dungeon
  * held "The Residue", "The Cutlass", "The ledger" and "unmarked ledger" at the
  * same time. A name is a label, and a label is capitalised.
  *
@@ -728,7 +728,7 @@ export interface ElementBinding {
    *
    * One reward can emit several entities -- a general-gear row hands over two
    * to four things -- and several rewards can sit in one room, so the room is
-   * no longer enough to find the reward an item belongs to. The keys pass reads
+   * not enough to find the reward an item belongs to. The keys pass reads
    * this to find the challenge a placed key answers.
    */
   rewardId?: string;

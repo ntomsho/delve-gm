@@ -129,14 +129,14 @@ function Error({ onRetry, compact }: { onRetry(): void; compact?: boolean }) {
  *
  * A terminal stage already closes the input area — `acceptsInput` sees to that —
  * but a game that has ended should look ended rather than merely muted, and this
- * is what is left in the strip where the box used to be.
+ * is what is left in the strip where the box was.
  *
- * THE CARD THAT USED TO BE HERE IS NOW `EndOfRun.tsx`, over the whole page. It
- * grew a loot list, a score and a cause of death, and none of that fits under a
+ * THE END OF A RUN IS `EndOfRun.tsx`, over the whole page, not a card here. It
+ * has a loot list, a score and a cause of death, and none of that fits under a
  * textarea.
  *
- * IT NO LONGER OPENS BY ITSELF. It used to go up the moment the run ended, over
- * the top of the last thing the game master wrote — the death, the escape, the
+ * IT DOES NOT OPEN BY ITSELF. Going up the moment the run ended, it would cover
+ * the last thing the game master wrote — the death, the escape, the
  * moment the objective came free — so the one paragraph of the run most worth
  * reading was the one the player had to dismiss a modal to find. The final post
  * now stays on the page, and this takes the input's place with one button that

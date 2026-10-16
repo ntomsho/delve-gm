@@ -2,8 +2,8 @@
  * STOCKING
  * ========
  *
- * Phase C -- the rooms loop. Takes the Phase A graph (pure topology) plus the
- * dungeon blueprint seed (the genome) and stocks every room, producing the
+ * The rooms loop. Takes the room graph (pure topology) plus the dungeon
+ * blueprint seed (the genome) and stocks every room, producing the
  * bundles that the LLM composition pass turns into prose.
  *
  * Sources:
@@ -245,8 +245,8 @@ export function stockDungeon(
 
   // ---- 1d. corridors ----
   // Here because this is the first point at which every input exists: it cannot
-  // be earlier than Phase A because it needs degree, and it cannot be in Phase A
-  // because the goal room is stocking's. Before identity, since a corridor rolls
+  // be in the graph because it needs degree and the goal room, and the goal
+  // room is stocking's. Before identity, since a corridor rolls
   // on a different table.
   designateCorridors(rooms, s, blueprint.size, rng);
 

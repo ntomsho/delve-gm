@@ -16,9 +16,9 @@ import type { SizeClass } from "../floorplan/room-size.ts";
  */
 
 /**
- * The equipment rows of §3.1, all drawn from tables already in the repo.
+ * The equipment rows of REWARDS-SPEC §3.1, all drawn from tables already in the repo.
  *
- * §3.1 printed six. `potion` is the one that left: it is treasure now, for the
+ * The spec printed six. `potion` is the one that left: it is treasure now, for the
  * reason in the header, and every row still here prices itself from the catalog.
  */
 export type EquipmentRow =
@@ -29,7 +29,7 @@ export type EquipmentRow =
   | "general";
 
 /**
- * The treasure rows of §3.2. Which one fires is decided by the share drawn --
+ * The treasure rows of REWARDS-SPEC §3.2. Which one fires is decided by the share drawn --
  * every one of them is worth exactly that share, whatever it turns out to be.
  */
 export type TreasureRow = "coins" | "item" | "item-with-trait" | "ingredients" | "potion";
@@ -162,11 +162,11 @@ export interface MobileEntity {
 }
 
 export interface RoomStock {
-  /** stable entity id carried through from Phase A */
+  /** stable entity id carried through from the graph */
   roomId: string;
   /** graph index, for adjacency work and human-readable reports */
   index: number;
-  /** Phase A chunk -- purely a batching unit, never a content input */
+  /** the graph's chunk -- purely a batching unit, never a content input */
   chunk: number;
   role: RoomRole;
   headline: Headline;

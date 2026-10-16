@@ -8,8 +8,8 @@
  *
  * EVERY ROW IS A HOVER, and the same hover the map gives — same three lines,
  * same words, and pointing at either one lights the other. The card is the more
- * likely place to reach for, and until now it was the one place a thing named in
- * the prose could not be inspected at all.
+ * likely place to reach for, so a thing named in the prose can be inspected
+ * there too.
  */
 
 import { createContext, useContext, type ReactNode } from "react";
@@ -116,7 +116,7 @@ function Exit({ exit }: { exit: ExitView }) {
  * rather than merely agreeing.
  *
  * A CREATURE LIGHTS NOTHING ON THE MAP, because creature markers do not exist
- * yet (§1.2.12). The row still hovers, and it will link the day they do: the
+ * yet (BUILD-PLAN §3, *Creature markers*). The row still hovers, and it will link the day they do: the
  * link is keyed on the entity id, which a creature already has.
  */
 function Content({ e, detail }: { e: EntityView; detail?: ReactNode }) {

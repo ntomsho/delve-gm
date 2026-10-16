@@ -87,7 +87,7 @@ export function PlayScreen({
   // Chat first: a run starts, and resumes, where it is played.
   const [tab, setTab] = useState<Tab>("chat");
   /*
-   * THE END-OF-RUN SCREEN IS ASKED FOR, NOT THRUST UP. It used to start open,
+   * THE END-OF-RUN SCREEN IS ASKED FOR, NOT THRUST UP. Starting open, it would sit
    * over the top of the final post — the death, the escape — so the paragraph
    * most worth reading was the one behind a modal. Now the post stays put and
    * the input area's End Run button raises this.

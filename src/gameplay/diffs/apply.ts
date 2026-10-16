@@ -177,7 +177,7 @@ function applyOne(ctx: Ctx, diff: Diff): void {
  * The write above deliberately moves nothing, so there is exactly one stepper
  * and no case where a creature covers two rooms for one turn.
  *
- * `roomId` is the whole of the move: occupancy is relational (BUILD-PLAN §4.3),
+ * `roomId` is the whole of the move: occupancy is relational (BUILD-PLAN §2.9),
  * so leaving one room and joining another is one assignment and there is no
  * second list to keep in step with it.
  *

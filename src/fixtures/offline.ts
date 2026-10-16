@@ -83,7 +83,7 @@ export function fakeDungeonPass(groupIds: string[]): DungeonPassResponse {
 // PROSE, WITHOUT A MODEL
 // ---------------------------------------------------------------------------
 //
-// The fake used to answer with its own field names — `base: "A Chasm, calm, at
+// The fake does NOT answer with its own field names — `base: "A Chasm, calm, at
 // threshold depth."` and an entity called "entrance thing". That proved the
 // wiring, which was its job, and it was actively misleading for everything
 // else: a game master handed a room whose identity is four words of metadata has
@@ -301,8 +301,8 @@ export function generateOffline(seed: number, size: Size): GeneratedDungeon {
   for (let attempt = 0; attempt < 8; attempt++) {
     const graphSeed = attempt === 0 ? seeds.graphSeed : `${seeds.graphSeed}~${attempt}`;
     dungeon = generateBlueprint(graphSeed, { chunks: chunksFor(size) }, true).dungeon;
-    // THE DRAWING RUNS INSIDE STOCKING, as it does in `generate.ts`. It used to
-    // be computed alongside, which left `RoomStock.sizeClass` unset offline and
+    // THE DRAWING RUNS INSIDE STOCKING, as it does in `generate.ts`. Computed
+    // alongside, it would leave `RoomStock.sizeClass` unset offline and
     // so left `sizeAllows` — the condition that stops a four-cell closet rolling
     // "Banquet hall" — silently not applying on the dev path.
     let drawn: BlockPlan | null = null;
@@ -375,7 +375,7 @@ export function generateOffline(seed: number, size: Size): GeneratedDungeon {
 /**
  * The test character, and A FRESH ONE EVERY CALL.
  *
- * `inventory` used to hand back `testInventory` itself rather than a copy, and a
+ * `inventory` hands back a copy of `testInventory`, never the array itself: a
  * shared mutable array in a fixture is a trap that springs at a distance: a test
  * that pushes a purse onto the inventory it was given changes the character
  * every later test in the file receives, so the failure lands somewhere that

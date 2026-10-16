@@ -1,6 +1,6 @@
 /**
- * CHALLENGES AT RUNTIME  (R3)
- * ===========================
+ * CHALLENGES AT RUNTIME
+ * =====================
  *
  * The draw, the resolution write, `mapped`, the ledger, and the tally.
  *

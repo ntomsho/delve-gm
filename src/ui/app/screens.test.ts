@@ -88,8 +88,7 @@ describe("characters", () => {
     expect(renderToStaticMarkup(h(Characters, { ...doors, characters: cs }))).not.toContain("Hardcore");
   });
 
-  // Reachable at last: deleting the only character is now possible, which is
-  // what CODING-PLAN §1.2 item 13 was waiting on.
+  // Reachable because deleting the only character is possible.
   it("invites you to roll one up when the stock is empty", () => {
     const html = renderToStaticMarkup(h(Characters, { ...doors, characters: [] }));
     expect(html).toContain("No one here yet");
@@ -97,7 +96,7 @@ describe("characters", () => {
   });
 
   /*
-   * PHASE 12. A character is in one run at a time, and the row is the only place
+   * A character is in one run at a time, and the row is the only place
    * the player finds that out — so what it offers has to follow what the game
    * will accept, not merely describe it.
    */
@@ -188,7 +187,7 @@ describe("characters", () => {
   });
 
   /*
-   * PHASE 13b. The shelf is a second door beside `Send down`, not a field on
+   * The shelf is a second door beside `Send down`, not a field on
    * it: one rolls a world for a minute and a real bill, the other picks one
    * somebody already wrote for neither.
    */
@@ -330,7 +329,7 @@ describe("run setup", () => {
   });
 
   /*
-   * PHASE 13a. The screen asks which world first, and the size and level
+   * The screen asks which world first, and the size and level
    * controls belong to the branch that is actually rolling one — beside a
    * chosen dungeon they would be controls that change nothing.
    */

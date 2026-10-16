@@ -16,7 +16,7 @@ import { useSyncExternalStore } from "react";
 export const PHONE = "(max-width: 640px)";
 /**
  * A phone held sideways: wider than `PHONE`, but far too short for the desktop
- * grid, which it used to get. Still the phone's tabs, laid out across the
+ * grid. Still the phone's tabs, laid out across the
  * screen instead of down it. 500 px is above any phone's landscape height and
  * below a tablet's.
  */
