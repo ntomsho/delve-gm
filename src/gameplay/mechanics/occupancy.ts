@@ -87,11 +87,6 @@ export function roomIndex(e: EntityPassResult): Map<string, AnyEntity[]> {
   return index;
 }
 
-/** Everything in one room, transitively. */
-export function contentsOf(roomId: string, e: EntityPassResult): AnyEntity[] {
-  return roomIndex(e).get(roomId) ?? [];
-}
-
 /**
  * Everything the content pass put somewhere on the drawing.
  *

@@ -450,10 +450,6 @@ export interface ISpellbook extends IItem {
 /** Every shape an item can have. Narrow to it with the guards below. */
 export type AnyItem = IItem | IWeapon | IArmor | IBook | ISpellbook;
 
-export function isItem(e: IEntity): e is IItem {
-  return e.type === "Item";
-}
-
 export function isWeapon(i: IItem): i is IWeapon {
   return i.itemKind === "weapon" && (i as IWeapon).weapon !== undefined;
 }
@@ -479,11 +475,6 @@ export function isSpellbook(i: IItem): i is ISpellbook {
  */
 export function itemValue(i: IItem): number {
   return i.value ?? 0;
-}
-
-/** A book nobody has read to the end of yet. */
-export function canConsult(i: IItem): boolean {
-  return isBook(i) && i.book.exhausted !== true;
 }
 
 /** Fires, gas, weather: self-mobile and may span several rooms at once. */
@@ -573,25 +564,12 @@ export function armorDefense(s: CreatureStats): number {
   return s.armorDefense ?? (s.hitDice === 0 ? 10 : 11);
 }
 
-export function armorBonus(s: CreatureStats): number {
-  return armorDefense(s) - 10;
-}
-
 export function damageDie(s: CreatureStats): string {
   return s.damage ?? "1d6";
 }
 
 export function morale(s: CreatureStats): number {
   return s.morale ?? 7;
-}
-
-/** Knave: carrying capacity is CON bonus + 10 slots. */
-export function itemSlots(s: CreatureStats): number {
-  return abilityBonus(s, "con") + 10;
-}
-
-export function hasBeenEncountered(e: IEntity): boolean {
-  return e.state !== undefined;
 }
 
 // ---------------------------------------------------------------------------

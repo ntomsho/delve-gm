@@ -11,7 +11,7 @@
 import { appendFileSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { render } from "../../journal/render.ts";
-import { runId, type JournalRecord, type Sink } from "../../journal/journal.ts";
+import type { JournalRecord, Sink } from "../../journal/journal.ts";
 
 /**
  * Where a run's journal goes, given the id it is being kept under. Gitignored,
@@ -23,11 +23,6 @@ import { runId, type JournalRecord, type Sink } from "../../journal/journal.ts";
  */
 export function dirFor(runId: string, root = "out/runs"): string {
   return resolve(process.cwd(), root, runId);
-}
-
-/** `out/runs/<timestamp>-seed<n>`, for a caller with a seed and no session. */
-export function runDir(seed: number, root = "out/runs"): string {
-  return dirFor(runId(seed), root);
 }
 
 export function fileSink(dir: string): Sink {

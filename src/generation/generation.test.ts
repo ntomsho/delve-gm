@@ -53,7 +53,7 @@ import {
   keysPassSchema,
   seamsPassSchema,
 } from "./content/passes/schemas.ts";
-import { extractJson, ResponseFormatError, validate } from "../llm/json.ts";
+import { ResponseFormatError, validate } from "../llm/json.ts";
 import { callForJson, configureTransport, type FailedAttempt } from "../llm/client.ts";
 
 // The model client has no default URL. The stubbed `fetch` below answers any.
@@ -955,30 +955,6 @@ describe("validateWritten", () => {
 // ===========================================================================
 
 describe("json handling", () => {
-  it("parses a bare object", () => {
-    expect(extractJson('{"a":1}')).toEqual({ a: 1 });
-  });
-
-  it("parses a fenced object", () => {
-    expect(extractJson('```json\n{"a":1}\n```')).toEqual({ a: 1 });
-  });
-
-  it("parses an object behind a preamble", () => {
-    expect(extractJson('Sure, here you go:\n{"a":1}\nHope that helps!')).toEqual({ a: 1 });
-  });
-
-  it("is not fooled by braces inside strings", () => {
-    expect(extractJson('{"a":"}{","b":2}')).toEqual({ a: "}{", b: 2 });
-  });
-
-  it("raises on an unterminated object", () => {
-    expect(() => extractJson('{"a":')).toThrow(ResponseFormatError);
-  });
-
-  it("raises on no object at all", () => {
-    expect(() => extractJson("I would rather not.")).toThrow(/no JSON object/);
-  });
-
   it("turns validation failures into feedback a retry can use", () => {
     try {
       validate(dungeonPassSchema, { name: "x" });

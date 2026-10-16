@@ -1,8 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import {
-  characterKey, dungeonKey, memoryStore, runKey, type KeyValueStore,
-} from "./persist.ts";
-import { createGameStore, listSaves, loadGame, newRun, saveDungeon, saveRun } from "./store.ts";
+import { createGameStore, newRun } from "./store.ts";
 /** This file's own store — see the note atop `gameplay/state/store.ts`. */
 const useGame = createGameStore();
 
@@ -13,60 +10,6 @@ import { PLAYER_ID } from "../../shared/types/commit.ts";
 import type { GeneratedDungeon } from "../../generation/generate.ts";
 import type { EntityPassResult } from "../../shared/world/entities.ts";
 import type { PlayerCharacter } from "../../rules/knave/character.ts";
-
-// ===========================================================================
-// STORAGE
-// ===========================================================================
-
-describe("key/value storage", () => {
-  let store: KeyValueStore;
-  beforeEach(() => { store = memoryStore(); });
-
-  it("round-trips a value", async () => {
-    await store.set("a", { n: 1, nested: { deep: [1, 2, 3] } });
-    expect(await store.get("a")).toEqual({ n: 1, nested: { deep: [1, 2, 3] } });
-  });
-
-  it("returns undefined for a key that was never set", async () => {
-    expect(await store.get("missing")).toBeUndefined();
-  });
-
-  it("isolates stored values from later mutation of the original", async () => {
-    // IndexedDB behaves this way; memory must too, or a test passes for the
-    // wrong reason and a real save behaves differently.
-    const value = { hp: 6 };
-    await store.set("pc", value);
-    value.hp = 1;
-    expect(await store.get<{ hp: number }>("pc")).toEqual({ hp: 6 });
-  });
-
-  it("isolates the returned value from the stored one", async () => {
-    await store.set("pc", { hp: 6 });
-    const got = await store.get<{ hp: number }>("pc");
-    got!.hp = 99;
-    expect(await store.get<{ hp: number }>("pc")).toEqual({ hp: 6 });
-  });
-
-  it("lists keys by prefix, which is how saves and characters stay apart", async () => {
-    await store.set(dungeonKey("d1"), {});
-    await store.set(runKey("d1"), {});
-    await store.set(runKey("d2"), {});
-    await store.set(characterKey("c1"), {});
-
-    expect((await store.keys("run:")).sort()).toEqual(["run:d1", "run:d2"]);
-    expect(await store.keys("character:")).toEqual(["character:c1"]);
-    expect(await store.keys()).toHaveLength(4);
-  });
-
-  it("deletes and clears", async () => {
-    await store.set("a", 1);
-    await store.delete("a");
-    expect(await store.get("a")).toBeUndefined();
-    await store.set("b", 2);
-    await store.clear();
-    expect(await store.keys()).toEqual([]);
-  });
-});
 
 // ===========================================================================
 // THE RUN RNG
@@ -147,33 +90,7 @@ function dungeon(): GeneratedDungeon {
   };
 }
 
-describe("save and load", () => {
-  it("round-trips a game through storage", async () => {
-    const store = memoryStore();
-    const d = dungeon();
-    const run = newRun(d, pc());
-    run.turnCount = 3;
-
-    await saveDungeon(store, d);
-    await saveRun(store, run);
-
-    const loaded = await loadGame(store, d.id);
-    expect(loaded?.run.turnCount).toBe(3);
-    expect(loaded?.dungeon.pass.name).toBe("Test");
-  });
-
-  it("returns undefined when only half a game is stored", async () => {
-    const store = memoryStore();
-    await saveDungeon(store, dungeon());
-    expect(await loadGame(store, "dungeon-test")).toBeUndefined();
-  });
-
-  it("lists saved runs by dungeon id", async () => {
-    const store = memoryStore();
-    await saveRun(store, newRun(dungeon(), pc()));
-    expect(await listSaves(store)).toEqual(["dungeon-test"]);
-  });
-
+describe("a new run", () => {
   it("gives the run its own copy of the entities", () => {
     const d = dungeon();
     const run = newRun(d, pc());

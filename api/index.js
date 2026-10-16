@@ -2322,7 +2322,6 @@ var STANDARD_EQUIPMENT = {
 		composed: ""
 	}
 };
-Object.keys(STANDARD_EQUIPMENT);
 /**
 * HOW MANY ARE LEFT, WHERE THE STRING SAYS SO.
 *
@@ -3015,10 +3014,7 @@ function addFixture(roomId, res) {
 //#endregion
 //#region src/generation/floorplan/room-size.ts
 /**
-* class -> [min area, max area], measured on FLOOR AREA and not on the bounding
-* box. A cross fills perhaps 40% of its box, so the two numbers come apart badly
-* on the shaped families and only one of them is what the fiction means. The box
-* is capped separately, by `BOX_CAP`.
+* class -> [min area, max area], measured in floor cells.
 *
 * THE BANDS ARE CONTIGUOUS, so a range of classes is a single interval of areas
 * and there is no hole for a room's only achievable area to fall into.
@@ -3052,9 +3048,9 @@ function classOf(area) {
 * `identity` rolls on DUNGEON_ROOMS, whose three nested references reach
 * BUILDING_ROOMS, LOWER_CLASS_BUILDINGS and UPPER_CLASS_BUILDINGS — about 130
 * distinct nouns. A complete mapping would be a chore that rots, so only the
-* nouns that genuinely imply a geometry are annotated and the other ~90 fall
-* through to a default that **still rolls among the classes**: monotony is the
-* failure mode to design against, not inaccuracy.
+* nouns that genuinely imply a size are annotated and the rest fall through
+* to a default that **still rolls among the classes**: monotony is the failure
+* mode to design against, not inaccuracy.
 *
 * Every key here is asserted reachable from those four tables (see the tests) —
 * an annotation keyed on a noun that never rolls is dead weight that looks
@@ -3063,132 +3059,27 @@ function classOf(area) {
 * Entrance and the third a Dungeon Hazard.
 */
 var ARCHETYPES = {
-	"Banquet hall": { proportion: "long" },
-	Ballroom: { proportion: "long" },
-	Gallery: { proportion: "long" },
-	Barracks: { proportion: "long" },
-	Dormitory: { proportion: "long" },
-	Stables: { proportion: "long" },
-	Kennel: { proportion: "long" },
-	Catacombs: { proportion: "long" },
-	Sewers: { proportion: "long" },
-	Well: {
-		family: ["round"],
-		maxRelief: 1,
-		sizeClass: "tiny"
-	},
-	Fountain: {
-		family: ["round"],
-		maxRelief: 1
-	},
-	Pool: {
-		family: ["round"],
-		maxRelief: 1
-	},
-	"Fighting pit": {
-		family: ["round"],
-		maxRelief: 1
-	},
-	Oubliette: {
-		family: ["round"],
-		maxRelief: 1
-	},
-	Observatory: {
-		family: ["round"],
-		maxRelief: 1
-	},
-	Cavern: { relief: 2 },
-	Chasm: { relief: 2 },
-	"Mine shaft": { relief: 2 },
-	Chapel: {
-		family: ["T", "cross"],
-		proportion: "long",
-		maxRelief: 1
-	},
-	Shrine: {
-		family: ["T", "cross"],
-		proportion: "long",
-		maxRelief: 1
-	},
-	Temple: {
-		family: ["T", "cross"],
-		proportion: "long",
-		maxRelief: 1
-	},
-	"Throne room": {
-		family: ["T", "cross"],
-		proportion: "long",
-		maxRelief: 1
-	},
-	Courthouse: {
-		family: ["T", "cross"],
-		proportion: "long",
-		maxRelief: 1
-	},
-	"Opera house": {
-		family: ["T", "cross"],
-		proportion: "long",
-		maxRelief: 1
-	},
-	Courtyard: {
-		minClass: "large",
-		relief: 0
-	},
-	Garden: {
-		minClass: "large",
-		relief: 0
-	},
-	Marketplace: {
-		minClass: "large",
-		relief: 0
-	},
-	Park: {
-		minClass: "large",
-		relief: 0
-	},
-	Theater: {
-		minClass: "large",
-		relief: 0
-	},
-	Warehouse: {
-		minClass: "large",
-		relief: 0
-	},
-	Privy: {
-		sizeClass: "tiny",
-		relief: 0
-	},
-	Cabinet: {
-		sizeClass: "tiny",
-		relief: 0
-	},
-	Cloakroom: {
-		sizeClass: "tiny",
-		relief: 0
-	},
-	Wardrobe: {
-		sizeClass: "tiny",
-		relief: 0
-	},
-	Pantry: {
-		sizeClass: "tiny",
-		relief: 0
-	},
-	Larder: {
-		sizeClass: "tiny",
-		relief: 0
-	}
+	Courtyard: { minClass: "large" },
+	Garden: { minClass: "large" },
+	Marketplace: { minClass: "large" },
+	Park: { minClass: "large" },
+	Theater: { minClass: "large" },
+	Warehouse: { minClass: "large" },
+	Well: { sizeClass: "tiny" },
+	Privy: { sizeClass: "tiny" },
+	Cabinet: { sizeClass: "tiny" },
+	Cloakroom: { sizeClass: "tiny" },
+	Wardrobe: { sizeClass: "tiny" },
+	Pantry: { sizeClass: "tiny" },
+	Larder: { sizeClass: "tiny" }
 };
 /**
 * May a room of this size be this thing?
 *
-* Read the other way round from how 6a used it. There, an archetype's size pin
-* was an instruction to the packer — a Well had to come out tiny — and the
-* packer frequently could not oblige, because a room's size is decided by the
-* ground available and not by what it rolled. Here the geometry is already
-* settled and the pin is a CONDITION ON THE ROLL: a four-cell closet does not
-* get to be a banquet hall, and a hall the size of a courtyard does not get to
-* be a privy.
+* A room's size is decided by the ground it was given, before anything rolls
+* what it is. So the pin is a CONDITION ON THE ROLL, not an instruction to the
+* drawing: a four-cell closet does not get to be a courtyard, and a hall the
+* size of a courtyard does not get to be a privy.
 *
 * Everything unannotated passes at every size, which is most of the table.
 */
@@ -7208,12 +7099,12 @@ function generateValid(seed, params, maxAttempts = 50) {
 /**
 * BLOCK PLAN — the dungeon as a partition of the grid, before any room has a shape.
 *
-* The packer in `floorplan.ts` searches: it picks a rectangle for a room,
-* tries it against its placed neighbours, and backtracks when the rest of the
-* dungeon will not fit around it. Measured, that search runs out of its position
-* budget rather than out of options — it thrashes — and at thirty rooms it draws
-* about one time in a hundred, because every room has to succeed and the odds
-* multiply.
+* The first drawing was a packer, and it searched: it picked a rectangle for a
+* room, tried it against its placed neighbours, and backtracked when the rest of
+* the dungeon would not fit around it. Measured, that search ran out of its
+* position budget rather than out of options — it thrashed — and at thirty rooms
+* it drew about one time in a hundred, because every room had to succeed and the
+* odds multiplied. (It is in git history: `git log -- src/generation/floorplan/floorplan.ts`.)
 *
 * This builds instead of searching. One cell per room, a line between every pair
 * that connects, then the rooms grow outward until they have divided the space
@@ -15227,9 +15118,8 @@ function db() {
 * Every statement the server runs, in one place. Handlers above this file ask
 * for things; nothing above this file writes SQL.
 *
-* Two keyspaces, the same split `src/gameplay/state/persist.ts` has always made: a
-* dungeon is large and written twice — once partial, once complete — and a run
-* is small and written on every turn.
+* Two kinds of record: a dungeon is large and written twice — once partial,
+* once complete — and a run is small and written on every turn.
 *
 * THE ONE THING WORTH READING BEFORE THE REST is `commitTurn`. It is the write
 * that has to be correct under two requests at once, and everything it does is
@@ -15238,7 +15128,6 @@ function db() {
 * Node only.
 */
 var repo_exports = /* @__PURE__ */ __exportAll({
-	ENDED: () => ENDED,
 	activeRunFor: () => activeRunFor,
 	appendDungeonEvents: () => appendDungeonEvents,
 	appendEvents: () => appendEvents,
@@ -15282,9 +15171,7 @@ var repo_exports = /* @__PURE__ */ __exportAll({
 * postgres.js types `sql.json` against its own JSON value union, which nothing
 * declared with an interface satisfies structurally. The cast is here, once and
 * named, rather than at each of the six call sites — everything passed through
-* it is a plain serialisable document and has always been (see the note on
-* `GeneratedDungeon`, which has been going in and out of IndexedDB since
-* Phase 2).
+* it is a plain serialisable document.
 */
 var doc = (sql, value) => sql.json(value);
 /**
@@ -15300,13 +15187,6 @@ function statusOf(stage) {
 	if (stage === "abandoned") return "abandoned";
 	return "active";
 }
-/** The endings a character's record counts. `active` is not one of them. */
-var ENDED = [
-	"dead",
-	"abandoned",
-	"escaped",
-	"goal_met"
-];
 var NO_RECORD = () => ({
 	dead: 0,
 	abandoned: 0,

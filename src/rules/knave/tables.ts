@@ -191,18 +191,8 @@ export const WEAPON_CLASSES = [
   { key: "crossbow", label: "Crossbow", members: ["crossbow"] },
 ] as const satisfies readonly WeaponClass[];
 
-export function weaponsIn(c: WeaponClass): readonly WeaponKey[] {
-  return c.members;
-}
-
 /** Every weapon, in class order. The class list is what the picker walks. */
 export const WEAPONS: readonly WeaponKey[] = WEAPON_CLASSES.flatMap((c) => c.members);
-
-export function weaponClass(key: WeaponClassKey): WeaponClass {
-  const found = WEAPON_CLASSES.find((c) => c.key === key);
-  if (!found) throw new Error(`no weapon class called ${key}`);
-  return found;
-}
 
 /** Which class a named weapon belongs to — the picker's second question. */
 export function classOfWeapon(key: WeaponKey): WeaponClass {

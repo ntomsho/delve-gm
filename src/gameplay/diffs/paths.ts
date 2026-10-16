@@ -95,10 +95,6 @@ const CREATE_HOLDERS: readonly EntityKind[] = [
   "PlayerCharacter",
 ];
 
-export function isCreatePath(path: string): boolean {
-  return normalizePath(path) === CREATE_PATH;
-}
-
 export function canHoldNewEntities(kind: EntityKind): boolean {
   return CREATE_HOLDERS.includes(kind);
 }

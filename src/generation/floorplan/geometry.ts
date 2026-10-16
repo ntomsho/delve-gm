@@ -63,10 +63,9 @@ export type Axis = "north-south" | "east-west";
 /**
  * How much of its bounding box the room actually fills.
  *
- * There is no family axis on a drawn room — §6a.3 Outstanding 5 — so this is the
- * whole shape vocabulary the block plan can honestly support. It is less than
- * 6a.2's four axes and it is true, which is the better trade: a room described
- * as notched really is notched.
+ * A drawn room has no shape family — no round, cross or T — so this is the whole
+ * shape vocabulary the block plan can honestly support. It is small and it is
+ * true, which is the better trade: a room described as notched really is notched.
  *
  * THE THRESHOLDS ARE MEASURED, NOT GUESSED. Over 1,520 chambers across sizes
  * 1–5 the fill runs min 0.04, p25 0.53, median 0.67, p75 0.78, max 1.00 — the

@@ -203,22 +203,6 @@ export function canRaise(a: CharacterAbilities, k: Ability, mode: CreationMode):
   return a[k] < POINT_BUY.MAX && POINT_BUY.costTo(a[k] + 1) <= pointsLeft(a, mode);
 }
 
-/**
- * Everything wrong with a point-buy spread, as sentences. A list rather than a
- * boolean so the screen can say which rule was broken — the same reasoning as
- * the applier's rejection reasons.
- */
-export function validatePointBuy(a: CharacterAbilities, mode: CreationMode): string[] {
-  const issues: string[] = [];
-  for (const k of ABILITIES) {
-    if (a[k] < POINT_BUY.START) issues.push(`${k.toUpperCase()} is below the +${POINT_BUY.START} every ability starts at`);
-    if (a[k] > POINT_BUY.MAX) issues.push(`${k.toUpperCase()} is above +${POINT_BUY.MAX}, the level 1 ceiling`);
-  }
-  const over = -pointsLeft(a, mode);
-  if (over > 0) issues.push(`${over} point${over === 1 ? "" : "s"} over the ${CREATION_RULES[mode].pointBuy} available`);
-  return issues;
-}
-
 // ===========================================================================
 // TRAITS
 // ===========================================================================

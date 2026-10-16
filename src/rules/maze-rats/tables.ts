@@ -495,11 +495,6 @@ export function roll(table: readonly string[], rng: Rng): Rolled {
 
 // --- public rollers for the MAZE hazard/detail tables ------------------------
 
-export const rollDungeonEntrance = (rng: Rng): Rolled => roll(DUNGEON_ENTRANCES, rng);
-export const rollRoomDetail = (rng: Rng): Rolled => roll(DUNGEON_ROOM_DETAILS, rng);
-export const rollTrick = (rng: Rng): Rolled => roll(DUNGEON_TRICKS, rng);
-export const rollHazard = (rng: Rng): Rolled => roll(DUNGEON_HAZARDS, rng);
-
 /**
  * Any table, cascade-resolved. The general form of the four rollers above, for
  * callers outside this file that hold a table of their own — the reward rows
@@ -512,15 +507,6 @@ export const rollHazard = (rng: Rng): Rolled => roll(DUNGEON_HAZARDS, rng);
  */
 export const rollTable = (table: readonly string[], rng: Rng): Rolled | undefined =>
   table.length ? roll(table, rng) : undefined;
-
-/**
- * A trap is a trigger paired with an effect -- the two halves of a HazardSeed.
- * Environmental hazards use rollHazard() instead and have no trigger.
- */
-export const rollTrap = (rng: Rng): { trigger: Rolled; effect: Rolled } => ({
-  trigger: roll(TRAP_TRIGGERS, rng),
-  effect: roll(TRAP_EFFECTS, rng),
-});
 
 /** n distinct entries from one table, each cascade-resolved */
 export function rollDistinct(table: readonly string[], n: number, rng: Rng): Rolled[] {

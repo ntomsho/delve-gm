@@ -20,9 +20,7 @@ import {
   SHOP_DISPLAY,
   WEAPON_GOODS,
   addToCart,
-  canAfford,
   canAffordOneMore,
-  cartCount,
   cartLines,
   cartSlots,
   cartTotal,
@@ -204,7 +202,6 @@ describe("the cart", () => {
     cart = addToCart(cart, TORCH, 3);
     cart = addToCart(cart, LANTERN);
 
-    expect(cartCount(cart)).toBe(4);
     expect(cartTotal(cart)).toBe(3 * 1 + 30);
     expect(cartSlots(cart)).toBe(4);
     expect(cartLines(cart).map((l) => l.good.key)).toEqual([TORCH, LANTERN]);
@@ -232,7 +229,6 @@ describe("the cart", () => {
     const pc = buyer(31);
     const cart = addToCart(EMPTY_CART, LANTERN);
     expect(changeFrom(pc, cart)).toBe(1);
-    expect(canAfford(pc, cart)).toBe(true);
     expect(canAffordOneMore(pc, cart, good(TORCH))).toBe(true);
     expect(canAffordOneMore(pc, cart, good(LANTERN))).toBe(false);
   });
@@ -407,10 +403,8 @@ describe("the sold pile", () => {
   it("counts the pile as money the cart can be measured against", () => {
     const pc = buyer(10);
     const cart = addToCart(EMPTY_CART, LANTERN); // 30 cp, and they hold 10
-    expect(canAfford(pc, cart)).toBe(false);
 
     const id = carry(pc, treasure("Silver ewer", 300));
-    expect(canAfford(pc, cart, [id])).toBe(true);
     expect(changeFrom(pc, cart, [id])).toBe(10 + 300 - 30);
     expect(canAffordOneMore(pc, cart, good(GAMBESON), [id])).toBe(true);
   });

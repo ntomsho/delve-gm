@@ -44,7 +44,6 @@ import { purse } from "../../rules/knave/character-creation.ts";
 import type { EntityPassResult } from "../../shared/world/entities.ts";
 import type { PlayerCharacter } from "../../rules/knave/character.ts";
 import type { RunTally } from "../tally/tally-pass.ts";
-import { dungeonKey, runKey, type KeyValueStore } from "./persist.ts";
 
 // ---------------------------------------------------------------------------
 // RECORDS
@@ -540,32 +539,8 @@ const init: StateCreator<GameStore> = (set, get) => ({
   },
 });
 
-// ---------------------------------------------------------------------------
-// SAVE / LOAD
-// ---------------------------------------------------------------------------
-
-export async function saveRun(store: KeyValueStore, run: RunState): Promise<void> {
-  await store.set(runKey(run.dungeonId), run);
-}
-
-export async function saveDungeon(store: KeyValueStore, dungeon: GeneratedDungeon): Promise<void> {
-  await store.set(dungeonKey(dungeon.id), dungeon);
-}
-
+/** A dungeon and a run in it, as read back from storage to be played on. */
 export interface SavedGame {
   dungeon: GeneratedDungeon;
   run: RunState;
-}
-
-export async function loadGame(store: KeyValueStore, dungeonId: string): Promise<SavedGame | undefined> {
-  const [dungeon, run] = await Promise.all([
-    store.get<GeneratedDungeon>(dungeonKey(dungeonId)),
-    store.get<RunState>(runKey(dungeonId)),
-  ]);
-  return dungeon && run ? { dungeon, run } : undefined;
-}
-
-/** Dungeon ids with a saved run. */
-export async function listSaves(store: KeyValueStore): Promise<string[]> {
-  return (await store.keys("run:")).map((k) => k.slice("run:".length));
 }

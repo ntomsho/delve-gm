@@ -1,17 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { Rng } from "../../shared/utils/rng.ts";
 import {
-  EQUIPMENT_KEYS,
   STANDARD_EQUIPMENT,
   STOCK_STATE,
   amountCount,
   armorFacts,
   equipment,
-  equipmentName,
   mintItem,
   mintSpellbook,
   mintTemplate,
   weaponFacts,
+  type EquipmentKey,
   type ItemTemplate,
 } from "./equipment.ts";
 import {
@@ -25,8 +24,16 @@ import {
   WEAPONS,
   WEAPON_CLASSES,
 } from "./tables.ts";
-import { canConsult, isArmor, isBook, isSpellbook, isWeapon, needsComposition } from "../../shared/world/entities.ts";
+import { isArmor, isBook, isSpellbook, isWeapon, needsComposition } from "../../shared/world/entities.ts";
 import { BOOK_SUBJECTS } from "../maze-rats/tables.ts";
+
+const EQUIPMENT_KEYS = Object.keys(STANDARD_EQUIPMENT) as EquipmentKey[];
+
+/** The label a picker would show: the name, and the amount when there is one. */
+const equipmentName = (key: EquipmentKey): string => {
+  const t = STANDARD_EQUIPMENT[key];
+  return "amount" in t && t.amount ? `${t.name} (${t.amount})` : t.name;
+};
 
 const rng = () => new Rng(20260818);
 
@@ -196,7 +203,6 @@ describe("books", () => {
       if (!isBook(book)) continue;
       expect(book.book.uses, `seed ${seed}`).toBe(0);
       expect(book.book.exhausted, `seed ${seed}`).toBeUndefined();
-      expect(canConsult(book), `seed ${seed}`).toBe(true);
     }
   });
 

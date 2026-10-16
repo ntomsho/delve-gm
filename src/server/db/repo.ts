@@ -5,9 +5,8 @@
  * Every statement the server runs, in one place. Handlers above this file ask
  * for things; nothing above this file writes SQL.
  *
- * Two keyspaces, the same split `src/gameplay/state/persist.ts` has always made: a
- * dungeon is large and written twice — once partial, once complete — and a run
- * is small and written on every turn.
+ * Two kinds of record: a dungeon is large and written twice — once partial,
+ * once complete — and a run is small and written on every turn.
  *
  * THE ONE THING WORTH READING BEFORE THE REST is `commitTurn`. It is the write
  * that has to be correct under two requests at once, and everything it does is
@@ -31,9 +30,7 @@ import type { PlayerCharacter } from "../../rules/knave/character.ts";
  * postgres.js types `sql.json` against its own JSON value union, which nothing
  * declared with an interface satisfies structurally. The cast is here, once and
  * named, rather than at each of the six call sites — everything passed through
- * it is a plain serialisable document and has always been (see the note on
- * `GeneratedDungeon`, which has been going in and out of IndexedDB since
- * Phase 2).
+ * it is a plain serialisable document.
  */
 const doc = (sql: postgres.Sql | postgres.TransactionSql, value: unknown) =>
   sql.json(value as never);
@@ -54,9 +51,6 @@ export function statusOf(stage: Stage): RunStatus {
   if (stage === "abandoned") return "abandoned";
   return "active";
 }
-
-/** The endings a character's record counts. `active` is not one of them. */
-export const ENDED: readonly RunStatus[] = ["dead", "abandoned", "escaped", "goal_met"];
 
 // ---------------------------------------------------------------------------
 // CHARACTERS

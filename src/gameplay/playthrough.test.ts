@@ -16,11 +16,10 @@ import { PLAYER_ID, type Commit, type Diff, type World } from "../shared/types/c
 import { roomIndex } from "./mechanics/occupancy.ts";
 import { newChallengeState } from "./mechanics/challenges.ts";
 import { CountingRng } from "../shared/utils/rng.ts";
-import { createGameStore, loadGame, saveDungeon, saveRun } from "./state/store.ts";
+import { createGameStore } from "./state/store.ts";
 /** This file's own store — see the note atop `gameplay/state/store.ts`. */
 const useGame = createGameStore();
 
-import { memoryStore } from "./state/persist.ts";
 import { attackRoll, saveRoll } from "../rules/knave/rolls.ts";
 import { resolveBase, type ICreature } from "../shared/world/entities.ts";
 import { validateWritten } from "../generation/generate.ts";
@@ -226,8 +225,11 @@ describe("a run through a generated dungeon", () => {
     }
   });
 
-  it("survives a save and reload", async () => {
-    const store = memoryStore();
+  /*
+   * The server keeps a run as JSON in Postgres and picks it back up on the next
+   * request, so a run must come back from JSON whole and keep playing.
+   */
+  it("survives being stored as JSON and read back", () => {
     const dungeon = generateOffline(SEED, 1);
 
     useGame.getState().reset();
@@ -244,14 +246,10 @@ describe("a run through a generated dungeon", () => {
     useGame.getState().recordTurn({ action: "ransack", outcome: "found nothing", diffsApplied: 3 });
 
     const before = useGame.getState().run!;
-    await saveDungeon(store, dungeon);
-    await saveRun(store, before);
+    const stored = JSON.parse(JSON.stringify({ dungeon, run: before })) as { dungeon: typeof dungeon; run: typeof before };
 
     useGame.getState().reset();
-    const loaded = await loadGame(store, dungeon.id);
-    expect(loaded).toBeDefined();
-
-    const run = loaded!.run;
+    const run = stored.run;
     expect(run.turnCount).toBe(1);
     expect(run.pc.hp.current).toBe(4);
     expect(run.pc.conditions).toEqual(["hungry"]);
@@ -261,7 +259,7 @@ describe("a run through a generated dungeon", () => {
     expect(run.entities.rooms.find((r) => r.id === room)!.needUpdate).toBe(true);
 
     // The reloaded run keeps applying commits.
-    useGame.setState({ dungeon: loaded!.dungeon, run });
+    useGame.setState({ dungeon: stored.dungeon, run });
     expect(useGame.getState().commit(turn({ entityId: room, path: "composed", value: "Turned over." })).ok).toBe(true);
   });
 

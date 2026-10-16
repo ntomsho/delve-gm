@@ -41,7 +41,7 @@ import {
 } from "../../rules/knave/character.ts";
 import type { EntityPassResult } from "../../shared/world/entities.ts";
 import { EQUIP_SLOTS, heldItem, itemSummary } from "../../rules/knave/character.ts";
-import { farSide, isArmor, isBook, isSurfaceExit, touches } from "../../shared/world/entities.ts";
+import { farSide, isBook, isSurfaceExit, touches } from "../../shared/world/entities.ts";
 import { describeGeometry, exitPhrase, siteRooms } from "../../generation/floorplan/geometry.ts";
 import { positionPhrase } from "../../shared/world/placement.ts";
 import type { RoomGeometry } from "../../generation/floorplan/geometry.ts";
@@ -647,27 +647,6 @@ export function characterView(run: RunState): CharacterView {
 export function creatureDefense(creature: ICreature, ability: Ability): number {
   return creatureAbilityDefense(creature.stats, ability);
 }
-
-/** A worn item's contribution, for a panel that wants to break the number down. */
-export function armorPieces(pc: PlayerCharacter): { slot: EquipSlot; name: string; defense: number }[] {
-  return EQUIP_SLOTS.flatMap((slot) => {
-    const item = heldItem(pc, pc.equipped[slot]);
-    if (!item || !isArmor(item)) return [];
-    return [{ slot, name: item.name, defense: slot === "armor" ? item.armor.defense : 1 }];
-  });
-}
-
-/**
- * Unarmoured is 11. Exposed so a panel can show what armour is worth.
- *
- * STATED, NOT DERIVED THROUGH A FAKE CREATURE. This used to read
- * `bodyArmorDefense({ hitDice: 0, ... })`, which was the same 11 only for as
- * long as HD 0 meant nothing; it is now the fodder band and answers 10, so the
- * borrowed derivation would have quietly cost the player a point of defense.
- * The player's unarmoured defense is a Knave constant and has no hit dice
- * behind it.
- */
-export const UNARMORED_DEFENSE = 11;
 
 // ===========================================================================
 // THE MAP

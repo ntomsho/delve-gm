@@ -74,11 +74,6 @@ export function pendingLevels(pc: PlayerCharacter): number {
   return levelsOwed(pc.xp ?? 0, pc.level);
 }
 
-/** Whether there is a level waiting to be taken. */
-export function canLevelUp(pc: PlayerCharacter): boolean {
-  return pendingLevels(pc) > 0;
-}
-
 /** The level this call would take them to. */
 export const nextLevel = (pc: PlayerCharacter): number => pc.level + 1;
 

@@ -833,62 +833,6 @@ export function generateValid(
 
 // ---------------------------------------------------------------- reporting
 
-export function summarize(d: Dungeon): string {
-  const s = d.stats;
-  const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
-  const degrees = Object.keys(s.degreeHistogram)
-    .map(Number)
-    .sort((a, b) => a - b)
-    .map((k) => `  deg ${k}: ${s.degreeHistogram[k]}`)
-    .join("\n");
-  return [
-    `seed="${d.seed}"  chunks=${d.chunkCount}  valid=${d.valid}`,
-    `rooms=${s.rooms}  edges=${s.edges}  E/V=${s.edgesPerRoom.toFixed(3)}  mu=${s.circuitRank}  L=${s.interChunkEdges}`,
-    `interior cycle lengths: [${s.cycleLengths.join(", ")}]`,
-    `dead ends ${pct(s.deadEndShare)} | corridors ${pct(s.corridorShare)} | junctions ${pct(s.junctionShare)}`,
-    degrees,
-    `entrances: ${d.entrances.join(", ")}`,
-    d.failures.length ? `FAILURES:\n  ${d.failures.join("\n  ")}` : `no validation failures`,
-  ].join("\n");
-}
-
-export function toSvg(d: Dungeon, size = 760): string {
-  const pad = 40;
-  const xs = d.rooms.map((r) => r.pos.x), ys = d.rooms.map((r) => r.pos.y);
-  const minX = Math.min(...xs), maxX = Math.max(...xs);
-  const minY = Math.min(...ys), maxY = Math.max(...ys);
-  const scale = Math.min(
-    (size - 2 * pad) / Math.max(maxX - minX, 1),
-    (size - 2 * pad) / Math.max(maxY - minY, 1),
-  );
-  const px = (r: Room) => pad + (r.pos.x - minX) * scale;
-  const py = (r: Room) => pad + (r.pos.y - minY) * scale;
-  const byId = new Map(d.rooms.map((r) => [r.id, r]));
-
-  const lines = d.edges
-    .map((e) => {
-      const a = byId.get(e.a)!, b = byId.get(e.b)!;
-      const style =
-        e.kind === "inter-chunk"
-          ? 'stroke="#d85a30" stroke-width="2.4"'
-          : 'stroke="#5f5e5a" stroke-width="1.4"';
-      return `<line x1="${px(a).toFixed(1)}" y1="${py(a).toFixed(1)}" x2="${px(b).toFixed(1)}" y2="${py(b).toFixed(1)}" ${style}/>`;
-    })
-    .join("\n");
-
-  const palette = ["#378ADD", "#1D9E75", "#7F77DD", "#BA7517", "#D4537E", "#639922", "#888780", "#E24B4A"];
-  const nodes = d.rooms
-    .map((r) => {
-      const isEnt = d.entrances.includes(r.id);
-      const fill = palette[r.chunk % palette.length];
-      return `<circle cx="${px(r).toFixed(1)}" cy="${py(r).toFixed(1)}" r="${isEnt ? 13 : 10}" fill="${fill}" stroke="${isEnt ? "#111" : "#fff"}" stroke-width="${isEnt ? 3 : 1.5}"/>` +
-        `<text x="${px(r).toFixed(1)}" y="${(py(r) + 3.5).toFixed(1)}" text-anchor="middle" font-family="sans-serif" font-size="9" fill="#fff">${r.id}</text>`;
-    })
-    .join("\n");
-
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}"><rect width="${size}" height="${size}" fill="#faf9f5"/>\n${lines}\n${nodes}\n</svg>`;
-}
-
 // ---------------------------------------------------------------- diagnostics
 
 /**

@@ -498,7 +498,6 @@ export function floorplanLayout(
   };
 }
 
-
 /**
  * The cell nearest the middle of the room.
  *
@@ -561,12 +560,3 @@ export function pathMidpoint(path: Path): Point {
   return mid ?? { x: 0, y: 0 };
 }
 
-/** The centre of a shape — where a marker for the player goes. */
-export function shapeCenter(shape: Shape): Point {
-  if (shape.kind === "circle") return shape.at;
-  const n = shape.points.length || 1;
-  return {
-    x: shape.points.reduce((s, p) => s + p.x, 0) / n,
-    y: shape.points.reduce((s, p) => s + p.y, 0) / n,
-  };
-}

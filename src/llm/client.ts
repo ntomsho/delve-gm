@@ -7,13 +7,11 @@
  * `configureTransport`. The server and the dev CLIs do; the browser never
  * does, because the browser talks only to our API and never holds the key.
  *
- * Three paths. `callModel` returns text. `callForJson` forces a tool call and
- * returns a validated object — the generation passes use that one, because a
- * forced tool call removes an entire class of "the model said 'Sure!' first"
- * failure. `extractJson` remains as a fallback for anything that has to parse
- * prose.
+ * Two paths. `callForJson` forces a tool call and returns a validated object —
+ * the generation passes use that one, because a forced tool call removes an
+ * entire class of "the model said 'Sure!' first" failure.
  *
- * `callWithTools` is the third, and it is the runtime's. The generation passes
+ * `callWithTools` is the other, and it is the runtime's. The generation passes
  * ask one question and get one answer; a turn is a conversation — the game master
  * narrates, asks the dice for a batch, reads what came back, and only then
  * commits. So this one hands back the raw turn (text, tool calls, and the
@@ -119,12 +117,6 @@ function usageOf(u: ApiResponse["usage"]): Usage {
   };
 }
 
-export interface CallResult {
-  text: string;
-  stopReason: string | null;
-  usage: Usage;
-}
-
 // NOTE: written as explicit fields rather than constructor parameter
 // properties. Node's strip-only type stripping cannot compile those, and
 // `dev/cli-generate.ts` runs under plain `node` with no transpiler.
@@ -214,24 +206,6 @@ async function post(body: unknown, signal?: AbortSignal): Promise<ApiResponse> {
 // ---------------------------------------------------------------------------
 // TEXT
 // ---------------------------------------------------------------------------
-
-export async function callModel(opts: CallOptions): Promise<CallResult> {
-  const json = await post(
-    {
-      model: modelFor(opts.task),
-      max_tokens: opts.maxTokens ?? MAX_TOKENS[opts.task],
-      ...(opts.system ? { system: opts.system } : {}),
-      messages: opts.messages,
-    },
-    opts.signal
-  );
-
-  return {
-    text: json.content.filter((b) => b.type === "text").map((b) => b.text ?? "").join(""),
-    stopReason: json.stop_reason,
-    usage: usageOf(json.usage),
-  };
-}
 
 // ---------------------------------------------------------------------------
 // STRUCTURED

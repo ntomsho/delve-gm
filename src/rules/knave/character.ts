@@ -343,15 +343,6 @@ export function armorDefense(pc: PlayerCharacter): number {
   return base + helmet + shield;
 }
 
-/** Compact "weapon: X; armor: Y" summary of what is equipped, for prompts. */
-export function equippedSummary(pc: PlayerCharacter): string {
-  const parts = EQUIP_SLOTS.map((s) => {
-    const it = heldItem(pc, pc.equipped[s]);
-    return it ? `${s}: ${it.name}` : null;
-  }).filter(Boolean);
-  return parts.length ? parts.join("; ") : "nothing equipped";
-}
-
 // ===========================================================================
 // DISPLAY
 // ===========================================================================

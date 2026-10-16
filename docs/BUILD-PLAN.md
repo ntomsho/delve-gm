@@ -509,9 +509,9 @@ Restated from CLAUDE.md, plus the mechanisms that enforce them.
   `.test.tsx` is jsdom. The extension is the whole of the rule.
   `src/ui/test-utils/jsdom-setup.ts` supplies entry points jsdom lacks
   (`setPointerCapture` and friends) and **never fakes behaviour**.
-- Persistence is two IndexedDB keys behind a `KeyValueStore` interface with a memory
-  implementation for tests and Node: `dungeon:<id>` written once, `run:<id>` per commit.
-  The server keeps the same records in Postgres, the sheet whole in a jsonb column.
+- Persistence is the server's, in Postgres: a dungeon written twice (partial, then
+  complete), a run on every commit, the sheet whole in a jsonb column. A run must
+  survive a JSON round trip and keep playing; `playthrough.test.ts` checks that.
 - Node runs the CLI with native type-stripping, so **constructor parameter properties
   are unsupported** and all relative imports in `src/` carry `.ts`.
 - **Ownership is a parameter, not a check.** Every query takes `owner_id`; RLS is the
@@ -2122,24 +2122,21 @@ Checked in headless Chrome at 844 × 390 and 390 × 844; not yet on a real phone
 Known, deliberate, and not currently anybody's feature. Revisit if the symptom starts
 mattering.
 
-1. **Relief is not applied.** Outside MVP. The axis and its carving code still exist in
-   `floorplan.ts` and are still tested; nothing calls them.
-2. **The family axis is unused**, so no round, cross or T-shaped rooms. Revisit if the
-   drawings read as monotonous.
-3. **Large rooms are unreachable.** Zones average 20–40 cells. Accepted: size feeds only
+1. **Rooms have no shape families and no relief**: no round, cross or T-shaped rooms,
+   no niches or bays. The packer that drew them lost to the block plan, which draws
+   every size where the packer managed sizes 4–5 about 0.8% of the time per attempt,
+   and it has been deleted. Its family and relief carving is in git history
+   (`git log -- src/generation/floorplan/floorplan.ts`) if shaped rooms are ever
+   wanted. Revisit if the drawings read as monotonous.
+2. **Large rooms are unreachable.** Zones average 20–40 cells. Accepted: size feeds only
    the identity roll, and the bands that matter for that are reachable.
-4. **Proportion cannot lengthen a room whose doors cluster**, because the skeleton runs
-   between the doors. "A banquet hall is long" is not honoured.
-5. **Target areas are a placeholder roll** (`[6, 9, 14, 20, 28, 40, 56]`) rather than
+3. **A room's proportion is rolled, not taken from what it is**, so a banquet hall is no
+   likelier to be long than a privy. The block plan also cannot lengthen a room whose
+   doors cluster, because the skeleton runs between the doors.
+4. **Target areas are a placeholder roll** (`[6, 9, 14, 20, 28, 40, 56]`) rather than
    derived from the size classes.
-6. **Corridors are only mildly narrower than chambers.**
-7. **`floorplan.ts` is parked, not deleted** — author's call, kept as the record of
-   a design that lost. `generateFloorplanValid`, `floorplanSvg` and `validateFloorplan`
-   have no callers outside `floorplan.test.ts`, and the four suites exercising the packer
-   are `describe.skip`. **Two suites stay live and must:** `corridor designation` covers
-   stocking, and `chamber archetypes` covers the vocabulary in `room-size.ts` that
-   the identity roll reads through `sizeAllows`.
-8. **A multi-cell fixture draws as several separate things.** One berthed entity across two
+5. **Corridors are only mildly narrower than chambers.**
+6. **A multi-cell fixture draws as several separate things.** One berthed entity across two
    cells, drawn one mark per cell so a colonnade reads as a row. Weighed and dropped: it
    needs a per-kind spread/no-spread decision that was not worth the session.
 

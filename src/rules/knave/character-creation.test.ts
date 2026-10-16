@@ -28,7 +28,6 @@ import {
   startingBuy,
   startingCopper,
   swapAbilities,
-  validatePointBuy,
   withWeapon,
   type CreationMode,
   type StartingKit,
@@ -43,8 +42,6 @@ import {
   WEAPON_CLASSES,
   rollArmorTable,
   rollHelmetShieldTable,
-  weaponClass,
-  weaponsIn,
   type WeaponKey,
 } from "./tables.ts";
 import { Rng } from "../../shared/utils/rng.ts";
@@ -203,13 +200,7 @@ describe("point buy", () => {
     const a = { ...startingBuy(), str: 4, dex: 4, con: 3 };
     expect(pointsSpent(a)).toBe(10);
     expect(pointsLeft(a, "normal")).toBe(0);
-    expect(validatePointBuy(a, "normal")).toEqual([]);
     expect(canRaise(a, "int", "normal")).toBe(false);
-  });
-
-  it("refuses that same spread to hardcore, and says by how much", () => {
-    const a = { ...startingBuy(), str: 4, dex: 4, con: 3 };
-    expect(validatePointBuy(a, "hardcore")).toEqual(["3 points over the 7 available"]);
   });
 
   it("caps a single ability at +4, however much budget is left", () => {
@@ -217,13 +208,8 @@ describe("point buy", () => {
     const a = { ...startingBuy(), str: 4 };
     expect(pointsLeft(a, "normal")).toBe(6);
     expect(canRaise(a, "str", "normal")).toBe(false);
-    expect(validatePointBuy({ ...a, str: 5 }, "normal")).toContain("STR is above +4, the level 1 ceiling");
   });
 
-  it("names an ability dropped below the floor", () => {
-    expect(validatePointBuy({ ...startingBuy(), wis: 0 }, "normal"))
-      .toContain("WIS is below the +1 every ability starts at");
-  });
 });
 
 // ===========================================================================
@@ -537,7 +523,8 @@ describe("the weapon classes", () => {
   });
 
   it("names the melee classes and leaves the ranged ones alone", () => {
-    const names = (key: string) => weaponsIn(weaponClass(key as never)).map((k) => equipment(k).name);
+    const names = (key: string) =>
+      WEAPON_CLASSES.find((c) => c.key === key)!.members.map((k) => equipment(k).name);
     expect(names("light")).toEqual(["Dagger", "Cudgel", "Sickle", "Staff"]);
     expect(names("medium")).toEqual(["Spear", "Sword", "Mace", "Axe", "Flail"]);
     expect(names("heavy")).toEqual(["Halberd", "War Hammer", "Long Sword", "Battle Axe"]);
@@ -554,7 +541,7 @@ describe("the weapon classes", () => {
   it("gives every weapon in a class identical numbers", () => {
     for (const c of WEAPON_CLASSES) {
       const first = equipment(c.members[0]);
-      for (const k of weaponsIn(c)) {
+      for (const k of c.members) {
         const t = equipment(k);
         expect({ ...weaponFacts(k) }, k).toEqual({ ...weaponFacts(c.members[0]) });
         expect(t.slots, k).toBe(first.slots);

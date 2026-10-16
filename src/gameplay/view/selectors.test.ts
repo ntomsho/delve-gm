@@ -5,9 +5,9 @@ import { createGameStore, newRun } from "../state/store.ts";
 const useGame = createGameStore();
 
 import {
-  characterView, censusView, exitLabel, FIXTURE_SHAPES, mapView, needsComposition, roomView, UNARMORED_DEFENSE,
+  characterView, censusView, exitLabel, FIXTURE_SHAPES, mapView, needsComposition, roomView,
 } from "./selectors.ts";
-import { floorplanLayout, pathMidpoint, pointLayout, shapeCenter } from "../../generation/floorplan/map-layout.ts";
+import { floorplanLayout, pathMidpoint, pointLayout, type Shape } from "../../generation/floorplan/map-layout.ts";
 import type { Diff } from "../../shared/types/commit.ts";
 import { describeGeometry, siteRooms } from "../../generation/floorplan/geometry.ts";
 import { isSurfaceExit, maxHp, setState } from "../../shared/world/entities.ts";
@@ -15,6 +15,16 @@ import { positionPhrase, POSITION_WORDS } from "../../shared/world/placement.ts"
 import type { IArmor, IItem } from "../../shared/world/entities.ts";
 import { placedThings } from "../mechanics/occupancy.ts";
 import { roomDistances } from "../mechanics/travel.ts";
+
+/** The middle of a drawn shape: the mean of its vertices, or a circle's centre. */
+function shapeCenter(shape: Shape): { x: number; y: number } {
+  if (shape.kind === "circle") return shape.at;
+  const n = shape.points.length || 1;
+  return {
+    x: shape.points.reduce((s, p) => s + p.x, 0) / n,
+    y: shape.points.reduce((s, p) => s + p.y, 0) / n,
+  };
+}
 
 const SEED = 1005;
 const dungeon = generateOffline(SEED, 2);
@@ -389,7 +399,7 @@ describe("characterView", () => {
     const pc = testCharacter({ inventory: [], equipped: {} });
     const view = characterView(newRun(dungeon, pc));
 
-    expect(view.armorDefense).toBe(UNARMORED_DEFENSE); // 11 with nothing worn
+    expect(view.armorDefense).toBe(11); // Knave: unarmoured is 11
     expect(view.meleeBonus).toBe(pc.abilities.str);
     expect(view.rangedBonus).toBe(pc.abilities.wis);
     expect(view.slots.capacity).toBe(pc.abilities.con + 10); // CON defense

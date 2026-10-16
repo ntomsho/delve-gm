@@ -249,9 +249,6 @@ export const cartTotal = (cart: Cart): number =>
 export const cartSlots = (cart: Cart): number =>
   cartLines(cart).reduce((n, l) => n + l.slots, 0);
 
-export const cartCount = (cart: Cart): number =>
-  cartLines(cart).reduce((n, l) => n + l.qty, 0);
-
 // ===========================================================================
 // THE SOLD PILE
 // ===========================================================================
@@ -371,9 +368,6 @@ export function toggleSold(sold: Sold, id: string): Sold {
  */
 export const changeFrom = (pc: PlayerCharacter, cart: Cart, sold: Sold = EMPTY_SOLD): number =>
   purse(pc) + proceeds(pc, sold) - cartTotal(cart);
-
-export const canAfford = (pc: PlayerCharacter, cart: Cart, sold: Sold = EMPTY_SOLD): boolean =>
-  changeFrom(pc, cart, sold) >= 0;
 
 /**
  * Whether one more of this would still be payable for.

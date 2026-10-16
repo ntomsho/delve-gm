@@ -13,7 +13,6 @@ import { describe, expect, it } from "vitest";
 import {
   ABILITY_MAX,
   applyLevelUp,
-  canLevelUp,
   hpFromRoll,
   levelUpRoll,
   levelUpSeed,
@@ -48,12 +47,10 @@ const sheet = (over: Partial<PlayerCharacter> = {}): PlayerCharacter =>
 describe("what is owed", () => {
   it("owes nothing under a thousand", () => {
     expect(pendingLevels(sheet({ xp: 999 }))).toBe(0);
-    expect(canLevelUp(sheet({ xp: 999 }))).toBe(false);
   });
 
   it("owes a level at exactly the track", () => {
     expect(pendingLevels(sheet({ xp: XP_PER_LEVEL }))).toBe(1);
-    expect(canLevelUp(sheet({ xp: XP_PER_LEVEL }))).toBe(true);
   });
 
   it("owes one per thousand, cumulative — a size 5 dungeon pays for three", () => {

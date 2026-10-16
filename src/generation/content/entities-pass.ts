@@ -569,38 +569,3 @@ export function addFixture(roomId: string, res: EntityPassResult): IRoomFeature 
 /** Placeholder for a gated connector whose condition text is not yet written. */
 export const PENDING_CONDITION = "[gated -- condition not yet written]";
 
-/** Debug dump. */
-export function entitySheet(res: EntityPassResult): string {
-  const L: string[] = [];
-  const n = (a: unknown[]) => a.length;
-  L.push("=== ENTITIES PASS ===");
-  L.push(
-    `rooms ${n(res.rooms)}  connectors ${n(res.connectors)}  creatures ${n(res.creatures)}  ` +
-      `features ${n(res.features)}  items ${n(res.items)}  hazards ${n(res.hazards)}  effects ${n(res.effects)}`
-  );
-  L.push(
-    `templates: ${Object.keys(res.registry.creatures).length} creature, ` +
-      `${Object.keys(res.registry.hazards).length} hazard`
-  );
-  L.push("");
-  const byRoom = new Map<string, ElementBinding[]>();
-  for (const b of res.bindings) {
-    if (!byRoom.has(b.roomId)) byRoom.set(b.roomId, []);
-    byRoom.get(b.roomId)!.push(b);
-  }
-  for (const r of res.rooms) {
-    L.push(`[room ${r.id.slice(0, 8)}]`);
-    for (const b of byRoom.get(r.id) ?? []) {
-      L.push(`    ${b.element.padEnd(10)} ${b.keywords.join(", ") || "--"}`);
-    }
-  }
-  L.push("");
-  L.push(`DETAIL CANDIDATES (writing pass promotes as it sees fit):`);
-  for (const c of res.detailCandidates) {
-    L.push(`  room ${c.roomId.slice(0, 8)}  ${c.text}`);
-  }
-  L.push("");
-  L.push(`PENDING GOAL in room ${res.pendingGoal.roomId.slice(0, 8)}:`);
-  L.push(`  reward "${res.pendingGoal.reward}" / mission "${res.pendingGoal.mission}"`);
-  return L.join("\n");
-}

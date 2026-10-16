@@ -873,8 +873,6 @@ export const STANDARD_EQUIPMENT = {
 
 export type EquipmentKey = keyof typeof STANDARD_EQUIPMENT;
 
-export const EQUIPMENT_KEYS = Object.keys(STANDARD_EQUIPMENT) as EquipmentKey[];
-
 /** The template, for a screen that wants to price or describe a thing unbought. */
 export function equipment(key: EquipmentKey): ItemTemplate {
   return STANDARD_EQUIPMENT[key];
@@ -917,12 +915,6 @@ export function armorFacts(key: EquipmentKey): ArmorFacts | undefined {
 export function amountCount(amount: string | undefined): number | undefined {
   const n = Number.parseInt(amount?.trim() ?? "", 10);
   return Number.isFinite(n) ? n : undefined;
-}
-
-/** The display name, for a table row that has nothing else to draw. */
-export function equipmentName(key: EquipmentKey): string {
-  const t: ItemTemplate = STANDARD_EQUIPMENT[key];
-  return t.amount ? `${t.name} (${t.amount})` : t.name;
 }
 
 // ===========================================================================

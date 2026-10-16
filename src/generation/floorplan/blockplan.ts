@@ -1,12 +1,12 @@
 /**
  * BLOCK PLAN — the dungeon as a partition of the grid, before any room has a shape.
  *
- * The packer in `floorplan.ts` searches: it picks a rectangle for a room,
- * tries it against its placed neighbours, and backtracks when the rest of the
- * dungeon will not fit around it. Measured, that search runs out of its position
- * budget rather than out of options — it thrashes — and at thirty rooms it draws
- * about one time in a hundred, because every room has to succeed and the odds
- * multiply.
+ * The first drawing was a packer, and it searched: it picked a rectangle for a
+ * room, tried it against its placed neighbours, and backtracked when the rest of
+ * the dungeon would not fit around it. Measured, that search ran out of its
+ * position budget rather than out of options — it thrashed — and at thirty rooms
+ * it drew about one time in a hundred, because every room had to succeed and the
+ * odds multiplied. (It is in git history: `git log -- src/generation/floorplan/floorplan.ts`.)
  *
  * This builds instead of searching. One cell per room, a line between every pair
  * that connects, then the rooms grow outward until they have divided the space
@@ -307,7 +307,6 @@ function lRoutes(a: Point, b: Point): Point[][] {
   return [via({ x: b.x, y: a.y }), via({ x: a.x, y: b.y })];
 }
 
-
 /** The four 2x2 blocks that have the anchor cell as one of their corners. */
 const CORNERS: Array<[number, number]> = [
   [0, 0],
@@ -496,19 +495,6 @@ export function seedBlockPlan(graph: Dungeon, seed: number): BlockSeed | null {
     if (!shift(blocks, who, graph, rng) && !shift(blocks, who === got.a ? got.b : got.a, graph, rng)) {
       break;
     }
-  }
-  return null;
-}
-
-/** Try seeds until one lays every connection down. */
-export function seedBlockPlanValid(
-  graph: Dungeon,
-  seed: number,
-  attempts = 24
-): BlockSeed | null {
-  for (let i = 0; i < attempts; i++) {
-    const got = seedBlockPlan(graph, seed + i * 7919);
-    if (got) return { ...got, attempts: i + 1 };
   }
   return null;
 }
@@ -974,12 +960,3 @@ export function roomSizes(rooms: Point[][]): SizeClass[] {
   return rooms.map((cells) => classOf(cells.length));
 }
 
-/** How far off the 4-to-8 spacing the centres came out, for measuring. */
-export function spanReport(b: BlockSeed, graph: Dungeon): { inRange: number; total: number } {
-  let inRange = 0;
-  for (const e of graph.edges) {
-    const d = manhattan(b.centres[e.a], b.centres[e.b]);
-    if (d >= SPAN_MIN && d <= SPAN_MAX) inRange++;
-  }
-  return { inRange, total: graph.edges.length };
-}
