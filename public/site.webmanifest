@@ -1,0 +1,12 @@
+{
+  "name": "Delve GM",
+  "short_name": "Delve GM",
+  "icons": [
+    { "src": "/favicon.svg", "type": "image/svg+xml", "sizes": "any" },
+    { "src": "/icon-512.png", "type": "image/png", "sizes": "512x512" }
+  ],
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ede7da",
+  "theme_color": "#f6f2e8"
+}

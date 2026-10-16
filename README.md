@@ -1,4 +1,4 @@
-# Delve GM
+# <img src="public/logo-wordmark.svg" alt="Delve GM" height="64">
 
 A single-player dungeon crawl run by an LLM game master. You type what your character
 does in plain language; the game master works out what happens, asks for a roll when

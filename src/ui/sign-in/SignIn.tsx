@@ -68,15 +68,12 @@ export function SignIn({ onSignIn, onGuest, notice }: Props) {
         className="w-full max-w-md px-10 py-12 border"
         style={{ background: color.paper, borderColor: color.rule }}
       >
-        <h1
-          className="text-3xl mb-2"
-          style={{ fontFamily: font.display, color: color.ink, letterSpacing: "-0.02em" }}
-        >
-          Delve GM
+        <h1 className="mb-4">
+          <img src="/logo-wordmark.svg" alt="Delve GM" className="h-12 w-auto" />
         </h1>
         <p className="text-sm mb-8" style={{ fontFamily: font.prose, color: color.graphite }}>
-          A single-player dungeon crawl with an AI game master, in dungeons
-          written before you enter them.
+          A single-player dungeon crawl with an AI game master. Say what your
+          character does; the game master works out what happens.
         </p>
 
         {notice && (
