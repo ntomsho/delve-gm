@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { generateBlueprint } from "./floorplan/graph.ts";
 import { generateBlueprintSeed, type Size } from "./content/blueprint.ts";
 import { Rng } from "../shared/utils/rng.ts";
-import { stockDungeon } from "./content/stock.ts";
+import { stockDungeon } from "./content/stock/stock.ts";
 import { runEntitiesPass } from "./content/entities-pass.ts";
 
 // ===========================================================================

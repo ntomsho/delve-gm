@@ -7,11 +7,11 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { generateBlueprintSeed, type Size } from "./blueprint.ts";
-import { DUNGEON_CORRIDORS } from "../../rules/maze-rats/tables.ts";
-import { generateBlueprint, type Dungeon } from "../floorplan/graph.ts";
+import { generateBlueprintSeed, type Size } from "../blueprint.ts";
+import { DUNGEON_CORRIDORS } from "../../../rules/maze-rats/tables.ts";
+import { generateBlueprint, type Dungeon } from "../../floorplan/graph.ts";
 import { stockDungeon } from "./stock.ts";
-import type { StockedDungeon } from "./types.ts";
+import type { StockedDungeon } from "../types.ts";
 
 function build(seed: number, size: Size): { graph: Dungeon; sd: StockedDungeon } {
   const { dungeon } = generateBlueprint(String(seed), { chunks: size }, true);

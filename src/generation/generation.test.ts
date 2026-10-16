@@ -39,7 +39,7 @@ import { Rng } from "../shared/utils/rng.ts";
 import { isSurfaceExit, resolveBase } from "../shared/world/entities.ts";
 import { runEntitiesPass } from "./content/entities-pass.ts";
 import { siteRooms } from "./floorplan/geometry.ts";
-import { stockDungeon } from "./content/stock.ts";
+import { stockDungeon } from "./content/stock/stock.ts";
 import {
   chunksOf,
   finishGeneration,

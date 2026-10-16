@@ -60,7 +60,7 @@ import { resolveBase } from "../shared/world/entities.ts";
 import { runEntitiesPass } from "./content/entities-pass.ts";
 import type { EntityPassResult } from "../shared/world/entities.ts";
 import { siteRooms } from "./floorplan/geometry.ts";
-import { stockDungeon } from "./content/stock.ts";
+import { stockDungeon } from "./content/stock/stock.ts";
 import type { StockedDungeon } from "./content/types.ts";
 import { addUsage, callForJson, type FailedAttempt, type Usage } from "../llm/client.ts";
 import {

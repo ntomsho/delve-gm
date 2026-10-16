@@ -36,7 +36,7 @@ import {
 import { generateBlueprint, type Dungeon } from "./graph.ts";
 import { generateBlueprintSeed, type Size } from "../content/blueprint.ts";
 import { Rng } from "../../shared/utils/rng.ts";
-import { stockDungeon } from "../content/stock.ts";
+import { stockDungeon } from "../content/stock/stock.ts";
 import type { StockedDungeon } from "../content/types.ts";
 import type { Point } from "../../shared/utils/grid.ts";
 

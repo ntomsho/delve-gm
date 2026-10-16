@@ -25,7 +25,7 @@ import { generateBlueprint } from "../floorplan/graph.ts";
 import { partition, reachableWithout } from "./rewards.ts";
 import type { Reward } from "./types.ts";
 import { runEntitiesPass } from "./entities-pass.ts";
-import { stockDungeon } from "./stock.ts";
+import { stockDungeon } from "./stock/stock.ts";
 import type { StockedDungeon } from "./types.ts";
 
 function stockFor(seed: number, size: Size): StockedDungeon {
