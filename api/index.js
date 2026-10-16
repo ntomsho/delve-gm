@@ -4,13 +4,13 @@ import { HTTPException } from "hono/http-exception";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { createMiddleware } from "hono/factory";
 import { z } from "zod";
-import { createStore } from "zustand/vanilla";
 import { createHash } from "node:crypto";
 import postgres from "postgres";
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { fal } from "@fal-ai/client";
 import sharp from "sharp";
+import { createStore } from "zustand/vanilla";
 import { waitUntil } from "@vercel/functions";
 //#region \0rolldown/runtime.js
 var __defProp = Object.defineProperty;
@@ -117,6 +117,1465 @@ function currentUser(c) {
 	const user = c.get("user");
 	if (!user) throw new Error("no user on the context — is `requireUser` mounted on this route?");
 	return user;
+}
+//#endregion
+//#region src/llm/validation.ts
+function issuesOf(error) {
+	return error.issues.map((i) => ({
+		path: i.path.join(".") || "(root)",
+		message: i.message
+	}));
+}
+/** Validation errors, formatted for feeding back to the model on retry. */
+function formatIssues(issues) {
+	return issues.map((i) => `  - ${i.path}: ${i.message}`).join("\n");
+}
+//#endregion
+//#region src/llm/json.ts
+var ResponseFormatError = class extends Error {
+	issues;
+	raw;
+	constructor(message, issues = [], raw) {
+		super(message);
+		this.name = "ResponseFormatError";
+		this.issues = issues;
+		this.raw = raw;
+	}
+	/** The part worth appending to a retry prompt. */
+	get feedback() {
+		return this.issues.length ? `Your previous response failed validation:\n${formatIssues(this.issues)}\n\nReturn the corrected JSON.` : `Your previous response could not be parsed as JSON. Return JSON only, with no prose around it.`;
+	}
+};
+/** Validate an already-parsed value, raising something a retry can use. */
+function validate$1(schema, value) {
+	const result = schema.safeParse(value);
+	if (result.success) return result.data;
+	throw new ResponseFormatError("response did not match the expected shape", issuesOf(result.error), JSON.stringify(value).slice(0, 2e3));
+}
+/**
+* An error, said usefully.
+*
+* "response did not match the expected shape" is what a `ResponseFormatError`
+* says on its own, and on a screen it is worth nothing: it names no pass, no
+* chunk, and no field. The issues are right there on the error, so the first
+* few of them go into the message — enough to tell a prompt problem from a bad
+* roll of the dice without opening anything.
+*/
+function describeFailure(e) {
+	const message = e instanceof Error ? e.message : String(e);
+	if (!(e instanceof ResponseFormatError) || e.issues.length === 0) return message;
+	const shown = e.issues.slice(0, 3).map((i) => `${i.path}: ${i.message}`);
+	const rest = e.issues.length - shown.length;
+	return `${message} — ${shown.join("; ")}${rest > 0 ? `, and ${rest} more` : ""}`;
+}
+//#endregion
+//#region src/llm/models.ts
+/**
+* Everything is on Haiku 4.5 while the pipeline is being built: it is the
+* cheapest current model ($1 / $5 per million tokens in / out, against Sonnet
+* 5's $3 / $15), and prompt iteration means running the same seed many times.
+*
+* Two limits it carries that the larger models do not — neither binds today,
+* but both would if this stayed past the prototype:
+*   - 200K context, not 1M. A chunk prompt is a few thousand tokens, so there
+*     is a lot of headroom, but a very large dungeon would eventually crowd it.
+*   - 64K max output, not 128K. Above MAX_TOKENS below, so it does not bind.
+*
+* Haiku 4.5 also predates adaptive thinking and the effort parameter — it takes
+* the older `budget_tokens` form and errors on `effort`. Nothing here uses
+* either, but that is the thing to check before turning them on.
+*
+* Expect this to stop being one model. The obvious first split is the Dungeon
+* Pass: it runs once, sets the fiction every other call is written against, and
+* costs a rounding error next to N content-pass calls — so it is the cheapest
+* place to buy quality. That is what this registry being task-keyed is for.
+*/
+var MODELS = {
+	"dungeon-pass": "claude-haiku-4-5",
+	"content-pass": "claude-haiku-4-5",
+	"seams-pass": "claude-haiku-4-5",
+	"keys-pass": "claude-haiku-4-5",
+	"tally-pass": "claude-haiku-4-5",
+	"room-entry": "claude-haiku-4-5",
+	"turn-loop": "claude-haiku-4-5",
+	"illustration-visual": "claude-haiku-4-5",
+	"sprite-look": "claude-haiku-4-5"
+};
+/**
+* Per-task output ceiling. Generation passes write a lot; turns write a little.
+* The content pass writes six rooms and everything in them in one response,
+* which is why it gets four times the others.
+*/
+var MAX_TOKENS = {
+	"dungeon-pass": 4096,
+	"content-pass": 16384,
+	"seams-pass": 4096,
+	"keys-pass": 4096,
+	"tally-pass": 4096,
+	"room-entry": 4096,
+	"turn-loop": 4096,
+	"illustration-visual": 1024,
+	"sprite-look": 512
+};
+function modelFor(task) {
+	return MODELS[task];
+}
+var IMAGE_MODELS = {
+	"gpt-image-2": {
+		guided: "openai/gpt-image-2/edit",
+		unguided: "openai/gpt-image-2"
+	},
+	"flux-2-klein-4b": {
+		guided: "fal-ai/flux-2/klein/4b/edit",
+		unguided: "fal-ai/flux-2/klein/4b"
+	},
+	"flux-2-pro": {
+		guided: "fal-ai/flux-2-pro/edit",
+		unguided: "fal-ai/flux-2-pro"
+	},
+	"flux-1-pro-canny": { guided: "fal-ai/flux-pro/v1/canny" }
+};
+/**
+* What draws a room illustration in the game: GPT Image 2 at low quality, from the
+* marked guide and the style references (BUILD-PLAN, *Illustrations*, "Spike
+* outcome"). Part of every illustration's key, so changing it redraws from then on.
+*/
+var ILLUSTRATION_MODEL = "gpt-image-2";
+/**
+* What draws a dungeon's cover, its exterior: FLUX.2 [klein] 4B from the
+* prompt alone. The spike found it best on exteriors, and its text-to-image
+* endpoint takes no references.
+*/
+var COVER_MODEL = "flux-2-klein-4b";
+/**
+* What draws a creature sprite: GPT Image 2 at low quality, against the sprite
+* style references (BUILD-PLAN, *Illustrations*, "Sprite spike"). Klein
+* blanked body horror to a black square even with its safety checker off.
+* Part of every sprite's key, so changing it redraws from then on.
+*/
+var SPRITE_MODEL = "gpt-image-2";
+//#endregion
+//#region src/llm/tool-schema.ts
+/**
+* ZOD -> TOOL INPUT SCHEMA
+*
+* The tool's `input_schema` is what actually shapes a forced tool call. Handing
+* the API a permissive `{ type: "object", additionalProperties: true }` and
+* relying on the prompt to describe the shape does not work: the model has to
+* guess the parameter names, and it guesses differently each time. Observed on
+* one seed, same prompt, two attempts — `{ region_data: … }` once, `{ rooms: … }`
+* the next, and `{}` in the failure that started this. The prompt describes the
+* *content*; the schema declares the *shape*, and only one of them is machine
+* enforced.
+*
+* So the schema goes on the wire, generated from the zod schema that validates
+* the response, which also means the two cannot drift apart.
+*
+* Structured outputs rejects a few JSON Schema keywords that zod emits happily.
+* They are stripped here and still enforced by zod on the way back in — the
+* same split the official SDKs make.
+*/
+/** Keywords structured outputs does not accept. Zod still checks them locally. */
+var UNSUPPORTED = /* @__PURE__ */ new Set([
+	"minLength",
+	"maxLength",
+	"pattern",
+	"minimum",
+	"maximum",
+	"exclusiveMinimum",
+	"exclusiveMaximum",
+	"multipleOf",
+	"minItems",
+	"maxItems",
+	"uniqueItems",
+	"minProperties",
+	"maxProperties",
+	"$schema"
+]);
+function strip(node) {
+	if (Array.isArray(node)) return node.map(strip);
+	if (node === null || typeof node !== "object") return node;
+	const out = {};
+	for (const [k, v] of Object.entries(node)) {
+		if (UNSUPPORTED.has(k)) continue;
+		if (k === "additionalProperties" && v !== false) throw new Error("a response schema cannot contain an open-ended record: structured outputs requires additionalProperties: false. Name the keys explicitly instead.");
+		out[k] = strip(v);
+	}
+	if (out.type === "object") out.additionalProperties = false;
+	return out;
+}
+/**
+* Strict mode compiles the schema into a grammar, and refuses to do so past 24
+* optional parameters — the content pass has 35, because most of what a room
+* can hold is optional (not every room has a hazard, a goal, an elite).
+*
+* Which is a limit on the guarantee, not on the schema: an accurate
+* `input_schema` is what stops the model guessing at parameter names, and that
+* works with or without strict. Where the schema is small enough, strict adds
+* a hard guarantee on top; where it is not, zod is still validating every
+* response and a bad one still costs only a retry.
+*
+* THE BUDGET IS PER REQUEST, NOT PER TOOL. The grammar is compiled for the call,
+* so every strict schema on the table spends from the same 24 — `commit_state`
+* (15) and `roll` (11) each fit alone and 400 the moment they are offered
+* together. `fitStrict` is where that is settled; `canBeStrict` answers only for
+* a tool that goes out on its own.
+*/
+var STRICT_OPTIONAL_LIMIT = 24;
+function countOptional(node) {
+	if (Array.isArray(node)) return node.reduce((n, x) => n + countOptional(x), 0);
+	if (node === null || typeof node !== "object") return 0;
+	const o = node;
+	let n = 0;
+	if (o.type === "object" && o.properties && typeof o.properties === "object") {
+		const required = new Set(Array.isArray(o.required) ? o.required : []);
+		n += Object.keys(o.properties).filter((k) => !required.has(k)).length;
+	}
+	for (const v of Object.values(o)) n += countOptional(v);
+	return n;
+}
+/** Whether this schema is simple enough for the API to guarantee it, alone. */
+function canBeStrict(schema) {
+	return countOptional(schema) <= STRICT_OPTIONAL_LIMIT;
+}
+/**
+* Spend the request's strict budget across the tools going out together.
+*
+* Only compiled schemas count against it — the content pass has been sending an
+* unguaranteed 35-optional tool since Phase 1 — so this drops `strict` rather
+* than touching any schema. The tool keeps its real shape either way, and zod
+* still checks whatever comes back.
+*
+* Biggest first, so the guarantee lands where the model has the most to get
+* wrong. On the runtime's pair that is `commit_state`, which writes state; a
+* malformed `roll` costs one more exchange and nothing else.
+*/
+function fitStrict(tools) {
+	const guaranteed = /* @__PURE__ */ new Set();
+	let spent = 0;
+	const byCost = tools.map((t, i) => ({
+		i,
+		cost: countOptional(t.input_schema)
+	})).sort((a, b) => b.cost - a.cost || a.i - b.i);
+	for (const { i, cost } of byCost) {
+		if (spent + cost > STRICT_OPTIONAL_LIMIT) continue;
+		spent += cost;
+		guaranteed.add(i);
+	}
+	return tools.map((tool, i) => {
+		if (guaranteed.has(i)) return tool.strict === true ? tool : {
+			...tool,
+			strict: true
+		};
+		if (tool.strict === void 0) return tool;
+		const { strict: _dropped, ...rest } = tool;
+		return rest;
+	});
+}
+/**
+* A tool `input_schema` for a zod object schema.
+*
+* Emits `required` and `additionalProperties: false` throughout, which is what
+* `strict: true` demands — with it the API guarantees the tool input validates
+* against this shape, so zod's job narrows to catching what the JSON Schema
+* subset cannot express.
+*/
+function toolSchema(schema) {
+	const json = strip(z.toJSONSchema(schema, { target: "draft-2020-12" }));
+	if (json.type !== "object" || typeof json.properties !== "object") throw new Error("a tool input schema must be an object schema");
+	return {
+		...json,
+		type: "object",
+		additionalProperties: false
+	};
+}
+//#endregion
+//#region src/llm/client.ts
+var PATH = "/v1/messages";
+/**
+* Where requests go, and what rides along.
+*
+* NO DEFAULT. A call made before `configureTransport` throws rather than
+* guessing a URL: a guessed one that nothing answers fails as a 404 in the
+* middle of a generation, which reads like a network problem rather than a
+* missing setting. `server/app.ts` (`configureAnthropic`), the dev CLIs and the
+* live tests each configure it with the key from their own environment.
+*/
+var baseUrl;
+var extraHeaders = {};
+function configureTransport(opts) {
+	if (opts.baseUrl !== void 0) baseUrl = opts.baseUrl.replace(/\/$/, "");
+	if (opts.headers) extraHeaders = {
+		...extraHeaders,
+		...opts.headers
+	};
+}
+var NO_USAGE = {
+	inputTokens: 0,
+	outputTokens: 0,
+	cacheWriteTokens: 0,
+	cacheReadTokens: 0
+};
+function addUsage(a, b) {
+	return {
+		inputTokens: a.inputTokens + b.inputTokens,
+		outputTokens: a.outputTokens + b.outputTokens,
+		cacheWriteTokens: a.cacheWriteTokens + b.cacheWriteTokens,
+		cacheReadTokens: a.cacheReadTokens + b.cacheReadTokens
+	};
+}
+/** The wire's usage, read into ours. The cache fields are absent when nothing was cached. */
+function usageOf(u) {
+	return {
+		inputTokens: u.input_tokens,
+		outputTokens: u.output_tokens,
+		cacheWriteTokens: u.cache_creation_input_tokens ?? 0,
+		cacheReadTokens: u.cache_read_input_tokens ?? 0
+	};
+}
+var LlmError = class extends Error {
+	status;
+	/** 429 and 5xx are worth another go; 4xx generally is not. */
+	retryable;
+	constructor(message, status, retryable) {
+		super(message);
+		this.name = "LlmError";
+		this.status = status;
+		this.retryable = retryable;
+	}
+};
+var RETRIES = 3;
+var BASE_DELAY_MS = 1e3;
+var sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+async function post(body, signal) {
+	if (baseUrl === void 0) throw new Error("LLM transport not configured: call configureTransport before calling the model.");
+	let lastError;
+	for (let attempt = 0; attempt <= RETRIES; attempt++) {
+		if (attempt > 0) await sleep(BASE_DELAY_MS * 2 ** (attempt - 1));
+		let res;
+		try {
+			res = await fetch(`${baseUrl}${PATH}`, {
+				method: "POST",
+				headers: {
+					"content-type": "application/json",
+					...extraHeaders
+				},
+				body: JSON.stringify(body),
+				signal
+			});
+		} catch (e) {
+			if (signal?.aborted) throw e;
+			lastError = e;
+			continue;
+		}
+		if (res.ok) return await res.json();
+		const detail = await res.text().catch(() => "");
+		const err = new LlmError(`${res.status} ${res.statusText}${detail ? ` — ${detail.slice(0, 500)}` : ""}`, res.status, res.status === 429 || res.status >= 500);
+		if (!err.retryable) throw err;
+		lastError = err;
+	}
+	throw lastError instanceof Error ? lastError : new LlmError(String(lastError), 0, false);
+}
+/**
+* `strict` here is provisional: it says this tool could be guaranteed on its
+* own. Whether it actually is depends on what else is on the table, and only
+* the request knows that — `callWithTools` settles it with `fitStrict`.
+*/
+function toolFor(name, description, schema) {
+	const input_schema = toolSchema(schema);
+	return {
+		name,
+		description,
+		input_schema,
+		...canBeStrict(input_schema) ? { strict: true } : {}
+	};
+}
+/**
+* One exchange with tools on the table. Does NOT loop — the caller decides
+* whether what came back finishes the turn, and only the caller knows that.
+*/
+async function callWithTools(opts) {
+	const json = await post({
+		model: modelFor(opts.task),
+		max_tokens: opts.maxTokens ?? MAX_TOKENS[opts.task],
+		...opts.system ? { system: opts.system } : {},
+		messages: opts.messages,
+		tools: fitStrict(opts.tools),
+		tool_choice: opts.toolChoice ?? { type: "auto" }
+	}, opts.signal);
+	return {
+		text: json.content.filter((b) => b.type === "text").map((b) => b.text ?? "").join(""),
+		toolUses: json.content.filter((b) => b.type === "tool_use").map((b) => ({
+			id: b.id ?? "",
+			name: b.name ?? "",
+			input: b.input
+		})),
+		content: json.content,
+		stopReason: json.stop_reason,
+		usage: usageOf(json.usage)
+	};
+}
+/**
+* The answers to a batch of tool calls, as one user turn.
+*
+* One turn, however many calls: splitting results across messages teaches the
+* model to stop asking for them together, and asking for them together is the
+* whole point of the dice tool taking a list.
+*/
+function toolResults(results) {
+	return {
+		role: "user",
+		content: results.map((r) => ({
+			type: "tool_result",
+			tool_use_id: r.id,
+			content: r.content,
+			...r.isError ? { is_error: true } : {}
+		}))
+	};
+}
+async function callForJson(opts) {
+	const retry = opts.retryOnInvalid ?? true;
+	const messages = [...opts.messages];
+	const schema = toolSchema(opts.schema);
+	const strict = canBeStrict(schema);
+	let usage = NO_USAGE;
+	for (let attempt = 1;; attempt++) {
+		const json = await post({
+			model: modelFor(opts.task),
+			max_tokens: opts.maxTokens ?? MAX_TOKENS[opts.task],
+			...opts.system ? { system: opts.system } : {},
+			messages,
+			tools: [{
+				name: opts.toolName,
+				description: opts.toolDescription,
+				input_schema: schema,
+				...strict ? { strict: true } : {}
+			}],
+			tool_choice: {
+				type: "tool",
+				name: opts.toolName
+			}
+		}, opts.signal);
+		usage = addUsage(usage, usageOf(json.usage));
+		const call = json.content.find((b) => b.type === "tool_use" && b.name === opts.toolName);
+		try {
+			if (!call) throw new ResponseFormatError(`the model did not call ${opts.toolName} (stop_reason: ${json.stop_reason})`);
+			if (json.stop_reason === "max_tokens") throw new ResponseFormatError("the response was cut off at max_tokens; the object is incomplete");
+			const value = validate$1(opts.schema, call.input);
+			const missing = opts.check?.(value) ?? [];
+			if (missing.length > 0) throw new ResponseFormatError("the response is well-formed but does not answer everything it was asked", missing, JSON.stringify(call.input).slice(0, 2e3));
+			return {
+				value,
+				usage,
+				attempts: attempt
+			};
+		} catch (e) {
+			const isFormat = e instanceof ResponseFormatError;
+			const willRetry = isFormat && retry && attempt <= 1;
+			if (isFormat && opts.onAttemptFailed) try {
+				opts.onAttemptFailed({
+					attempt,
+					willRetry,
+					message: e.message,
+					issues: e.issues,
+					raw: e.raw ?? (call ? JSON.stringify(call.input).slice(0, 2e3) : void 0)
+				});
+			} catch (reporting) {
+				console.warn("[llm] onAttemptFailed threw; ignoring it:", reporting);
+			}
+			if (!willRetry) throw e;
+			const objection = `${e.feedback}\n\nCall \`${opts.toolName}\` again with the whole input, corrected. Every field must be a real JSON value — an array field is an array, not a string containing one.`;
+			if (call?.id) messages.push({
+				role: "assistant",
+				content: json.content
+			}, toolResults([{
+				id: call.id,
+				content: objection,
+				isError: true
+			}]));
+			else {
+				if (json.content.length > 0) messages.push({
+					role: "assistant",
+					content: json.content
+				});
+				messages.push({
+					role: "user",
+					content: objection
+				});
+			}
+		}
+	}
+}
+//#endregion
+//#region src/server/db/connection.ts
+/**
+* THE CONNECTION
+* ==============
+*
+* One pool, made once per process, over Supabase's Supavisor pooler.
+*
+* WHY THE POOLER AND NOT THE DATABASE DIRECTLY. Postgres charges real memory
+* for every connection and tops out in the low hundreds; a serverless platform
+* answers a burst of requests by starting a burst of instances, each of which
+* would open its own. Supavisor sits in front and multiplexes them, so a
+* hundred cold starts are a handful of backend connections. Port 6543 is
+* transaction mode — a connection is handed back at the end of each
+* transaction rather than held for the life of the client, which is the mode
+* that matches a request-shaped workload.
+*
+* TRANSACTION MODE FORBIDS PREPARED STATEMENTS. A prepared statement lives on
+* the backend connection, and in transaction mode the next query may land on a
+* different one — so `prepare: false` is not a tuning knob, it is the thing
+* that stops "prepared statement s1 already exists" showing up under load and
+* never in development. postgres.js prepares by default.
+*
+* ONE POOL PER PROCESS, module-level, and that is deliberate — the opposite of
+* the rule the store and the journal follow. Those hold per-run state and a
+* singleton would let two runs see each other. A pool holds no run state at
+* all; it is a socket cache, and making one per request would spend a TCP and
+* TLS handshake on every turn.
+*
+* Node only. Nothing outside `src/server/` may import this.
+*/
+var sql;
+/**
+* The connection string, from the environment.
+*
+* Named rather than assembled, because the pooler's host, port and username
+* form are Supabase's to change and a template here would be a thing to get
+* subtly wrong. Supabase dashboard → Project Settings → Database → Connection
+* string → **Transaction pooler**.
+*/
+function connectionString() {
+	const url = process.env.DATABASE_URL;
+	if (!url) throw new Error("DATABASE_URL is not set. Copy the TRANSACTION POOLER connection string from the Supabase dashboard (Project Settings → Database) into .env.local.");
+	if (!url.includes(":6543")) console.warn("[db] DATABASE_URL is not on port 6543. Serverless wants the transaction pooler.");
+	return url;
+}
+function db() {
+	return sql ??= postgres(connectionString(), {
+		prepare: false,
+		connect_timeout: 10,
+		idle_timeout: 20,
+		max: 4,
+		onnotice: () => {}
+	});
+}
+//#endregion
+//#region src/server/db/repo.ts
+/**
+* THE DATABASE, AS FUNCTIONS
+* ==========================
+*
+* Every statement the server runs, in one place. Handlers above this file ask
+* for things; nothing above this file writes SQL.
+*
+* Two kinds of record: a dungeon is large and written twice — once partial,
+* once complete — and a run is small and written on every turn.
+*
+* THE ONE THING WORTH READING BEFORE THE REST is `commitTurn`. It is the write
+* that has to be correct under two requests at once, and everything it does is
+* one transaction on purpose. See the note above it.
+*
+* Node only.
+*/
+var repo_exports = /* @__PURE__ */ __exportAll({
+	activeRunFor: () => activeRunFor,
+	appendDungeonEvents: () => appendDungeonEvents,
+	appendEvents: () => appendEvents,
+	carriedOut: () => carriedOut,
+	claimIllustration: () => claimIllustration,
+	collectingSink: () => collectingSink,
+	commitTurn: () => commitTurn,
+	completeDungeon: () => completeDungeon,
+	createRun: () => createRun,
+	deleteCharacter: () => deleteCharacter,
+	duplicateDungeon: () => duplicateDungeon,
+	failIllustration: () => failIllustration,
+	findUnfinishedDungeon: () => findUnfinishedDungeon,
+	finishIllustration: () => finishIllustration,
+	getCharacter: () => getCharacter,
+	getDungeon: () => getDungeon,
+	getIllustration: () => getIllustration,
+	getIllustrationWords: () => getIllustrationWords,
+	getRun: () => getRun,
+	insertPartialDungeon: () => insertPartialDungeon,
+	lastDungeonSeq: () => lastDungeonSeq,
+	lastSeq: () => lastSeq,
+	listChunks: () => listChunks,
+	listDungeons: () => listDungeons,
+	listLibrary: () => listLibrary,
+	listRoster: () => listRoster,
+	listRuns: () => listRuns,
+	lockRun: () => lockRun,
+	readDungeonEvents: () => readDungeonEvents,
+	readJournal: () => readJournal,
+	releaseRun: () => releaseRun,
+	saveCharacter: () => saveCharacter,
+	saveChunk: () => saveChunk,
+	saveIllustrationWords: () => saveIllustrationWords,
+	setDungeonCover: () => setDungeonCover,
+	statusOf: () => statusOf
+});
+/**
+* A document, on its way into a jsonb column.
+*
+* postgres.js types `sql.json` against its own JSON value union, which nothing
+* declared with an interface satisfies structurally. The cast is here, once and
+* named, rather than at each of the six call sites — everything passed through
+* it is a plain serialisable document.
+*/
+var doc = (sql, value) => sql.json(value);
+/**
+* A run's status, from the stage it is standing in.
+*
+* `departed` is deliberately absent: the store resolves it into `escaped` or
+* `goal_met` the moment a commit lands — which ending a departure was depends
+* on world state rather than on what the game master remembered — so it can never
+* be what is persisted. See `endingOf` in gameplay/state/store.ts.
+*/
+function statusOf(stage) {
+	if (stage === "dead" || stage === "escaped" || stage === "goal_met") return stage;
+	if (stage === "abandoned") return "abandoned";
+	return "active";
+}
+var NO_RECORD = () => ({
+	dead: 0,
+	abandoned: 0,
+	escaped: 0,
+	goalMet: 0
+});
+/**
+* The characters screen, in three queries rather than one clever one.
+*
+* Stitched in TypeScript on purpose. The same thing as a single statement is a
+* pair of lateral joins over an aggregate, which is harder to read than the
+* three obvious selects and no faster at this size — a player has a handful of
+* characters, and both supporting queries hit an index whose leading column is
+* the owner.
+*
+* A CHARACTER WITH NO RUNS GETS ZEROES, not an absent record. The screen renders
+* the same row either way, and a caller should never have to ask whether a
+* missing count means none or means unknown.
+*/
+async function listRoster(owner, sql = db()) {
+	const [sheets, counts, active] = await Promise.all([
+		sql`
+      select id, sheet from characters where owner_id = ${owner} order by created_at asc
+    `,
+		sql`
+      select character_id as "characterId", status, count(*)::int as n
+        from runs
+       where owner_id = ${owner} and character_id is not null and status <> 'active'
+       group by character_id, status
+    `,
+		sql`
+      select r.character_id                                    as "characterId",
+             r.id                                              as "id",
+             r.dungeon_id                                      as "dungeonId",
+             coalesce(d.doc -> 'pass' ->> 'name', 'Unnamed')   as "dungeonName",
+             coalesce((r.state ->> 'turnCount')::int, 0)       as "turnCount"
+        from runs r join dungeons d on d.id = r.dungeon_id
+       where r.owner_id = ${owner} and r.status = 'active' and r.character_id is not null
+    `
+	]);
+	const records = /* @__PURE__ */ new Map();
+	for (const row of counts) {
+		const record = records.get(row.characterId) ?? NO_RECORD();
+		if (row.status === "goal_met") record.goalMet = row.n;
+		else if (row.status !== "active") record[row.status] = row.n;
+		records.set(row.characterId, record);
+	}
+	const runs = new Map(active.map((r) => [r.characterId, r]));
+	return sheets.map(({ id, sheet }) => {
+		const run = runs.get(id);
+		return {
+			sheet,
+			record: records.get(id) ?? NO_RECORD(),
+			...run ? { activeRun: {
+				id: run.id,
+				dungeonId: run.dungeonId,
+				dungeonName: run.dungeonName,
+				turnCount: run.turnCount
+			} } : {}
+		};
+	});
+}
+/**
+* The run this character is in, or nothing.
+*
+* Asked before a new run is created and before a character is deleted. NOT the
+* enforcement — the partial unique index is, and a check here could always lose
+* a race with a second request. This is what turns the violation the index
+* raises into an answer that names the run, which is the thing the player needs
+* in order to do anything about it.
+*/
+async function activeRunFor(characterId, owner, sql = db()) {
+	const [row] = await sql`
+    select id, dungeon_id as "dungeonId" from runs
+     where owner_id = ${owner} and character_id = ${characterId} and status = 'active'
+  `;
+	return row;
+}
+async function getCharacter(id, owner, sql = db()) {
+	const [row] = await sql`
+    select sheet from characters where id = ${id} and owner_id = ${owner}
+  `;
+	return row?.sheet;
+}
+/**
+* Insert or replace, keyed on the sheet's own id.
+*
+* The character carries its id — it was made in the browser and has been in a
+* run under that name — so the row takes it rather than minting another.
+*
+* `and owner_id = ${owner}` ON THE UPDATE BRANCH is what stops one player
+* overwriting another's sheet by posting a character carrying their id. Without
+* it the `on conflict` would happily update a row it does not own, which is the
+* one way an upsert can leak where a plain insert cannot. An attempt to do so
+* now updates nothing and reports it, rather than silently succeeding.
+*/
+async function saveCharacter(pc, owner, sql = db()) {
+	if ((await sql`
+    insert into characters (id, owner_id, sheet)
+    values (${pc.id}, ${owner}, ${doc(sql, pc)})
+    on conflict (id) do update
+       set sheet = excluded.sheet, updated_at = now()
+     where characters.owner_id = ${owner}
+    returning id
+  `).length === 0) throw new Error(`not yours to save: ${pc.id}`);
+	return pc;
+}
+/**
+* WHAT A CHARACTER BRINGS BACK UP.
+*
+* Called only when a run ended with the player alive and out — `escaped` or
+* `goal_met`. The run's own `pc` has been diverging from the sheet since the
+* first turn (gear picked up, coin spent, armour worn down) and on a successful
+* ending it becomes the sheet. Same id, so the Phase 11 upsert lands on the same
+* row.
+*
+* DEATH AND ABANDONMENT WRITE NOTHING, which is how "the character as they were
+* before the run" is achieved: nothing touches `characters.sheet` during a run,
+* so the stored sheet is still the pre-run one and there is no snapshot to take
+* and no restore to perform. The only trace either leaves is a row in `runs`,
+* which is what the counters read.
+*
+* THE RUN'S XP LANDS HERE TOO, and for the same reason the gear does: this is
+* the one function that turns a run's character into the roster's character, so
+* it is the one place a survivor's earnings can be added without a second write
+* that could fail on its own. A death or an abandonment never calls it, which is
+* exactly the rule — `shouldTally` refuses to score either, so there would be
+* nothing to add even if it did.
+*
+* HIT POINTS RETURN TO MAX, and that is a decision rather than a consequence.
+* There is no downtime, no rest and no healing outside a run, so a character who
+* surfaces at 1/15 can only die next time — which quietly turns "escaped alive"
+* into a delayed death and makes the ending worthless.
+*
+* ── IF WOUNDS SHOULD CARRY, THIS IS THE WHOLE CHANGE ───────────────────────
+*
+* The line below is the only thing standing between a survivor and the hit
+* points they climbed out on. To keep the damage:
+*
+*     return pc;                       // and delete the spread above
+*
+* That is the code. What it needs BESIDE it is the reason this was not done in
+* the first place — some way back to full, or the ending stops meaning
+* anything. Any one of these would do, cheapest first:
+*
+*   - a flat heal between runs that is less than everything (half the missing,
+*     a die, a point per level), so a bad run costs the next one something
+*     without ending it;
+*   - rest as a real action with a real cost — rations, a light clock, a
+*     wandering-monster roll — which is where Knave already points and which
+*     `turnCount` was put in `RunState` for (BUILD-PLAN §6, Phase 2);
+*   - healing bought in the shop, which is the other half of Phase 5's
+*     equipment step and is still open (CODING-PLAN §3.6).
+*
+* Whichever one lands, this function is where it goes, and `ownership.dbtest.ts`
+* — "keeps what they carried, and heals them, when they got out alive" — is the
+* test that has to change with it.
+* ───────────────────────────────────────────────────────────────────────────
+*/
+function carriedOut(pc, earned = 0) {
+	return {
+		...pc,
+		hp: {
+			...pc.hp,
+			current: pc.hp.max
+		},
+		xp: (pc.xp ?? 0) + earned
+	};
+}
+async function deleteCharacter(id, owner, sql = db()) {
+	return (await sql`
+    delete from characters where id = ${id} and owner_id = ${owner} returning id
+  `).length > 0;
+}
+/**
+* The structure pass, stored, and the row id it was given.
+*
+* Returns the ROW id, which is what every later request names. The caller must
+* not assume it can reconstruct this from the seed — that assumption is exactly
+* what the key split removed.
+*/
+async function insertPartialDungeon(gd, owner, sql = db()) {
+	const [row] = await sql`
+    insert into dungeons (dungeon_key, owner_id, seed, size, level, status, doc)
+    values (${gd.id}, ${owner}, ${gd.seeds.dungeonSeed}, ${gd.size}, ${gd.level},
+            'partial', ${doc(sql, gd)})
+    returning id
+  `;
+	return row.id;
+}
+/**
+* This player's unfinished dungeon from these dice, if they have one.
+*
+* What makes "try seed N again" reuse a failed writing rather than start a
+* second one, which would also count against the day's allowance a second
+* time. Copies are never partial, but the filter says so anyway.
+*/
+async function findUnfinishedDungeon(owner, dice, sql = db()) {
+	const [row] = await sql`
+    select id, dungeon_key as "dungeonKey", owner_id as "ownerId", status, doc, cover
+      from dungeons
+     where owner_id = ${owner} and status = 'partial' and copied_from is null
+       and seed = ${dice.seed} and size = ${dice.size} and level = ${dice.level}
+     order by created_at desc
+     limit 1
+  `;
+	return row;
+}
+/**
+* A dungeon, in full, for the player who owns it.
+*
+* OWNER IN THE WHERE CLAUSE, not an `if` after the read: someone else's dungeon
+* is indistinguishable from one that does not exist, so the API never confirms
+* that a row it will not serve is there.
+*/
+async function getDungeon(id, owner, sql = db()) {
+	const [row] = await sql`
+    select id, dungeon_key as "dungeonKey", owner_id as "ownerId", status, doc, cover
+      from dungeons where id = ${id} and owner_id = ${owner}
+  `;
+	return row;
+}
+/** The player's own worlds, newest first. Summaries — nobody needs six `doc`s. */
+async function listDungeons(owner, sql = db()) {
+	return sql`
+    select id,
+           coalesce(doc -> 'pass' ->> 'name', 'Unnamed')            as name,
+           coalesce(doc -> 'pass' -> 'goal' ->> 'summary', '')      as objective,
+           size, level, seed, d.status,
+           d.created_at as "createdAt",
+           p.path as "coverPath"
+      from dungeons d
+      left join plates p on p.key = d.cover and p.status = 'ready'
+     where owner_id = ${owner}
+     order by d.created_at desc
+  `;
+}
+/**
+* The finished world, written over the partial.
+*
+* `where status = 'partial'` so a second `finish` — a retried request, a client
+* that fired twice — cannot overwrite a complete dungeon with one built from
+* responses that may since have been added to. Returns whether it was this call
+* that completed it.
+*
+* Takes the ROW id explicitly, because `gd.id` is the engine's derived name and
+* is no longer the key. Passing `gd` alone would compile and address the wrong
+* column forever.
+*/
+async function completeDungeon(id, gd, owner, sql = db()) {
+	return (await sql`
+    update dungeons
+       set doc = ${doc(sql, gd)}, status = 'complete', updated_at = now()
+     where id = ${id} and owner_id = ${owner} and status = 'partial'
+    returning id
+  `).length > 0;
+}
+/** How many worlds a batch is, and the most one request may ask for. */
+var LIBRARY_BATCH = 12;
+var LIBRARY_MAX = 48;
+var UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/**
+* A cursor, or nothing — and **validated here rather than by Postgres**.
+*
+* 🔴 THIS IS A REFUSAL, NOT TIDINESS. A cursor arrives from a query string, so
+* it is whatever a caller typed. Handed on unchecked, `?cursor=x|y` binds `x` to
+* a `timestamptz` parameter and **the driver throws while serialising it**
+* (`RangeError: Invalid time value`, inside postgres.js, before the statement is
+* sent) — which the API renders as a 500. A malformed page token is not an
+* internal error; it is a caller saying nothing legible, and the honest answer
+* is the front of the shelf. Found by `ownership.dbtest.ts`.
+*
+* Split on the FIRST separator: a `timestamptz::text` holds no `|` and a uuid
+* holds none, so anything with a different shape is not a cursor this file made.
+*/
+function readCursor(cursor) {
+	if (!cursor) return void 0;
+	const cut = cursor.indexOf("|");
+	if (cut <= 0) return void 0;
+	const at = cursor.slice(0, cut);
+	const id = cursor.slice(cut + 1);
+	if (!UUID.test(id) || Number.isNaN(Date.parse(at))) return void 0;
+	return {
+		at,
+		id
+	};
+}
+/**
+* EVERY COMPLETE WORLD SOMEBODY ELSE MADE, newest first, a batch at a time.
+*
+* The second of the two cross-owner reads, and it obeys the same rule as
+* `duplicateDungeon`: what crosses the line is a SUMMARY. Never `doc`, which is
+* every answer in the world — browsing must not be a way to read a dungeon you
+* have not walked. `DungeonSummary` has been the shape of that promise since
+* Phase 11 with nothing to serve it; this is what it was for.
+*
+* NO MAKER ATTRIBUTION, deliberately. The only name this project holds for an
+* account is `profiles.email`, and a browse screen that printed it would be a
+* way to enumerate the invite list. A world is offered on what it is, not on
+* whose it was.
+*
+* KEYSET AND NOT OFFSET. A batch boundary has to survive a dungeon being written
+* while the player is scrolling: `offset 12` after an insert shows row 12 twice
+* and never shows row 13. `(created_at, id) < (…)` is anchored to the last row
+* actually seen, so an insert above the cursor changes nothing below it. The id
+* is in the comparison because `created_at` is the transaction clock and two
+* rows can share it exactly — see the migration.
+*
+* THE CURSOR IS BUILT IN SQL, not from the row in TypeScript. `timestamptz` is a
+* `Date` by the time the driver is done with it, and formatting one back to
+* something Postgres reads identically is a round trip through two libraries'
+* opinions about microseconds. `created_at::text` round-trips with itself.
+*/
+async function listLibrary(viewer, opts = {}, sql = db()) {
+	const asked = Math.trunc(Number(opts.limit));
+	const limit = Number.isFinite(asked) ? Math.min(Math.max(asked, 1), LIBRARY_MAX) : LIBRARY_BATCH;
+	const at = readCursor(opts.cursor);
+	const rows = await sql`
+    select id,
+           coalesce(doc -> 'pass' ->> 'name', 'Unnamed')            as name,
+           coalesce(doc -> 'pass' -> 'goal' ->> 'summary', '')      as objective,
+           size, level, seed, d.status,
+           d.created_at                                            as "createdAt",
+           d.created_at::text || '|' || d.id::text                 as "cursor",
+           p.path                                                  as "coverPath"
+      from dungeons d
+      left join plates p on p.key = d.cover and p.status = 'ready'
+     where d.status = 'complete'
+       and owner_id <> ${viewer}
+       ${at ? sql`and (d.created_at, d.id) < (${at.at}::text::timestamptz, ${at.id}::text::uuid)` : sql``}
+     order by d.created_at desc, d.id desc
+     limit ${limit + 1}
+  `;
+	const more = rows.length > limit;
+	const page = rows.slice(0, limit);
+	return {
+		dungeons: page.map(({ cursor: _cursor, ...summary }) => summary),
+		...more && page.length > 0 ? { cursor: page[page.length - 1].cursor } : {}
+	};
+}
+/**
+* TAKE A COPY OF A WORLD — the one statement in this file that reads a row
+* without asking whose it is.
+*
+* Every other read here puts the owner in the `where`, and that rule is not
+* being bent: what this reads cross-owner is the ROW, and what it does with it
+* is write a new one belonging to the caller. Nothing about the source is ever
+* returned. A dungeon is the one thing another player may see (§8.1), and this
+* is the whole of what "see" means — a copy of your own, not a look at theirs.
+*
+* WHAT COMES ACROSS, and what does not:
+*
+*   - the row and its `doc`, under a fresh uuid. The `doc` keeps its own
+*     engine-derived `id` untouched, exactly as `insertPartialDungeon` leaves
+*     it: that is the name of the WORLD and both copies are that world.
+*   - `dungeon_events`, because a run's journal is generation followed by play
+*     (`readJournal`) and a copy without them yields a transcript that starts
+*     mid-air. It is also where the `kind: "dungeon"` baseline lives, which is
+*     what `journal/render.ts` prints when someone wants to judge the writing.
+*   - NOT `generation_chunks`. Only `finish` reads those, a complete dungeon
+*     never finishes again, and they are the unapplied raw responses — the
+*     largest thing in the schema and the least use to anybody holding the
+*     applied world.
+*
+* COMPLETE ONLY. Half a world is not worth copying, and `finish` on the copy
+* would have no chunks to finish from.
+*
+* `undefined` means no such complete dungeon — one answer for "not there" and
+* "still being written", because a caller who may not have it either way should
+* not learn which.
+*/
+async function duplicateDungeon(sourceId, owner, sql = db()) {
+	return sql.begin(async (tx) => {
+		const [source] = await tx`
+      select id from dungeons where id = ${sourceId} and status = 'complete'
+    `;
+		if (!source) return void 0;
+		const [mine] = await tx`
+      select id from dungeons where owner_id = ${owner} and copied_from = ${sourceId}
+    `;
+		if (mine) return {
+			id: mine.id,
+			already: true
+		};
+		const [copy] = await tx`
+      insert into dungeons (dungeon_key, owner_id, seed, size, level, status, doc, copied_from, cover)
+      select dungeon_key, ${owner}, seed, size, level, status, doc, id, cover
+        from dungeons where id = ${sourceId}
+      returning id
+    `;
+		await tx`
+      insert into dungeon_events (dungeon_id, seq, at, kind, payload)
+      select ${copy.id}::uuid, seq, at, kind, payload
+        from dungeon_events where dungeon_id = ${sourceId}
+    `;
+		return {
+			id: copy.id,
+			already: false
+		};
+	});
+}
+/**
+* One region's answer, unapplied.
+*
+* `on conflict do nothing` rather than `do update`: the regions are called in
+* parallel from separate requests, and a chunk that arrives twice is a retry of
+* a call whose answer already landed. Keeping the first is what makes the
+* request idempotent — and it has to be, because the client fires N of these
+* and any one of them can be retried by anything between here and the browser.
+*/
+async function saveChunk(dungeonId, result, sql = db()) {
+	await sql`
+    insert into generation_chunks (dungeon_id, chunk, response)
+    values (${dungeonId}, ${result.chunk}, ${doc(sql, result)})
+    on conflict (dungeon_id, chunk) do nothing
+  `;
+}
+async function listChunks(dungeonId, sql = db()) {
+	return (await sql`
+    select response from generation_chunks
+     where dungeon_id = ${dungeonId}
+     order by chunk asc
+  `).map((r) => r.response);
+}
+/**
+* A block's name, and the only thing that decides whether two blocks are one.
+*
+* Hashed HERE rather than in Postgres, so the id exists before the statement is
+* composed — which is what lets the blocks and the events that reference them go
+* in as two ordinary inserts instead of a round trip that asks the database what
+* it would call this.
+*/
+var shaOf = (text) => createHash("sha256").update(text, "utf8").digest("hex");
+/**
+* Events on their way to a column, with each `system` block's text replaced by
+* the sha that names it — and the blocks themselves, to be written first.
+*
+* `chars` rides along beside the sha. It is redundant against `prompt_blocks`
+* and worth its twenty bytes: it is what makes the compact form READABLE on its
+* own, so a journal pulled straight out of the table still says how much prose
+* each call carried without a join to find out.
+*
+* Everything that is not a `system` event passes through untouched. The other
+* repeated payloads — a `generation` prompt, the `dungeon` baseline — are real
+* duplication too and are left alone on purpose: they are one write per dungeon
+* rather than one per turn, so they do not grow with play, and each would want
+* its own decision about what "the same" means.
+*/
+function dehydrate(events) {
+	const blocks = /* @__PURE__ */ new Map();
+	return {
+		payloads: events.map((e) => {
+			if (e.kind !== "system") return JSON.stringify(e);
+			const slim = e.blocks.map(({ text, ...rest }) => {
+				const sha = shaOf(text);
+				if (!blocks.has(sha)) blocks.set(sha, {
+					sha,
+					chars: text.length,
+					text
+				});
+				return {
+					...rest,
+					sha,
+					chars: text.length
+				};
+			});
+			return JSON.stringify({
+				...e,
+				blocks: slim
+			});
+		}),
+		blocks: [...blocks.values()]
+	};
+}
+/**
+* The blocks an event batch referred to, inserted before the events that refer
+* to them.
+*
+* `on conflict do nothing` is the normal case rather than the exception — after
+* the first run in the life of the database, almost every block written here is
+* already there. The insert is still worth making: deciding whether to would
+* cost the round trip it saves.
+*/
+async function saveBlocks(sql, blocks) {
+	if (blocks.length === 0) return;
+	await sql`
+    insert into prompt_blocks (sha, chars, text)
+    select s.sha, s.chars, s.text
+      from unnest(${blocks.map((b) => b.sha)}::text[],
+                  ${blocks.map((b) => b.chars)}::int[],
+                  ${blocks.map((b) => b.text)}::text[])
+        as s(sha, chars, text)
+    on conflict (sha) do nothing
+  `;
+}
+/**
+* What generation wrote down, which belongs to the dungeon rather than to any
+* run — see the migration. Written once, read by every run down this dungeon.
+*/
+async function appendDungeonEvents(dungeonId, events, sql = db()) {
+	if (events.length === 0) return;
+	const { payloads, blocks } = dehydrate(events);
+	await saveBlocks(sql, blocks);
+	await sql`
+    insert into dungeon_events (dungeon_id, seq, at, kind, payload)
+    select ${dungeonId}::uuid, s.seq, s.at::timestamptz, s.kind, s.payload::jsonb
+      from unnest(${events.map((e) => e.seq)}::int[],
+                  ${events.map((e) => e.at)}::text[],
+                  ${events.map((e) => e.kind)}::text[],
+                  ${payloads}::text[])
+        as s(seq, at, kind, payload)
+    on conflict (dungeon_id, seq) do nothing
+  `;
+}
+/**
+* Generation's own sequence, so three requests write one ordered stream rather
+* than three that each start at 1. Same reasoning as `lastSeq`.
+*/
+async function lastDungeonSeq(dungeonId, sql = db()) {
+	const [row] = await sql`
+    select coalesce(max(seq), 0)::int as seq from dungeon_events where dungeon_id = ${dungeonId}
+  `;
+	return row?.seq ?? 0;
+}
+async function readDungeonEvents(dungeonId, sql = db()) {
+	return (await sql`
+    select rehydrate_blocks(payload) as payload
+      from dungeon_events where dungeon_id = ${dungeonId} order by seq asc
+  `).map((r) => r.payload);
+}
+async function createRun(input, sql = db()) {
+	const [row] = await sql`
+    insert into runs (owner_id, dungeon_id, character_id, state, status)
+    values (${input.owner}, ${input.dungeonId}, ${input.characterId ?? null},
+            ${doc(sql, input.state)}, ${statusOf(input.state.stage)})
+    returning id, version
+  `;
+	return {
+		id: row.id,
+		dungeonId: input.dungeonId,
+		characterId: input.characterId ?? null,
+		state: input.state,
+		version: row.version,
+		status: statusOf(input.state.stage)
+	};
+}
+/**
+* A run, for the player whose run it is.
+*
+* THERE IS NO OTHER READ PATH. A run is two private things at once — our log
+* when something goes wrong, and the player's save file — and neither wants an
+* audience. Someone else's run 404s exactly as a missing one does.
+*/
+async function getRun(id, owner, sql = db()) {
+	const [row] = await sql`
+    select id, dungeon_id as "dungeonId", character_id as "characterId",
+           state, version, status
+      from runs where id = ${id} and owner_id = ${owner}
+  `;
+	return row;
+}
+async function listRuns(owner, sql = db()) {
+	return sql`
+    select id, dungeon_id as "dungeonId", status,
+           created_at as "createdAt", updated_at as "updatedAt"
+      from runs where owner_id = ${owner} order by created_at desc
+  `;
+}
+/**
+* Claim a run for the length of a turn.
+*
+* NOT A CORRECTNESS MECHANISM. `commitTurn` below already makes concurrent
+* turns safe by refusing to write against a version that has moved. This only
+* turns a duplicate away BEFORE it spends a whole game master conversation — two to
+* four model calls — on a turn that would be rejected at the write anyway. A
+* double-click should not cost tokens.
+*
+* An expiry rather than a boolean so a function that dies mid-turn — timeout,
+* crash, deploy — does not wedge the run until somebody notices.
+*/
+async function lockRun(id, owner, holdSeconds = 300, sql = db()) {
+	return (await sql`
+    update runs
+       set locked_until = now() + make_interval(secs => ${holdSeconds})
+     where id = ${id} and owner_id = ${owner}
+       and (locked_until is null or locked_until < now())
+    returning id
+  `).length > 0;
+}
+async function releaseRun(id, owner, sql = db()) {
+	await sql`update runs set locked_until = null where id = ${id} and owner_id = ${owner}`;
+}
+/**
+* How many events this run has already written.
+*
+* A session is built fresh per request and its journal counts from whatever it
+* is told — so this is what it is told. Without it the second request into a
+* run numbers its events 1, 2, 3 on top of the first request's and collides on
+* the primary key. See `createJournal`.
+*/
+async function lastSeq(runId, sql = db()) {
+	const [row] = await sql`
+    select coalesce(max(seq), 0)::int as seq from journal_events where run_id = ${runId}
+  `;
+	return row?.seq ?? 0;
+}
+/**
+* A run's journal, whole: how its world was built, then how it was played.
+*
+* Two streams concatenated, which is also the order they happened in. They are
+* numbered independently — generation's `seq` belongs to the dungeon, play's to
+* the run — so the pair is renumbered on the way out. Nothing downstream reads
+* `seq` as a key; it reads it as an order, and this is the order.
+*/
+async function readJournal(runId, dungeonId, sql = db()) {
+	const [built, played] = await Promise.all([readDungeonEvents(dungeonId, sql), sql`
+      select rehydrate_blocks(payload) as payload
+        from journal_events where run_id = ${runId} order by seq asc
+    `.then((rows) => rows.map((r) => r.payload))]);
+	return [...built, ...played].map((e, i) => ({
+		...e,
+		seq: i + 1
+	}));
+}
+/**
+* A sink that keeps what it is given.
+*
+* The server cannot write events as they happen: they have to land in the same
+* transaction as the state they describe, or a turn that is rejected at the
+* write leaves a journal describing a turn that never happened. So a request's
+* journal collects, and `commitTurn` decides whether any of it is real.
+*/
+function collectingSink() {
+	const events = [];
+	return {
+		sink: { write: (r) => events.push(r) },
+		events
+	};
+}
+/**
+* A finished turn: the new state, and the events that describe it, together.
+*
+* COMPARE-AND-SWAP. `where version = expected` is what makes two turns at once
+* safe. Both read version N; the first writes N+1; the second finds no row to
+* update and is told so. It covers the slow version of the same thing as well —
+* the second tab that has been open for ten minutes and still has a live Send
+* button, whose turn is not simultaneous with anything but is computed against
+* a world that has moved on.
+*
+* A VERSION AND NOT THE STAGE the client believes it is on. The client never
+* asserts anything about the rules here: an integer is opaque, so there is no
+* value that is more favourable than another, and a client cannot talk its way
+* into a roll by claiming to be at step 4.
+*
+* ONE TRANSACTION, and the journal rows are inside it. A rejected turn must
+* leave nothing at all — otherwise the journal, which is the thing the whole
+* database exists to keep, ends up describing a turn the state does not have.
+*
+* The lock is released here too, and unconditionally: the turn is over whether
+* or not it was accepted.
+*/
+async function commitTurn(input, sql = db()) {
+	return sql.begin(async (tx) => {
+		const rows = await tx`
+      update runs
+         set state = ${doc(tx, input.state)},
+             status = ${statusOf(input.state.stage)},
+             version = version + 1,
+             locked_until = null,
+             updated_at = now()
+       where id = ${input.runId} and owner_id = ${input.owner}
+         and version = ${input.expectedVersion}
+      returning version
+    `;
+		if (rows.length === 0) {
+			await tx`
+        update runs set locked_until = null
+         where id = ${input.runId} and owner_id = ${input.owner}
+      `;
+			const current = await getRun(input.runId, input.owner, tx);
+			if (!current) return {
+				ok: false,
+				reason: "gone"
+			};
+			return {
+				ok: false,
+				reason: "stale",
+				current
+			};
+		}
+		await insertEvents(tx, input.runId, input.events);
+		const ending = statusOf(input.state.stage);
+		if (ending === "escaped" || ending === "goal_met") {
+			const pc = carriedOut(input.state.pc, input.state.tally?.total ?? 0);
+			await tx`
+        update characters set sheet = ${doc(tx, pc)}, updated_at = now()
+         where id = ${pc.id} and owner_id = ${input.owner}
+      `;
+		}
+		return {
+			ok: true,
+			version: rows[0].version
+		};
+	});
+}
+/**
+* Events in one statement rather than one per event.
+*
+* `unnest` over four parallel arrays, because a turn writes a dozen events and
+* a round trip each would be a dozen round trips inside a transaction holding a
+* pooled connection. The casts are explicit so nothing depends on the driver
+* inferring a type for an empty array.
+*/
+async function insertEvents(tx, runId, events) {
+	if (events.length === 0) return;
+	const seqs = events.map((e) => e.seq);
+	const ats = events.map((e) => e.at);
+	const kinds = events.map((e) => e.kind);
+	const { payloads, blocks } = dehydrate(events);
+	await saveBlocks(tx, blocks);
+	await tx`
+    insert into journal_events (run_id, seq, at, kind, payload)
+    select ${runId}::uuid, s.seq, s.at::timestamptz, s.kind, s.payload::jsonb
+      from unnest(${seqs}::int[], ${ats}::text[], ${kinds}::text[], ${payloads}::text[])
+        as s(seq, at, kind, payload)
+    on conflict (run_id, seq) do nothing
+  `;
+}
+/**
+* The first write of a run's journal — generation, and the room entry.
+*
+* Separate from `commitTurn` because there is no version to swap on yet: the
+* run has only just been created, nothing else can be holding it, and the state
+* that goes with these events was written by `createRun` a moment ago.
+*/
+async function appendEvents(runId, events, sql = db()) {
+	if (events.length === 0) return;
+	await sql.begin((tx) => insertEvents(tx, runId, events));
+}
+async function getIllustration(key, sql = db()) {
+	const [row] = await sql`
+    select key, status, path, attempts,
+           (extract(epoch from now() - updated_at) * 1000)::int as "ageMs"
+      from plates where key = ${key}
+  `;
+	return row;
+}
+/**
+* Take the job of drawing an illustration. True when this request is the one to draw it.
+*
+* ONE STATEMENT, so two runs entering the same room in the same instant cannot
+* both win: a new key is inserted as `pending`; an existing one is taken over
+* only when it failed and has attempts left, or when its `pending` claim is
+* older than `staleMs` — the request that made it died without saying so.
+*/
+async function claimIllustration(key, model, opts, sql = db()) {
+	return (await sql`
+    insert into plates (key, status, model, attempts) values (${key}, 'pending', ${model}, 1)
+    on conflict (key) do update
+       set status = 'pending', model = excluded.model, attempts = illustrations.attempts + 1,
+           error = null, updated_at = now()
+     where (illustrations.status = 'failed' and illustrations.attempts < ${opts.maxAttempts})
+        or (illustrations.status = 'pending' and illustrations.updated_at < now() - make_interval(secs => ${opts.staleMs / 1e3}))
+    returning key
+  `).length > 0;
+}
+async function finishIllustration(key, path, sql = db()) {
+	await sql`update plates set status = 'ready', path = ${path}, updated_at = now() where key = ${key}`;
+}
+async function failIllustration(key, error, sql = db()) {
+	await sql`update plates set status = 'failed', error = ${error.slice(0, 2e3)}, updated_at = now() where key = ${key}`;
+}
+/** Shared words an illustration is drawn from — see `plate_words`. */
+async function getIllustrationWords(key, sql = db()) {
+	const [row] = await sql`select value from plate_words where key = ${key}`;
+	return row?.value;
+}
+/** The first answer is kept: a second illustration racing the first reads the winner's. */
+async function saveIllustrationWords(key, value, sql = db()) {
+	await sql`insert into plate_words (key, value) values (${key}, ${value}) on conflict (key) do nothing`;
+	return await getIllustrationWords(key, sql) ?? value;
+}
+/**
+* Name the cover a finished dungeon is to have. Written once, at `finish`; a
+* dungeon whose `cover` is null was finished before covers and never gets one.
+*/
+async function setDungeonCover(id, key, sql = db()) {
+	await sql`update dungeons set cover = ${key} where id = ${id} and cover is null`;
+}
+//#endregion
+//#region src/server/routes/characters.ts
+function characterRoutes(app) {
+	/**
+	* The roster: who the player has, what has happened to them, and where they
+	* are. Was `PlayerCharacter[]`; a sheet alone can no longer answer the
+	* question the screen asks, which is whether this person can be sent anywhere.
+	*/
+	app.get("/api/characters", async (c) => c.json(await listRoster(currentUser(c).id)));
+	/**
+	* Save a sheet — a new character, or one that has been to the market.
+	*
+	* EDITING SOMEBODY WHO IS STILL DOWN THERE IS REFUSED, the same way deleting
+	* them is and for a neighbouring reason. A run plays from its own copy of the
+	* sheet and writes what survives back when it ends, so a write from up here
+	* would either be overwritten without warning or overwrite the run's own
+	* result. The shop is the only caller that can reach this with an existing
+	* character and it does not offer the button to anyone in a run; this is the
+	* rule rather than the manners.
+	*/
+	app.post("/api/characters", async (c) => {
+		const user = currentUser(c);
+		const pc = await c.req.json();
+		const active = await activeRunFor(pc.id, user.id);
+		if (active) return c.json({
+			error: "that character is in a run — what they are carrying is the run's now",
+			runId: active.id
+		}, 409);
+		return c.json(await saveCharacter(pc, user.id));
+	});
+	/**
+	* Deleting somebody who is still down there is refused.
+	*
+	* The foreign key is `on delete set null`, so this would otherwise succeed and
+	* leave an active run belonging to nobody: a save file with no way to reach it
+	* and no way to end it, holding a lock against a character that no longer
+	* exists. Abandon first — that is what the verb is for.
+	*/
+	app.delete("/api/characters/:id", async (c) => {
+		const user = currentUser(c);
+		const id = c.req.param("id");
+		const active = await activeRunFor(id, user.id);
+		if (active) return c.json({
+			error: "that character is in a run — abandon it first",
+			runId: active.id
+		}, 409);
+		return c.json({ deleted: await deleteCharacter(id, user.id) });
+	});
 }
 //#endregion
 //#region src/shared/utils/id.ts
@@ -6912,7 +8371,7 @@ function chooseEntrances(rooms, edges, C, rng) {
 	}
 	return chosen;
 }
-function validate$1(d, chunks, maxDegree) {
+function validate(d, chunks, maxDegree) {
 	const fails = [];
 	const n = d.rooms.length;
 	const C = d.chunkCount;
@@ -7045,7 +8504,7 @@ function generate(seed, params) {
 		...planarity.planar ? { embedding: planarity.rotation } : {}
 	};
 	dungeon.entrances = chooseEntrances(rooms, edges, C, rng);
-	dungeon.failures = validate$1(dungeon, chunks, maxDegree);
+	dungeon.failures = validate(dungeon, chunks, maxDegree);
 	dungeon.valid = dungeon.failures.length === 0;
 	return dungeon;
 }
@@ -8711,494 +10170,6 @@ function rollSpecial(rng) {
 	};
 }
 //#endregion
-//#region src/llm/models.ts
-/**
-* Everything is on Haiku 4.5 while the pipeline is being built: it is the
-* cheapest current model ($1 / $5 per million tokens in / out, against Sonnet
-* 5's $3 / $15), and prompt iteration means running the same seed many times.
-*
-* Two limits it carries that the larger models do not — neither binds today,
-* but both would if this stayed past the prototype:
-*   - 200K context, not 1M. A chunk prompt is a few thousand tokens, so there
-*     is a lot of headroom, but a very large dungeon would eventually crowd it.
-*   - 64K max output, not 128K. Above MAX_TOKENS below, so it does not bind.
-*
-* Haiku 4.5 also predates adaptive thinking and the effort parameter — it takes
-* the older `budget_tokens` form and errors on `effort`. Nothing here uses
-* either, but that is the thing to check before turning them on.
-*
-* Expect this to stop being one model. The obvious first split is the Dungeon
-* Pass: it runs once, sets the fiction every other call is written against, and
-* costs a rounding error next to N content-pass calls — so it is the cheapest
-* place to buy quality. That is what this registry being task-keyed is for.
-*/
-var MODELS = {
-	"dungeon-pass": "claude-haiku-4-5",
-	"content-pass": "claude-haiku-4-5",
-	"seams-pass": "claude-haiku-4-5",
-	"keys-pass": "claude-haiku-4-5",
-	"tally-pass": "claude-haiku-4-5",
-	"room-entry": "claude-haiku-4-5",
-	"turn-loop": "claude-haiku-4-5",
-	"illustration-visual": "claude-haiku-4-5",
-	"sprite-look": "claude-haiku-4-5"
-};
-/**
-* Per-task output ceiling. Generation passes write a lot; turns write a little.
-* The content pass writes six rooms and everything in them in one response,
-* which is why it gets four times the others.
-*/
-var MAX_TOKENS = {
-	"dungeon-pass": 4096,
-	"content-pass": 16384,
-	"seams-pass": 4096,
-	"keys-pass": 4096,
-	"tally-pass": 4096,
-	"room-entry": 4096,
-	"turn-loop": 4096,
-	"illustration-visual": 1024,
-	"sprite-look": 512
-};
-function modelFor(task) {
-	return MODELS[task];
-}
-var IMAGE_MODELS = {
-	"gpt-image-2": {
-		guided: "openai/gpt-image-2/edit",
-		unguided: "openai/gpt-image-2"
-	},
-	"flux-2-klein-4b": {
-		guided: "fal-ai/flux-2/klein/4b/edit",
-		unguided: "fal-ai/flux-2/klein/4b"
-	},
-	"flux-2-pro": {
-		guided: "fal-ai/flux-2-pro/edit",
-		unguided: "fal-ai/flux-2-pro"
-	},
-	"flux-1-pro-canny": { guided: "fal-ai/flux-pro/v1/canny" }
-};
-/**
-* What draws a room illustration in the game: GPT Image 2 at low quality, from the
-* marked guide and the style references (BUILD-PLAN, *Illustrations*, "Spike
-* outcome"). Part of every illustration's key, so changing it redraws from then on.
-*/
-var ILLUSTRATION_MODEL = "gpt-image-2";
-/**
-* What draws a dungeon's cover, its exterior: FLUX.2 [klein] 4B from the
-* prompt alone. The spike found it best on exteriors, and its text-to-image
-* endpoint takes no references.
-*/
-var COVER_MODEL = "flux-2-klein-4b";
-/**
-* What draws a creature sprite: GPT Image 2 at low quality, against the sprite
-* style references (BUILD-PLAN, *Illustrations*, "Sprite spike"). Klein
-* blanked body horror to a black square even with its safety checker off.
-* Part of every sprite's key, so changing it redraws from then on.
-*/
-var SPRITE_MODEL = "gpt-image-2";
-//#endregion
-//#region src/llm/validation.ts
-function issuesOf(error) {
-	return error.issues.map((i) => ({
-		path: i.path.join(".") || "(root)",
-		message: i.message
-	}));
-}
-/** Validation errors, formatted for feeding back to the model on retry. */
-function formatIssues(issues) {
-	return issues.map((i) => `  - ${i.path}: ${i.message}`).join("\n");
-}
-//#endregion
-//#region src/llm/json.ts
-var ResponseFormatError = class extends Error {
-	issues;
-	raw;
-	constructor(message, issues = [], raw) {
-		super(message);
-		this.name = "ResponseFormatError";
-		this.issues = issues;
-		this.raw = raw;
-	}
-	/** The part worth appending to a retry prompt. */
-	get feedback() {
-		return this.issues.length ? `Your previous response failed validation:\n${formatIssues(this.issues)}\n\nReturn the corrected JSON.` : `Your previous response could not be parsed as JSON. Return JSON only, with no prose around it.`;
-	}
-};
-/** Validate an already-parsed value, raising something a retry can use. */
-function validate(schema, value) {
-	const result = schema.safeParse(value);
-	if (result.success) return result.data;
-	throw new ResponseFormatError("response did not match the expected shape", issuesOf(result.error), JSON.stringify(value).slice(0, 2e3));
-}
-/**
-* An error, said usefully.
-*
-* "response did not match the expected shape" is what a `ResponseFormatError`
-* says on its own, and on a screen it is worth nothing: it names no pass, no
-* chunk, and no field. The issues are right there on the error, so the first
-* few of them go into the message — enough to tell a prompt problem from a bad
-* roll of the dice without opening anything.
-*/
-function describeFailure(e) {
-	const message = e instanceof Error ? e.message : String(e);
-	if (!(e instanceof ResponseFormatError) || e.issues.length === 0) return message;
-	const shown = e.issues.slice(0, 3).map((i) => `${i.path}: ${i.message}`);
-	const rest = e.issues.length - shown.length;
-	return `${message} — ${shown.join("; ")}${rest > 0 ? `, and ${rest} more` : ""}`;
-}
-//#endregion
-//#region src/llm/tool-schema.ts
-/**
-* ZOD -> TOOL INPUT SCHEMA
-*
-* The tool's `input_schema` is what actually shapes a forced tool call. Handing
-* the API a permissive `{ type: "object", additionalProperties: true }` and
-* relying on the prompt to describe the shape does not work: the model has to
-* guess the parameter names, and it guesses differently each time. Observed on
-* one seed, same prompt, two attempts — `{ region_data: … }` once, `{ rooms: … }`
-* the next, and `{}` in the failure that started this. The prompt describes the
-* *content*; the schema declares the *shape*, and only one of them is machine
-* enforced.
-*
-* So the schema goes on the wire, generated from the zod schema that validates
-* the response, which also means the two cannot drift apart.
-*
-* Structured outputs rejects a few JSON Schema keywords that zod emits happily.
-* They are stripped here and still enforced by zod on the way back in — the
-* same split the official SDKs make.
-*/
-/** Keywords structured outputs does not accept. Zod still checks them locally. */
-var UNSUPPORTED = /* @__PURE__ */ new Set([
-	"minLength",
-	"maxLength",
-	"pattern",
-	"minimum",
-	"maximum",
-	"exclusiveMinimum",
-	"exclusiveMaximum",
-	"multipleOf",
-	"minItems",
-	"maxItems",
-	"uniqueItems",
-	"minProperties",
-	"maxProperties",
-	"$schema"
-]);
-function strip(node) {
-	if (Array.isArray(node)) return node.map(strip);
-	if (node === null || typeof node !== "object") return node;
-	const out = {};
-	for (const [k, v] of Object.entries(node)) {
-		if (UNSUPPORTED.has(k)) continue;
-		if (k === "additionalProperties" && v !== false) throw new Error("a response schema cannot contain an open-ended record: structured outputs requires additionalProperties: false. Name the keys explicitly instead.");
-		out[k] = strip(v);
-	}
-	if (out.type === "object") out.additionalProperties = false;
-	return out;
-}
-/**
-* Strict mode compiles the schema into a grammar, and refuses to do so past 24
-* optional parameters — the content pass has 35, because most of what a room
-* can hold is optional (not every room has a hazard, a goal, an elite).
-*
-* Which is a limit on the guarantee, not on the schema: an accurate
-* `input_schema` is what stops the model guessing at parameter names, and that
-* works with or without strict. Where the schema is small enough, strict adds
-* a hard guarantee on top; where it is not, zod is still validating every
-* response and a bad one still costs only a retry.
-*
-* THE BUDGET IS PER REQUEST, NOT PER TOOL. The grammar is compiled for the call,
-* so every strict schema on the table spends from the same 24 — `commit_state`
-* (15) and `roll` (11) each fit alone and 400 the moment they are offered
-* together. `fitStrict` is where that is settled; `canBeStrict` answers only for
-* a tool that goes out on its own.
-*/
-var STRICT_OPTIONAL_LIMIT = 24;
-function countOptional(node) {
-	if (Array.isArray(node)) return node.reduce((n, x) => n + countOptional(x), 0);
-	if (node === null || typeof node !== "object") return 0;
-	const o = node;
-	let n = 0;
-	if (o.type === "object" && o.properties && typeof o.properties === "object") {
-		const required = new Set(Array.isArray(o.required) ? o.required : []);
-		n += Object.keys(o.properties).filter((k) => !required.has(k)).length;
-	}
-	for (const v of Object.values(o)) n += countOptional(v);
-	return n;
-}
-/** Whether this schema is simple enough for the API to guarantee it, alone. */
-function canBeStrict(schema) {
-	return countOptional(schema) <= STRICT_OPTIONAL_LIMIT;
-}
-/**
-* Spend the request's strict budget across the tools going out together.
-*
-* Only compiled schemas count against it — the content pass has been sending an
-* unguaranteed 35-optional tool since Phase 1 — so this drops `strict` rather
-* than touching any schema. The tool keeps its real shape either way, and zod
-* still checks whatever comes back.
-*
-* Biggest first, so the guarantee lands where the model has the most to get
-* wrong. On the runtime's pair that is `commit_state`, which writes state; a
-* malformed `roll` costs one more exchange and nothing else.
-*/
-function fitStrict(tools) {
-	const guaranteed = /* @__PURE__ */ new Set();
-	let spent = 0;
-	const byCost = tools.map((t, i) => ({
-		i,
-		cost: countOptional(t.input_schema)
-	})).sort((a, b) => b.cost - a.cost || a.i - b.i);
-	for (const { i, cost } of byCost) {
-		if (spent + cost > STRICT_OPTIONAL_LIMIT) continue;
-		spent += cost;
-		guaranteed.add(i);
-	}
-	return tools.map((tool, i) => {
-		if (guaranteed.has(i)) return tool.strict === true ? tool : {
-			...tool,
-			strict: true
-		};
-		if (tool.strict === void 0) return tool;
-		const { strict: _dropped, ...rest } = tool;
-		return rest;
-	});
-}
-/**
-* A tool `input_schema` for a zod object schema.
-*
-* Emits `required` and `additionalProperties: false` throughout, which is what
-* `strict: true` demands — with it the API guarantees the tool input validates
-* against this shape, so zod's job narrows to catching what the JSON Schema
-* subset cannot express.
-*/
-function toolSchema(schema) {
-	const json = strip(z.toJSONSchema(schema, { target: "draft-2020-12" }));
-	if (json.type !== "object" || typeof json.properties !== "object") throw new Error("a tool input schema must be an object schema");
-	return {
-		...json,
-		type: "object",
-		additionalProperties: false
-	};
-}
-//#endregion
-//#region src/llm/client.ts
-var PATH = "/v1/messages";
-/**
-* Where requests go, and what rides along.
-*
-* NO DEFAULT. A call made before `configureTransport` throws rather than
-* guessing a URL: a guessed one that nothing answers fails as a 404 in the
-* middle of a generation, which reads like a network problem rather than a
-* missing setting. `server/app.ts` (`configureAnthropic`), the dev CLIs and the
-* live tests each configure it with the key from their own environment.
-*/
-var baseUrl;
-var extraHeaders = {};
-function configureTransport(opts) {
-	if (opts.baseUrl !== void 0) baseUrl = opts.baseUrl.replace(/\/$/, "");
-	if (opts.headers) extraHeaders = {
-		...extraHeaders,
-		...opts.headers
-	};
-}
-var NO_USAGE = {
-	inputTokens: 0,
-	outputTokens: 0,
-	cacheWriteTokens: 0,
-	cacheReadTokens: 0
-};
-function addUsage(a, b) {
-	return {
-		inputTokens: a.inputTokens + b.inputTokens,
-		outputTokens: a.outputTokens + b.outputTokens,
-		cacheWriteTokens: a.cacheWriteTokens + b.cacheWriteTokens,
-		cacheReadTokens: a.cacheReadTokens + b.cacheReadTokens
-	};
-}
-/** The wire's usage, read into ours. The cache fields are absent when nothing was cached. */
-function usageOf(u) {
-	return {
-		inputTokens: u.input_tokens,
-		outputTokens: u.output_tokens,
-		cacheWriteTokens: u.cache_creation_input_tokens ?? 0,
-		cacheReadTokens: u.cache_read_input_tokens ?? 0
-	};
-}
-var LlmError = class extends Error {
-	status;
-	/** 429 and 5xx are worth another go; 4xx generally is not. */
-	retryable;
-	constructor(message, status, retryable) {
-		super(message);
-		this.name = "LlmError";
-		this.status = status;
-		this.retryable = retryable;
-	}
-};
-var RETRIES = 3;
-var BASE_DELAY_MS = 1e3;
-var sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-async function post(body, signal) {
-	if (baseUrl === void 0) throw new Error("LLM transport not configured: call configureTransport before calling the model.");
-	let lastError;
-	for (let attempt = 0; attempt <= RETRIES; attempt++) {
-		if (attempt > 0) await sleep(BASE_DELAY_MS * 2 ** (attempt - 1));
-		let res;
-		try {
-			res = await fetch(`${baseUrl}${PATH}`, {
-				method: "POST",
-				headers: {
-					"content-type": "application/json",
-					...extraHeaders
-				},
-				body: JSON.stringify(body),
-				signal
-			});
-		} catch (e) {
-			if (signal?.aborted) throw e;
-			lastError = e;
-			continue;
-		}
-		if (res.ok) return await res.json();
-		const detail = await res.text().catch(() => "");
-		const err = new LlmError(`${res.status} ${res.statusText}${detail ? ` — ${detail.slice(0, 500)}` : ""}`, res.status, res.status === 429 || res.status >= 500);
-		if (!err.retryable) throw err;
-		lastError = err;
-	}
-	throw lastError instanceof Error ? lastError : new LlmError(String(lastError), 0, false);
-}
-/**
-* `strict` here is provisional: it says this tool could be guaranteed on its
-* own. Whether it actually is depends on what else is on the table, and only
-* the request knows that — `callWithTools` settles it with `fitStrict`.
-*/
-function toolFor(name, description, schema) {
-	const input_schema = toolSchema(schema);
-	return {
-		name,
-		description,
-		input_schema,
-		...canBeStrict(input_schema) ? { strict: true } : {}
-	};
-}
-/**
-* One exchange with tools on the table. Does NOT loop — the caller decides
-* whether what came back finishes the turn, and only the caller knows that.
-*/
-async function callWithTools(opts) {
-	const json = await post({
-		model: modelFor(opts.task),
-		max_tokens: opts.maxTokens ?? MAX_TOKENS[opts.task],
-		...opts.system ? { system: opts.system } : {},
-		messages: opts.messages,
-		tools: fitStrict(opts.tools),
-		tool_choice: opts.toolChoice ?? { type: "auto" }
-	}, opts.signal);
-	return {
-		text: json.content.filter((b) => b.type === "text").map((b) => b.text ?? "").join(""),
-		toolUses: json.content.filter((b) => b.type === "tool_use").map((b) => ({
-			id: b.id ?? "",
-			name: b.name ?? "",
-			input: b.input
-		})),
-		content: json.content,
-		stopReason: json.stop_reason,
-		usage: usageOf(json.usage)
-	};
-}
-/**
-* The answers to a batch of tool calls, as one user turn.
-*
-* One turn, however many calls: splitting results across messages teaches the
-* model to stop asking for them together, and asking for them together is the
-* whole point of the dice tool taking a list.
-*/
-function toolResults(results) {
-	return {
-		role: "user",
-		content: results.map((r) => ({
-			type: "tool_result",
-			tool_use_id: r.id,
-			content: r.content,
-			...r.isError ? { is_error: true } : {}
-		}))
-	};
-}
-async function callForJson(opts) {
-	const retry = opts.retryOnInvalid ?? true;
-	const messages = [...opts.messages];
-	const schema = toolSchema(opts.schema);
-	const strict = canBeStrict(schema);
-	let usage = NO_USAGE;
-	for (let attempt = 1;; attempt++) {
-		const json = await post({
-			model: modelFor(opts.task),
-			max_tokens: opts.maxTokens ?? MAX_TOKENS[opts.task],
-			...opts.system ? { system: opts.system } : {},
-			messages,
-			tools: [{
-				name: opts.toolName,
-				description: opts.toolDescription,
-				input_schema: schema,
-				...strict ? { strict: true } : {}
-			}],
-			tool_choice: {
-				type: "tool",
-				name: opts.toolName
-			}
-		}, opts.signal);
-		usage = addUsage(usage, usageOf(json.usage));
-		const call = json.content.find((b) => b.type === "tool_use" && b.name === opts.toolName);
-		try {
-			if (!call) throw new ResponseFormatError(`the model did not call ${opts.toolName} (stop_reason: ${json.stop_reason})`);
-			if (json.stop_reason === "max_tokens") throw new ResponseFormatError("the response was cut off at max_tokens; the object is incomplete");
-			const value = validate(opts.schema, call.input);
-			const missing = opts.check?.(value) ?? [];
-			if (missing.length > 0) throw new ResponseFormatError("the response is well-formed but does not answer everything it was asked", missing, JSON.stringify(call.input).slice(0, 2e3));
-			return {
-				value,
-				usage,
-				attempts: attempt
-			};
-		} catch (e) {
-			const isFormat = e instanceof ResponseFormatError;
-			const willRetry = isFormat && retry && attempt <= 1;
-			if (isFormat && opts.onAttemptFailed) try {
-				opts.onAttemptFailed({
-					attempt,
-					willRetry,
-					message: e.message,
-					issues: e.issues,
-					raw: e.raw ?? (call ? JSON.stringify(call.input).slice(0, 2e3) : void 0)
-				});
-			} catch (reporting) {
-				console.warn("[llm] onAttemptFailed threw; ignoring it:", reporting);
-			}
-			if (!willRetry) throw e;
-			const objection = `${e.feedback}\n\nCall \`${opts.toolName}\` again with the whole input, corrected. Every field must be a real JSON value — an array field is an array, not a string containing one.`;
-			if (call?.id) messages.push({
-				role: "assistant",
-				content: json.content
-			}, toolResults([{
-				id: call.id,
-				content: objection,
-				isError: true
-			}]));
-			else {
-				if (json.content.length > 0) messages.push({
-					role: "assistant",
-					content: json.content
-				});
-				messages.push({
-					role: "user",
-					content: objection
-				});
-			}
-		}
-	}
-}
-//#endregion
 //#region src/shared/utils/schema.ts
 /**
 * ZOD HELPERS shared by every schema that checks a model's answer.
@@ -9697,6 +10668,2520 @@ async function generateDungeon(opts) {
 		});
 		return result;
 	})), pass);
+}
+//#endregion
+//#region src/journal/journal.ts
+/**
+* A journal for one run.
+*
+* With no sink it is the no-op every test gets: `log` returns on the first
+* line, nothing is allocated, nothing is stamped.
+*
+* `startSeq` IS WHAT MAKES A RUN SURVIVE BEING PUT DOWN. In a browser one
+* journal sees a whole run and counting from zero is right. On a server there
+* is no continuous anything: a session is built per request, plays one turn,
+* and dies — so a journal that always started at zero would number the second
+* turn's events 1, 2, 3 again, on top of the first turn's. Against a table keyed
+* `(run_id, seq)` that is a collision, and the failure would be the quiet kind:
+* every write here is wrapped, per IT MUST NEVER BREAK A TURN, so the turn would
+* succeed and the journalling would simply stop. Whoever builds the session
+* passes the last sequence already stored.
+*/
+function createJournal(sink, startSeq = 0) {
+	let seq = startSeq;
+	let broken = false;
+	/**
+	* Steps whose playbook has already been written. Tracked on the journal
+	* rather than at the call site because "have I already written this" is a
+	* property of the journal, not of the game master — and it is per run, because
+	* two runs each want their own copy of the instructions they were played
+	* under.
+	*/
+	const written = /* @__PURE__ */ new Set();
+	function log(event) {
+		if (!sink || broken) return;
+		try {
+			sink.write({
+				...event,
+				seq: ++seq,
+				at: (/* @__PURE__ */ new Date()).toISOString()
+			});
+		} catch (e) {
+			broken = true;
+			console.warn("[journal] writing failed; journalling is off for this run:", e);
+		}
+	}
+	return {
+		log,
+		logSystem(step, blocks) {
+			if (!sink || written.has(step)) return;
+			written.add(step);
+			log({
+				kind: "system",
+				step,
+				blocks
+			});
+		}
+	};
+}
+/**
+* The journal for a run that is not being journalled — shared, so the default
+* costs one reference rather than an object per turn machine.
+*/
+var NO_JOURNAL = createJournal();
+/** A name for this run's directory: sortable, and says which seed it was. */
+function runId(seed) {
+	return `${(/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-").slice(0, 19)}-seed${seed}`;
+}
+/**
+* The diffs a commit proposed, in one line each, as `entity path = value`.
+* Shared by the transcript and by anything else that has to show a change
+* without printing a wall of JSON.
+*/
+function describeDiff(d) {
+	const value = typeof d.value === "string" ? d.value.length > 120 ? `${d.value.slice(0, 117).replace(/\s*\n\s*/g, " ")}…` : d.value.replace(/\s*\n\s*/g, " ") : JSON.stringify(d.value);
+	return `${d.entityId} · ${d.path} = ${value}`;
+}
+/** The next midnight UTC after `now`. */
+function nextUtcMidnight(now) {
+	return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
+}
+/** The rule, without the database, so it can be tested without one. */
+function allowanceFor(input) {
+	const resetsAt = nextUtcMidnight(input.now).toISOString();
+	const unplayed = input.unplayed ?? [];
+	if (input.tier === "unlimited") return {
+		guest: input.guest,
+		unlimited: true,
+		used: input.used,
+		limit: null,
+		left: null,
+		maxSize: 5,
+		resetsAt,
+		unplayed
+	};
+	const limit = input.guest ? 1 : 3;
+	return {
+		guest: input.guest,
+		unlimited: false,
+		used: input.used,
+		limit,
+		left: Math.max(0, limit - input.used),
+		maxSize: 1,
+		resetsAt,
+		unplayed
+	};
+}
+/** True when the account may write another dungeon, or start a run that costs one. */
+function hasRunLeft(a) {
+	return a.left === null || a.left > 0;
+}
+/** True when a run into this dungeon may start: one left, or it rides on a writing. */
+function mayStartRunIn(a, dungeonId) {
+	return hasRunLeft(a) || a.unplayed.includes(dungeonId);
+}
+/**
+* The sentence a refused player reads. Said by the server so that the copy is in
+* one place, and so a refusal the interface did not predict still reads well.
+*/
+function refusal(a) {
+	const runs = a.limit === 1 ? "run" : "runs";
+	const more = a.guest ? ` Sign in with Google for 3 a day.` : "";
+	return `That is your ${a.limit} ${runs} for today. More at midnight UTC.${more}`;
+}
+/**
+* Read the tier, today's count and the unplayed dungeons in one round trip.
+*
+* A missing profile is a member. `handle_new_user` makes one for every account,
+* so this only matters in the instant between an account existing and its
+* trigger committing — and the safe reading of "we do not know" is the limited
+* one.
+*
+* "Written" is `copied_from is null`: a copy from the library is a dungeon the
+* player did not pay to write. "Rode on a writing" is the earliest run in one
+* of the player's own written dungeons, ever — so a dungeon written at 23:59
+* and played at 00:01 is one run, on the first day.
+*
+* The day boundary is computed in Postgres, against the same clock that stamped
+* `created_at`, so the server and the database cannot disagree about which day
+* a run belongs to.
+*/
+async function allowanceOf(user, sql = db(), now = /* @__PURE__ */ new Date()) {
+	const [row] = await sql`
+    with day as (
+      select date_trunc('day', now() at time zone 'utc') at time zone 'utc' as start
+    ),
+    written as (
+      select id, created_at from dungeons
+       where owner_id = ${user.id} and copied_from is null
+    ),
+    rode as (
+      select distinct on (r.dungeon_id) r.id
+        from runs r join written w on w.id = r.dungeon_id
+       order by r.dungeon_id, r.created_at, r.id
+    )
+    select
+      (select tier from profiles where id = ${user.id}) as tier,
+      (select count(*)::int from written, day where written.created_at >= day.start)
+      + (select count(*)::int from runs, day
+          where runs.owner_id = ${user.id}
+            and runs.created_at >= day.start
+            and runs.id not in (select id from rode)) as used,
+      (select array_agg(d.id::text) from dungeons d
+        where d.owner_id = ${user.id} and d.copied_from is null and d.status = 'complete'
+          and not exists (select 1 from runs where runs.dungeon_id = d.id)) as unplayed
+  `;
+	return allowanceFor({
+		guest: user.guest,
+		tier: row?.tier === "unlimited" ? "unlimited" : "member",
+		used: row?.used ?? 0,
+		unplayed: row?.unplayed ?? [],
+		now
+	});
+}
+/**
+* What the marks in the guide image mean. The marks say WHERE; the prose says
+* WHAT; and none of them may survive into the drawing.
+*/
+var ILLUSTRATION_GUIDE_NOTE = "The guide image fixes the room's walls and the camera. Each dashed outline on the floor, tagged with a number, marks where the numbered feature stands; each lettered tag marks a doorway. Draw the thing described in place of each mark. Do not draw the dashed outlines, the tags, or any numbers or letters.";
+/**
+* What the style references are for. A reference is copied as readily as a
+* guide, so the prompt says which image is which and that only the manner of
+* drawing may be taken from the references — never their rooms or framing.
+*/
+function illustrationReferenceNote(count, afterGuide) {
+	return `${afterGuide ? `The first image is the guide. The other ${count} images are style references only` : `The ${count} images are style references only`}: draw in exactly their manner — the same line weight, the same sparing hatching, the same amount of white paper. Take nothing else from them: not their rooms, objects, layout or viewpoint.`;
+}
+/** The same, for a guide drawn with no marks: architecture only. */
+var ILLUSTRATION_PLAIN_GUIDE_NOTE = "The guide image fixes the room's walls, doorways and the camera: follow its perspective and wall layout exactly. It shows no objects; draw the features listed below where stated.";
+var ILLUSTRATION_VISUAL_SYSTEM = [
+	"You turn a room's written description into notes for an illustrator who draws in black ink.",
+	"",
+	"Write only what can be SEEN: materials, shapes, surfaces, condition, light and shadow.",
+	"Leave out sounds, smells, temperature, history, purpose, feelings, and anything a person or creature is doing.",
+	"Never write a number, a size, a distance, a count, or a direction (left, north, far end): where things are is decided elsewhere.",
+	"Never mention people or creatures.",
+	"",
+	"`room` describes only the room's shell — walls, floor, ceiling, air, light, condition — in one sentence of at most 30 words. Do not mention any doorway or any of the listed things in it.",
+	"`things` gives each listed thing a look: a noun phrase of at most 14 words saying what it looks like, with no name, no position and no number."
+].join("\n");
+var ILLUSTRATION_SETTING_SYSTEM = [
+	"You turn a dungeon's written theme into one line for an illustrator who draws in black ink.",
+	"Write one sentence of at most 25 words: what the place is built from or carved out of, its condition, and its light.",
+	"Only what can be seen. No sounds, smells, history, people or creatures. No numbers."
+].join("\n");
+/** The user message for the per-room visual request. */
+function illustrationVisualMessage(roomName, roomBase, subjects) {
+	const L = [
+		`ROOM: ${roomName}`,
+		roomBase,
+		"",
+		"THINGS IN VIEW (give each a look, keyed by ref):"
+	];
+	for (const s of subjects) L.push(`- ref ${s.ref} (${s.kind}) ${s.name}: ${s.base}`);
+	if (!subjects.length) L.push("(none)");
+	return L.join("\n");
+}
+/** The user message for the per-dungeon setting request. */
+function illustrationSettingMessage(theme) {
+	return `THEME:\n${theme}`;
+}
+/**
+* The patch of floor every illustration keeps clear for creatures, which are stood in
+* it afterwards (`illustrationStage`, src/illustrations/figures.ts). Only with the
+* marked guide, which carries the dotted outline it refers to.
+*/
+var ILLUSTRATION_OPEN_FLOOR_NOTE = "The area inside the DOTTED outline in the guide is kept clear for figures who will be added to the picture later. Draw it as plain, bare, level floor, continuous with the floor around it: no pit, crack, chasm, water, rubble, furniture, feature, doorway or steps inside it. Do not draw the dotted outline itself.";
+function roomIllustrationPrompt(p) {
+	const L = [
+		"STYLE",
+		p.style ?? "Clean black ink line art in the manner of a 1970s-80s fantasy adventure module's illustration booklet. Mostly white paper. Crisp, confident outlines define every form. Shading is sparing: a few hatched strokes only in the deepest shadows, no dense cross-hatching, no stippled texture, no large areas of solid black. Walls, floors and sky stay largely white. No grey, no colour. The picture fills the whole image edge to edge, with no frame, no border line, no box and no vignette around it. No lettering. No people, no creatures, no loose objects.",
+		""
+	];
+	if (p.references) L.push("STYLE REFERENCES", illustrationReferenceNote(p.references, p.guide !== "none"), "");
+	if (p.guide === "marks") L.push("GUIDE", ILLUSTRATION_GUIDE_NOTE, "");
+	if (p.guide === "plain") L.push("GUIDE", ILLUSTRATION_PLAIN_GUIDE_NOTE, "");
+	L.push("SETTING", p.setting, "", "ROOM", p.room, "", "VIEW", p.viewpoint);
+	if (p.drawn.length) {
+		L.push("", "MUST BE DRAWN, EACH WHERE STATED");
+		for (const d of p.drawn) {
+			const tag = p.guide === "marks" && d.tag ? `[${d.tag}] ` : "";
+			L.push(`- ${tag}${d.doorway ? "Doorway: " : ""}${d.look} — ${d.where}`);
+		}
+	}
+	if (p.surfaces.length) {
+		L.push("", "OVER THE WALLS, FLOOR OR AIR");
+		for (const s of p.surfaces) L.push(`- ${s.look} — ${s.where}`);
+	}
+	if (p.openFloor && p.guide === "marks") L.push("", "OPEN FLOOR", ILLUSTRATION_OPEN_FLOOR_NOTE);
+	return L.join("\n");
+}
+function exteriorIllustrationPrompt(p) {
+	return [
+		"STYLE",
+		p.style ?? "Clean black ink line art in the manner of a 1970s-80s fantasy adventure module's illustration booklet. Mostly white paper. Crisp, confident outlines define every form. Shading is sparing: a few hatched strokes only in the deepest shadows, no dense cross-hatching, no stippled texture, no large areas of solid black. Walls, floors and sky stay largely white. No grey, no colour. The picture fills the whole image edge to edge, with no frame, no border line, no box and no vignette around it. No lettering. No people, no creatures, no loose objects.",
+		"",
+		"VIEW",
+		"An exterior view of the place from outside, at a distance, with its way in clearly visible.",
+		"",
+		"SCENE",
+		p.scene
+	].join("\n");
+}
+/** What Haiku is asked for an exterior: the place and its entrance, from outside. */
+var ILLUSTRATION_EXTERIOR_SYSTEM = [
+	"You turn a written description of a dungeon's surroundings and entrance into notes for an illustrator who draws in black ink.",
+	"Write two or three sentences, at most 60 words, describing what someone approaching would SEE: the landscape, the structure, its condition, and the entrance.",
+	"If the description gives the time of day, the sky or the weather, open with them in plain words (\"At night, under a full moon, ...\"): they change the whole picture.",
+	"Keep anything it says about how many there are or what is absent (\"a single building, nothing else in sight\"): an illustrator adds what is not ruled out.",
+	"Leave out sounds, smells, history, purpose and feelings. No people or creatures. No numbers."
+].join("\n");
+/**
+* What a view is worth. A feature outweighs any amount of floor a room can
+* have, so the camera never trades one away for a better angle; a way out
+* outweighs a few cells of floor; and the way in is worth a quarter of any
+* other way out, which tips a tie toward looking somewhere the player has not
+* just been.
+*/
+var ILLUSTRATION_SCORE = {
+	tile: 1,
+	feature: 100,
+	exit: 20,
+	entry: 5
+};
+/** Eye height, in feet. Nothing stores a ceiling or a viewer's height; this is a guess. */
+var ILLUSTRATION_EYE_FT = 5.5;
+var ILLUSTRATION_DOOR_FT = 7.5;
+/** The illustration's width over its height. 3:2, the space the page reserves for it. */
+var ILLUSTRATION_ASPECT = 1.5;
+/**
+* Nothing nearer the eye than this, in feet, counts as in the picture: the
+* floor only comes into frame here, below the bottom edge before it. Derived
+* rather than chosen — a guess of four feet counted things at the viewer's
+* feet that the frame then cut off.
+*/
+var ILLUSTRATION_MIN_AHEAD_FT = ILLUSTRATION_EYE_FT / (Math.tan(50 * Math.PI / 180) / ILLUSTRATION_ASPECT);
+/**
+* Standing spots within each floor cell, in feet from its corner on each axis:
+* against either wall and in the middle, nine to a cell. Back to a wall or in a
+* corner is where an illustrator stands; the middle is there so a room with no
+* good wall still has somewhere to stand.
+*/
+var SPOT_OFFSETS_FT = [
+	1,
+	2.5,
+	4
+];
+/**
+* Inside this many degrees of the line of sight, a thing is "straight ahead"
+* rather than left or right. About a fifth of the frame either side of centre.
+*/
+var CENTRE_DEG = 12;
+/**
+* Every cell the straight line from `a` to `b` passes through is floor.
+*
+* An exact walk of the grid, not sampling: a sampled walk once stepped over
+* the tip of a rock corner and called a door around it visible (seed 4201, The
+* Stone Dormitory). A line through a cell corner exactly needs both cells
+* beside the corner to be floor, so a pinch between two rock cells is a wall.
+*/
+function clearLine(a, b, onFloor) {
+	const ax = a.x / 5;
+	const ay = a.y / 5;
+	const bx = b.x / 5;
+	const by = b.y / 5;
+	let cx = Math.floor(ax);
+	let cy = Math.floor(ay);
+	const ex = Math.floor(bx);
+	const ey = Math.floor(by);
+	const dx = bx - ax;
+	const dy = by - ay;
+	const sx = Math.sign(dx);
+	const sy = Math.sign(dy);
+	const tdx = dx !== 0 ? Math.abs(1 / dx) : Infinity;
+	const tdy = dy !== 0 ? Math.abs(1 / dy) : Infinity;
+	let tmx = dx > 0 ? (cx + 1 - ax) * tdx : dx < 0 ? (ax - cx) * tdx : Infinity;
+	let tmy = dy > 0 ? (cy + 1 - ay) * tdy : dy < 0 ? (ay - cy) * tdy : Infinity;
+	if (!onFloor(cx, cy)) return false;
+	let guard = Math.abs(ex - cx) + Math.abs(ey - cy) + 2;
+	while ((cx !== ex || cy !== ey) && guard-- > 0) {
+		if (Math.abs(tmx - tmy) < 1e-9) {
+			if (!onFloor(cx + sx, cy) || !onFloor(cx, cy + sy)) return false;
+			cx += sx;
+			cy += sy;
+			tmx += tdx;
+			tmy += tdy;
+		} else if (tmx < tmy) {
+			cx += sx;
+			tmx += tdx;
+		} else {
+			cy += sy;
+			tmy += tdy;
+		}
+		if (!onFloor(cx, cy)) return false;
+	}
+	return true;
+}
+/** The middle of the shared edge between two side-by-side cells, in feet. */
+function doorPoint(d) {
+	return {
+		x: ((d.inside.x + d.outside.x) / 2 + .5) * 5,
+		y: ((d.inside.y + d.outside.y) / 2 + .5) * 5
+	};
+}
+/**
+* Where a door is sighted at: just inside the threshold. The door point itself
+* is on the wall line, and a line ending on a wall is a line into rock.
+*/
+function doorTarget(d) {
+	const at = doorPoint(d);
+	return {
+		x: (at.x + (d.inside.x + .5) * 5) / 2,
+		y: (at.y + (d.inside.y + .5) * 5) / 2
+	};
+}
+/** Lines of sight from `eye` in this room: clear when every cell crossed is floor. */
+function illustrationSight(input, eye) {
+	const floor = new Set(input.floor.map((c) => xyKey(c.x, c.y)));
+	const onFloor = (x, y) => floor.has(xyKey(x, y));
+	return (p) => clearLine(eye, p, onFloor);
+}
+/**
+* Where a point lands in the illustration, as fractions of its width and height from
+* the top-left — so it maps onto the final image at any resolution. Null when
+* the point is behind the eye. A point beside the frame comes back outside
+* 0..1 rather than null; whether that matters is the caller's question.
+*/
+function projectToFrame(eye, p) {
+	const ahead = (p.x - eye.x) * eye.forward.x + (p.y - eye.y) * eye.forward.y;
+	if (ahead < .3) return null;
+	const across = (p.x - eye.x) * eye.right.x + (p.y - eye.y) * eye.right.y;
+	const up = p.z - ILLUSTRATION_EYE_FT;
+	const t = 2 * Math.tan(50 * Math.PI / 180);
+	return {
+		x: .5 + across / ahead / t,
+		y: .5 - up / ahead / t * ILLUSTRATION_ASPECT
+	};
+}
+/**
+* Every place the camera may stand: nine spots in each floor cell, the floor
+* just inside each doorway among them. Never in a doorway itself — standing in
+* one, even back from the room, is a view of the room from somewhere the player
+* has not been: through a door they have not opened, or a sealed one.
+*/
+function standingSpots(input) {
+	const spots = [];
+	for (const c of input.floor) for (const ox of SPOT_OFFSETS_FT) for (const oy of SPOT_OFFSETS_FT) spots.push({
+		x: c.x * 5 + ox,
+		y: c.y * 5 + oy
+	});
+	return spots;
+}
+/** Cells split into pieces that touch edge to edge. */
+function connectedCells(cells) {
+	const left = new Map(cells.map((c) => [xyKey(c.x, c.y), c]));
+	const pieces = [];
+	for (const start of cells) {
+		if (!left.delete(xyKey(start.x, start.y))) continue;
+		const piece = [];
+		const queue = [start];
+		while (queue.length) {
+			const c = queue.pop();
+			piece.push(c);
+			for (const [dx, dy] of [
+				[1, 0],
+				[-1, 0],
+				[0, 1],
+				[0, -1]
+			]) {
+				const n = left.get(xyKey(c.x + dx, c.y + dy));
+				if (n) {
+					left.delete(xyKey(n.x, n.y));
+					queue.push(n);
+				}
+			}
+		}
+		pieces.push(piece);
+	}
+	return pieces;
+}
+var cellMiddle = (c) => ({
+	x: (c.x + .5) * 5,
+	y: (c.y + .5) * 5
+});
+var COMPASS = [
+	"east",
+	"south-east",
+	"south",
+	"south-west",
+	"west",
+	"north-west",
+	"north",
+	"north-east"
+];
+function compass(v) {
+	return COMPASS[(Math.round(Math.atan2(v.y, v.x) / (Math.PI / 4)) + 8) % 8];
+}
+/**
+* The room as seen from one eye looking one way. `illustrationView` calls this on the
+* camera it chose; it is exported so a test, or a dev sheet, can ask about any
+* other camera directly.
+*/
+function viewFrom(input, at, heading) {
+	const len = Math.hypot(heading.x, heading.y) || 1;
+	const forward = {
+		x: heading.x / len,
+		y: heading.y / len
+	};
+	const right = {
+		x: -forward.y,
+		y: forward.x
+	};
+	const eye = {
+		x: at.x,
+		y: at.y,
+		forward,
+		right
+	};
+	const sees = illustrationSight(input, eye);
+	const toView = (p) => ({
+		ahead: (p.x - eye.x) * forward.x + (p.y - eye.y) * forward.y,
+		across: (p.x - eye.x) * right.x + (p.y - eye.y) * right.y
+	});
+	const tanFov = Math.tan(50 * Math.PI / 180);
+	const framed = (v) => v.ahead >= ILLUSTRATION_MIN_AHEAD_FT && Math.abs(v.across) <= v.ahead * tanFov;
+	let deep = 0;
+	let minAcross = Infinity;
+	let maxAcross = -Infinity;
+	for (const c of input.floor) for (const [dx, dy] of [
+		[0, 0],
+		[1, 0],
+		[0, 1],
+		[1, 1]
+	]) {
+		const v = toView({
+			x: (c.x + dx) * 5,
+			y: (c.y + dy) * 5
+		});
+		deep = Math.max(deep, v.ahead);
+		minAcross = Math.min(minAcross, v.across);
+		maxAcross = Math.max(maxAcross, v.across);
+	}
+	const depthOf = (ahead) => ahead < deep / 3 ? "near" : ahead < deep * 2 / 3 ? "middle" : "far";
+	const sideOf = (v) => {
+		const deg = Math.atan2(v.across, Math.max(v.ahead, .01)) * 180 / Math.PI;
+		return deg < -12 ? "left" : deg > CENTRE_DEG ? "right" : "centre";
+	};
+	const door = (d) => {
+		const at = doorPoint(d);
+		const v = toView(at);
+		const n = {
+			x: d.inside.x - d.outside.x,
+			y: d.inside.y - d.outside.y
+		};
+		const facesEye = (eye.x - at.x) * n.x + (eye.y - at.y) * n.y > 0;
+		const wall = v.ahead <= 0 ? "behind" : !facesEye ? "away" : n.x * forward.x + n.y * forward.y < -.7 ? "far" : v.across < 0 ? "left" : "right";
+		const inFrame = wall !== "behind" && framed(v);
+		const inSight = facesEye && sees(doorTarget(d));
+		return {
+			id: d.id,
+			...v,
+			depth: depthOf(v.ahead),
+			side: sideOf(v),
+			wall,
+			inFrame,
+			inSight,
+			visible: inFrame && inSight,
+			placed: true
+		};
+	};
+	const features = input.features.map((t) => {
+		if (!t.cells.length) return {
+			id: t.id,
+			ahead: 0,
+			across: 0,
+			depth: "middle",
+			side: "centre",
+			inFrame: true,
+			inSight: true,
+			visible: true,
+			placed: false
+		};
+		const mids = t.cells.map(cellMiddle);
+		const centre = {
+			x: mids.reduce((s, p) => s + p.x, 0) / mids.length,
+			y: mids.reduce((s, p) => s + p.y, 0) / mids.length
+		};
+		const v = toView(centre);
+		const cells = mids.map((p) => ({
+			framed: framed(toView(p)),
+			sighted: sees(p)
+		}));
+		const parts = connectedCells(t.cells);
+		const pieces = parts.length < 2 ? void 0 : parts.flatMap((part) => {
+			const pm = part.map(cellMiddle);
+			if (!pm.some((p) => framed(toView(p)) && sees(p))) return [];
+			const pv = toView({
+				x: pm.reduce((acc, p) => acc + p.x, 0) / pm.length,
+				y: pm.reduce((acc, p) => acc + p.y, 0) / pm.length
+			});
+			return [{
+				ahead: pv.ahead,
+				depth: depthOf(pv.ahead),
+				side: sideOf(pv)
+			}];
+		});
+		return {
+			id: t.id,
+			...v,
+			depth: depthOf(v.ahead),
+			side: sideOf(v),
+			...pieces ? { pieces } : {},
+			inFrame: cells.some((c) => c.framed),
+			inSight: cells.some((c) => c.sighted),
+			visible: cells.some((c) => c.framed && c.sighted),
+			placed: true
+		};
+	});
+	let tiles = 0;
+	for (const c of input.floor) {
+		const m = cellMiddle(c);
+		if (framed(toView(m)) && sees(m)) tiles++;
+	}
+	const entry = door(input.entry);
+	const exits = input.exits.map(door);
+	const score = tiles * ILLUSTRATION_SCORE.tile + features.filter((f) => f.placed && f.visible).length * ILLUSTRATION_SCORE.feature + exits.filter((x) => x.visible).length * ILLUSTRATION_SCORE.exit + (entry.visible ? ILLUSTRATION_SCORE.entry : 0);
+	return {
+		eye,
+		facing: compass(forward),
+		standing: standingPhrase(input.floor, eye),
+		deep,
+		wide: maxAcross - minAcross,
+		entry,
+		exits,
+		features,
+		tiles,
+		score
+	};
+}
+/** Where the eye stands, by thirds of the room's bounding box. */
+function standingPhrase(floor, eye) {
+	const xs = floor.map((c) => c.x);
+	const ys = floor.map((c) => c.y);
+	const x0 = Math.min(...xs) * 5;
+	const y0 = Math.min(...ys) * 5;
+	const w = (Math.max(...xs) + 1) * 5 - x0;
+	const h = (Math.max(...ys) + 1) * 5 - y0;
+	const col = Math.min(2, Math.floor((eye.x - x0) / w * 3));
+	const ns = [
+		"north",
+		"",
+		"south"
+	][Math.min(2, Math.floor((eye.y - y0) / h * 3))];
+	const ew = [
+		"west",
+		"",
+		"east"
+	][col];
+	if (ns && ew) return `in the ${ns}-${ew} corner`;
+	if (ns || ew) return `by the ${ns || ew} wall`;
+	return "in the middle";
+}
+/**
+* The best view of the room: every standing spot on the floor, every heading,
+* scored by ILLUSTRATION_SCORE.
+*
+* Deterministic: spots and headings are tried in a fixed order and a tie keeps
+* the first, so a room's view — and with it the illustration's cache key — never
+* changes between calls.
+*
+* The expensive part, sight lines, depends on the spot and not the heading, so
+* it is worked out once per spot and every heading reuses it.
+*/
+function illustrationView(input) {
+	const floor = new Set(input.floor.map((c) => xyKey(c.x, c.y)));
+	const onFloor = (x, y) => floor.has(xyKey(x, y));
+	const tanFov = Math.tan(50 * Math.PI / 180);
+	const targets = [];
+	let group = 0;
+	for (const c of input.floor) {
+		const m = cellMiddle(c);
+		targets.push({
+			at: m,
+			frame: m,
+			worth: ILLUSTRATION_SCORE.tile,
+			group: group++
+		});
+	}
+	for (const f of input.features) {
+		for (const c of f.cells) {
+			const m = cellMiddle(c);
+			targets.push({
+				at: m,
+				frame: m,
+				worth: ILLUSTRATION_SCORE.feature,
+				group
+			});
+		}
+		group++;
+	}
+	const doorTargets = (d, worth) => {
+		targets.push({
+			at: doorTarget(d),
+			frame: doorPoint(d),
+			worth,
+			group: group++,
+			wall: doorPoint(d),
+			normal: {
+				x: d.inside.x - d.outside.x,
+				y: d.inside.y - d.outside.y
+			}
+		});
+	};
+	for (const d of input.exits) doorTargets(d, ILLUSTRATION_SCORE.exit);
+	doorTargets(input.entry, ILLUSTRATION_SCORE.entry);
+	const headings = [];
+	for (let k = 0; k < 36; k++) {
+		const a = k / 36 * 2 * Math.PI;
+		headings.push({
+			x: Math.cos(a),
+			y: Math.sin(a)
+		});
+	}
+	let best;
+	const seenGroups = /* @__PURE__ */ new Set();
+	for (const at of standingSpots(input)) {
+		const sees = (p) => clearLine(at, p, onFloor);
+		const sighted = targets.filter((t) => (!t.wall || (at.x - t.wall.x) * t.normal.x + (at.y - t.wall.y) * t.normal.y > 0) && sees(t.at));
+		for (const h of headings) {
+			seenGroups.clear();
+			let score = 0;
+			for (const t of sighted) {
+				if (seenGroups.has(t.group)) continue;
+				const dx = t.frame.x - at.x;
+				const dy = t.frame.y - at.y;
+				const ahead = dx * h.x + dy * h.y;
+				const across = -dx * h.y + dy * h.x;
+				if (ahead < ILLUSTRATION_MIN_AHEAD_FT || Math.abs(across) > ahead * tanFov) continue;
+				seenGroups.add(t.group);
+				score += t.worth;
+			}
+			if (!best || score > best.score) best = {
+				at,
+				heading: h,
+				score
+			};
+		}
+	}
+	if (!best) {
+		const d = input.entry;
+		return viewFrom(input, doorTarget(d), {
+			x: d.inside.x - d.outside.x,
+			y: d.inside.y - d.outside.y
+		});
+	}
+	return viewFrom(input, best.at, best.heading);
+}
+/** Distances are said to the nearest five feet, the grid's own unit. */
+var feet = (n) => `${Math.max(5, Math.round(n / 5) * 5)} ft`;
+var SIDE_ON_FAR_WALL = {
+	left: "to the left",
+	centre: "straight ahead",
+	right: "to the right"
+};
+var DEPTH_ON_SIDE_WALL = {
+	near: "close by",
+	middle: "partway along",
+	far: "toward the back"
+};
+var DEPTH_IN_ROOM = {
+	near: "in the foreground",
+	middle: "in the middle distance",
+	far: "at the back"
+};
+var SIDE_IN_ROOM = {
+	left: "on the left",
+	centre: "in the centre",
+	right: "on the right"
+};
+/** Where a way out is, as the viewer would point to it. */
+function exitWhere(s) {
+	if (s.wall === "behind") return "behind the viewer";
+	if (s.wall === "far") return `in the facing wall, ${SIDE_ON_FAR_WALL[s.side]}, ${feet(s.ahead)} away`;
+	return `in the ${s.wall} wall, ${DEPTH_ON_SIDE_WALL[s.depth]}, ${feet(s.ahead)} in`;
+}
+/** Where a feature stands, as the viewer would point to it. */
+function featureWhere(s) {
+	if (!s.placed) return "somewhere in plain view";
+	if (s.pieces && s.pieces.length > 1) {
+		const at = s.pieces.map((p) => `${DEPTH_IN_ROOM[p.depth]} ${SIDE_IN_ROOM[p.side]} (${feet(p.ahead)})`);
+		return `in ${s.pieces.length} places: ${at.join("; ")}`;
+	}
+	if (s.pieces?.length === 1) {
+		const p = s.pieces[0];
+		return `${DEPTH_IN_ROOM[p.depth]}, ${SIDE_IN_ROOM[p.side]}, ${feet(p.ahead)} away`;
+	}
+	return `${DEPTH_IN_ROOM[s.depth]}, ${SIDE_IN_ROOM[s.side]}, ${feet(s.ahead)} away`;
+}
+//#endregion
+//#region src/illustrations/figures.ts
+/**
+* ROOM ILLUSTRATIONS — THE FIGURES IN THEM
+* =================================
+*
+* An illustration is drawn once and shared; the creatures in a room change every turn.
+* So the illustration is drawn with no one in it and the creatures are stood in it
+* afterwards, each a sprite drawn once per kind (BUILD-PLAN, *Illustrations*,
+* "2. Creature sprites"). Everything here is geometry and rules, no pixels:
+*
+*   illustrationStage     the patch of open floor every illustration keeps clear for figures,
+*                  chosen before the illustration is drawn and marked in its guide
+*   roomClusters   a room's creatures, gathered by the author's rules into who
+*                  stands in front and who behind
+*   illustrationFigures   where each figure stands in the picture, through the same
+*                  camera that drew the guide
+*
+* WHO GETS A SPRITE. Solos, leaders and named individuals: one each. A group's
+* nameless members, in every variant: one for the whole group (`spriteKeyOf`).
+*
+* HOW A ROOM'S CREATURES STAND. The front row is the leader; or, with no
+* leader, the named creatures side by side, slightly overlapping; or, with
+* neither, one copy of the group. The nameless stand behind it, at most two on
+* each side. Anything unrelated is a cluster of its own.
+*
+* WHY THE STAGE IS CHOSEN FIRST. With the spot picked after the illustration was
+* drawn, the drawing drifted from the guide enough to stand figures over a
+* widened chasm or in a doorway, in 3 of 10 rooms. Reserved before drawing, 9
+* of 10 read right.
+*/
+/**
+* The patch of floor an illustration keeps clear, around the stage point, in feet: a
+* little behind the front row, deep enough for both ranks behind it, wide
+* enough for two on each side.
+*/
+var STAGE_FT = {
+	behind: 1.5,
+	ahead: 7.5,
+	side: 6
+};
+/** Where a cluster would ideally stand: this far ahead of the eye. */
+var PREFERRED_AHEAD_FT = 13;
+/** Feet a stand point keeps from a feature's cells: a drawn footprint is wider than its outline. */
+var FEATURE_MARGIN_FT = 2.5;
+/** Feet a stand point keeps from a doorway, so nobody stands in one. */
+var DOOR_MARGIN_FT = 5;
+/** Score per unit of the stage patch that is not open floor: an empty patch costs as much as 40 ft of misplacement. */
+var PATCH_WEIGHT = 40;
+/** Score for a stand point too near a feature or door, when the patch around it is otherwise fine. */
+var CROWDED_COST = 20;
+/** Feet into the frame the first stand point must be, past the floor's first visible line. */
+var STAND_MIN_EXTRA_FT = 2;
+/** The feet stay this far inside the frame's sides and bottom, as fractions of it. */
+var FOOT_FRAME = {
+	side: .15,
+	bottom: .97
+};
+var aheadOf = (view, q) => (q.x - view.eye.x) * view.eye.forward.x + (q.y - view.eye.y) * view.eye.forward.y;
+/** A point `ahead` feet further from the eye and `across` feet to its right of `at`. */
+function offset(view, at, ahead, across) {
+	const { forward, right } = view.eye;
+	return {
+		x: at.x + forward.x * ahead + right.x * across,
+		y: at.y + forward.y * ahead + right.y * across
+	};
+}
+/**
+* Every place a cluster could stand, best first. Candidates sit on a 2.5 ft
+* grid, off every feature's cells, in sight, with the feet in the lower part of
+* the frame. Most of all the whole patch around one (`STAGE_FT`) should be open
+* floor in sight — a clear point at the lip of a chasm is no place for a pack —
+* then it should be about `PREFERRED_AHEAD_FT` ahead and near the middle. Ties
+* keep the first, so it is deterministic.
+*/
+function standPoints(input, view) {
+	const sight = illustrationSight(input, view.eye);
+	const floor = new Set(input.floor.map((c) => xyKey(c.x, c.y)));
+	const blockedCells = input.features.flatMap((f) => f.cells);
+	const blocked = new Set(blockedCells.map((c) => xyKey(c.x, c.y)));
+	const doors = [input.entry, ...input.exits].map(doorPoint);
+	const cellOf = (q) => xyKey(Math.floor(q.x / 5), Math.floor(q.y / 5));
+	const clearOfThings = (at) => blockedCells.every((c) => {
+		const dx = Math.max(c.x * 5 - at.x, 0, at.x - (c.x + 1) * 5);
+		const dy = Math.max(c.y * 5 - at.y, 0, at.y - (c.y + 1) * 5);
+		return Math.hypot(dx, dy) >= FEATURE_MARGIN_FT;
+	}) && doors.every((d) => Math.hypot(d.x - at.x, d.y - at.y) >= DOOR_MARGIN_FT);
+	/** The share of the patch around `at`, sampled every foot, that is floor in sight with nothing on it. */
+	const openFloor = (at) => {
+		let open = 0;
+		let all = 0;
+		for (let a = -STAGE_FT.behind; a <= STAGE_FT.ahead; a++) for (let c = -STAGE_FT.side; c <= STAGE_FT.side; c++) {
+			const q = offset(view, at, a, c);
+			all++;
+			if (floor.has(cellOf(q)) && !blocked.has(cellOf(q)) && sight(q)) open++;
+		}
+		return open / all;
+	};
+	const step = 5 / 2;
+	const out = [];
+	for (const c of input.floor) {
+		if (blocked.has(xyKey(c.x, c.y))) continue;
+		for (const ox of [step / 2, step * 1.5]) for (const oy of [step / 2, step * 1.5]) {
+			const at = {
+				x: c.x * 5 + ox,
+				y: c.y * 5 + oy
+			};
+			const ahead = aheadOf(view, at);
+			if (ahead < ILLUSTRATION_MIN_AHEAD_FT + STAND_MIN_EXTRA_FT || !sight(at)) continue;
+			const foot = projectToFrame(view.eye, {
+				...at,
+				z: 0
+			});
+			if (!foot || foot.x < FOOT_FRAME.side || foot.x > 1 - FOOT_FRAME.side || foot.y > FOOT_FRAME.bottom) continue;
+			out.push({
+				at,
+				score: Math.abs(ahead - PREFERRED_AHEAD_FT) + 10 * Math.abs(foot.x - .5) + PATCH_WEIGHT * (1 - openFloor(at)) + (clearOfThings(at) ? 0 : CROWDED_COST)
+			});
+		}
+	}
+	return out.sort((a, b) => a.score - b.score);
+}
+/** The spot the illustration keeps clear for figures, or undefined when nowhere in the frame will do. */
+function illustrationStage(input, view) {
+	return standPoints(input, view)[0]?.at;
+}
+/**
+* The stage patch's outline, as runs of floor points in feet: only where it
+* lies on floor the eye can see, so the guide never marks rock or a wall.
+* Sampled every quarter foot.
+*/
+function stageOutline(input, view, at) {
+	const sight = illustrationSight(input, view.eye);
+	const floor = new Set(input.floor.map((c) => `${c.x},${c.y}`));
+	const onFloor = (q) => floor.has(`${Math.floor(q.x / 5)},${Math.floor(q.y / 5)}`);
+	const { behind, ahead, side } = STAGE_FT;
+	const corners = [
+		offset(view, at, -behind, -side),
+		offset(view, at, -behind, side),
+		offset(view, at, ahead, side),
+		offset(view, at, ahead, -side)
+	];
+	const runs = [];
+	let run = [];
+	for (let k = 0; k < 4; k++) {
+		const a = corners[k];
+		const b = corners[(k + 1) % 4];
+		const n = Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / .25);
+		for (let i = 0; i <= n; i++) {
+			const q = {
+				x: a.x + (b.x - a.x) * i / n,
+				y: a.y + (b.y - a.y) * i / n
+			};
+			if (onFloor(q) && sight(q)) run.push(q);
+			else if (run.length) {
+				runs.push(run);
+				run = [];
+			}
+		}
+	}
+	if (run.length) runs.push(run);
+	return runs.filter((r) => r.length > 1);
+}
+/** Which part a creature plays in its room's arrangement. */
+function figureRole(c) {
+	if (c.affiliationGroupId) return "leader";
+	if (c.base !== void 0) return "named";
+	if ((c.count ?? 1) > 1) return "group";
+	return "solo";
+}
+/**
+* The sprite a creature is drawn with. A named person is keyed by template and
+* name, not by entity: generation can write one person into two rooms as two
+* entities (BUILD-PLAN, "One leader, one entity"), and they should still be one
+* drawing. Everyone else is their template, so a group's nameless members in
+* every room — and a pack worn down to one — share a drawing.
+*/
+function spriteKeyOf(c) {
+	return c.base !== void 0 ? `${c.narrative.blueprintId}:${c.name}` : c.narrative.blueprintId;
+}
+/** The creatures that can be drawn: there, seen, and at least one of them. */
+function drawableCreatures(creatures, roomId) {
+	return creatures.filter((c) => c.roomId === roomId && c.isHidden !== true && (c.count ?? 1) > 0);
+}
+//#endregion
+//#region src/generation/floorplan/map-layout.ts
+var corner = (x, y) => `${x},${y}`;
+var uncorner = (c) => {
+	const [x, y] = c.split(",").map(Number);
+	return {
+		x,
+		y
+	};
+};
+/** Cell (x,y) covers the square from corner (x,y) to (x+1,y+1). */
+function boundaryEdges(cells, has) {
+	const edges = [];
+	for (const { x, y } of cells) {
+		if (!has(x, y - 1)) edges.push({
+			from: corner(x, y),
+			to: corner(x + 1, y)
+		});
+		if (!has(x + 1, y)) edges.push({
+			from: corner(x + 1, y),
+			to: corner(x + 1, y + 1)
+		});
+		if (!has(x, y + 1)) edges.push({
+			from: corner(x + 1, y + 1),
+			to: corner(x, y + 1)
+		});
+		if (!has(x - 1, y)) edges.push({
+			from: corner(x, y + 1),
+			to: corner(x, y)
+		});
+	}
+	return edges;
+}
+/** Twice the signed area. Positive is clockwise in screen coordinates. */
+function shoelace(loop) {
+	let sum = 0;
+	for (let i = 0; i < loop.length; i++) {
+		const a = loop[i];
+		const b = loop[(i + 1) % loop.length];
+		sum += a.x * b.y - b.x * a.y;
+	}
+	return sum;
+}
+/** Drop the middle of any three points in a line — a wall is one segment. */
+function simplify(loop) {
+	const out = [];
+	for (let i = 0; i < loop.length; i++) {
+		const prev = loop[(i - 1 + loop.length) % loop.length];
+		const here = loop[i];
+		const next = loop[(i + 1) % loop.length];
+		if (!(prev.x === here.x && here.x === next.x || prev.y === here.y && here.y === next.y)) out.push(here);
+	}
+	return out.length >= 3 ? out : loop;
+}
+function traceOutline(cells) {
+	const present = new Set(cells.map((c) => corner(c.x, c.y)));
+	const has = (x, y) => present.has(corner(x, y));
+	const leaving = /* @__PURE__ */ new Map();
+	for (const e of boundaryEdges(cells, has)) {
+		const list = leaving.get(e.from);
+		if (list) list.push(e);
+		else leaving.set(e.from, [e]);
+	}
+	const loops = [];
+	for (const [start, group] of leaving) while (group.length) {
+		const loop = [];
+		let edge = group.shift();
+		let at = start;
+		while (edge) {
+			loop.push(uncorner(at));
+			at = edge.to;
+			const next = leaving.get(at);
+			if (!next?.length) break;
+			const from = uncorner(edge.from);
+			const to = uncorner(edge.to);
+			const dx = to.x - from.x;
+			const dy = to.y - from.y;
+			let pick = 0;
+			let bestRank = -Infinity;
+			next.forEach((cand, i) => {
+				const c = uncorner(cand.to);
+				const ex = c.x - to.x;
+				const ey = c.y - to.y;
+				const cross = dx * ey - dy * ex;
+				const dot = dx * ex + dy * ey;
+				const rank = cross > 0 ? 3 : cross < 0 ? 1 : dot > 0 ? 2 : 0;
+				if (rank > bestRank) {
+					bestRank = rank;
+					pick = i;
+				}
+			});
+			edge = next.splice(pick, 1)[0];
+			if (at === start) break;
+		}
+		if (loop.length >= 4) loops.push(simplify(loop));
+	}
+	let outer = [];
+	const holes = [];
+	let widest = -Infinity;
+	for (const loop of loops) {
+		const area = shoelace(loop);
+		if (area > 0) if (area > widest) {
+			if (outer.length) holes.push(outer);
+			widest = area;
+			outer = loop;
+		} else holes.push(loop);
+		else holes.push(loop);
+	}
+	return {
+		outer,
+		holes
+	};
+}
+//#endregion
+//#region src/illustrations/feature-presence.ts
+/** Table entries that are heard, smelled or felt, never seen. */
+var SENSE = /* @__PURE__ */ new Set([
+	"Faint breeze",
+	"Faint footsteps",
+	"Stench",
+	"Unusual smell",
+	"Vibrations",
+	"Whispers",
+	"Voices",
+	"Draft",
+	"Echoes",
+	"Noise",
+	"Smell",
+	"Tapping",
+	"Temperature",
+	"Scurrying",
+	"Deafening noise"
+]);
+/** Table entries that cover the room — its walls, floor or air — rather than stand in it. */
+var SURFACE = /* @__PURE__ */ new Set([
+	"Bas-relief",
+	"Blood trail",
+	"Chalk marks",
+	"Claw marks",
+	"Crumbling walls",
+	"Dripping water",
+	"Fading murals",
+	"Fungus",
+	"Graffiti",
+	"Mosaics",
+	"Slime trails",
+	"Smoke stains",
+	"Spider webs",
+	"Thick dust",
+	"Tree roots",
+	"Vines",
+	"Decay",
+	"Decor",
+	"Footprints",
+	"Light",
+	"Markings",
+	"Moisture",
+	"Mural",
+	"Residue",
+	"Shadows",
+	"Smoke",
+	"Stains",
+	"Surface",
+	"Writing",
+	"Choking dust",
+	"Dense fog",
+	"Spores",
+	"Toxic fumes"
+]);
+function featurePresence(keywords, position) {
+	const rolled = Object.entries(keywords ?? {});
+	if (rolled.some(([table]) => table === "Fixture")) return "object";
+	const values = rolled.map(([, v]) => v);
+	if (values.some((v) => SENSE.has(v))) return "sense";
+	if (values.some((v) => SURFACE.has(v))) return "surface";
+	if (position === "throughout") return "surface";
+	return "object";
+}
+/** Height a feature's button sits at, in feet: the floor, where its outline is. */
+var FEATURE_Z = 0;
+/** Height a corner arrow sits at, in feet: about a hand's height on the wall. */
+var CORNER_Z = 4;
+var inFrame = (q) => q !== null && q.x >= 0 && q.x <= 1 && q.y >= 0 && q.y <= 1;
+/** Within the horizontal field of view and in front of the eye, whatever the height. */
+function inFieldOfView(eye, p) {
+	const ahead = (p.x - eye.x) * eye.forward.x + (p.y - eye.y) * eye.forward.y;
+	const across = (p.x - eye.x) * eye.right.x + (p.y - eye.y) * eye.right.y;
+	return ahead > 0 && Math.abs(across) <= ahead * Math.tan(50 * Math.PI / 180);
+}
+function edgeToward(eye, p, z) {
+	const ahead = (p.x - eye.x) * eye.forward.x + (p.y - eye.y) * eye.forward.y;
+	const across = (p.x - eye.x) * eye.right.x + (p.y - eye.y) * eye.right.y;
+	const deg = Math.abs(Math.atan2(across, ahead)) * 180 / Math.PI;
+	const clamp = (n) => Math.min(1, Math.max(0, n));
+	if (deg > 120) {
+		const off = .5 * (180 - deg) / 60;
+		return {
+			edge: "bottom",
+			along: clamp(across < 0 ? .5 - off : .5 + off)
+		};
+	}
+	if (deg <= 50) {
+		const q = projectToFrame(eye, {
+			...p,
+			z
+		});
+		if (!q || q.y > 1) return {
+			edge: "bottom",
+			along: q ? clamp(q.x) : .5
+		};
+	}
+	const along = clamp((deg - 50) / 70);
+	return {
+		edge: across < 0 ? "left" : "right",
+		along
+	};
+}
+/**
+* Inside corners of the room: lattice points with floor on three sides and
+* rock on the fourth — the corners a path bends round. Each is nudged half a
+* foot off the rock so a sight line to it does not graze the wall.
+*/
+function cornersOf(floor) {
+	const on = new Set(floor.map((c) => xyKey(c.x, c.y)));
+	const seen = /* @__PURE__ */ new Set();
+	const out = [];
+	for (const c of floor) for (const [i, j] of [
+		[c.x, c.y],
+		[c.x + 1, c.y],
+		[c.x, c.y + 1],
+		[c.x + 1, c.y + 1]
+	]) {
+		if (seen.has(xyKey(i, j))) continue;
+		seen.add(xyKey(i, j));
+		const rock = [
+			[i - 1, j - 1],
+			[i, j - 1],
+			[i - 1, j],
+			[i, j]
+		].filter(([x, y]) => !on.has(xyKey(x, y)));
+		if (rock.length !== 1) continue;
+		const [rx, ry] = rock[0];
+		out.push({
+			x: i * 5 + (rx < i ? .5 : -.5),
+			y: j * 5 + (ry < j ? .5 : -.5)
+		});
+	}
+	return out;
+}
+/**
+* The shortest walk from the eye to `target` that keeps to the floor, as the
+* corners it bends round. Empty when the target is in plain sight; null when
+* nothing reaches it. Dijkstra over the eye, the inside corners and the target,
+* joined wherever a straight line between them stays on the floor — the taut
+* string a walk round the room's corners makes.
+*/
+function route(input, eye, target, corners) {
+	const on = new Set(input.floor.map((c) => xyKey(c.x, c.y)));
+	const onFloor = (x, y) => on.has(xyKey(x, y));
+	const fromEye = illustrationSight(input, eye);
+	const nodes = [
+		eye,
+		...corners,
+		target
+	];
+	const last = nodes.length - 1;
+	const clear = (a, b) => a === 0 ? fromEye(nodes[b]) : b === 0 ? fromEye(nodes[a]) : clearLine(nodes[a], nodes[b], onFloor);
+	const dist = nodes.map(() => Infinity);
+	const prev = nodes.map(() => -1);
+	const done = nodes.map(() => false);
+	dist[0] = 0;
+	for (;;) {
+		let u = -1;
+		for (let i = 0; i < nodes.length; i++) if (!done[i] && (u < 0 || dist[i] < dist[u])) u = i;
+		if (u < 0 || dist[u] === Infinity) return null;
+		if (u === last) break;
+		done[u] = true;
+		for (let v = 0; v < nodes.length; v++) {
+			if (done[v] || v === u) continue;
+			const d = dist[u] + Math.hypot(nodes[u].x - nodes[v].x, nodes[u].y - nodes[v].y);
+			if (d < dist[v] && clear(u, v)) {
+				dist[v] = d;
+				prev[v] = u;
+			}
+		}
+	}
+	const path = [];
+	for (let v = prev[last]; v > 0; v = prev[v]) path.unshift(nodes[v]);
+	return path;
+}
+/** Which way a walk turns at `corner`, heading on to `next`, seen from above. */
+function turnAt(from, corner, next) {
+	return (corner.x - from.x) * (next.y - corner.y) - (corner.y - from.y) * (next.x - corner.x) > 0 ? "right" : "left";
+}
+/**
+* Where something not in the picture is, as the illustration can say it: round a
+* corner in view, walled off where it stands, or off one edge.
+*/
+function unseen(input, eye, sighted, anchor, corners) {
+	const wouldBe = projectToFrame(eye, anchor);
+	const points = inFieldOfView(eye, anchor) && inFrame(wouldBe) ? [wouldBe] : [];
+	const path = route(input, eye, sighted, corners);
+	if (path && path.length) {
+		const corner = path[0];
+		const at = projectToFrame(eye, {
+			...corner,
+			z: CORNER_Z
+		});
+		if (inFieldOfView(eye, corner) && inFrame(at)) return {
+			status: "around",
+			points: [],
+			around: {
+				...at,
+				turn: turnAt(eye, corner, path[1] ?? sighted)
+			}
+		};
+		if (!points.length) return {
+			status: "off-frame",
+			points,
+			...edgeToward(eye, corner, CORNER_Z)
+		};
+	}
+	if (points.length) return {
+		status: "behind-wall",
+		points
+	};
+	return {
+		status: "off-frame",
+		points,
+		...edgeToward(eye, anchor, anchor.z)
+	};
+}
+/**
+* Every way out (the way in among them) and every placed feature, as the page
+* should show it on the illustration. Features with no footprint are left out: there
+* is nowhere to put their button.
+*/
+function illustrationHotspots(input, view) {
+	const { eye } = view;
+	const corners = cornersOf(input.floor);
+	const sees = illustrationSight(input, eye);
+	const out = [];
+	const door = (d, role, visible) => {
+		const anchor = {
+			...doorPoint(d),
+			z: ILLUSTRATION_DOOR_FT / 2
+		};
+		if (visible) {
+			const q = projectToFrame(eye, anchor);
+			if (q) {
+				out.push({
+					id: d.id,
+					role,
+					status: "shown",
+					points: [q]
+				});
+				return;
+			}
+		}
+		out.push({
+			id: d.id,
+			role,
+			...unseen(input, eye, doorTarget(d), anchor, corners)
+		});
+	};
+	input.exits.forEach((d, i) => door(d, "exit", view.exits[i].visible));
+	door(input.entry, "entry", view.entry.visible);
+	input.features.forEach((f, i) => {
+		if (!f.cells.length) return;
+		const pieces = connectedCells(f.cells);
+		if (view.features[i].visible) {
+			const points = [];
+			for (const piece of pieces) {
+				const shows = piece.map(cellMiddle).filter((m) => {
+					const q = projectToFrame(eye, {
+						...m,
+						z: FEATURE_Z
+					});
+					return inFieldOfView(eye, m) && inFrame(q) && sees(m);
+				});
+				if (!shows.length) continue;
+				const c = {
+					x: shows.reduce((s, m) => s + m.x, 0) / shows.length,
+					y: shows.reduce((s, m) => s + m.y, 0) / shows.length
+				};
+				const q = projectToFrame(eye, {
+					...c,
+					z: FEATURE_Z
+				});
+				if (q) points.push(q);
+			}
+			if (points.length) {
+				out.push({
+					id: f.id,
+					role: "feature",
+					status: "shown",
+					points
+				});
+				return;
+			}
+		}
+		const nearest = f.cells.map(cellMiddle).reduce((a, b) => Math.hypot(a.x - eye.x, a.y - eye.y) <= Math.hypot(b.x - eye.x, b.y - eye.y) ? a : b);
+		out.push({
+			id: f.id,
+			role: "feature",
+			...unseen(input, eye, nearest, {
+				...nearest,
+				z: FEATURE_Z
+			}, corners)
+		});
+	});
+	return out;
+}
+//#endregion
+//#region src/illustrations/room-illustration.ts
+/**
+* ROOM ILLUSTRATIONS — what goes into one
+* ================================
+*
+* The join between a generated dungeon and `illustrationView`. This is where a room's
+* entities become cells and doors, and where CONCEALMENT IS FILTERED OUT: a
+* illustration is a picture for the player, and a hidden feature or a secret door fed
+* to an image model is a picture of the secret (BUILD-PLAN, Illustrations).
+*
+* Reads the dungeon as GENERATED, never the run, so a room's illustration does not
+* depend on what one player has found — it is the dungeon's, and every player
+* entering by the same door gets the same one.
+*
+* No creatures and no loose items: they move, die and get picked up, and a
+* picture of them is stale the moment they do.
+*/
+/**
+* Where a connector cuts this room's wall, as the plan drew it.
+*
+* Undefined when the plan has no door for it — a dungeon with no block plan,
+* or an edge the plan found no shared wall for. Either way there is nothing
+* honest to put in a picture.
+*/
+function doorOf(d, c, roomIndex) {
+	const plan = d.blockplan;
+	if (!plan) return void 0;
+	if (isSurfaceExit(c)) {
+		const s = plan.surface;
+		return s && s.room === roomIndex ? {
+			id: c.id,
+			inside: s.from,
+			outside: s.to
+		} : void 0;
+	}
+	const edge = d.graph.edges.find((e) => e.entityId === c.id);
+	if (!edge || edge.a !== roomIndex && edge.b !== roomIndex) return void 0;
+	const door = plan.doors.find((x) => pairKey(x.a, x.b) === pairKey(edge.a, edge.b));
+	if (!door) return void 0;
+	return door.a === roomIndex ? {
+		id: c.id,
+		inside: door.from,
+		outside: door.to
+	} : {
+		id: c.id,
+		inside: door.to,
+		outside: door.from
+	};
+}
+/**
+* The ways in a viewer could arrive by: every connector touching the room that
+* is not concealed and that the plan drew.
+*/
+function illustrationEntries(d, roomId) {
+	const i = d.graph.rooms.findIndex((r) => r.entityId === roomId);
+	if (i < 0) return [];
+	return d.entities.connectors.filter((c) => touches(c, roomId) && c.isHidden !== true).filter((c) => doorOf(d, c, i) !== void 0).map((c) => c.id);
+}
+/**
+* The room as seen from `entryId`, or undefined when it cannot be drawn: no
+* block plan, an unknown room, or a door the plan does not have.
+*/
+function roomIllustration(d, roomId, entryId) {
+	const i = d.graph.rooms.findIndex((r) => r.entityId === roomId);
+	const room = d.entities.rooms.find((r) => r.id === roomId);
+	const floor = d.blockplan?.rooms[i];
+	if (i < 0 || !room || !floor?.length) return void 0;
+	const registry = d.entities.registry;
+	const entryConn = d.entities.connectors.find((c) => c.id === entryId);
+	const entry = entryConn && doorOf(d, entryConn, i);
+	if (!entry) return void 0;
+	const exitConns = d.entities.connectors.filter((c) => c.id !== entryId && touches(c, roomId) && c.isHidden !== true);
+	const exits = [];
+	const exitDoors = [];
+	for (const c of exitConns) {
+		const door = doorOf(d, c, i);
+		if (!door) continue;
+		exitDoors.push(door);
+		exits.push({
+			id: c.id,
+			name: c.name,
+			base: resolveBase(c, registry) ?? "",
+			surface: isSurfaceExit(c)
+		});
+	}
+	const subjects = d.entities.features.filter((f) => f.roomId === roomId && f.isHidden !== true).map((f) => ({
+		id: f.id,
+		name: f.name,
+		base: resolveBase(f, registry) ?? "",
+		kind: f.place?.fixture,
+		presence: featurePresence(f.keywords, f.place?.position),
+		position: f.place?.position
+	}));
+	const features = subjects.filter((x) => x.presence !== "sense");
+	const senses = subjects.filter((x) => x.presence === "sense");
+	const cellsOf = new Map(d.entities.features.map((f) => [f.id, f.place?.cells ?? []]));
+	const input = {
+		floor,
+		entry,
+		exits: exitDoors,
+		features: features.map((f) => ({
+			id: f.id,
+			cells: cellsOf.get(f.id) ?? []
+		}))
+	};
+	const view = illustrationView(input);
+	const stage = illustrationStage(input, view);
+	return {
+		roomId,
+		roomName: room.name,
+		roomBase: resolveBase(room, registry) ?? "",
+		entryId,
+		entry: {
+			id: entryConn.id,
+			name: entryConn.name,
+			base: resolveBase(entryConn, registry) ?? "",
+			surface: isSurfaceExit(entryConn)
+		},
+		input,
+		view,
+		exits,
+		features,
+		senses,
+		hotspots: illustrationHotspots(input, view),
+		...stage ? { stage } : {}
+	};
+}
+/**
+* The tag each thing carries in the guide image and the brief: letters for
+* ways out (the way in last), numbers for features. Only things in the picture
+* are tagged — a tag on something the camera cannot see would be a promise the
+* picture cannot keep.
+*/
+function illustrationTags(p) {
+	const tags = /* @__PURE__ */ new Map();
+	[...p.view.exits, p.view.entry].filter((s) => s.visible).forEach((s, i) => tags.set(s.id, String.fromCharCode(65 + i)));
+	p.view.features.filter((s, i) => s.visible && p.features[i].presence === "object").forEach((s, i) => tags.set(s.id, String(i + 1)));
+	return tags;
+}
+/**
+* Everything the chosen camera shows, as the prompt needs it: the viewpoint,
+* the doorways and objects with their tags and positions, and the surfaces.
+*
+* Only what is in the picture. A thing named in a prompt only to say "do not
+* draw this" tends to get drawn, so what the camera cannot see is left out
+* entirely; the page still has a hotspot for it.
+*/
+function illustrationInView(p) {
+	const v = p.view;
+	const tags = illustrationTags(p);
+	const viewpoint = `Standing ${v.standing} of the room at eye height, looking ${v.facing}. The floor runs about ${Math.round(v.deep / 5) * 5} ft ahead and ${Math.round(v.wide / 5) * 5} ft across.`;
+	const drawn = [];
+	const surfaces = [];
+	const doors = [...p.exits.map((x, i) => [x, v.exits[i]]), [p.entry, v.entry]];
+	for (const [x, s] of doors) if (s.visible) drawn.push({
+		subject: x,
+		tag: tags.get(x.id),
+		where: exitWhere(s),
+		doorway: true
+	});
+	p.features.forEach((f, i) => {
+		const s = v.features[i];
+		if (!s.visible) return;
+		if (f.presence === "surface") surfaces.push({
+			subject: f,
+			where: f.position === "throughout" ? "throughout the room" : featureWhere(s),
+			doorway: false
+		});
+		else drawn.push({
+			subject: f,
+			tag: tags.get(f.id),
+			where: featureWhere(s),
+			doorway: false
+		});
+	});
+	return {
+		viewpoint,
+		drawn,
+		surfaces
+	};
+}
+/**
+* Which way in a run's illustration of `roomId` is drawn from, or undefined when the
+* run has not been there (an illustration of an unentered room shows the player that
+* room) or the room cannot be drawn.
+*
+* The door is the one the FIRST arrival was logged with, since the illustration sits
+* at that arrival. An arrival logged before `via` was kept falls back to the
+* run's `arrivedVia` while they are still in the room, then to the way out of
+* the dungeon if the room has it, then to the first door the plan drew.
+*/
+function illustrationEntryFor(d, run, roomId) {
+	const first = run.log.find((e) => e.kind === "arrival" && e.roomId === roomId);
+	const here = run.currentRoomId === roomId;
+	if (!first && !here) return void 0;
+	const entries = illustrationEntries(d, roomId);
+	const wanted = first?.via ?? (here ? run.arrivedVia : void 0);
+	if (wanted && entries.includes(wanted)) return wanted;
+	return d.entities.connectors.find((c) => entries.includes(c.id) && isSurfaceExit(c))?.id ?? entries[0];
+}
+/**
+* The illustration's buttons: every door and every object, in the picture or not.
+* One in the picture sits at each point where the guide put a tag, so a button
+* sits on the thing the image model was told to draw there. Surfaces have
+* none: they are drawn over the room, not at a spot, so there is nowhere to
+* put one and nothing for an arrow to point at.
+*/
+function illustrationSpots(p) {
+	const surfaces = new Set(p.features.filter((f) => f.presence !== "object").map((f) => f.id));
+	return p.hotspots.filter((h) => !surfaces.has(h.id)).flatMap((h) => {
+		switch (h.status) {
+			case "shown": return h.points.map((q) => ({
+				id: h.id,
+				how: "shown",
+				x: q.x,
+				y: q.y
+			}));
+			case "behind-wall": return h.points.map((q) => ({
+				id: h.id,
+				how: "behind-wall",
+				x: q.x,
+				y: q.y
+			}));
+			case "around": return h.around ? [{
+				id: h.id,
+				how: "around",
+				x: h.around.x,
+				y: h.around.y,
+				turn: h.around.turn
+			}] : [];
+			case "off-frame": return h.edge ? [{
+				id: h.id,
+				how: "edge",
+				edge: h.edge,
+				along: h.along ?? .5
+			}] : [];
+		}
+	});
+}
+/**
+* What a dungeon's cover is drawn from: the opening the player reads, and the
+* way in that brings them to the first room — the place and its entrance as
+* someone approaching would see them.
+*
+* Not the theme: that is about the inside, and in the spike it put ceilings
+* into an outside view. Concealment does not arise; the way in from the surface
+* is never hidden. Undefined for a dungeon with no way in from the surface.
+*/
+function coverDescription(d) {
+	const entrance = d.stocked.entranceRoomId;
+	const way = d.entities.connectors.find((c) => isSurfaceExit(c) && touches(c, entrance));
+	if (!way) return void 0;
+	const base = resolveBase(way, d.entities.registry) ?? "";
+	return [
+		`THE PLACE: ${d.pass.name}`,
+		d.pass.openingProse,
+		"",
+		`THE WAY IN: ${way.name}. ${base}`
+	].join("\n");
+}
+//#endregion
+//#region src/illustrations/sketch.ts
+/**
+* A room illustration's GUIDE IMAGE: the composition as plain line work.
+*
+* The same `IllustrationView` the prompt is written from, projected through a pinhole
+* at the chosen eye. It is drawn to be handed to an image model as a reference,
+* and a reference gets copied — so it carries only what should be copied:
+*
+*   - the ARCHITECTURE as line art: floor line, ceiling line, a vertical at each
+*     corner, doorways as outlined openings. No floor grid and no seam every
+*     five feet of wall; the grid is how the room was built, not how it looks.
+*   - each FEATURE as a dashed outline of its footprint on the floor with a
+*     numbered tag, and each doorway with a lettered tag (`illustrationTags`). Never a
+*     solid: a box drawn where the altar goes comes back as a box. The prompt
+*     says what each tag is and that no mark is to be drawn (`ILLUSTRATION_GUIDE_NOTE`, src/illustrations/prompt.ts).
+*
+* `marks: false` draws the architecture alone, for comparing against a model
+* that copies the marks anyway.
+*
+* Nothing the camera cannot see is drawn or tagged. Framework-free, so the dev
+* scripts can call it under plain node. Painter's algorithm, far to near.
+*/
+var INK = "#000000";
+var PAPER = "#FFFFFF";
+/**
+* Tag lettering as strokes, not `<text>`. The guide is rasterised by sharp on
+* the server, and a serverless function has no fonts installed: `<text>` there
+* comes out as empty boxes or nothing. A path needs no font, so the guide is
+* the same on the author's machine and on Vercel.
+*
+* Capitals and digits on a 4 × 6 grid, y down. 0 is slashed so it is not O.
+*/
+var GLYPHS = {
+	"0": "M0 0H4V6H0ZM4 0L0 6",
+	"1": "M1 1L2 0V6M1 6H3",
+	"2": "M0 0H4V3H0V6H4",
+	"3": "M0 0H4V6H0M1 3H4",
+	"4": "M0 0V3H4M4 0V6",
+	"5": "M4 0H0V3H4V6H0",
+	"6": "M4 0H0V6H4V3H0",
+	"7": "M0 0H4L1 6",
+	"8": "M0 0H4V6H0ZM0 3H4",
+	"9": "M4 3H0V0H4V6H0",
+	A: "M0 6L2 0L4 6M1 3.5H3",
+	B: "M0 0V6H3L4 5V4L3 3H0M0 0H3L4 1V2L3 3",
+	C: "M4 0H0V6H4",
+	D: "M0 0V6H2.5L4 4.5V1.5L2.5 0Z",
+	E: "M4 0H0V6H4M0 3H3",
+	F: "M4 0H0V6M0 3H3",
+	G: "M4 0H0V6H4V3H2",
+	H: "M0 0V6M4 0V6M0 3H4",
+	I: "M1 0H3M2 0V6M1 6H3",
+	J: "M4 0V6H0V4",
+	K: "M0 0V6M4 0L0 3.5M1.5 2.5L4 6",
+	L: "M0 0V6H4",
+	M: "M0 6V0L2 3L4 0V6",
+	N: "M0 6V0L4 6V0",
+	O: "M0 0H4V6H0Z",
+	P: "M0 6V0H4V3H0",
+	Q: "M0 0H4V6H0ZM2.5 4.5L4 6",
+	R: "M0 6V0H4V3H0M2 3L4 6",
+	S: "M4 0H0V3H4V6H0",
+	T: "M0 0H4M2 0V6",
+	U: "M0 0V6H4V0",
+	V: "M0 0L2 6L4 0",
+	W: "M0 0L1 6L2 3L3 6L4 0",
+	X: "M0 0L4 6M4 0L0 6",
+	Y: "M0 0L2 3L4 0M2 3V6",
+	Z: "M0 0H4L0 6H4"
+};
+/** `text` centred on (cx, cy), about the size the old 11px bold label was. */
+function strokeText(text, cx, cy) {
+	const k = 8 / 6;
+	const advance = 7.333333333333333;
+	const chars = [...text.toUpperCase()].filter((ch) => GLYPHS[ch]);
+	const x0 = cx - (chars.length * advance - 2) / 2;
+	return `<g data-tag="${text}">${chars.map((ch, i) => `<path d="${GLYPHS[ch]}" transform="translate(${(x0 + i * advance).toFixed(1)} ${(cy - 4).toFixed(1)}) scale(${k.toFixed(3)})" fill="none" stroke="${INK}" stroke-width="${(1.7 / k).toFixed(2)}" stroke-linecap="round" stroke-linejoin="round"/>`).join("")}</g>`;
+}
+var WALL_FT = 11;
+var DOOR_FT = ILLUSTRATION_DOOR_FT;
+/** Nothing nearer the eye than this is drawn; polygons are cut at it. */
+var NEAR_FT = .3;
+/** How far a footprint outline is drawn inside its cells, so it clears the wall line. */
+var FOOTPRINT_INSET_FT = .75;
+/** Length of the pieces a footprint outline is cut into to test each for sight, in feet. */
+var OUTLINE_STEP_FT = .25;
+function illustrationSketchSvg(p, opts = {}) {
+	const W = opts.width ?? 480;
+	const H = Math.round(W / ILLUSTRATION_ASPECT);
+	const marks = opts.marks ?? true;
+	const { eye } = p.view;
+	const focal = W / 2 / Math.tan(50 * Math.PI / 180);
+	const tags = illustrationTags(p);
+	/** World feet to camera space: ahead, across, up. */
+	const cam = (q) => ({
+		a: (q.x - eye.x) * eye.forward.x + (q.y - eye.y) * eye.forward.y,
+		c: (q.x - eye.x) * eye.right.x + (q.y - eye.y) * eye.right.y,
+		u: q.z - ILLUSTRATION_EYE_FT
+	});
+	const screen = (q) => ({
+		x: W / 2 + q.c / q.a * focal,
+		y: H / 2 - q.u / q.a * focal
+	});
+	const fmt = (s) => `${s.x.toFixed(1)},${s.y.toFixed(1)}`;
+	/** Cut a camera-space polygon at the near plane (Sutherland–Hodgman, one plane). */
+	const clip = (poly, closed) => {
+		const out = [];
+		const n = closed ? poly.length : poly.length - 1;
+		for (let i = 0; i < n; i++) {
+			const s = poly[i];
+			const e = poly[(i + 1) % poly.length];
+			const sIn = s.a >= NEAR_FT;
+			const eIn = e.a >= NEAR_FT;
+			if (sIn) out.push(s);
+			if (sIn !== eIn) {
+				const t = (NEAR_FT - s.a) / (e.a - s.a);
+				out.push({
+					a: NEAR_FT,
+					c: s.c + (e.c - s.c) * t,
+					u: s.u + (e.u - s.u) * t
+				});
+			}
+		}
+		if (!closed && poly[n].a >= NEAR_FT) out.push(poly[n]);
+		return out;
+	};
+	const polygon = (pts, attrs) => {
+		const c = clip(pts.map(cam), true);
+		return c.length < 3 ? "" : `<polygon points="${c.map(screen).map(fmt).join(" ")}" ${attrs}/>`;
+	};
+	const line = (a, b, attrs) => {
+		const c = clip([cam(a), cam(b)], false);
+		return c.length < 2 ? "" : `<polyline points="${c.map(screen).map(fmt).join(" ")}" fill="none" ${attrs}/>`;
+	};
+	/** An open polyline in the room, cut at the near plane where it passes behind the eye. */
+	const line3 = (pts, attrs) => {
+		const runs = [[]];
+		for (let i = 0; i < pts.length - 1; i++) {
+			const seg = clip([cam(pts[i]), cam(pts[i + 1])], false);
+			if (seg.length < 2) {
+				if (runs[runs.length - 1].length) runs.push([]);
+				continue;
+			}
+			const run = runs[runs.length - 1];
+			if (!run.length) run.push(seg[0]);
+			run.push(seg[1]);
+		}
+		return runs.filter((r) => r.length > 1).map((r) => `<polyline points="${r.map(screen).map(fmt).join(" ")}" fill="none" ${attrs}/>`).join("");
+	};
+	const dist = (q) => Math.hypot(q.x - eye.x, q.y - eye.y);
+	const at3 = (q, z) => ({
+		x: q.x,
+		y: q.y,
+		z
+	});
+	const out = [`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">`, `<rect width="${W}" height="${H}" fill="${PAPER}"/>`];
+	const STROKE = `stroke="${INK}" stroke-width="1.4" stroke-linecap="round"`;
+	const floorKey = new Set(p.input.floor.map((c) => `${c.x},${c.y}`));
+	const isFloor = (x, y) => floorKey.has(`${x},${y}`);
+	const visibleDoors = /* @__PURE__ */ new Set();
+	const doorEdges = [...p.input.exits.map((d, i) => [d, p.view.exits[i]]), [p.input.entry, p.view.entry]];
+	for (const [d, s] of doorEdges) if (s.visible) visibleDoors.add(`${d.inside.x},${d.inside.y}>${d.outside.x},${d.outside.y}`);
+	const faces = [];
+	const STEPS = [
+		[0, -1],
+		[1, 0],
+		[0, 1],
+		[-1, 0]
+	];
+	for (const c of p.input.floor) for (const [dx, dy] of STEPS) {
+		if (isFloor(c.x + dx, c.y + dy)) continue;
+		const mid = {
+			x: (c.x + .5 + dx / 2) * 5,
+			y: (c.y + .5 + dy / 2) * 5
+		};
+		const t = {
+			x: -dy,
+			y: dx
+		};
+		const from = {
+			x: mid.x - t.x * 5 / 2,
+			y: mid.y - t.y * 5 / 2
+		};
+		const to = {
+			x: mid.x + t.x * 5 / 2,
+			y: mid.y + t.y * 5 / 2
+		};
+		if ((eye.x - mid.x) * -dx + (eye.y - mid.y) * -dy <= 0) continue;
+		const runs = (s) => isFloor(c.x + s * t.x, c.y + s * t.y) && !isFloor(c.x + s * t.x + dx, c.y + s * t.y + dy);
+		const key = `${c.x},${c.y}>${c.x + dx},${c.y + dy}`;
+		faces.push({
+			from,
+			to,
+			d: dist(mid),
+			cornerFrom: !runs(-1),
+			cornerTo: !runs(1),
+			door: visibleDoors.has(key)
+		});
+	}
+	faces.sort((a, b) => b.d - a.d);
+	const tagMarks = [];
+	const tag = (q, text) => {
+		const s = {
+			x: q.x * W,
+			y: q.y * H
+		};
+		tagMarks.push(`<circle cx="${s.x.toFixed(1)}" cy="${s.y.toFixed(1)}" r="9" fill="${PAPER}" stroke="${INK}" stroke-width="1.2"/>` + strokeText(text, s.x, s.y));
+	};
+	for (const f of faces) {
+		out.push(polygon([
+			at3(f.from, 0),
+			at3(f.to, 0),
+			at3(f.to, WALL_FT),
+			at3(f.from, WALL_FT)
+		], `fill="${PAPER}" stroke="${PAPER}" stroke-width="0.8"`), line(at3(f.from, 0), at3(f.to, 0), STROKE), line(at3(f.from, WALL_FT), at3(f.to, WALL_FT), STROKE));
+		if (f.cornerFrom) out.push(line(at3(f.from, 0), at3(f.from, WALL_FT), STROKE));
+		if (f.cornerTo) out.push(line(at3(f.to, 0), at3(f.to, WALL_FT), STROKE));
+		if (f.door) {
+			const lerp = (s) => ({
+				x: f.from.x + (f.to.x - f.from.x) * s,
+				y: f.from.y + (f.to.y - f.from.y) * s
+			});
+			const a = lerp(.15);
+			const b = lerp(.85);
+			out.push(polygon([
+				at3(a, 0),
+				at3(b, 0),
+				at3(b, DOOR_FT),
+				at3(a, DOOR_FT)
+			], `fill="${PAPER}" ${STROKE}`));
+		}
+	}
+	if (marks) {
+		const sees = illustrationSight(p.input, eye);
+		p.input.features.forEach((f, i) => {
+			if (!p.view.features[i].visible || p.features[i].presence !== "object") return;
+			for (const piece of connectedCells(f.cells)) {
+				const { outer, holes } = traceOutline(piece);
+				for (const ring of [outer, ...holes]) {
+					const pts = inset(ring, FOOTPRINT_INSET_FT / 5).map((q) => ({
+						x: q.x * 5,
+						y: q.y * 5
+					}));
+					for (const run of visibleRuns(pts, sees)) out.push(line3(run.map((q) => at3(q, .05)), `stroke="${INK}" stroke-width="1.2" stroke-dasharray="5 4"`));
+				}
+			}
+		});
+		if (p.stage) for (const run of stageOutline(p.input, p.view, p.stage)) out.push(line3(run.map((q) => at3(q, .05)), `stroke="${INK}" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="0.1 4"`));
+		for (const h of p.hotspots) {
+			const t = tags.get(h.id);
+			if (h.status === "shown" && t) for (const q of h.points) tag(q, t);
+		}
+	}
+	out.push(...tagMarks, "</svg>");
+	return out.filter(Boolean).join("\n");
+}
+/**
+* The stretches of a closed ring, in feet, whose every short piece passes the
+* sight test — as open polylines ready to draw.
+*/
+function visibleRuns(ring, sees) {
+	const runs = [];
+	let run = [];
+	for (let i = 0; i < ring.length; i++) {
+		const a = ring[i];
+		const b = ring[(i + 1) % ring.length];
+		const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / OUTLINE_STEP_FT));
+		for (let k = 0; k < steps; k++) {
+			const p0 = {
+				x: a.x + (b.x - a.x) * k / steps,
+				y: a.y + (b.y - a.y) * k / steps
+			};
+			const p1 = {
+				x: a.x + (b.x - a.x) * (k + 1) / steps,
+				y: a.y + (b.y - a.y) * (k + 1) / steps
+			};
+			if (sees({
+				x: (p0.x + p1.x) / 2,
+				y: (p0.y + p1.y) / 2
+			})) {
+				if (!run.length) run.push(p0);
+				run.push(p1);
+			} else if (run.length) {
+				runs.push(run);
+				run = [];
+			}
+		}
+	}
+	if (run.length) runs.push(run);
+	return runs;
+}
+/**
+* A rectilinear ring moved inward by `d` cells. `traceOutline` winds the outer
+* ring clockwise on screen (y down), so the inside is to the right of travel.
+*/
+function inset(ring, d) {
+	const n = ring.length;
+	return ring.map((v, i) => {
+		const prev = ring[(i - 1 + n) % n];
+		const next = ring[(i + 1) % n];
+		const inward = (a, b) => {
+			const dx = Math.sign(b.x - a.x);
+			return {
+				x: -Math.sign(b.y - a.y),
+				y: dx
+			};
+		};
+		const n1 = inward(prev, v);
+		const n2 = inward(v, next);
+		return {
+			x: v.x + (n1.x + n2.x) * d,
+			y: v.y + (n1.y + n2.y) * d
+		};
+	});
+}
+//#endregion
+//#region src/illustrations/visual.ts
+/**
+* ROOM ILLUSTRATIONS — the words
+* =======================
+*
+* The Haiku calls that cut a room's fiction down to what an illustrator would
+* draw, and the assembly of the image prompt from their answers and the
+* camera's. The request text and the prompt layout are pure and live in
+* `src/illustrations/prompt.ts`; this is the part that talks to the model.
+*
+* Three calls, each cached by the caller with what it describes:
+*
+*   setting   once per dungeon — what the place is built from, and its light
+*   visual    once per illustration — the room's shell, and a look per thing in view
+*   exterior  once per dungeon — the place and its way in, from outside
+*
+* Only what `illustrationInView` kept is sent: concealment filtered, sounds and smells
+* dropped, nothing out of frame. The model writes no positions and no numbers;
+* the prompt's WHERE comes from code.
+*/
+var visualSchema = z.object({
+	room: nonEmpty,
+	things: z.array(z.object({
+		ref: nonEmpty,
+		look: nonEmpty
+	}))
+});
+var lineSchema = z.object({ text: nonEmpty });
+/**
+* The refs the visual request keys on: the guide's tag where there is one,
+* and S1, S2… for surfaces, which carry none. Short on purpose — they are
+* echoed back once per thing.
+*/
+function visualSubjects(p) {
+	const { drawn, surfaces } = illustrationInView(p);
+	const refOf = /* @__PURE__ */ new Map();
+	const subjects = [];
+	for (const x of drawn) {
+		const ref = x.tag ?? `T${subjects.length + 1}`;
+		refOf.set(x.subject.id, ref);
+		subjects.push({
+			ref,
+			kind: x.doorway ? "doorway" : "object",
+			name: x.subject.name,
+			base: x.subject.base
+		});
+	}
+	surfaces.forEach((x, i) => {
+		const ref = `S${i + 1}`;
+		refOf.set(x.subject.id, ref);
+		subjects.push({
+			ref,
+			kind: "surface",
+			name: x.subject.name,
+			base: x.subject.base
+		});
+	});
+	return {
+		subjects,
+		refOf
+	};
+}
+async function requestIllustrationVisual(p) {
+	const { subjects } = visualSubjects(p);
+	const want = new Set(subjects.map((s) => s.ref));
+	const res = await callForJson({
+		task: "illustration-visual",
+		system: ILLUSTRATION_VISUAL_SYSTEM,
+		messages: [{
+			role: "user",
+			content: illustrationVisualMessage(p.roomName, p.roomBase, subjects)
+		}],
+		schema: visualSchema,
+		toolName: "illustration_visual",
+		toolDescription: "The room's shell in one sentence, and a look for every listed thing, keyed by ref.",
+		check: (v) => [...want].filter((ref) => !v.things.some((t) => t.ref === ref)).map((ref) => ({
+			path: "things",
+			message: `no look for ref ${ref}`
+		}))
+	});
+	return {
+		value: {
+			room: res.value.room,
+			looks: Object.fromEntries(res.value.things.map((t) => [t.ref, t.look]))
+		},
+		usage: res.usage
+	};
+}
+async function requestLine(system, message) {
+	const res = await callForJson({
+		task: "illustration-visual",
+		system,
+		messages: [{
+			role: "user",
+			content: message
+		}],
+		schema: lineSchema,
+		toolName: "illustration_line",
+		toolDescription: "The text asked for."
+	});
+	return {
+		value: res.value.text,
+		usage: res.usage
+	};
+}
+function requestIllustrationSetting(theme) {
+	return requestLine(ILLUSTRATION_SETTING_SYSTEM, illustrationSettingMessage(theme));
+}
+function requestIllustrationExterior(description) {
+	return requestLine(ILLUSTRATION_EXTERIOR_SYSTEM, description);
+}
+/**
+* The image prompt for a room illustration. `visual` may come from the model or —
+* for comparing against it — be built from the raw fiction; the prompt does
+* not care which.
+*/
+function illustrationImagePrompt(p, guide, setting, visual, style, references = 0) {
+	const { viewpoint, drawn, surfaces } = illustrationInView(p);
+	const { refOf } = visualSubjects(p);
+	const look = (id, fallback) => visual.looks[refOf.get(id) ?? ""] ?? fallback;
+	return roomIllustrationPrompt({
+		guide,
+		style,
+		references,
+		setting,
+		room: visual.room,
+		viewpoint,
+		drawn: drawn.map((x) => ({
+			tag: x.tag,
+			look: look(x.subject.id, x.subject.name),
+			where: x.where,
+			doorway: x.doorway
+		})),
+		surfaces: surfaces.map((x) => ({
+			look: look(x.subject.id, x.subject.name),
+			where: x.where
+		})),
+		openFloor: p.stage !== void 0
+	});
+}
+/**
+* The same prompt with the fiction passed through uncut: the room's whole base
+* as ROOM and each thing's whole base as its look. The control the condensing
+* call is measured against.
+*/
+function rawVisual(p) {
+	const { subjects } = visualSubjects(p);
+	return {
+		room: p.roomBase,
+		looks: Object.fromEntries(subjects.map((s) => [s.ref, s.base]))
+	};
+}
+//#endregion
+//#region src/server/illustrations/image.ts
+/**
+* ROOM ILLUSTRATIONS — the pixels
+* ========================
+*
+* Everything an illustration needs done to an image, with sharp: the guide drawn to a
+* PNG, and the model's picture thresholded to 1-bit. Shared by the server and
+* the spike script (`src/dev/cli-illustrate.ts`) so both make the same image.
+*
+* Node only: sharp is native.
+*/
+/** An illustration's size, the image model's 3:2 landscape. */
+var ILLUSTRATION_W = 1536;
+var ILLUSTRATION_H = 1024;
+/**
+* The guide at the illustration's full size. Drawn at the width its line weights
+* were set for and scaled up as a vector, so walls, dashes and tags all grow
+* together; drawn at full width instead, they come out hairline.
+*/
+function guidePng(p, marks) {
+	const drawnAt = 480;
+	return sharp(Buffer.from(illustrationSketchSvg(p, {
+		marks,
+		width: drawnAt
+	})), { density: 72 * ILLUSTRATION_W / drawnAt }).resize(ILLUSTRATION_W, ILLUSTRATION_H).png().toBuffer();
+}
+/**
+* Black ink on NOTHING: what the page gets. The paper is transparent, so the
+* page lays the illustration down as a mask over its own ink colour and the picture's
+* white is the page's paper — no box edge, and the lines are exactly the
+* text's ink. Same threshold as `oneBitPng`, so the two are the same drawing.
+*/
+async function inkPng(image) {
+	const { data, info } = await sharp(image).flatten({ background: "#ffffff" }).greyscale().threshold(150).raw().toBuffer({ resolveWithObject: true });
+	const n = info.width * info.height;
+	const rgba = Buffer.alloc(n * 4);
+	for (let i = 0; i < n; i++) rgba[i * 4 + 3] = data[i * info.channels] < 128 ? 255 : 0;
+	return sharp(rgba, { raw: {
+		width: info.width,
+		height: info.height,
+		channels: 4
+	} }).png({ compressionLevel: 9 }).toBuffer();
+}
+/** The style references, sent after the guide. Bundled with the function — see `vercel.json`. */
+var ILLUSTRATION_REFS_DIR = "assets/illustration-refs";
+var sha$1 = (s) => createHash("sha256").update(s).digest("hex");
+/** The key of the setting line a dungeon's illustrations share. */
+var settingKey = (theme) => `setting:${sha$1(ILLUSTRATION_SETTING_SYSTEM + "\n" + illustrationSettingMessage(theme))}`;
+/** What an illustration is drawn from, hashed. See the header for why not the prompt. */
+function illustrationKey(p, theme, references) {
+	const { subjects } = visualSubjects(p);
+	return sha$1(JSON.stringify({
+		style: 2,
+		model: `${IMAGE_MODELS[ILLUSTRATION_MODEL].guided} low ${ILLUSTRATION_W}x${ILLUSTRATION_H}`,
+		references,
+		setting: settingKey(theme),
+		visual: ILLUSTRATION_VISUAL_SYSTEM + "\n" + illustrationVisualMessage(p.roomName, p.roomBase, subjects),
+		layout: illustrationImagePrompt(p, "marks", "", rawVisual(p), void 0, references),
+		guide: illustrationSketchSvg(p, { marks: true })
+	}));
+}
+async function serveIllustration(d, roomId, entryId, work, store = repo_exports) {
+	const p = roomIllustration(d, roomId, entryId);
+	if (!p) return { status: "none" };
+	const theme = d.pass.theme;
+	const answer = await serveKeyed(illustrationKey(p, theme, work.references), ILLUSTRATION_MODEL, p.roomName, work, store, async () => {
+		const sKey = settingKey(theme);
+		const setting = await store.getIllustrationWords(sKey) ?? await store.saveIllustrationWords(sKey, await work.setting(theme));
+		const visual = await work.visual(p);
+		const prompt = illustrationImagePrompt(p, "marks", setting, visual, void 0, work.references);
+		return work.draw(prompt, await guidePng(p, true));
+	});
+	return answer.status === "ready" ? {
+		...answer,
+		spots: illustrationSpots(p)
+	} : answer;
+}
+/**
+* The dungeon from outside: the cover on its library card and above its
+* opening. Klein, prompt only, sparse style — the spike's exterior setup.
+*
+* Keyed like an illustration, by what it is drawn from. The key is written onto the
+* dungeon row (`dungeons.cover`) when the dungeon is finished; a dungeon with
+* no key has no cover and never gets one drawn.
+*/
+function coverKey(d) {
+	const description = coverDescription(d);
+	if (!description) return void 0;
+	return sha$1(JSON.stringify({
+		style: 2,
+		model: `${IMAGE_MODELS[COVER_MODEL].unguided} ${ILLUSTRATION_W}x${ILLUSTRATION_H}`,
+		seed: d.seeds.dungeonSeed,
+		scene: ILLUSTRATION_EXTERIOR_SYSTEM + "\n" + description,
+		prompt: exteriorIllustrationPrompt({ scene: "" })
+	}));
+}
+async function serveCover(d, key, work, store = repo_exports) {
+	const description = coverDescription(d);
+	if (!description) return { status: "none" };
+	return serveKeyed(key, COVER_MODEL, `${d.pass.name} (cover)`, work, store, async () => {
+		const scene = await work.scene(description);
+		return work.drawScene(exteriorIllustrationPrompt({ scene }), d.seeds.dungeonSeed);
+	});
+}
+/**
+* The claim, the draw and the store, for anything kept in `plates`: room
+* illustrations, covers, and creature sprites (`src/server/illustrations/sprites.ts`).
+*
+*   ready    → the URL
+*   pending  → "ask again", unless the claim is stale
+*   missing  → claim it, draw it, store it, return the URL
+*   failed   → claim it again while attempts are left; past that, none
+*/
+async function serveKeyed(key, model, label, work, store, make, finish = inkPng) {
+	const row = await store.getIllustration(key);
+	if (row?.status === "ready" && row.path) return {
+		status: "ready",
+		url: work.urlOf(row.path)
+	};
+	if (row?.status === "pending" && row.ageMs < 18e4) return { status: "pending" };
+	if (row?.status === "failed" && row.attempts >= 3) return { status: "none" };
+	if (!await store.claimIllustration(key, model, {
+		staleMs: 18e4,
+		maxAttempts: 3
+	})) {
+		const now = await store.getIllustration(key);
+		if (now?.status === "ready" && now.path) return {
+			status: "ready",
+			url: work.urlOf(now.path)
+		};
+		return now?.status === "pending" ? { status: "pending" } : { status: "none" };
+	}
+	try {
+		const picture = await make();
+		const path = `${key}.png`;
+		await work.upload(path, await finish(picture));
+		await store.finishIllustration(key, path);
+		return {
+			status: "ready",
+			url: work.urlOf(path)
+		};
+	} catch (e) {
+		const body = e.body;
+		const why = `${e.message}${body ? ` ${JSON.stringify(body).slice(0, 400)}` : ""}`;
+		console.error(`[illustration] ${label} (${key.slice(0, 12)}) failed: ${why}`);
+		await store.failIllustration(key, why);
+		return { status: "none" };
+	}
+}
+/**
+* The live worker, or undefined when the server is not set up to draw — no
+* `FAL_KEY`, or no service-role key to store with. Then every room simply has
+* no illustration, which is also the off switch.
+*/
+function liveIllustrationWork() {
+	const falKey = process.env.FAL_KEY;
+	const supabaseUrl = process.env.SUPABASE_URL?.replace(/\/$/, "");
+	const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+	if (!falKey || !supabaseUrl || !serviceKey) return void 0;
+	fal.config({ credentials: falKey });
+	const dir = resolve(process.cwd(), ILLUSTRATION_REFS_DIR);
+	const refFiles = readdirSync(dir).filter((f) => f.endsWith(".png")).sort();
+	let refUrls;
+	const refs = () => refUrls ??= Promise.all(refFiles.map((f) => fal.storage.upload(new Blob([readFileSync(resolve(dir, f))], { type: "image/png" })))).catch((e) => {
+		refUrls = void 0;
+		throw e;
+	});
+	return {
+		references: refFiles.length,
+		setting: async (theme) => (await requestIllustrationSetting(theme)).value,
+		visual: async (p) => (await requestIllustrationVisual(p)).value,
+		async draw(prompt, guide) {
+			const guideUrl = await fal.storage.upload(new Blob([new Uint8Array(guide)], { type: "image/png" }));
+			return fetchImage((await fal.subscribe(IMAGE_MODELS[ILLUSTRATION_MODEL].guided, { input: {
+				prompt,
+				quality: "low",
+				image_size: {
+					width: ILLUSTRATION_W,
+					height: ILLUSTRATION_H
+				},
+				output_format: "png",
+				image_urls: [guideUrl, ...await refs()]
+			} })).data);
+		},
+		scene: async (description) => (await requestIllustrationExterior(description)).value,
+		async drawScene(prompt, seed) {
+			const endpoint = IMAGE_MODELS[COVER_MODEL].unguided;
+			if (!endpoint) throw new Error(`${COVER_MODEL} has no prompt-only endpoint`);
+			return fetchImage((await fal.subscribe(endpoint, { input: {
+				prompt,
+				image_size: {
+					width: ILLUSTRATION_W,
+					height: ILLUSTRATION_H
+				},
+				seed,
+				output_format: "png"
+			} })).data);
+		},
+		async upload(path, png) {
+			const res = await fetch(`${supabaseUrl}/storage/v1/object/plates/${path}`, {
+				method: "POST",
+				headers: {
+					authorization: `Bearer ${serviceKey}`,
+					apikey: serviceKey,
+					"content-type": "image/png",
+					"cache-control": "max-age=31536000, immutable",
+					"x-upsert": "true"
+				},
+				body: new Uint8Array(png)
+			});
+			if (!res.ok) throw new Error(`storing the illustration failed (${res.status}): ${(await res.text()).slice(0, 300)}`);
+		},
+		urlOf: (path) => illustrationUrl(path)
+	};
+}
+/** The image a fal endpoint answered with. */
+async function fetchImage(data) {
+	const url = data.images?.[0]?.url;
+	if (!url) throw new Error(`no image in the response: ${JSON.stringify(data).slice(0, 300)}`);
+	const got = await fetch(url);
+	if (!got.ok) throw new Error(`fetching the image failed (${got.status})`);
+	return Buffer.from(await got.arrayBuffer());
+}
+/** The public URL of a stored illustration or cover, or undefined when Storage is not configured. */
+function illustrationUrl(path) {
+	const base = process.env.SUPABASE_URL?.replace(/\/$/, "");
+	return base ? `${base}/storage/v1/object/public/plates/${path}` : void 0;
+}
+//#endregion
+//#region src/server/routes/lookup.ts
+/**
+* A ROW, OR A 404, under an owner filter. Shared by every route that names a
+* run or a dungeon.
+*/
+/**
+* A dungeon, or a 404.
+*
+* OWNERSHIP IS AN ARGUMENT, NOT AN AFTERTHOUGHT. Both of these take the owner
+* and pass it into the `where`, so there is no arrangement of calls in which a
+* handler reads a row first and remembers to check it second. "Not yours" and
+* "not there" are one answer.
+*/
+async function mustGetDungeon(id, owner) {
+	const stored = await getDungeon(id, owner);
+	if (!stored) throw new HTTPException(404, { message: `no such dungeon: ${id}` });
+	return stored;
+}
+/** A run, or a 404, by the same rule. */
+async function mustGetRun(id, owner) {
+	const run = await getRun(id, owner);
+	if (!run) throw new HTTPException(404, { message: `no such run: ${id}` });
+	return run;
+}
+//#endregion
+//#region src/server/routes/dungeons.ts
+function dungeonRoutes(app) {
+	/**
+	* The structure and the standing fiction.
+	*
+	* Journalled against the DUNGEON rather than a run: the player has not
+	* chosen a character yet, so there is no run for these to belong to. Every
+	* run down this dungeon reads them as the opening of its own journal.
+	*/
+	app.post("/api/dungeons", async (c) => {
+		const { seed, size, level } = await c.req.json();
+		const unfinished = await findUnfinishedDungeon(currentUser(c).id, {
+			seed,
+			size,
+			level
+		});
+		if (unfinished) return c.json({
+			dungeonId: unfinished.id,
+			chunks: chunksOf(unfinished.doc)
+		});
+		const allowance = await allowanceOf(currentUser(c));
+		if (!hasRunLeft(allowance)) return c.json({
+			error: refusal(allowance),
+			allowance
+		}, 429);
+		if (!(size <= allowance.maxSize)) return c.json({
+			error: `Only size ${allowance.maxSize} dungeons for now.`,
+			allowance
+		}, 400);
+		const { sink, events } = collectingSink();
+		const partial = await generateStructure({
+			seed,
+			size,
+			level,
+			journal: createJournal(sink)
+		});
+		const dungeonId = await insertPartialDungeon(partial, currentUser(c).id);
+		await appendDungeonEvents(dungeonId, events);
+		return c.json({
+			dungeonId,
+			chunks: chunksOf(partial)
+		});
+	});
+	/**
+	* A generation pass whose journal is written WHETHER OR NOT IT SUCCEEDS.
+	*
+	* This was the hole. A pass that throws never reached `appendDungeonEvents`,
+	* so a failed dungeon left the three `generation-error` events on the floor —
+	* the exact records §6.7 was built to keep, gone again the moment the runtime
+	* moved to a server. The console had them; the database did not, and the
+	* console belongs to whoever was tailing the function.
+	*
+	* Safe to write on failure here, unlike a turn: the sequence belongs to the
+	* DUNGEON, and a retry reads `lastDungeonSeq` and appends after these rather
+	* than colliding with them. A turn's events are dropped on a throw for that
+	* exact reason — see the note in `playTurn`.
+	*
+	* The structure pass cannot use this: when IT fails there is no dungeon row
+	* for the events to belong to. The console is the only record of that one.
+	*/
+	async function journalled(dungeonId, work) {
+		const { sink, events } = collectingSink();
+		const journal = createJournal(sink, await lastDungeonSeq(dungeonId));
+		try {
+			return await work(journal);
+		} finally {
+			await appendDungeonEvents(dungeonId, events);
+		}
+	}
+	/**
+	* One region. The client fires these in parallel, which is the parallelism
+	* the single-process pipeline always had — it has just moved up a layer.
+	*
+	* Idempotent: `saveChunk` keeps the first answer, so a retry of a call whose
+	* response already landed costs a model call and changes nothing.
+	*/
+	app.post("/api/dungeons/:id/chunks/:n", async (c) => {
+		const stored = await mustGetDungeon(c.req.param("id"), currentUser(c).id);
+		const partial = stored.doc;
+		const chunk = Number(c.req.param("n"));
+		if (!chunksOf(partial).includes(chunk)) throw new HTTPException(404, { message: `no region ${chunk} in that dungeon` });
+		if ((await listChunks(stored.id)).some((r) => r.chunk === chunk)) return c.json({
+			chunk,
+			done: true
+		});
+		const result = await journalled(stored.id, (journal) => generateChunk(partial, chunk, { journal }));
+		await saveChunk(stored.id, result);
+		return c.json({
+			chunk,
+			done: true
+		});
+	});
+	/**
+	* Apply every region in ascending order, then write the ways between them.
+	*
+	* `finishGeneration` refuses if a region is missing, which is the check that
+	* turns a lost chunk into a retryable request rather than an unwritten entity
+	* discovered at the end of a pass nobody can rerun. See §1.1.
+	*/
+	app.post("/api/dungeons/:id/finish", async (c) => {
+		const stored = await mustGetDungeon(c.req.param("id"), currentUser(c).id);
+		if (stored.status === "complete") return c.json({
+			dungeonId: stored.id,
+			already: true
+		});
+		const results = await listChunks(stored.id);
+		const complete = await journalled(stored.id, async (journal) => {
+			const done = await finishGeneration(stored.doc, results, { journal });
+			journal.log({
+				kind: "dungeon",
+				dungeon: done
+			});
+			return done;
+		});
+		await completeDungeon(stored.id, complete, currentUser(c).id);
+		const cover = coverKey(complete);
+		if (cover) await setDungeonCover(stored.id, cover);
+		return c.json({ dungeonId: stored.id });
+	});
+	/** The player's own worlds. Summaries — nobody needs six whole dungeons. */
+	app.get("/api/dungeons", async (c) => c.json((await listDungeons(currentUser(c).id)).map(withCover)));
+	/**
+	* THE LIBRARY — every complete world somebody else made, newest first.
+	*
+	* Registered before the `:id` routes below because `library` would otherwise
+	* be a plausible dungeon id, and a route that can be shadowed by a parameter
+	* is a route that works until somebody changes the order.
+	*
+	* SUMMARIES AND A CURSOR, and the cursor goes back out exactly as it came in.
+	* The client never composes one — see `listLibrary`.
+	*/
+	app.get("/api/dungeons/library", async (c) => {
+		const cursor = c.req.query("cursor");
+		const limit = Number(c.req.query("limit"));
+		const page = await listLibrary(currentUser(c).id, {
+			...cursor ? { cursor } : {},
+			...Number.isFinite(limit) ? { limit } : {}
+		});
+		return c.json({
+			...page,
+			dungeons: page.dungeons.map(withCover)
+		});
+	});
+	/**
+	* TAKE A COPY OF A WORLD.
+	*
+	* The one route that names a dungeon the caller does not own, and it is why
+	* the Phase 11 key split had to happen first: under 10a's schema, where the
+	* derived `dungeon_<seed>` name WAS the primary key, a second copy of one
+	* world collided on it.
+	*
+	* IT STILL SERVES NOTHING OF THE SOURCE. The reply is the id of the caller's
+	* OWN new row, and the source's `doc` — which is every answer in the world —
+	* is never on the wire. What "another player may see a dungeon" means is
+	* exactly this: they may have one of their own like it.
+	*
+	* `already` for the second click, in the shape `/finish` answers in. A copy is
+	* recorded as a copy (`dungeons.copied_from`), so pressing the button twice
+	* hands back the first copy rather than minting a second half-megabyte row.
+	*/
+	app.post("/api/dungeons/:id/duplicate", async (c) => {
+		const id = c.req.param("id");
+		const made = await duplicateDungeon(id, currentUser(c).id);
+		if (!made) throw new HTTPException(404, { message: `no such finished dungeon: ${id}` });
+		return c.json({
+			dungeonId: made.id,
+			already: made.already
+		});
+	});
+}
+/** A summary as the client gets it: the cover as a URL, never a storage path. */
+function withCover({ coverPath, ...summary }) {
+	const cover = coverPath ? illustrationUrl(coverPath) : void 0;
+	return cover ? {
+		...summary,
+		cover
+	} : summary;
 }
 //#endregion
 //#region src/rules/knave/character.ts
@@ -11748,77 +15233,71 @@ var init = (set, get) => ({
 	}
 });
 //#endregion
-//#region src/journal/journal.ts
-/**
-* A journal for one run.
-*
-* With no sink it is the no-op every test gets: `log` returns on the first
-* line, nothing is allocated, nothing is stamped.
-*
-* `startSeq` IS WHAT MAKES A RUN SURVIVE BEING PUT DOWN. In a browser one
-* journal sees a whole run and counting from zero is right. On a server there
-* is no continuous anything: a session is built per request, plays one turn,
-* and dies — so a journal that always started at zero would number the second
-* turn's events 1, 2, 3 again, on top of the first turn's. Against a table keyed
-* `(run_id, seq)` that is a collision, and the failure would be the quiet kind:
-* every write here is wrapped, per IT MUST NEVER BREAK A TURN, so the turn would
-* succeed and the journalling would simply stop. Whoever builds the session
-* passes the last sequence already stored.
-*/
-function createJournal(sink, startSeq = 0) {
-	let seq = startSeq;
-	let broken = false;
+//#region src/server/routes/runs.ts
+function runRoutes(app) {
+	app.get("/api/runs", async (c) => c.json(await listRuns(currentUser(c).id)));
 	/**
-	* Steps whose playbook has already been written. Tracked on the journal
-	* rather than at the call site because "have I already written this" is a
-	* property of the journal, not of the game master — and it is per run, because
-	* two runs each want their own copy of the instructions they were played
-	* under.
+	* How many runs are left today, and how big a dungeon may be written.
+	*
+	* Asked by run setup when it opens, so the screen can say so before the
+	* player presses anything. The gates above do not trust it: they ask again.
 	*/
-	const written = /* @__PURE__ */ new Set();
-	function log(event) {
-		if (!sink || broken) return;
-		try {
-			sink.write({
-				...event,
-				seq: ++seq,
-				at: (/* @__PURE__ */ new Date()).toISOString()
-			});
-		} catch (e) {
-			broken = true;
-			console.warn("[journal] writing failed; journalling is off for this run:", e);
-		}
-	}
-	return {
-		log,
-		logSystem(step, blocks) {
-			if (!sink || written.has(step)) return;
-			written.add(step);
-			log({
-				kind: "system",
-				step,
-				blocks
-			});
-		}
-	};
-}
-/**
-* The journal for a run that is not being journalled — shared, so the default
-* costs one reference rather than an object per turn machine.
-*/
-var NO_JOURNAL = createJournal();
-/** A name for this run's directory: sortable, and says which seed it was. */
-function runId(seed) {
-	return `${(/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-").slice(0, 19)}-seed${seed}`;
-}
-/**
-* The diffs a commit proposed, in one line each, as `entity path = value`.
-* Shared by the transcript and by anything else that has to show a change
-* without printing a wall of JSON.
-*/
-function describeDiff(d) {
-	const value = typeof d.value === "string" ? d.value.length > 120 ? `${d.value.slice(0, 117).replace(/\s*\n\s*/g, " ")}…` : d.value.replace(/\s*\n\s*/g, " ") : JSON.stringify(d.value);
-	return `${d.entityId} · ${d.path} = ${value}`;
+	app.get("/api/allowance", async (c) => c.json(await allowanceOf(currentUser(c))));
+	app.get("/api/runs/:id", async (c) => {
+		const user = currentUser(c);
+		const run = await mustGetRun(c.req.param("id"), user.id);
+		const dungeon = await mustGetDungeon(run.dungeonId, user.id);
+		return c.json({
+			run,
+			dungeon: dungeon.doc
+		});
+	});
+	/**
+	* A character walks into a finished dungeon.
+	*
+	* The run's journal opens here, with what this run IS. The generation events
+	* above it already exist against the dungeon, and the reader concatenates.
+	*/
+	app.post("/api/runs", async (c) => {
+		const { dungeonId, character } = await c.req.json();
+		const user = currentUser(c);
+		const stored = await mustGetDungeon(dungeonId, user.id);
+		if (stored.status !== "complete") throw new HTTPException(409, { message: "that dungeon is still being written" });
+		const busy = await activeRunFor(character.id, user.id);
+		if (busy) return c.json({
+			error: "in a run",
+			runId: busy.id,
+			dungeonId: busy.dungeonId
+		}, 409);
+		const allowance = await allowanceOf(user);
+		if (!mayStartRunIn(allowance, stored.id)) return c.json({
+			error: refusal(allowance),
+			allowance
+		}, 429);
+		const state = newRun(stored.doc, character);
+		const run = await createRun({
+			dungeonId: stored.id,
+			characterId: character.id,
+			state,
+			owner: user.id
+		});
+		const { sink, events } = collectingSink();
+		createJournal(sink).log({
+			kind: "run",
+			runId: run.id,
+			seed: stored.doc.seeds.dungeonSeed,
+			size: stored.doc.size,
+			level: stored.doc.level,
+			offline: false,
+			models: MODELS,
+			character
+		});
+		await appendEvents(run.id, events);
+		return c.json({
+			run,
+			dungeon: stored.doc
+		});
+	});
 }
 /**
 * A defense used as a roll target. Knave contests must EXCEED the defense, so
@@ -12192,119 +15671,6 @@ function rollBatch(rng, rolls) {
 /** The batch's results, keyed by the game master's own ids. */
 function renderOutcomes(outcomes) {
 	return outcomes.map((o) => `${o.id}: ${o.line}`).join("\n");
-}
-//#endregion
-//#region src/generation/floorplan/map-layout.ts
-var corner = (x, y) => `${x},${y}`;
-var uncorner = (c) => {
-	const [x, y] = c.split(",").map(Number);
-	return {
-		x,
-		y
-	};
-};
-/** Cell (x,y) covers the square from corner (x,y) to (x+1,y+1). */
-function boundaryEdges(cells, has) {
-	const edges = [];
-	for (const { x, y } of cells) {
-		if (!has(x, y - 1)) edges.push({
-			from: corner(x, y),
-			to: corner(x + 1, y)
-		});
-		if (!has(x + 1, y)) edges.push({
-			from: corner(x + 1, y),
-			to: corner(x + 1, y + 1)
-		});
-		if (!has(x, y + 1)) edges.push({
-			from: corner(x + 1, y + 1),
-			to: corner(x, y + 1)
-		});
-		if (!has(x - 1, y)) edges.push({
-			from: corner(x, y + 1),
-			to: corner(x, y)
-		});
-	}
-	return edges;
-}
-/** Twice the signed area. Positive is clockwise in screen coordinates. */
-function shoelace(loop) {
-	let sum = 0;
-	for (let i = 0; i < loop.length; i++) {
-		const a = loop[i];
-		const b = loop[(i + 1) % loop.length];
-		sum += a.x * b.y - b.x * a.y;
-	}
-	return sum;
-}
-/** Drop the middle of any three points in a line — a wall is one segment. */
-function simplify(loop) {
-	const out = [];
-	for (let i = 0; i < loop.length; i++) {
-		const prev = loop[(i - 1 + loop.length) % loop.length];
-		const here = loop[i];
-		const next = loop[(i + 1) % loop.length];
-		if (!(prev.x === here.x && here.x === next.x || prev.y === here.y && here.y === next.y)) out.push(here);
-	}
-	return out.length >= 3 ? out : loop;
-}
-function traceOutline(cells) {
-	const present = new Set(cells.map((c) => corner(c.x, c.y)));
-	const has = (x, y) => present.has(corner(x, y));
-	const leaving = /* @__PURE__ */ new Map();
-	for (const e of boundaryEdges(cells, has)) {
-		const list = leaving.get(e.from);
-		if (list) list.push(e);
-		else leaving.set(e.from, [e]);
-	}
-	const loops = [];
-	for (const [start, group] of leaving) while (group.length) {
-		const loop = [];
-		let edge = group.shift();
-		let at = start;
-		while (edge) {
-			loop.push(uncorner(at));
-			at = edge.to;
-			const next = leaving.get(at);
-			if (!next?.length) break;
-			const from = uncorner(edge.from);
-			const to = uncorner(edge.to);
-			const dx = to.x - from.x;
-			const dy = to.y - from.y;
-			let pick = 0;
-			let bestRank = -Infinity;
-			next.forEach((cand, i) => {
-				const c = uncorner(cand.to);
-				const ex = c.x - to.x;
-				const ey = c.y - to.y;
-				const cross = dx * ey - dy * ex;
-				const dot = dx * ex + dy * ey;
-				const rank = cross > 0 ? 3 : cross < 0 ? 1 : dot > 0 ? 2 : 0;
-				if (rank > bestRank) {
-					bestRank = rank;
-					pick = i;
-				}
-			});
-			edge = next.splice(pick, 1)[0];
-			if (at === start) break;
-		}
-		if (loop.length >= 4) loops.push(simplify(loop));
-	}
-	let outer = [];
-	const holes = [];
-	let widest = -Infinity;
-	for (const loop of loops) {
-		const area = shoelace(loop);
-		if (area > 0) if (area > widest) {
-			if (outer.length) holes.push(outer);
-			widest = area;
-			outer = loop;
-		} else holes.push(loop);
-		else holes.push(loop);
-	}
-	return {
-		outer,
-		holes
-	};
 }
 //#endregion
 //#region src/gameplay/view/selectors.ts
@@ -13736,7 +17102,7 @@ function withoutPlaceholders(input) {
 function readCommit(call, also) {
 	let parsed;
 	try {
-		parsed = validate(commitSchema, withoutPlaceholders(call.input));
+		parsed = validate$1(commitSchema, withoutPlaceholders(call.input));
 	} catch (e) {
 		if (e instanceof ResponseFormatError) return e.feedback;
 		throw e;
@@ -13781,7 +17147,7 @@ function readCommit(call, also) {
 function answerRoll(store, journal, call, guard) {
 	let batch;
 	try {
-		batch = validate(rollBatchSchema, call.input);
+		batch = validate$1(rollBatchSchema, call.input);
 	} catch (e) {
 		if (e instanceof ResponseFormatError) return {
 			result: {
@@ -14913,3194 +18279,6 @@ function createGameSession(opts = {}) {
 	};
 }
 //#endregion
-//#region src/journal/render.ts
-/**
-* THE JOURNAL, AS SOMETHING YOU WOULD ACTUALLY READ
-* =================================================
-*
-* `journal.jsonl` is the record and this is the reading. Same events, one
-* projection each: the file this produces drops the prompts, the token counts,
-* the latencies and the sequence numbers — about 95% of the bytes — and keeps
-* the run as it was played.
-*
-* It is a pure function of the journal, so it is also disposable: if the two
-* ever disagree the journal wins and this can be regenerated from it.
-*
-* A PURE MODULE ON PURPOSE. It is imported by the Vite dev server as well as by
-* the app, so every import here is `import type` and nothing in it touches a
-* DOM, a filesystem, or the engine.
-*/
-var rule = "\n---\n";
-/**
-* One event, as markdown. `undefined` means it belongs in the record and not
-* in the reading — a prompt, a stage transition nobody needs narrated.
-*/
-function render(r) {
-	switch (r.kind) {
-		case "run": return [
-			`# Run ${r.runId}`,
-			``,
-			`**Seed** ${r.seed} · **size** ${r.size} · **level** ${r.level}${r.offline ? " · offline dungeon" : ""}`,
-			`**Character** ${r.character.name}, level ${r.character.level}, ${r.character.hp.current}/${r.character.hp.max} hp`,
-			`**Models** ${Object.entries(r.models).map(([task, model]) => `${task} → ${model}`).join(" · ")}`,
-			``,
-			`Started ${r.at}.`
-		].join("\n");
-		case "dungeon": return dungeon(r);
-		case "player": return `${rule}\n> ${r.text.replace(/\n/g, "\n> ")}`;
-		case "narration": return r.arrival ? `\n## Arrival\n\n${r.text}` : `\n${r.text}`;
-		case "effects": return `\n\`effects · ${r.text}\``;
-		case "foe": return `\n\`against you · ${r.text}\``;
-		case "roll": return r.source === "player" ? `\n\`${playerRoll(r)}\`` : `\n${r.outcomes.map((o) => `\`game master · ${o.id}: ${o.line}\``).join("\n")}`;
-		case "commit": return commit(r);
-		case "response": return working(r.text);
-		case "stage": return r.to === "dead" || r.to === "goal_met" ? `\n**${r.to === "dead" ? "The run ends here." : "The goal is met."}**` : void 0;
-		case "turn": return `\n*Turn ${r.turn} closed — ${r.diffs} change${r.diffs === 1 ? "" : "s"}.*`;
-		case "error": return `\n> [!WARNING]\n> **${r.where}** — ${r.message}`;
-		case "generation-error": {
-			const where = `${r.pass}${r.chunk === void 0 ? "" : ` chunk ${r.chunk}`}`;
-			const issues = r.issues.map((i) => `> - \`${i.path}\`: ${i.message}`).join("\n");
-			return `\n> [!WARNING]\n> **${where}, attempt ${r.attempt}** — ${r.message}` + (issues ? `\n>\n${issues}` : "") + `\n>\n> ${r.willRetry ? "Retrying." : "Giving up."}`;
-		}
-		case "generation":
-		case "system":
-		case "prompt": return;
-	}
-}
-function playerRoll(r) {
-	const o = r.outcome;
-	const dice = o.rolled.length > 1 ? `[${o.rolled.join(", ")}] keep ${o.kept}` : `${o.kept}`;
-	const sign = o.spec.bonus >= 0 ? "+" : "";
-	const crit = o.nat20 ? " · CRIT" : o.nat1 ? " · FUMBLE" : "";
-	const damage = o.damage ? ` · ${o.damage.expr} → ${o.damage.total}` : "";
-	return `player · ${o.spec.ability.toUpperCase()} ${o.spec.kind}: ${dice} ${sign}${o.spec.bonus} = ${o.total} vs ${o.spec.dc} — ${o.success ? "success" : "failure"}${crit}${damage}`;
-}
-function commit(r) {
-	const out = [];
-	if (!r.ok) {
-		out.push(`\n> [!CAUTION]\n> **Commit refused${r.retry ? " (again)" : ""}** — nothing was applied.`, ...(r.reasons ?? []).map((x) => `> - ${x}`));
-		return out.join("\n");
-	}
-	const prose = r.commit.diffs.filter((d) => d.path === "state" || d.path === "composed");
-	const values = r.commit.diffs.filter((d) => d.path !== "state" && d.path !== "composed");
-	if (prose.length > 0) out.push(`\n<details><summary>${prose.length} description${prose.length === 1 ? "" : "s"} written</summary>\n`, ...prose.map((d) => `\n**\`${d.entityId}\` · ${d.path}**\n\n${String(d.value)}\n`), `</details>`);
-	if (values.length > 0) out.push(`\n<details><summary>${values.length} change${values.length === 1 ? "" : "s"}</summary>\n`, ...values.map((d) => `- \`${describeDiff(d)}\``), `\n</details>`);
-	for (const e of r.events ?? []) out.push(`\n*${e.kind}: ${e.detail}*`);
-	return out.length ? out.join("\n") : void 0;
-}
-function working(text) {
-	const outside = text.replace(/<post>[\s\S]*?<\/post>/gi, "").trim();
-	if (outside === "") return void 0;
-	return `\n<details><summary>game master working</summary>\n\n\`\`\`\n${outside}\n\`\`\`\n\n</details>`;
-}
-/**
-* The dungeon, room by room.
-*
-* The whole thing is in the record as JSON; this is the version you can read
-* to judge whether generation did a good job — which is a question about prose,
-* so it prints the prose.
-*/
-function dungeon(r) {
-	const d = r.dungeon;
-	const e = d.entities;
-	const reg = e.registry;
-	const base = (x) => x.base?.trim() || (x.narrative?.blueprintId ? reg.groups?.[x.narrative.blueprintId]?.base ?? "" : "") || "";
-	const inRoom = (roomId) => {
-		const lines = [];
-		for (const c of e.creatures.filter((x) => x.roomId === roomId)) lines.push(`  - **${c.name}**${(c.count ?? 1) > 1 ? ` ×${c.count}` : ""} (creature) — ${base(c)}` + (c.activity ? `\n    *doing:* ${c.activity}` : ""));
-		for (const f of e.features.filter((x) => x.roomId === roomId)) lines.push(`  - **${f.name}** (feature)${f.isHidden ? " — *hidden*" : ""} — ${base(f)}`);
-		for (const i of e.items.filter((x) => x.parentId === roomId)) lines.push(`  - **${i.name}** (item)${i.isHidden ? " — *hidden*" : ""} — ${base(i)}`);
-		return lines;
-	};
-	const rooms = e.rooms.map((room) => {
-		const exits = e.connectors.filter((c) => touches(c, room.id)).map((c) => {
-			const to = farSide(c, room.id);
-			const name = to === null ? "**out of the dungeon**" : e.rooms.find((x) => x.id === to)?.name ?? to;
-			return `  - ${c.name} → ${name}${c.conditional ? ` — *blocked: ${c.conditional}*` : ""}${c.isHidden ? " — *concealed*" : ""}`;
-		});
-		const contents = inRoom(room.id);
-		return [
-			`\n### ${room.name}`,
-			`\`${room.id}\``,
-			``,
-			base(room),
-			contents.length ? `\n**In it**\n${contents.join("\n")}` : `\n*Empty.*`,
-			exits.length ? `\n**Ways out**\n${exits.join("\n")}` : ``
-		].join("\n");
-	});
-	return [
-		`${rule}`,
-		`# The dungeon: ${d.pass.name}`,
-		``,
-		`**Theme.** ${d.pass.theme}`,
-		``,
-		`**History.** ${d.pass.history}`,
-		``,
-		`**Goal.** ${d.pass.goal.summary}`,
-		``,
-		`> ${d.pass.goal.spec.replace(/\n/g, "\n> ")}`,
-		``,
-		`${e.rooms.length} rooms · ${e.creatures.length} creature groups · ${e.items.length} items · ${e.features.length} features · ${e.hazards.length} hazards`,
-		``,
-		e.hazards.length ? `**Hazards.** ${e.hazards.map((h) => `${h.name} — ${base(h)}`).join(" · ")}` : ``,
-		``,
-		`## Opening`,
-		``,
-		d.pass.openingProse,
-		``,
-		`## Rooms`,
-		...rooms,
-		rule,
-		`# The run`
-	].join("\n");
-}
-//#endregion
-//#region src/server/db/connection.ts
-/**
-* THE CONNECTION
-* ==============
-*
-* One pool, made once per process, over Supabase's Supavisor pooler.
-*
-* WHY THE POOLER AND NOT THE DATABASE DIRECTLY. Postgres charges real memory
-* for every connection and tops out in the low hundreds; a serverless platform
-* answers a burst of requests by starting a burst of instances, each of which
-* would open its own. Supavisor sits in front and multiplexes them, so a
-* hundred cold starts are a handful of backend connections. Port 6543 is
-* transaction mode — a connection is handed back at the end of each
-* transaction rather than held for the life of the client, which is the mode
-* that matches a request-shaped workload.
-*
-* TRANSACTION MODE FORBIDS PREPARED STATEMENTS. A prepared statement lives on
-* the backend connection, and in transaction mode the next query may land on a
-* different one — so `prepare: false` is not a tuning knob, it is the thing
-* that stops "prepared statement s1 already exists" showing up under load and
-* never in development. postgres.js prepares by default.
-*
-* ONE POOL PER PROCESS, module-level, and that is deliberate — the opposite of
-* the rule the store and the journal follow. Those hold per-run state and a
-* singleton would let two runs see each other. A pool holds no run state at
-* all; it is a socket cache, and making one per request would spend a TCP and
-* TLS handshake on every turn.
-*
-* Node only. Nothing outside `src/server/` may import this.
-*/
-var sql;
-/**
-* The connection string, from the environment.
-*
-* Named rather than assembled, because the pooler's host, port and username
-* form are Supabase's to change and a template here would be a thing to get
-* subtly wrong. Supabase dashboard → Project Settings → Database → Connection
-* string → **Transaction pooler**.
-*/
-function connectionString() {
-	const url = process.env.DATABASE_URL;
-	if (!url) throw new Error("DATABASE_URL is not set. Copy the TRANSACTION POOLER connection string from the Supabase dashboard (Project Settings → Database) into .env.local.");
-	if (!url.includes(":6543")) console.warn("[db] DATABASE_URL is not on port 6543. Serverless wants the transaction pooler.");
-	return url;
-}
-function db() {
-	return sql ??= postgres(connectionString(), {
-		prepare: false,
-		connect_timeout: 10,
-		idle_timeout: 20,
-		max: 4,
-		onnotice: () => {}
-	});
-}
-//#endregion
-//#region src/server/db/repo.ts
-/**
-* THE DATABASE, AS FUNCTIONS
-* ==========================
-*
-* Every statement the server runs, in one place. Handlers above this file ask
-* for things; nothing above this file writes SQL.
-*
-* Two kinds of record: a dungeon is large and written twice — once partial,
-* once complete — and a run is small and written on every turn.
-*
-* THE ONE THING WORTH READING BEFORE THE REST is `commitTurn`. It is the write
-* that has to be correct under two requests at once, and everything it does is
-* one transaction on purpose. See the note above it.
-*
-* Node only.
-*/
-var repo_exports = /* @__PURE__ */ __exportAll({
-	activeRunFor: () => activeRunFor,
-	appendDungeonEvents: () => appendDungeonEvents,
-	appendEvents: () => appendEvents,
-	carriedOut: () => carriedOut,
-	claimIllustration: () => claimIllustration,
-	collectingSink: () => collectingSink,
-	commitTurn: () => commitTurn,
-	completeDungeon: () => completeDungeon,
-	createRun: () => createRun,
-	deleteCharacter: () => deleteCharacter,
-	duplicateDungeon: () => duplicateDungeon,
-	failIllustration: () => failIllustration,
-	findUnfinishedDungeon: () => findUnfinishedDungeon,
-	finishIllustration: () => finishIllustration,
-	getCharacter: () => getCharacter,
-	getDungeon: () => getDungeon,
-	getIllustration: () => getIllustration,
-	getIllustrationWords: () => getIllustrationWords,
-	getRun: () => getRun,
-	insertPartialDungeon: () => insertPartialDungeon,
-	lastDungeonSeq: () => lastDungeonSeq,
-	lastSeq: () => lastSeq,
-	listChunks: () => listChunks,
-	listDungeons: () => listDungeons,
-	listLibrary: () => listLibrary,
-	listRoster: () => listRoster,
-	listRuns: () => listRuns,
-	lockRun: () => lockRun,
-	readDungeonEvents: () => readDungeonEvents,
-	readJournal: () => readJournal,
-	releaseRun: () => releaseRun,
-	saveCharacter: () => saveCharacter,
-	saveChunk: () => saveChunk,
-	saveIllustrationWords: () => saveIllustrationWords,
-	setDungeonCover: () => setDungeonCover,
-	statusOf: () => statusOf
-});
-/**
-* A document, on its way into a jsonb column.
-*
-* postgres.js types `sql.json` against its own JSON value union, which nothing
-* declared with an interface satisfies structurally. The cast is here, once and
-* named, rather than at each of the six call sites — everything passed through
-* it is a plain serialisable document.
-*/
-var doc = (sql, value) => sql.json(value);
-/**
-* A run's status, from the stage it is standing in.
-*
-* `departed` is deliberately absent: the store resolves it into `escaped` or
-* `goal_met` the moment a commit lands — which ending a departure was depends
-* on world state rather than on what the game master remembered — so it can never
-* be what is persisted. See `endingOf` in gameplay/state/store.ts.
-*/
-function statusOf(stage) {
-	if (stage === "dead" || stage === "escaped" || stage === "goal_met") return stage;
-	if (stage === "abandoned") return "abandoned";
-	return "active";
-}
-var NO_RECORD = () => ({
-	dead: 0,
-	abandoned: 0,
-	escaped: 0,
-	goalMet: 0
-});
-/**
-* The characters screen, in three queries rather than one clever one.
-*
-* Stitched in TypeScript on purpose. The same thing as a single statement is a
-* pair of lateral joins over an aggregate, which is harder to read than the
-* three obvious selects and no faster at this size — a player has a handful of
-* characters, and both supporting queries hit an index whose leading column is
-* the owner.
-*
-* A CHARACTER WITH NO RUNS GETS ZEROES, not an absent record. The screen renders
-* the same row either way, and a caller should never have to ask whether a
-* missing count means none or means unknown.
-*/
-async function listRoster(owner, sql = db()) {
-	const [sheets, counts, active] = await Promise.all([
-		sql`
-      select id, sheet from characters where owner_id = ${owner} order by created_at asc
-    `,
-		sql`
-      select character_id as "characterId", status, count(*)::int as n
-        from runs
-       where owner_id = ${owner} and character_id is not null and status <> 'active'
-       group by character_id, status
-    `,
-		sql`
-      select r.character_id                                    as "characterId",
-             r.id                                              as "id",
-             r.dungeon_id                                      as "dungeonId",
-             coalesce(d.doc -> 'pass' ->> 'name', 'Unnamed')   as "dungeonName",
-             coalesce((r.state ->> 'turnCount')::int, 0)       as "turnCount"
-        from runs r join dungeons d on d.id = r.dungeon_id
-       where r.owner_id = ${owner} and r.status = 'active' and r.character_id is not null
-    `
-	]);
-	const records = /* @__PURE__ */ new Map();
-	for (const row of counts) {
-		const record = records.get(row.characterId) ?? NO_RECORD();
-		if (row.status === "goal_met") record.goalMet = row.n;
-		else if (row.status !== "active") record[row.status] = row.n;
-		records.set(row.characterId, record);
-	}
-	const runs = new Map(active.map((r) => [r.characterId, r]));
-	return sheets.map(({ id, sheet }) => {
-		const run = runs.get(id);
-		return {
-			sheet,
-			record: records.get(id) ?? NO_RECORD(),
-			...run ? { activeRun: {
-				id: run.id,
-				dungeonId: run.dungeonId,
-				dungeonName: run.dungeonName,
-				turnCount: run.turnCount
-			} } : {}
-		};
-	});
-}
-/**
-* The run this character is in, or nothing.
-*
-* Asked before a new run is created and before a character is deleted. NOT the
-* enforcement — the partial unique index is, and a check here could always lose
-* a race with a second request. This is what turns the violation the index
-* raises into an answer that names the run, which is the thing the player needs
-* in order to do anything about it.
-*/
-async function activeRunFor(characterId, owner, sql = db()) {
-	const [row] = await sql`
-    select id, dungeon_id as "dungeonId" from runs
-     where owner_id = ${owner} and character_id = ${characterId} and status = 'active'
-  `;
-	return row;
-}
-async function getCharacter(id, owner, sql = db()) {
-	const [row] = await sql`
-    select sheet from characters where id = ${id} and owner_id = ${owner}
-  `;
-	return row?.sheet;
-}
-/**
-* Insert or replace, keyed on the sheet's own id.
-*
-* The character carries its id — it was made in the browser and has been in a
-* run under that name — so the row takes it rather than minting another.
-*
-* `and owner_id = ${owner}` ON THE UPDATE BRANCH is what stops one player
-* overwriting another's sheet by posting a character carrying their id. Without
-* it the `on conflict` would happily update a row it does not own, which is the
-* one way an upsert can leak where a plain insert cannot. An attempt to do so
-* now updates nothing and reports it, rather than silently succeeding.
-*/
-async function saveCharacter(pc, owner, sql = db()) {
-	if ((await sql`
-    insert into characters (id, owner_id, sheet)
-    values (${pc.id}, ${owner}, ${doc(sql, pc)})
-    on conflict (id) do update
-       set sheet = excluded.sheet, updated_at = now()
-     where characters.owner_id = ${owner}
-    returning id
-  `).length === 0) throw new Error(`not yours to save: ${pc.id}`);
-	return pc;
-}
-/**
-* WHAT A CHARACTER BRINGS BACK UP.
-*
-* Called only when a run ended with the player alive and out — `escaped` or
-* `goal_met`. The run's own `pc` has been diverging from the sheet since the
-* first turn (gear picked up, coin spent, armour worn down) and on a successful
-* ending it becomes the sheet. Same id, so the Phase 11 upsert lands on the same
-* row.
-*
-* DEATH AND ABANDONMENT WRITE NOTHING, which is how "the character as they were
-* before the run" is achieved: nothing touches `characters.sheet` during a run,
-* so the stored sheet is still the pre-run one and there is no snapshot to take
-* and no restore to perform. The only trace either leaves is a row in `runs`,
-* which is what the counters read.
-*
-* THE RUN'S XP LANDS HERE TOO, and for the same reason the gear does: this is
-* the one function that turns a run's character into the roster's character, so
-* it is the one place a survivor's earnings can be added without a second write
-* that could fail on its own. A death or an abandonment never calls it, which is
-* exactly the rule — `shouldTally` refuses to score either, so there would be
-* nothing to add even if it did.
-*
-* HIT POINTS RETURN TO MAX, and that is a decision rather than a consequence.
-* There is no downtime, no rest and no healing outside a run, so a character who
-* surfaces at 1/15 can only die next time — which quietly turns "escaped alive"
-* into a delayed death and makes the ending worthless.
-*
-* ── IF WOUNDS SHOULD CARRY, THIS IS THE WHOLE CHANGE ───────────────────────
-*
-* The line below is the only thing standing between a survivor and the hit
-* points they climbed out on. To keep the damage:
-*
-*     return pc;                       // and delete the spread above
-*
-* That is the code. What it needs BESIDE it is the reason this was not done in
-* the first place — some way back to full, or the ending stops meaning
-* anything. Any one of these would do, cheapest first:
-*
-*   - a flat heal between runs that is less than everything (half the missing,
-*     a die, a point per level), so a bad run costs the next one something
-*     without ending it;
-*   - rest as a real action with a real cost — rations, a light clock, a
-*     wandering-monster roll — which is where Knave already points and which
-*     `turnCount` was put in `RunState` for (BUILD-PLAN §6, Phase 2);
-*   - healing bought in the shop, which is the other half of Phase 5's
-*     equipment step and is still open (CODING-PLAN §3.6).
-*
-* Whichever one lands, this function is where it goes, and `ownership.dbtest.ts`
-* — "keeps what they carried, and heals them, when they got out alive" — is the
-* test that has to change with it.
-* ───────────────────────────────────────────────────────────────────────────
-*/
-function carriedOut(pc, earned = 0) {
-	return {
-		...pc,
-		hp: {
-			...pc.hp,
-			current: pc.hp.max
-		},
-		xp: (pc.xp ?? 0) + earned
-	};
-}
-async function deleteCharacter(id, owner, sql = db()) {
-	return (await sql`
-    delete from characters where id = ${id} and owner_id = ${owner} returning id
-  `).length > 0;
-}
-/**
-* The structure pass, stored, and the row id it was given.
-*
-* Returns the ROW id, which is what every later request names. The caller must
-* not assume it can reconstruct this from the seed — that assumption is exactly
-* what the key split removed.
-*/
-async function insertPartialDungeon(gd, owner, sql = db()) {
-	const [row] = await sql`
-    insert into dungeons (dungeon_key, owner_id, seed, size, level, status, doc)
-    values (${gd.id}, ${owner}, ${gd.seeds.dungeonSeed}, ${gd.size}, ${gd.level},
-            'partial', ${doc(sql, gd)})
-    returning id
-  `;
-	return row.id;
-}
-/**
-* This player's unfinished dungeon from these dice, if they have one.
-*
-* What makes "try seed N again" reuse a failed writing rather than start a
-* second one, which would also count against the day's allowance a second
-* time. Copies are never partial, but the filter says so anyway.
-*/
-async function findUnfinishedDungeon(owner, dice, sql = db()) {
-	const [row] = await sql`
-    select id, dungeon_key as "dungeonKey", owner_id as "ownerId", status, doc, cover
-      from dungeons
-     where owner_id = ${owner} and status = 'partial' and copied_from is null
-       and seed = ${dice.seed} and size = ${dice.size} and level = ${dice.level}
-     order by created_at desc
-     limit 1
-  `;
-	return row;
-}
-/**
-* A dungeon, in full, for the player who owns it.
-*
-* OWNER IN THE WHERE CLAUSE, not an `if` after the read: someone else's dungeon
-* is indistinguishable from one that does not exist, so the API never confirms
-* that a row it will not serve is there.
-*/
-async function getDungeon(id, owner, sql = db()) {
-	const [row] = await sql`
-    select id, dungeon_key as "dungeonKey", owner_id as "ownerId", status, doc, cover
-      from dungeons where id = ${id} and owner_id = ${owner}
-  `;
-	return row;
-}
-/** The player's own worlds, newest first. Summaries — nobody needs six `doc`s. */
-async function listDungeons(owner, sql = db()) {
-	return sql`
-    select id,
-           coalesce(doc -> 'pass' ->> 'name', 'Unnamed')            as name,
-           coalesce(doc -> 'pass' -> 'goal' ->> 'summary', '')      as objective,
-           size, level, seed, d.status,
-           d.created_at as "createdAt",
-           p.path as "coverPath"
-      from dungeons d
-      left join plates p on p.key = d.cover and p.status = 'ready'
-     where owner_id = ${owner}
-     order by d.created_at desc
-  `;
-}
-/**
-* The finished world, written over the partial.
-*
-* `where status = 'partial'` so a second `finish` — a retried request, a client
-* that fired twice — cannot overwrite a complete dungeon with one built from
-* responses that may since have been added to. Returns whether it was this call
-* that completed it.
-*
-* Takes the ROW id explicitly, because `gd.id` is the engine's derived name and
-* is no longer the key. Passing `gd` alone would compile and address the wrong
-* column forever.
-*/
-async function completeDungeon(id, gd, owner, sql = db()) {
-	return (await sql`
-    update dungeons
-       set doc = ${doc(sql, gd)}, status = 'complete', updated_at = now()
-     where id = ${id} and owner_id = ${owner} and status = 'partial'
-    returning id
-  `).length > 0;
-}
-/** How many worlds a batch is, and the most one request may ask for. */
-var LIBRARY_BATCH = 12;
-var LIBRARY_MAX = 48;
-var UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-/**
-* A cursor, or nothing — and **validated here rather than by Postgres**.
-*
-* 🔴 THIS IS A REFUSAL, NOT TIDINESS. A cursor arrives from a query string, so
-* it is whatever a caller typed. Handed on unchecked, `?cursor=x|y` binds `x` to
-* a `timestamptz` parameter and **the driver throws while serialising it**
-* (`RangeError: Invalid time value`, inside postgres.js, before the statement is
-* sent) — which the API renders as a 500. A malformed page token is not an
-* internal error; it is a caller saying nothing legible, and the honest answer
-* is the front of the shelf. Found by `ownership.dbtest.ts`.
-*
-* Split on the FIRST separator: a `timestamptz::text` holds no `|` and a uuid
-* holds none, so anything with a different shape is not a cursor this file made.
-*/
-function readCursor(cursor) {
-	if (!cursor) return void 0;
-	const cut = cursor.indexOf("|");
-	if (cut <= 0) return void 0;
-	const at = cursor.slice(0, cut);
-	const id = cursor.slice(cut + 1);
-	if (!UUID.test(id) || Number.isNaN(Date.parse(at))) return void 0;
-	return {
-		at,
-		id
-	};
-}
-/**
-* EVERY COMPLETE WORLD SOMEBODY ELSE MADE, newest first, a batch at a time.
-*
-* The second of the two cross-owner reads, and it obeys the same rule as
-* `duplicateDungeon`: what crosses the line is a SUMMARY. Never `doc`, which is
-* every answer in the world — browsing must not be a way to read a dungeon you
-* have not walked. `DungeonSummary` has been the shape of that promise since
-* Phase 11 with nothing to serve it; this is what it was for.
-*
-* NO MAKER ATTRIBUTION, deliberately. The only name this project holds for an
-* account is `profiles.email`, and a browse screen that printed it would be a
-* way to enumerate the invite list. A world is offered on what it is, not on
-* whose it was.
-*
-* KEYSET AND NOT OFFSET. A batch boundary has to survive a dungeon being written
-* while the player is scrolling: `offset 12` after an insert shows row 12 twice
-* and never shows row 13. `(created_at, id) < (…)` is anchored to the last row
-* actually seen, so an insert above the cursor changes nothing below it. The id
-* is in the comparison because `created_at` is the transaction clock and two
-* rows can share it exactly — see the migration.
-*
-* THE CURSOR IS BUILT IN SQL, not from the row in TypeScript. `timestamptz` is a
-* `Date` by the time the driver is done with it, and formatting one back to
-* something Postgres reads identically is a round trip through two libraries'
-* opinions about microseconds. `created_at::text` round-trips with itself.
-*/
-async function listLibrary(viewer, opts = {}, sql = db()) {
-	const asked = Math.trunc(Number(opts.limit));
-	const limit = Number.isFinite(asked) ? Math.min(Math.max(asked, 1), LIBRARY_MAX) : LIBRARY_BATCH;
-	const at = readCursor(opts.cursor);
-	const rows = await sql`
-    select id,
-           coalesce(doc -> 'pass' ->> 'name', 'Unnamed')            as name,
-           coalesce(doc -> 'pass' -> 'goal' ->> 'summary', '')      as objective,
-           size, level, seed, d.status,
-           d.created_at                                            as "createdAt",
-           d.created_at::text || '|' || d.id::text                 as "cursor",
-           p.path                                                  as "coverPath"
-      from dungeons d
-      left join plates p on p.key = d.cover and p.status = 'ready'
-     where d.status = 'complete'
-       and owner_id <> ${viewer}
-       ${at ? sql`and (d.created_at, d.id) < (${at.at}::text::timestamptz, ${at.id}::text::uuid)` : sql``}
-     order by d.created_at desc, d.id desc
-     limit ${limit + 1}
-  `;
-	const more = rows.length > limit;
-	const page = rows.slice(0, limit);
-	return {
-		dungeons: page.map(({ cursor: _cursor, ...summary }) => summary),
-		...more && page.length > 0 ? { cursor: page[page.length - 1].cursor } : {}
-	};
-}
-/**
-* TAKE A COPY OF A WORLD — the one statement in this file that reads a row
-* without asking whose it is.
-*
-* Every other read here puts the owner in the `where`, and that rule is not
-* being bent: what this reads cross-owner is the ROW, and what it does with it
-* is write a new one belonging to the caller. Nothing about the source is ever
-* returned. A dungeon is the one thing another player may see (§8.1), and this
-* is the whole of what "see" means — a copy of your own, not a look at theirs.
-*
-* WHAT COMES ACROSS, and what does not:
-*
-*   - the row and its `doc`, under a fresh uuid. The `doc` keeps its own
-*     engine-derived `id` untouched, exactly as `insertPartialDungeon` leaves
-*     it: that is the name of the WORLD and both copies are that world.
-*   - `dungeon_events`, because a run's journal is generation followed by play
-*     (`readJournal`) and a copy without them yields a transcript that starts
-*     mid-air. It is also where the `kind: "dungeon"` baseline lives, which is
-*     what `journal/render.ts` prints when someone wants to judge the writing.
-*   - NOT `generation_chunks`. Only `finish` reads those, a complete dungeon
-*     never finishes again, and they are the unapplied raw responses — the
-*     largest thing in the schema and the least use to anybody holding the
-*     applied world.
-*
-* COMPLETE ONLY. Half a world is not worth copying, and `finish` on the copy
-* would have no chunks to finish from.
-*
-* `undefined` means no such complete dungeon — one answer for "not there" and
-* "still being written", because a caller who may not have it either way should
-* not learn which.
-*/
-async function duplicateDungeon(sourceId, owner, sql = db()) {
-	return sql.begin(async (tx) => {
-		const [source] = await tx`
-      select id from dungeons where id = ${sourceId} and status = 'complete'
-    `;
-		if (!source) return void 0;
-		const [mine] = await tx`
-      select id from dungeons where owner_id = ${owner} and copied_from = ${sourceId}
-    `;
-		if (mine) return {
-			id: mine.id,
-			already: true
-		};
-		const [copy] = await tx`
-      insert into dungeons (dungeon_key, owner_id, seed, size, level, status, doc, copied_from, cover)
-      select dungeon_key, ${owner}, seed, size, level, status, doc, id, cover
-        from dungeons where id = ${sourceId}
-      returning id
-    `;
-		await tx`
-      insert into dungeon_events (dungeon_id, seq, at, kind, payload)
-      select ${copy.id}::uuid, seq, at, kind, payload
-        from dungeon_events where dungeon_id = ${sourceId}
-    `;
-		return {
-			id: copy.id,
-			already: false
-		};
-	});
-}
-/**
-* One region's answer, unapplied.
-*
-* `on conflict do nothing` rather than `do update`: the regions are called in
-* parallel from separate requests, and a chunk that arrives twice is a retry of
-* a call whose answer already landed. Keeping the first is what makes the
-* request idempotent — and it has to be, because the client fires N of these
-* and any one of them can be retried by anything between here and the browser.
-*/
-async function saveChunk(dungeonId, result, sql = db()) {
-	await sql`
-    insert into generation_chunks (dungeon_id, chunk, response)
-    values (${dungeonId}, ${result.chunk}, ${doc(sql, result)})
-    on conflict (dungeon_id, chunk) do nothing
-  `;
-}
-async function listChunks(dungeonId, sql = db()) {
-	return (await sql`
-    select response from generation_chunks
-     where dungeon_id = ${dungeonId}
-     order by chunk asc
-  `).map((r) => r.response);
-}
-/**
-* A block's name, and the only thing that decides whether two blocks are one.
-*
-* Hashed HERE rather than in Postgres, so the id exists before the statement is
-* composed — which is what lets the blocks and the events that reference them go
-* in as two ordinary inserts instead of a round trip that asks the database what
-* it would call this.
-*/
-var shaOf = (text) => createHash("sha256").update(text, "utf8").digest("hex");
-/**
-* Events on their way to a column, with each `system` block's text replaced by
-* the sha that names it — and the blocks themselves, to be written first.
-*
-* `chars` rides along beside the sha. It is redundant against `prompt_blocks`
-* and worth its twenty bytes: it is what makes the compact form READABLE on its
-* own, so a journal pulled straight out of the table still says how much prose
-* each call carried without a join to find out.
-*
-* Everything that is not a `system` event passes through untouched. The other
-* repeated payloads — a `generation` prompt, the `dungeon` baseline — are real
-* duplication too and are left alone on purpose: they are one write per dungeon
-* rather than one per turn, so they do not grow with play, and each would want
-* its own decision about what "the same" means.
-*/
-function dehydrate(events) {
-	const blocks = /* @__PURE__ */ new Map();
-	return {
-		payloads: events.map((e) => {
-			if (e.kind !== "system") return JSON.stringify(e);
-			const slim = e.blocks.map(({ text, ...rest }) => {
-				const sha = shaOf(text);
-				if (!blocks.has(sha)) blocks.set(sha, {
-					sha,
-					chars: text.length,
-					text
-				});
-				return {
-					...rest,
-					sha,
-					chars: text.length
-				};
-			});
-			return JSON.stringify({
-				...e,
-				blocks: slim
-			});
-		}),
-		blocks: [...blocks.values()]
-	};
-}
-/**
-* The blocks an event batch referred to, inserted before the events that refer
-* to them.
-*
-* `on conflict do nothing` is the normal case rather than the exception — after
-* the first run in the life of the database, almost every block written here is
-* already there. The insert is still worth making: deciding whether to would
-* cost the round trip it saves.
-*/
-async function saveBlocks(sql, blocks) {
-	if (blocks.length === 0) return;
-	await sql`
-    insert into prompt_blocks (sha, chars, text)
-    select s.sha, s.chars, s.text
-      from unnest(${blocks.map((b) => b.sha)}::text[],
-                  ${blocks.map((b) => b.chars)}::int[],
-                  ${blocks.map((b) => b.text)}::text[])
-        as s(sha, chars, text)
-    on conflict (sha) do nothing
-  `;
-}
-/**
-* What generation wrote down, which belongs to the dungeon rather than to any
-* run — see the migration. Written once, read by every run down this dungeon.
-*/
-async function appendDungeonEvents(dungeonId, events, sql = db()) {
-	if (events.length === 0) return;
-	const { payloads, blocks } = dehydrate(events);
-	await saveBlocks(sql, blocks);
-	await sql`
-    insert into dungeon_events (dungeon_id, seq, at, kind, payload)
-    select ${dungeonId}::uuid, s.seq, s.at::timestamptz, s.kind, s.payload::jsonb
-      from unnest(${events.map((e) => e.seq)}::int[],
-                  ${events.map((e) => e.at)}::text[],
-                  ${events.map((e) => e.kind)}::text[],
-                  ${payloads}::text[])
-        as s(seq, at, kind, payload)
-    on conflict (dungeon_id, seq) do nothing
-  `;
-}
-/**
-* Generation's own sequence, so three requests write one ordered stream rather
-* than three that each start at 1. Same reasoning as `lastSeq`.
-*/
-async function lastDungeonSeq(dungeonId, sql = db()) {
-	const [row] = await sql`
-    select coalesce(max(seq), 0)::int as seq from dungeon_events where dungeon_id = ${dungeonId}
-  `;
-	return row?.seq ?? 0;
-}
-async function readDungeonEvents(dungeonId, sql = db()) {
-	return (await sql`
-    select rehydrate_blocks(payload) as payload
-      from dungeon_events where dungeon_id = ${dungeonId} order by seq asc
-  `).map((r) => r.payload);
-}
-async function createRun(input, sql = db()) {
-	const [row] = await sql`
-    insert into runs (owner_id, dungeon_id, character_id, state, status)
-    values (${input.owner}, ${input.dungeonId}, ${input.characterId ?? null},
-            ${doc(sql, input.state)}, ${statusOf(input.state.stage)})
-    returning id, version
-  `;
-	return {
-		id: row.id,
-		dungeonId: input.dungeonId,
-		characterId: input.characterId ?? null,
-		state: input.state,
-		version: row.version,
-		status: statusOf(input.state.stage)
-	};
-}
-/**
-* A run, for the player whose run it is.
-*
-* THERE IS NO OTHER READ PATH. A run is two private things at once — our log
-* when something goes wrong, and the player's save file — and neither wants an
-* audience. Someone else's run 404s exactly as a missing one does.
-*/
-async function getRun(id, owner, sql = db()) {
-	const [row] = await sql`
-    select id, dungeon_id as "dungeonId", character_id as "characterId",
-           state, version, status
-      from runs where id = ${id} and owner_id = ${owner}
-  `;
-	return row;
-}
-async function listRuns(owner, sql = db()) {
-	return sql`
-    select id, dungeon_id as "dungeonId", status,
-           created_at as "createdAt", updated_at as "updatedAt"
-      from runs where owner_id = ${owner} order by created_at desc
-  `;
-}
-/**
-* Claim a run for the length of a turn.
-*
-* NOT A CORRECTNESS MECHANISM. `commitTurn` below already makes concurrent
-* turns safe by refusing to write against a version that has moved. This only
-* turns a duplicate away BEFORE it spends a whole game master conversation — two to
-* four model calls — on a turn that would be rejected at the write anyway. A
-* double-click should not cost tokens.
-*
-* An expiry rather than a boolean so a function that dies mid-turn — timeout,
-* crash, deploy — does not wedge the run until somebody notices.
-*/
-async function lockRun(id, owner, holdSeconds = 300, sql = db()) {
-	return (await sql`
-    update runs
-       set locked_until = now() + make_interval(secs => ${holdSeconds})
-     where id = ${id} and owner_id = ${owner}
-       and (locked_until is null or locked_until < now())
-    returning id
-  `).length > 0;
-}
-async function releaseRun(id, owner, sql = db()) {
-	await sql`update runs set locked_until = null where id = ${id} and owner_id = ${owner}`;
-}
-/**
-* How many events this run has already written.
-*
-* A session is built fresh per request and its journal counts from whatever it
-* is told — so this is what it is told. Without it the second request into a
-* run numbers its events 1, 2, 3 on top of the first request's and collides on
-* the primary key. See `createJournal`.
-*/
-async function lastSeq(runId, sql = db()) {
-	const [row] = await sql`
-    select coalesce(max(seq), 0)::int as seq from journal_events where run_id = ${runId}
-  `;
-	return row?.seq ?? 0;
-}
-/**
-* A run's journal, whole: how its world was built, then how it was played.
-*
-* Two streams concatenated, which is also the order they happened in. They are
-* numbered independently — generation's `seq` belongs to the dungeon, play's to
-* the run — so the pair is renumbered on the way out. Nothing downstream reads
-* `seq` as a key; it reads it as an order, and this is the order.
-*/
-async function readJournal(runId, dungeonId, sql = db()) {
-	const [built, played] = await Promise.all([readDungeonEvents(dungeonId, sql), sql`
-      select rehydrate_blocks(payload) as payload
-        from journal_events where run_id = ${runId} order by seq asc
-    `.then((rows) => rows.map((r) => r.payload))]);
-	return [...built, ...played].map((e, i) => ({
-		...e,
-		seq: i + 1
-	}));
-}
-/**
-* A sink that keeps what it is given.
-*
-* The server cannot write events as they happen: they have to land in the same
-* transaction as the state they describe, or a turn that is rejected at the
-* write leaves a journal describing a turn that never happened. So a request's
-* journal collects, and `commitTurn` decides whether any of it is real.
-*/
-function collectingSink() {
-	const events = [];
-	return {
-		sink: { write: (r) => events.push(r) },
-		events
-	};
-}
-/**
-* A finished turn: the new state, and the events that describe it, together.
-*
-* COMPARE-AND-SWAP. `where version = expected` is what makes two turns at once
-* safe. Both read version N; the first writes N+1; the second finds no row to
-* update and is told so. It covers the slow version of the same thing as well —
-* the second tab that has been open for ten minutes and still has a live Send
-* button, whose turn is not simultaneous with anything but is computed against
-* a world that has moved on.
-*
-* A VERSION AND NOT THE STAGE the client believes it is on. The client never
-* asserts anything about the rules here: an integer is opaque, so there is no
-* value that is more favourable than another, and a client cannot talk its way
-* into a roll by claiming to be at step 4.
-*
-* ONE TRANSACTION, and the journal rows are inside it. A rejected turn must
-* leave nothing at all — otherwise the journal, which is the thing the whole
-* database exists to keep, ends up describing a turn the state does not have.
-*
-* The lock is released here too, and unconditionally: the turn is over whether
-* or not it was accepted.
-*/
-async function commitTurn(input, sql = db()) {
-	return sql.begin(async (tx) => {
-		const rows = await tx`
-      update runs
-         set state = ${doc(tx, input.state)},
-             status = ${statusOf(input.state.stage)},
-             version = version + 1,
-             locked_until = null,
-             updated_at = now()
-       where id = ${input.runId} and owner_id = ${input.owner}
-         and version = ${input.expectedVersion}
-      returning version
-    `;
-		if (rows.length === 0) {
-			await tx`
-        update runs set locked_until = null
-         where id = ${input.runId} and owner_id = ${input.owner}
-      `;
-			const current = await getRun(input.runId, input.owner, tx);
-			if (!current) return {
-				ok: false,
-				reason: "gone"
-			};
-			return {
-				ok: false,
-				reason: "stale",
-				current
-			};
-		}
-		await insertEvents(tx, input.runId, input.events);
-		const ending = statusOf(input.state.stage);
-		if (ending === "escaped" || ending === "goal_met") {
-			const pc = carriedOut(input.state.pc, input.state.tally?.total ?? 0);
-			await tx`
-        update characters set sheet = ${doc(tx, pc)}, updated_at = now()
-         where id = ${pc.id} and owner_id = ${input.owner}
-      `;
-		}
-		return {
-			ok: true,
-			version: rows[0].version
-		};
-	});
-}
-/**
-* Events in one statement rather than one per event.
-*
-* `unnest` over four parallel arrays, because a turn writes a dozen events and
-* a round trip each would be a dozen round trips inside a transaction holding a
-* pooled connection. The casts are explicit so nothing depends on the driver
-* inferring a type for an empty array.
-*/
-async function insertEvents(tx, runId, events) {
-	if (events.length === 0) return;
-	const seqs = events.map((e) => e.seq);
-	const ats = events.map((e) => e.at);
-	const kinds = events.map((e) => e.kind);
-	const { payloads, blocks } = dehydrate(events);
-	await saveBlocks(tx, blocks);
-	await tx`
-    insert into journal_events (run_id, seq, at, kind, payload)
-    select ${runId}::uuid, s.seq, s.at::timestamptz, s.kind, s.payload::jsonb
-      from unnest(${seqs}::int[], ${ats}::text[], ${kinds}::text[], ${payloads}::text[])
-        as s(seq, at, kind, payload)
-    on conflict (run_id, seq) do nothing
-  `;
-}
-/**
-* The first write of a run's journal — generation, and the room entry.
-*
-* Separate from `commitTurn` because there is no version to swap on yet: the
-* run has only just been created, nothing else can be holding it, and the state
-* that goes with these events was written by `createRun` a moment ago.
-*/
-async function appendEvents(runId, events, sql = db()) {
-	if (events.length === 0) return;
-	await sql.begin((tx) => insertEvents(tx, runId, events));
-}
-async function getIllustration(key, sql = db()) {
-	const [row] = await sql`
-    select key, status, path, attempts,
-           (extract(epoch from now() - updated_at) * 1000)::int as "ageMs"
-      from plates where key = ${key}
-  `;
-	return row;
-}
-/**
-* Take the job of drawing an illustration. True when this request is the one to draw it.
-*
-* ONE STATEMENT, so two runs entering the same room in the same instant cannot
-* both win: a new key is inserted as `pending`; an existing one is taken over
-* only when it failed and has attempts left, or when its `pending` claim is
-* older than `staleMs` — the request that made it died without saying so.
-*/
-async function claimIllustration(key, model, opts, sql = db()) {
-	return (await sql`
-    insert into plates (key, status, model, attempts) values (${key}, 'pending', ${model}, 1)
-    on conflict (key) do update
-       set status = 'pending', model = excluded.model, attempts = illustrations.attempts + 1,
-           error = null, updated_at = now()
-     where (illustrations.status = 'failed' and illustrations.attempts < ${opts.maxAttempts})
-        or (illustrations.status = 'pending' and illustrations.updated_at < now() - make_interval(secs => ${opts.staleMs / 1e3}))
-    returning key
-  `).length > 0;
-}
-async function finishIllustration(key, path, sql = db()) {
-	await sql`update plates set status = 'ready', path = ${path}, updated_at = now() where key = ${key}`;
-}
-async function failIllustration(key, error, sql = db()) {
-	await sql`update plates set status = 'failed', error = ${error.slice(0, 2e3)}, updated_at = now() where key = ${key}`;
-}
-/** Shared words an illustration is drawn from — see `plate_words`. */
-async function getIllustrationWords(key, sql = db()) {
-	const [row] = await sql`select value from plate_words where key = ${key}`;
-	return row?.value;
-}
-/** The first answer is kept: a second illustration racing the first reads the winner's. */
-async function saveIllustrationWords(key, value, sql = db()) {
-	await sql`insert into plate_words (key, value) values (${key}, ${value}) on conflict (key) do nothing`;
-	return await getIllustrationWords(key, sql) ?? value;
-}
-/**
-* Name the cover a finished dungeon is to have. Written once, at `finish`; a
-* dungeon whose `cover` is null was finished before covers and never gets one.
-*/
-async function setDungeonCover(id, key, sql = db()) {
-	await sql`update dungeons set cover = ${key} where id = ${id} and cover is null`;
-}
-/** The next midnight UTC after `now`. */
-function nextUtcMidnight(now) {
-	return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
-}
-/** The rule, without the database, so it can be tested without one. */
-function allowanceFor(input) {
-	const resetsAt = nextUtcMidnight(input.now).toISOString();
-	const unplayed = input.unplayed ?? [];
-	if (input.tier === "unlimited") return {
-		guest: input.guest,
-		unlimited: true,
-		used: input.used,
-		limit: null,
-		left: null,
-		maxSize: 5,
-		resetsAt,
-		unplayed
-	};
-	const limit = input.guest ? 1 : 3;
-	return {
-		guest: input.guest,
-		unlimited: false,
-		used: input.used,
-		limit,
-		left: Math.max(0, limit - input.used),
-		maxSize: 1,
-		resetsAt,
-		unplayed
-	};
-}
-/** True when the account may write another dungeon, or start a run that costs one. */
-function hasRunLeft(a) {
-	return a.left === null || a.left > 0;
-}
-/** True when a run into this dungeon may start: one left, or it rides on a writing. */
-function mayStartRunIn(a, dungeonId) {
-	return hasRunLeft(a) || a.unplayed.includes(dungeonId);
-}
-/**
-* The sentence a refused player reads. Said by the server so that the copy is in
-* one place, and so a refusal the interface did not predict still reads well.
-*/
-function refusal(a) {
-	const runs = a.limit === 1 ? "run" : "runs";
-	const more = a.guest ? ` Sign in with Google for 3 a day.` : "";
-	return `That is your ${a.limit} ${runs} for today. More at midnight UTC.${more}`;
-}
-/**
-* Read the tier, today's count and the unplayed dungeons in one round trip.
-*
-* A missing profile is a member. `handle_new_user` makes one for every account,
-* so this only matters in the instant between an account existing and its
-* trigger committing — and the safe reading of "we do not know" is the limited
-* one.
-*
-* "Written" is `copied_from is null`: a copy from the library is a dungeon the
-* player did not pay to write. "Rode on a writing" is the earliest run in one
-* of the player's own written dungeons, ever — so a dungeon written at 23:59
-* and played at 00:01 is one run, on the first day.
-*
-* The day boundary is computed in Postgres, against the same clock that stamped
-* `created_at`, so the server and the database cannot disagree about which day
-* a run belongs to.
-*/
-async function allowanceOf(user, sql = db(), now = /* @__PURE__ */ new Date()) {
-	const [row] = await sql`
-    with day as (
-      select date_trunc('day', now() at time zone 'utc') at time zone 'utc' as start
-    ),
-    written as (
-      select id, created_at from dungeons
-       where owner_id = ${user.id} and copied_from is null
-    ),
-    rode as (
-      select distinct on (r.dungeon_id) r.id
-        from runs r join written w on w.id = r.dungeon_id
-       order by r.dungeon_id, r.created_at, r.id
-    )
-    select
-      (select tier from profiles where id = ${user.id}) as tier,
-      (select count(*)::int from written, day where written.created_at >= day.start)
-      + (select count(*)::int from runs, day
-          where runs.owner_id = ${user.id}
-            and runs.created_at >= day.start
-            and runs.id not in (select id from rode)) as used,
-      (select array_agg(d.id::text) from dungeons d
-        where d.owner_id = ${user.id} and d.copied_from is null and d.status = 'complete'
-          and not exists (select 1 from runs where runs.dungeon_id = d.id)) as unplayed
-  `;
-	return allowanceFor({
-		guest: user.guest,
-		tier: row?.tier === "unlimited" ? "unlimited" : "member",
-		used: row?.used ?? 0,
-		unplayed: row?.unplayed ?? [],
-		now
-	});
-}
-/**
-* What the marks in the guide image mean. The marks say WHERE; the prose says
-* WHAT; and none of them may survive into the drawing.
-*/
-var ILLUSTRATION_GUIDE_NOTE = "The guide image fixes the room's walls and the camera. Each dashed outline on the floor, tagged with a number, marks where the numbered feature stands; each lettered tag marks a doorway. Draw the thing described in place of each mark. Do not draw the dashed outlines, the tags, or any numbers or letters.";
-/**
-* What the style references are for. A reference is copied as readily as a
-* guide, so the prompt says which image is which and that only the manner of
-* drawing may be taken from the references — never their rooms or framing.
-*/
-function illustrationReferenceNote(count, afterGuide) {
-	return `${afterGuide ? `The first image is the guide. The other ${count} images are style references only` : `The ${count} images are style references only`}: draw in exactly their manner — the same line weight, the same sparing hatching, the same amount of white paper. Take nothing else from them: not their rooms, objects, layout or viewpoint.`;
-}
-/** The same, for a guide drawn with no marks: architecture only. */
-var ILLUSTRATION_PLAIN_GUIDE_NOTE = "The guide image fixes the room's walls, doorways and the camera: follow its perspective and wall layout exactly. It shows no objects; draw the features listed below where stated.";
-var ILLUSTRATION_VISUAL_SYSTEM = [
-	"You turn a room's written description into notes for an illustrator who draws in black ink.",
-	"",
-	"Write only what can be SEEN: materials, shapes, surfaces, condition, light and shadow.",
-	"Leave out sounds, smells, temperature, history, purpose, feelings, and anything a person or creature is doing.",
-	"Never write a number, a size, a distance, a count, or a direction (left, north, far end): where things are is decided elsewhere.",
-	"Never mention people or creatures.",
-	"",
-	"`room` describes only the room's shell — walls, floor, ceiling, air, light, condition — in one sentence of at most 30 words. Do not mention any doorway or any of the listed things in it.",
-	"`things` gives each listed thing a look: a noun phrase of at most 14 words saying what it looks like, with no name, no position and no number."
-].join("\n");
-var ILLUSTRATION_SETTING_SYSTEM = [
-	"You turn a dungeon's written theme into one line for an illustrator who draws in black ink.",
-	"Write one sentence of at most 25 words: what the place is built from or carved out of, its condition, and its light.",
-	"Only what can be seen. No sounds, smells, history, people or creatures. No numbers."
-].join("\n");
-/** The user message for the per-room visual request. */
-function illustrationVisualMessage(roomName, roomBase, subjects) {
-	const L = [
-		`ROOM: ${roomName}`,
-		roomBase,
-		"",
-		"THINGS IN VIEW (give each a look, keyed by ref):"
-	];
-	for (const s of subjects) L.push(`- ref ${s.ref} (${s.kind}) ${s.name}: ${s.base}`);
-	if (!subjects.length) L.push("(none)");
-	return L.join("\n");
-}
-/** The user message for the per-dungeon setting request. */
-function illustrationSettingMessage(theme) {
-	return `THEME:\n${theme}`;
-}
-/**
-* The patch of floor every illustration keeps clear for creatures, which are stood in
-* it afterwards (`illustrationStage`, src/illustrations/figures.ts). Only with the
-* marked guide, which carries the dotted outline it refers to.
-*/
-var ILLUSTRATION_OPEN_FLOOR_NOTE = "The area inside the DOTTED outline in the guide is kept clear for figures who will be added to the picture later. Draw it as plain, bare, level floor, continuous with the floor around it: no pit, crack, chasm, water, rubble, furniture, feature, doorway or steps inside it. Do not draw the dotted outline itself.";
-function roomIllustrationPrompt(p) {
-	const L = [
-		"STYLE",
-		p.style ?? "Clean black ink line art in the manner of a 1970s-80s fantasy adventure module's illustration booklet. Mostly white paper. Crisp, confident outlines define every form. Shading is sparing: a few hatched strokes only in the deepest shadows, no dense cross-hatching, no stippled texture, no large areas of solid black. Walls, floors and sky stay largely white. No grey, no colour. The picture fills the whole image edge to edge, with no frame, no border line, no box and no vignette around it. No lettering. No people, no creatures, no loose objects.",
-		""
-	];
-	if (p.references) L.push("STYLE REFERENCES", illustrationReferenceNote(p.references, p.guide !== "none"), "");
-	if (p.guide === "marks") L.push("GUIDE", ILLUSTRATION_GUIDE_NOTE, "");
-	if (p.guide === "plain") L.push("GUIDE", ILLUSTRATION_PLAIN_GUIDE_NOTE, "");
-	L.push("SETTING", p.setting, "", "ROOM", p.room, "", "VIEW", p.viewpoint);
-	if (p.drawn.length) {
-		L.push("", "MUST BE DRAWN, EACH WHERE STATED");
-		for (const d of p.drawn) {
-			const tag = p.guide === "marks" && d.tag ? `[${d.tag}] ` : "";
-			L.push(`- ${tag}${d.doorway ? "Doorway: " : ""}${d.look} — ${d.where}`);
-		}
-	}
-	if (p.surfaces.length) {
-		L.push("", "OVER THE WALLS, FLOOR OR AIR");
-		for (const s of p.surfaces) L.push(`- ${s.look} — ${s.where}`);
-	}
-	if (p.openFloor && p.guide === "marks") L.push("", "OPEN FLOOR", ILLUSTRATION_OPEN_FLOOR_NOTE);
-	return L.join("\n");
-}
-function exteriorIllustrationPrompt(p) {
-	return [
-		"STYLE",
-		p.style ?? "Clean black ink line art in the manner of a 1970s-80s fantasy adventure module's illustration booklet. Mostly white paper. Crisp, confident outlines define every form. Shading is sparing: a few hatched strokes only in the deepest shadows, no dense cross-hatching, no stippled texture, no large areas of solid black. Walls, floors and sky stay largely white. No grey, no colour. The picture fills the whole image edge to edge, with no frame, no border line, no box and no vignette around it. No lettering. No people, no creatures, no loose objects.",
-		"",
-		"VIEW",
-		"An exterior view of the place from outside, at a distance, with its way in clearly visible.",
-		"",
-		"SCENE",
-		p.scene
-	].join("\n");
-}
-/** What Haiku is asked for an exterior: the place and its entrance, from outside. */
-var ILLUSTRATION_EXTERIOR_SYSTEM = [
-	"You turn a written description of a dungeon's surroundings and entrance into notes for an illustrator who draws in black ink.",
-	"Write two or three sentences, at most 60 words, describing what someone approaching would SEE: the landscape, the structure, its condition, and the entrance.",
-	"If the description gives the time of day, the sky or the weather, open with them in plain words (\"At night, under a full moon, ...\"): they change the whole picture.",
-	"Keep anything it says about how many there are or what is absent (\"a single building, nothing else in sight\"): an illustrator adds what is not ruled out.",
-	"Leave out sounds, smells, history, purpose and feelings. No people or creatures. No numbers."
-].join("\n");
-/**
-* What a view is worth. A feature outweighs any amount of floor a room can
-* have, so the camera never trades one away for a better angle; a way out
-* outweighs a few cells of floor; and the way in is worth a quarter of any
-* other way out, which tips a tie toward looking somewhere the player has not
-* just been.
-*/
-var ILLUSTRATION_SCORE = {
-	tile: 1,
-	feature: 100,
-	exit: 20,
-	entry: 5
-};
-/** Eye height, in feet. Nothing stores a ceiling or a viewer's height; this is a guess. */
-var ILLUSTRATION_EYE_FT = 5.5;
-var ILLUSTRATION_DOOR_FT = 7.5;
-/** The illustration's width over its height. 3:2, the space the page reserves for it. */
-var ILLUSTRATION_ASPECT = 1.5;
-/**
-* Nothing nearer the eye than this, in feet, counts as in the picture: the
-* floor only comes into frame here, below the bottom edge before it. Derived
-* rather than chosen — a guess of four feet counted things at the viewer's
-* feet that the frame then cut off.
-*/
-var ILLUSTRATION_MIN_AHEAD_FT = ILLUSTRATION_EYE_FT / (Math.tan(50 * Math.PI / 180) / ILLUSTRATION_ASPECT);
-/**
-* Standing spots within each floor cell, in feet from its corner on each axis:
-* against either wall and in the middle, nine to a cell. Back to a wall or in a
-* corner is where an illustrator stands; the middle is there so a room with no
-* good wall still has somewhere to stand.
-*/
-var SPOT_OFFSETS_FT = [
-	1,
-	2.5,
-	4
-];
-/**
-* Inside this many degrees of the line of sight, a thing is "straight ahead"
-* rather than left or right. About a fifth of the frame either side of centre.
-*/
-var CENTRE_DEG = 12;
-/**
-* Every cell the straight line from `a` to `b` passes through is floor.
-*
-* An exact walk of the grid, not sampling: a sampled walk once stepped over
-* the tip of a rock corner and called a door around it visible (seed 4201, The
-* Stone Dormitory). A line through a cell corner exactly needs both cells
-* beside the corner to be floor, so a pinch between two rock cells is a wall.
-*/
-function clearLine(a, b, onFloor) {
-	const ax = a.x / 5;
-	const ay = a.y / 5;
-	const bx = b.x / 5;
-	const by = b.y / 5;
-	let cx = Math.floor(ax);
-	let cy = Math.floor(ay);
-	const ex = Math.floor(bx);
-	const ey = Math.floor(by);
-	const dx = bx - ax;
-	const dy = by - ay;
-	const sx = Math.sign(dx);
-	const sy = Math.sign(dy);
-	const tdx = dx !== 0 ? Math.abs(1 / dx) : Infinity;
-	const tdy = dy !== 0 ? Math.abs(1 / dy) : Infinity;
-	let tmx = dx > 0 ? (cx + 1 - ax) * tdx : dx < 0 ? (ax - cx) * tdx : Infinity;
-	let tmy = dy > 0 ? (cy + 1 - ay) * tdy : dy < 0 ? (ay - cy) * tdy : Infinity;
-	if (!onFloor(cx, cy)) return false;
-	let guard = Math.abs(ex - cx) + Math.abs(ey - cy) + 2;
-	while ((cx !== ex || cy !== ey) && guard-- > 0) {
-		if (Math.abs(tmx - tmy) < 1e-9) {
-			if (!onFloor(cx + sx, cy) || !onFloor(cx, cy + sy)) return false;
-			cx += sx;
-			cy += sy;
-			tmx += tdx;
-			tmy += tdy;
-		} else if (tmx < tmy) {
-			cx += sx;
-			tmx += tdx;
-		} else {
-			cy += sy;
-			tmy += tdy;
-		}
-		if (!onFloor(cx, cy)) return false;
-	}
-	return true;
-}
-/** The middle of the shared edge between two side-by-side cells, in feet. */
-function doorPoint(d) {
-	return {
-		x: ((d.inside.x + d.outside.x) / 2 + .5) * 5,
-		y: ((d.inside.y + d.outside.y) / 2 + .5) * 5
-	};
-}
-/**
-* Where a door is sighted at: just inside the threshold. The door point itself
-* is on the wall line, and a line ending on a wall is a line into rock.
-*/
-function doorTarget(d) {
-	const at = doorPoint(d);
-	return {
-		x: (at.x + (d.inside.x + .5) * 5) / 2,
-		y: (at.y + (d.inside.y + .5) * 5) / 2
-	};
-}
-/** Lines of sight from `eye` in this room: clear when every cell crossed is floor. */
-function illustrationSight(input, eye) {
-	const floor = new Set(input.floor.map((c) => xyKey(c.x, c.y)));
-	const onFloor = (x, y) => floor.has(xyKey(x, y));
-	return (p) => clearLine(eye, p, onFloor);
-}
-/**
-* Where a point lands in the illustration, as fractions of its width and height from
-* the top-left — so it maps onto the final image at any resolution. Null when
-* the point is behind the eye. A point beside the frame comes back outside
-* 0..1 rather than null; whether that matters is the caller's question.
-*/
-function projectToFrame(eye, p) {
-	const ahead = (p.x - eye.x) * eye.forward.x + (p.y - eye.y) * eye.forward.y;
-	if (ahead < .3) return null;
-	const across = (p.x - eye.x) * eye.right.x + (p.y - eye.y) * eye.right.y;
-	const up = p.z - ILLUSTRATION_EYE_FT;
-	const t = 2 * Math.tan(50 * Math.PI / 180);
-	return {
-		x: .5 + across / ahead / t,
-		y: .5 - up / ahead / t * ILLUSTRATION_ASPECT
-	};
-}
-/**
-* Every place the camera may stand: nine spots in each floor cell, the floor
-* just inside each doorway among them. Never in a doorway itself — standing in
-* one, even back from the room, is a view of the room from somewhere the player
-* has not been: through a door they have not opened, or a sealed one.
-*/
-function standingSpots(input) {
-	const spots = [];
-	for (const c of input.floor) for (const ox of SPOT_OFFSETS_FT) for (const oy of SPOT_OFFSETS_FT) spots.push({
-		x: c.x * 5 + ox,
-		y: c.y * 5 + oy
-	});
-	return spots;
-}
-/** Cells split into pieces that touch edge to edge. */
-function connectedCells(cells) {
-	const left = new Map(cells.map((c) => [xyKey(c.x, c.y), c]));
-	const pieces = [];
-	for (const start of cells) {
-		if (!left.delete(xyKey(start.x, start.y))) continue;
-		const piece = [];
-		const queue = [start];
-		while (queue.length) {
-			const c = queue.pop();
-			piece.push(c);
-			for (const [dx, dy] of [
-				[1, 0],
-				[-1, 0],
-				[0, 1],
-				[0, -1]
-			]) {
-				const n = left.get(xyKey(c.x + dx, c.y + dy));
-				if (n) {
-					left.delete(xyKey(n.x, n.y));
-					queue.push(n);
-				}
-			}
-		}
-		pieces.push(piece);
-	}
-	return pieces;
-}
-var cellMiddle = (c) => ({
-	x: (c.x + .5) * 5,
-	y: (c.y + .5) * 5
-});
-var COMPASS = [
-	"east",
-	"south-east",
-	"south",
-	"south-west",
-	"west",
-	"north-west",
-	"north",
-	"north-east"
-];
-function compass(v) {
-	return COMPASS[(Math.round(Math.atan2(v.y, v.x) / (Math.PI / 4)) + 8) % 8];
-}
-/**
-* The room as seen from one eye looking one way. `illustrationView` calls this on the
-* camera it chose; it is exported so a test, or a dev sheet, can ask about any
-* other camera directly.
-*/
-function viewFrom(input, at, heading) {
-	const len = Math.hypot(heading.x, heading.y) || 1;
-	const forward = {
-		x: heading.x / len,
-		y: heading.y / len
-	};
-	const right = {
-		x: -forward.y,
-		y: forward.x
-	};
-	const eye = {
-		x: at.x,
-		y: at.y,
-		forward,
-		right
-	};
-	const sees = illustrationSight(input, eye);
-	const toView = (p) => ({
-		ahead: (p.x - eye.x) * forward.x + (p.y - eye.y) * forward.y,
-		across: (p.x - eye.x) * right.x + (p.y - eye.y) * right.y
-	});
-	const tanFov = Math.tan(50 * Math.PI / 180);
-	const framed = (v) => v.ahead >= ILLUSTRATION_MIN_AHEAD_FT && Math.abs(v.across) <= v.ahead * tanFov;
-	let deep = 0;
-	let minAcross = Infinity;
-	let maxAcross = -Infinity;
-	for (const c of input.floor) for (const [dx, dy] of [
-		[0, 0],
-		[1, 0],
-		[0, 1],
-		[1, 1]
-	]) {
-		const v = toView({
-			x: (c.x + dx) * 5,
-			y: (c.y + dy) * 5
-		});
-		deep = Math.max(deep, v.ahead);
-		minAcross = Math.min(minAcross, v.across);
-		maxAcross = Math.max(maxAcross, v.across);
-	}
-	const depthOf = (ahead) => ahead < deep / 3 ? "near" : ahead < deep * 2 / 3 ? "middle" : "far";
-	const sideOf = (v) => {
-		const deg = Math.atan2(v.across, Math.max(v.ahead, .01)) * 180 / Math.PI;
-		return deg < -12 ? "left" : deg > CENTRE_DEG ? "right" : "centre";
-	};
-	const door = (d) => {
-		const at = doorPoint(d);
-		const v = toView(at);
-		const n = {
-			x: d.inside.x - d.outside.x,
-			y: d.inside.y - d.outside.y
-		};
-		const facesEye = (eye.x - at.x) * n.x + (eye.y - at.y) * n.y > 0;
-		const wall = v.ahead <= 0 ? "behind" : !facesEye ? "away" : n.x * forward.x + n.y * forward.y < -.7 ? "far" : v.across < 0 ? "left" : "right";
-		const inFrame = wall !== "behind" && framed(v);
-		const inSight = facesEye && sees(doorTarget(d));
-		return {
-			id: d.id,
-			...v,
-			depth: depthOf(v.ahead),
-			side: sideOf(v),
-			wall,
-			inFrame,
-			inSight,
-			visible: inFrame && inSight,
-			placed: true
-		};
-	};
-	const features = input.features.map((t) => {
-		if (!t.cells.length) return {
-			id: t.id,
-			ahead: 0,
-			across: 0,
-			depth: "middle",
-			side: "centre",
-			inFrame: true,
-			inSight: true,
-			visible: true,
-			placed: false
-		};
-		const mids = t.cells.map(cellMiddle);
-		const centre = {
-			x: mids.reduce((s, p) => s + p.x, 0) / mids.length,
-			y: mids.reduce((s, p) => s + p.y, 0) / mids.length
-		};
-		const v = toView(centre);
-		const cells = mids.map((p) => ({
-			framed: framed(toView(p)),
-			sighted: sees(p)
-		}));
-		const parts = connectedCells(t.cells);
-		const pieces = parts.length < 2 ? void 0 : parts.flatMap((part) => {
-			const pm = part.map(cellMiddle);
-			if (!pm.some((p) => framed(toView(p)) && sees(p))) return [];
-			const pv = toView({
-				x: pm.reduce((acc, p) => acc + p.x, 0) / pm.length,
-				y: pm.reduce((acc, p) => acc + p.y, 0) / pm.length
-			});
-			return [{
-				ahead: pv.ahead,
-				depth: depthOf(pv.ahead),
-				side: sideOf(pv)
-			}];
-		});
-		return {
-			id: t.id,
-			...v,
-			depth: depthOf(v.ahead),
-			side: sideOf(v),
-			...pieces ? { pieces } : {},
-			inFrame: cells.some((c) => c.framed),
-			inSight: cells.some((c) => c.sighted),
-			visible: cells.some((c) => c.framed && c.sighted),
-			placed: true
-		};
-	});
-	let tiles = 0;
-	for (const c of input.floor) {
-		const m = cellMiddle(c);
-		if (framed(toView(m)) && sees(m)) tiles++;
-	}
-	const entry = door(input.entry);
-	const exits = input.exits.map(door);
-	const score = tiles * ILLUSTRATION_SCORE.tile + features.filter((f) => f.placed && f.visible).length * ILLUSTRATION_SCORE.feature + exits.filter((x) => x.visible).length * ILLUSTRATION_SCORE.exit + (entry.visible ? ILLUSTRATION_SCORE.entry : 0);
-	return {
-		eye,
-		facing: compass(forward),
-		standing: standingPhrase(input.floor, eye),
-		deep,
-		wide: maxAcross - minAcross,
-		entry,
-		exits,
-		features,
-		tiles,
-		score
-	};
-}
-/** Where the eye stands, by thirds of the room's bounding box. */
-function standingPhrase(floor, eye) {
-	const xs = floor.map((c) => c.x);
-	const ys = floor.map((c) => c.y);
-	const x0 = Math.min(...xs) * 5;
-	const y0 = Math.min(...ys) * 5;
-	const w = (Math.max(...xs) + 1) * 5 - x0;
-	const h = (Math.max(...ys) + 1) * 5 - y0;
-	const col = Math.min(2, Math.floor((eye.x - x0) / w * 3));
-	const ns = [
-		"north",
-		"",
-		"south"
-	][Math.min(2, Math.floor((eye.y - y0) / h * 3))];
-	const ew = [
-		"west",
-		"",
-		"east"
-	][col];
-	if (ns && ew) return `in the ${ns}-${ew} corner`;
-	if (ns || ew) return `by the ${ns || ew} wall`;
-	return "in the middle";
-}
-/**
-* The best view of the room: every standing spot on the floor, every heading,
-* scored by ILLUSTRATION_SCORE.
-*
-* Deterministic: spots and headings are tried in a fixed order and a tie keeps
-* the first, so a room's view — and with it the illustration's cache key — never
-* changes between calls.
-*
-* The expensive part, sight lines, depends on the spot and not the heading, so
-* it is worked out once per spot and every heading reuses it.
-*/
-function illustrationView(input) {
-	const floor = new Set(input.floor.map((c) => xyKey(c.x, c.y)));
-	const onFloor = (x, y) => floor.has(xyKey(x, y));
-	const tanFov = Math.tan(50 * Math.PI / 180);
-	const targets = [];
-	let group = 0;
-	for (const c of input.floor) {
-		const m = cellMiddle(c);
-		targets.push({
-			at: m,
-			frame: m,
-			worth: ILLUSTRATION_SCORE.tile,
-			group: group++
-		});
-	}
-	for (const f of input.features) {
-		for (const c of f.cells) {
-			const m = cellMiddle(c);
-			targets.push({
-				at: m,
-				frame: m,
-				worth: ILLUSTRATION_SCORE.feature,
-				group
-			});
-		}
-		group++;
-	}
-	const doorTargets = (d, worth) => {
-		targets.push({
-			at: doorTarget(d),
-			frame: doorPoint(d),
-			worth,
-			group: group++,
-			wall: doorPoint(d),
-			normal: {
-				x: d.inside.x - d.outside.x,
-				y: d.inside.y - d.outside.y
-			}
-		});
-	};
-	for (const d of input.exits) doorTargets(d, ILLUSTRATION_SCORE.exit);
-	doorTargets(input.entry, ILLUSTRATION_SCORE.entry);
-	const headings = [];
-	for (let k = 0; k < 36; k++) {
-		const a = k / 36 * 2 * Math.PI;
-		headings.push({
-			x: Math.cos(a),
-			y: Math.sin(a)
-		});
-	}
-	let best;
-	const seenGroups = /* @__PURE__ */ new Set();
-	for (const at of standingSpots(input)) {
-		const sees = (p) => clearLine(at, p, onFloor);
-		const sighted = targets.filter((t) => (!t.wall || (at.x - t.wall.x) * t.normal.x + (at.y - t.wall.y) * t.normal.y > 0) && sees(t.at));
-		for (const h of headings) {
-			seenGroups.clear();
-			let score = 0;
-			for (const t of sighted) {
-				if (seenGroups.has(t.group)) continue;
-				const dx = t.frame.x - at.x;
-				const dy = t.frame.y - at.y;
-				const ahead = dx * h.x + dy * h.y;
-				const across = -dx * h.y + dy * h.x;
-				if (ahead < ILLUSTRATION_MIN_AHEAD_FT || Math.abs(across) > ahead * tanFov) continue;
-				seenGroups.add(t.group);
-				score += t.worth;
-			}
-			if (!best || score > best.score) best = {
-				at,
-				heading: h,
-				score
-			};
-		}
-	}
-	if (!best) {
-		const d = input.entry;
-		return viewFrom(input, doorTarget(d), {
-			x: d.inside.x - d.outside.x,
-			y: d.inside.y - d.outside.y
-		});
-	}
-	return viewFrom(input, best.at, best.heading);
-}
-/** Distances are said to the nearest five feet, the grid's own unit. */
-var feet = (n) => `${Math.max(5, Math.round(n / 5) * 5)} ft`;
-var SIDE_ON_FAR_WALL = {
-	left: "to the left",
-	centre: "straight ahead",
-	right: "to the right"
-};
-var DEPTH_ON_SIDE_WALL = {
-	near: "close by",
-	middle: "partway along",
-	far: "toward the back"
-};
-var DEPTH_IN_ROOM = {
-	near: "in the foreground",
-	middle: "in the middle distance",
-	far: "at the back"
-};
-var SIDE_IN_ROOM = {
-	left: "on the left",
-	centre: "in the centre",
-	right: "on the right"
-};
-/** Where a way out is, as the viewer would point to it. */
-function exitWhere(s) {
-	if (s.wall === "behind") return "behind the viewer";
-	if (s.wall === "far") return `in the facing wall, ${SIDE_ON_FAR_WALL[s.side]}, ${feet(s.ahead)} away`;
-	return `in the ${s.wall} wall, ${DEPTH_ON_SIDE_WALL[s.depth]}, ${feet(s.ahead)} in`;
-}
-/** Where a feature stands, as the viewer would point to it. */
-function featureWhere(s) {
-	if (!s.placed) return "somewhere in plain view";
-	if (s.pieces && s.pieces.length > 1) {
-		const at = s.pieces.map((p) => `${DEPTH_IN_ROOM[p.depth]} ${SIDE_IN_ROOM[p.side]} (${feet(p.ahead)})`);
-		return `in ${s.pieces.length} places: ${at.join("; ")}`;
-	}
-	if (s.pieces?.length === 1) {
-		const p = s.pieces[0];
-		return `${DEPTH_IN_ROOM[p.depth]}, ${SIDE_IN_ROOM[p.side]}, ${feet(p.ahead)} away`;
-	}
-	return `${DEPTH_IN_ROOM[s.depth]}, ${SIDE_IN_ROOM[s.side]}, ${feet(s.ahead)} away`;
-}
-//#endregion
-//#region src/illustrations/figures.ts
-/**
-* ROOM ILLUSTRATIONS — THE FIGURES IN THEM
-* =================================
-*
-* An illustration is drawn once and shared; the creatures in a room change every turn.
-* So the illustration is drawn with no one in it and the creatures are stood in it
-* afterwards, each a sprite drawn once per kind (BUILD-PLAN, *Illustrations*,
-* "2. Creature sprites"). Everything here is geometry and rules, no pixels:
-*
-*   illustrationStage     the patch of open floor every illustration keeps clear for figures,
-*                  chosen before the illustration is drawn and marked in its guide
-*   roomClusters   a room's creatures, gathered by the author's rules into who
-*                  stands in front and who behind
-*   illustrationFigures   where each figure stands in the picture, through the same
-*                  camera that drew the guide
-*
-* WHO GETS A SPRITE. Solos, leaders and named individuals: one each. A group's
-* nameless members, in every variant: one for the whole group (`spriteKeyOf`).
-*
-* HOW A ROOM'S CREATURES STAND. The front row is the leader; or, with no
-* leader, the named creatures side by side, slightly overlapping; or, with
-* neither, one copy of the group. The nameless stand behind it, at most two on
-* each side. Anything unrelated is a cluster of its own.
-*
-* WHY THE STAGE IS CHOSEN FIRST. With the spot picked after the illustration was
-* drawn, the drawing drifted from the guide enough to stand figures over a
-* widened chasm or in a doorway, in 3 of 10 rooms. Reserved before drawing, 9
-* of 10 read right.
-*/
-/**
-* The patch of floor an illustration keeps clear, around the stage point, in feet: a
-* little behind the front row, deep enough for both ranks behind it, wide
-* enough for two on each side.
-*/
-var STAGE_FT = {
-	behind: 1.5,
-	ahead: 7.5,
-	side: 6
-};
-/** Where a cluster would ideally stand: this far ahead of the eye. */
-var PREFERRED_AHEAD_FT = 13;
-/** Feet a stand point keeps from a feature's cells: a drawn footprint is wider than its outline. */
-var FEATURE_MARGIN_FT = 2.5;
-/** Feet a stand point keeps from a doorway, so nobody stands in one. */
-var DOOR_MARGIN_FT = 5;
-/** Score per unit of the stage patch that is not open floor: an empty patch costs as much as 40 ft of misplacement. */
-var PATCH_WEIGHT = 40;
-/** Score for a stand point too near a feature or door, when the patch around it is otherwise fine. */
-var CROWDED_COST = 20;
-/** Feet into the frame the first stand point must be, past the floor's first visible line. */
-var STAND_MIN_EXTRA_FT = 2;
-/** The feet stay this far inside the frame's sides and bottom, as fractions of it. */
-var FOOT_FRAME = {
-	side: .15,
-	bottom: .97
-};
-var aheadOf = (view, q) => (q.x - view.eye.x) * view.eye.forward.x + (q.y - view.eye.y) * view.eye.forward.y;
-/** A point `ahead` feet further from the eye and `across` feet to its right of `at`. */
-function offset(view, at, ahead, across) {
-	const { forward, right } = view.eye;
-	return {
-		x: at.x + forward.x * ahead + right.x * across,
-		y: at.y + forward.y * ahead + right.y * across
-	};
-}
-/**
-* Every place a cluster could stand, best first. Candidates sit on a 2.5 ft
-* grid, off every feature's cells, in sight, with the feet in the lower part of
-* the frame. Most of all the whole patch around one (`STAGE_FT`) should be open
-* floor in sight — a clear point at the lip of a chasm is no place for a pack —
-* then it should be about `PREFERRED_AHEAD_FT` ahead and near the middle. Ties
-* keep the first, so it is deterministic.
-*/
-function standPoints(input, view) {
-	const sight = illustrationSight(input, view.eye);
-	const floor = new Set(input.floor.map((c) => xyKey(c.x, c.y)));
-	const blockedCells = input.features.flatMap((f) => f.cells);
-	const blocked = new Set(blockedCells.map((c) => xyKey(c.x, c.y)));
-	const doors = [input.entry, ...input.exits].map(doorPoint);
-	const cellOf = (q) => xyKey(Math.floor(q.x / 5), Math.floor(q.y / 5));
-	const clearOfThings = (at) => blockedCells.every((c) => {
-		const dx = Math.max(c.x * 5 - at.x, 0, at.x - (c.x + 1) * 5);
-		const dy = Math.max(c.y * 5 - at.y, 0, at.y - (c.y + 1) * 5);
-		return Math.hypot(dx, dy) >= FEATURE_MARGIN_FT;
-	}) && doors.every((d) => Math.hypot(d.x - at.x, d.y - at.y) >= DOOR_MARGIN_FT);
-	/** The share of the patch around `at`, sampled every foot, that is floor in sight with nothing on it. */
-	const openFloor = (at) => {
-		let open = 0;
-		let all = 0;
-		for (let a = -STAGE_FT.behind; a <= STAGE_FT.ahead; a++) for (let c = -STAGE_FT.side; c <= STAGE_FT.side; c++) {
-			const q = offset(view, at, a, c);
-			all++;
-			if (floor.has(cellOf(q)) && !blocked.has(cellOf(q)) && sight(q)) open++;
-		}
-		return open / all;
-	};
-	const step = 5 / 2;
-	const out = [];
-	for (const c of input.floor) {
-		if (blocked.has(xyKey(c.x, c.y))) continue;
-		for (const ox of [step / 2, step * 1.5]) for (const oy of [step / 2, step * 1.5]) {
-			const at = {
-				x: c.x * 5 + ox,
-				y: c.y * 5 + oy
-			};
-			const ahead = aheadOf(view, at);
-			if (ahead < ILLUSTRATION_MIN_AHEAD_FT + STAND_MIN_EXTRA_FT || !sight(at)) continue;
-			const foot = projectToFrame(view.eye, {
-				...at,
-				z: 0
-			});
-			if (!foot || foot.x < FOOT_FRAME.side || foot.x > 1 - FOOT_FRAME.side || foot.y > FOOT_FRAME.bottom) continue;
-			out.push({
-				at,
-				score: Math.abs(ahead - PREFERRED_AHEAD_FT) + 10 * Math.abs(foot.x - .5) + PATCH_WEIGHT * (1 - openFloor(at)) + (clearOfThings(at) ? 0 : CROWDED_COST)
-			});
-		}
-	}
-	return out.sort((a, b) => a.score - b.score);
-}
-/** The spot the illustration keeps clear for figures, or undefined when nowhere in the frame will do. */
-function illustrationStage(input, view) {
-	return standPoints(input, view)[0]?.at;
-}
-/**
-* The stage patch's outline, as runs of floor points in feet: only where it
-* lies on floor the eye can see, so the guide never marks rock or a wall.
-* Sampled every quarter foot.
-*/
-function stageOutline(input, view, at) {
-	const sight = illustrationSight(input, view.eye);
-	const floor = new Set(input.floor.map((c) => `${c.x},${c.y}`));
-	const onFloor = (q) => floor.has(`${Math.floor(q.x / 5)},${Math.floor(q.y / 5)}`);
-	const { behind, ahead, side } = STAGE_FT;
-	const corners = [
-		offset(view, at, -behind, -side),
-		offset(view, at, -behind, side),
-		offset(view, at, ahead, side),
-		offset(view, at, ahead, -side)
-	];
-	const runs = [];
-	let run = [];
-	for (let k = 0; k < 4; k++) {
-		const a = corners[k];
-		const b = corners[(k + 1) % 4];
-		const n = Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / .25);
-		for (let i = 0; i <= n; i++) {
-			const q = {
-				x: a.x + (b.x - a.x) * i / n,
-				y: a.y + (b.y - a.y) * i / n
-			};
-			if (onFloor(q) && sight(q)) run.push(q);
-			else if (run.length) {
-				runs.push(run);
-				run = [];
-			}
-		}
-	}
-	if (run.length) runs.push(run);
-	return runs.filter((r) => r.length > 1);
-}
-/** Which part a creature plays in its room's arrangement. */
-function figureRole(c) {
-	if (c.affiliationGroupId) return "leader";
-	if (c.base !== void 0) return "named";
-	if ((c.count ?? 1) > 1) return "group";
-	return "solo";
-}
-/**
-* The sprite a creature is drawn with. A named person is keyed by template and
-* name, not by entity: generation can write one person into two rooms as two
-* entities (BUILD-PLAN, "One leader, one entity"), and they should still be one
-* drawing. Everyone else is their template, so a group's nameless members in
-* every room — and a pack worn down to one — share a drawing.
-*/
-function spriteKeyOf(c) {
-	return c.base !== void 0 ? `${c.narrative.blueprintId}:${c.name}` : c.narrative.blueprintId;
-}
-/** The creatures that can be drawn: there, seen, and at least one of them. */
-function drawableCreatures(creatures, roomId) {
-	return creatures.filter((c) => c.roomId === roomId && c.isHidden !== true && (c.count ?? 1) > 0);
-}
-//#endregion
-//#region src/illustrations/feature-presence.ts
-/** Table entries that are heard, smelled or felt, never seen. */
-var SENSE = /* @__PURE__ */ new Set([
-	"Faint breeze",
-	"Faint footsteps",
-	"Stench",
-	"Unusual smell",
-	"Vibrations",
-	"Whispers",
-	"Voices",
-	"Draft",
-	"Echoes",
-	"Noise",
-	"Smell",
-	"Tapping",
-	"Temperature",
-	"Scurrying",
-	"Deafening noise"
-]);
-/** Table entries that cover the room — its walls, floor or air — rather than stand in it. */
-var SURFACE = /* @__PURE__ */ new Set([
-	"Bas-relief",
-	"Blood trail",
-	"Chalk marks",
-	"Claw marks",
-	"Crumbling walls",
-	"Dripping water",
-	"Fading murals",
-	"Fungus",
-	"Graffiti",
-	"Mosaics",
-	"Slime trails",
-	"Smoke stains",
-	"Spider webs",
-	"Thick dust",
-	"Tree roots",
-	"Vines",
-	"Decay",
-	"Decor",
-	"Footprints",
-	"Light",
-	"Markings",
-	"Moisture",
-	"Mural",
-	"Residue",
-	"Shadows",
-	"Smoke",
-	"Stains",
-	"Surface",
-	"Writing",
-	"Choking dust",
-	"Dense fog",
-	"Spores",
-	"Toxic fumes"
-]);
-function featurePresence(keywords, position) {
-	const rolled = Object.entries(keywords ?? {});
-	if (rolled.some(([table]) => table === "Fixture")) return "object";
-	const values = rolled.map(([, v]) => v);
-	if (values.some((v) => SENSE.has(v))) return "sense";
-	if (values.some((v) => SURFACE.has(v))) return "surface";
-	if (position === "throughout") return "surface";
-	return "object";
-}
-/** Height a feature's button sits at, in feet: the floor, where its outline is. */
-var FEATURE_Z = 0;
-/** Height a corner arrow sits at, in feet: about a hand's height on the wall. */
-var CORNER_Z = 4;
-var inFrame = (q) => q !== null && q.x >= 0 && q.x <= 1 && q.y >= 0 && q.y <= 1;
-/** Within the horizontal field of view and in front of the eye, whatever the height. */
-function inFieldOfView(eye, p) {
-	const ahead = (p.x - eye.x) * eye.forward.x + (p.y - eye.y) * eye.forward.y;
-	const across = (p.x - eye.x) * eye.right.x + (p.y - eye.y) * eye.right.y;
-	return ahead > 0 && Math.abs(across) <= ahead * Math.tan(50 * Math.PI / 180);
-}
-function edgeToward(eye, p, z) {
-	const ahead = (p.x - eye.x) * eye.forward.x + (p.y - eye.y) * eye.forward.y;
-	const across = (p.x - eye.x) * eye.right.x + (p.y - eye.y) * eye.right.y;
-	const deg = Math.abs(Math.atan2(across, ahead)) * 180 / Math.PI;
-	const clamp = (n) => Math.min(1, Math.max(0, n));
-	if (deg > 120) {
-		const off = .5 * (180 - deg) / 60;
-		return {
-			edge: "bottom",
-			along: clamp(across < 0 ? .5 - off : .5 + off)
-		};
-	}
-	if (deg <= 50) {
-		const q = projectToFrame(eye, {
-			...p,
-			z
-		});
-		if (!q || q.y > 1) return {
-			edge: "bottom",
-			along: q ? clamp(q.x) : .5
-		};
-	}
-	const along = clamp((deg - 50) / 70);
-	return {
-		edge: across < 0 ? "left" : "right",
-		along
-	};
-}
-/**
-* Inside corners of the room: lattice points with floor on three sides and
-* rock on the fourth — the corners a path bends round. Each is nudged half a
-* foot off the rock so a sight line to it does not graze the wall.
-*/
-function cornersOf(floor) {
-	const on = new Set(floor.map((c) => xyKey(c.x, c.y)));
-	const seen = /* @__PURE__ */ new Set();
-	const out = [];
-	for (const c of floor) for (const [i, j] of [
-		[c.x, c.y],
-		[c.x + 1, c.y],
-		[c.x, c.y + 1],
-		[c.x + 1, c.y + 1]
-	]) {
-		if (seen.has(xyKey(i, j))) continue;
-		seen.add(xyKey(i, j));
-		const rock = [
-			[i - 1, j - 1],
-			[i, j - 1],
-			[i - 1, j],
-			[i, j]
-		].filter(([x, y]) => !on.has(xyKey(x, y)));
-		if (rock.length !== 1) continue;
-		const [rx, ry] = rock[0];
-		out.push({
-			x: i * 5 + (rx < i ? .5 : -.5),
-			y: j * 5 + (ry < j ? .5 : -.5)
-		});
-	}
-	return out;
-}
-/**
-* The shortest walk from the eye to `target` that keeps to the floor, as the
-* corners it bends round. Empty when the target is in plain sight; null when
-* nothing reaches it. Dijkstra over the eye, the inside corners and the target,
-* joined wherever a straight line between them stays on the floor — the taut
-* string a walk round the room's corners makes.
-*/
-function route(input, eye, target, corners) {
-	const on = new Set(input.floor.map((c) => xyKey(c.x, c.y)));
-	const onFloor = (x, y) => on.has(xyKey(x, y));
-	const fromEye = illustrationSight(input, eye);
-	const nodes = [
-		eye,
-		...corners,
-		target
-	];
-	const last = nodes.length - 1;
-	const clear = (a, b) => a === 0 ? fromEye(nodes[b]) : b === 0 ? fromEye(nodes[a]) : clearLine(nodes[a], nodes[b], onFloor);
-	const dist = nodes.map(() => Infinity);
-	const prev = nodes.map(() => -1);
-	const done = nodes.map(() => false);
-	dist[0] = 0;
-	for (;;) {
-		let u = -1;
-		for (let i = 0; i < nodes.length; i++) if (!done[i] && (u < 0 || dist[i] < dist[u])) u = i;
-		if (u < 0 || dist[u] === Infinity) return null;
-		if (u === last) break;
-		done[u] = true;
-		for (let v = 0; v < nodes.length; v++) {
-			if (done[v] || v === u) continue;
-			const d = dist[u] + Math.hypot(nodes[u].x - nodes[v].x, nodes[u].y - nodes[v].y);
-			if (d < dist[v] && clear(u, v)) {
-				dist[v] = d;
-				prev[v] = u;
-			}
-		}
-	}
-	const path = [];
-	for (let v = prev[last]; v > 0; v = prev[v]) path.unshift(nodes[v]);
-	return path;
-}
-/** Which way a walk turns at `corner`, heading on to `next`, seen from above. */
-function turnAt(from, corner, next) {
-	return (corner.x - from.x) * (next.y - corner.y) - (corner.y - from.y) * (next.x - corner.x) > 0 ? "right" : "left";
-}
-/**
-* Where something not in the picture is, as the illustration can say it: round a
-* corner in view, walled off where it stands, or off one edge.
-*/
-function unseen(input, eye, sighted, anchor, corners) {
-	const wouldBe = projectToFrame(eye, anchor);
-	const points = inFieldOfView(eye, anchor) && inFrame(wouldBe) ? [wouldBe] : [];
-	const path = route(input, eye, sighted, corners);
-	if (path && path.length) {
-		const corner = path[0];
-		const at = projectToFrame(eye, {
-			...corner,
-			z: CORNER_Z
-		});
-		if (inFieldOfView(eye, corner) && inFrame(at)) return {
-			status: "around",
-			points: [],
-			around: {
-				...at,
-				turn: turnAt(eye, corner, path[1] ?? sighted)
-			}
-		};
-		if (!points.length) return {
-			status: "off-frame",
-			points,
-			...edgeToward(eye, corner, CORNER_Z)
-		};
-	}
-	if (points.length) return {
-		status: "behind-wall",
-		points
-	};
-	return {
-		status: "off-frame",
-		points,
-		...edgeToward(eye, anchor, anchor.z)
-	};
-}
-/**
-* Every way out (the way in among them) and every placed feature, as the page
-* should show it on the illustration. Features with no footprint are left out: there
-* is nowhere to put their button.
-*/
-function illustrationHotspots(input, view) {
-	const { eye } = view;
-	const corners = cornersOf(input.floor);
-	const sees = illustrationSight(input, eye);
-	const out = [];
-	const door = (d, role, visible) => {
-		const anchor = {
-			...doorPoint(d),
-			z: ILLUSTRATION_DOOR_FT / 2
-		};
-		if (visible) {
-			const q = projectToFrame(eye, anchor);
-			if (q) {
-				out.push({
-					id: d.id,
-					role,
-					status: "shown",
-					points: [q]
-				});
-				return;
-			}
-		}
-		out.push({
-			id: d.id,
-			role,
-			...unseen(input, eye, doorTarget(d), anchor, corners)
-		});
-	};
-	input.exits.forEach((d, i) => door(d, "exit", view.exits[i].visible));
-	door(input.entry, "entry", view.entry.visible);
-	input.features.forEach((f, i) => {
-		if (!f.cells.length) return;
-		const pieces = connectedCells(f.cells);
-		if (view.features[i].visible) {
-			const points = [];
-			for (const piece of pieces) {
-				const shows = piece.map(cellMiddle).filter((m) => {
-					const q = projectToFrame(eye, {
-						...m,
-						z: FEATURE_Z
-					});
-					return inFieldOfView(eye, m) && inFrame(q) && sees(m);
-				});
-				if (!shows.length) continue;
-				const c = {
-					x: shows.reduce((s, m) => s + m.x, 0) / shows.length,
-					y: shows.reduce((s, m) => s + m.y, 0) / shows.length
-				};
-				const q = projectToFrame(eye, {
-					...c,
-					z: FEATURE_Z
-				});
-				if (q) points.push(q);
-			}
-			if (points.length) {
-				out.push({
-					id: f.id,
-					role: "feature",
-					status: "shown",
-					points
-				});
-				return;
-			}
-		}
-		const nearest = f.cells.map(cellMiddle).reduce((a, b) => Math.hypot(a.x - eye.x, a.y - eye.y) <= Math.hypot(b.x - eye.x, b.y - eye.y) ? a : b);
-		out.push({
-			id: f.id,
-			role: "feature",
-			...unseen(input, eye, nearest, {
-				...nearest,
-				z: FEATURE_Z
-			}, corners)
-		});
-	});
-	return out;
-}
-//#endregion
-//#region src/illustrations/room-illustration.ts
-/**
-* ROOM ILLUSTRATIONS — what goes into one
-* ================================
-*
-* The join between a generated dungeon and `illustrationView`. This is where a room's
-* entities become cells and doors, and where CONCEALMENT IS FILTERED OUT: a
-* illustration is a picture for the player, and a hidden feature or a secret door fed
-* to an image model is a picture of the secret (BUILD-PLAN, Illustrations).
-*
-* Reads the dungeon as GENERATED, never the run, so a room's illustration does not
-* depend on what one player has found — it is the dungeon's, and every player
-* entering by the same door gets the same one.
-*
-* No creatures and no loose items: they move, die and get picked up, and a
-* picture of them is stale the moment they do.
-*/
-/**
-* Where a connector cuts this room's wall, as the plan drew it.
-*
-* Undefined when the plan has no door for it — a dungeon with no block plan,
-* or an edge the plan found no shared wall for. Either way there is nothing
-* honest to put in a picture.
-*/
-function doorOf(d, c, roomIndex) {
-	const plan = d.blockplan;
-	if (!plan) return void 0;
-	if (isSurfaceExit(c)) {
-		const s = plan.surface;
-		return s && s.room === roomIndex ? {
-			id: c.id,
-			inside: s.from,
-			outside: s.to
-		} : void 0;
-	}
-	const edge = d.graph.edges.find((e) => e.entityId === c.id);
-	if (!edge || edge.a !== roomIndex && edge.b !== roomIndex) return void 0;
-	const door = plan.doors.find((x) => pairKey(x.a, x.b) === pairKey(edge.a, edge.b));
-	if (!door) return void 0;
-	return door.a === roomIndex ? {
-		id: c.id,
-		inside: door.from,
-		outside: door.to
-	} : {
-		id: c.id,
-		inside: door.to,
-		outside: door.from
-	};
-}
-/**
-* The ways in a viewer could arrive by: every connector touching the room that
-* is not concealed and that the plan drew.
-*/
-function illustrationEntries(d, roomId) {
-	const i = d.graph.rooms.findIndex((r) => r.entityId === roomId);
-	if (i < 0) return [];
-	return d.entities.connectors.filter((c) => touches(c, roomId) && c.isHidden !== true).filter((c) => doorOf(d, c, i) !== void 0).map((c) => c.id);
-}
-/**
-* The room as seen from `entryId`, or undefined when it cannot be drawn: no
-* block plan, an unknown room, or a door the plan does not have.
-*/
-function roomIllustration(d, roomId, entryId) {
-	const i = d.graph.rooms.findIndex((r) => r.entityId === roomId);
-	const room = d.entities.rooms.find((r) => r.id === roomId);
-	const floor = d.blockplan?.rooms[i];
-	if (i < 0 || !room || !floor?.length) return void 0;
-	const registry = d.entities.registry;
-	const entryConn = d.entities.connectors.find((c) => c.id === entryId);
-	const entry = entryConn && doorOf(d, entryConn, i);
-	if (!entry) return void 0;
-	const exitConns = d.entities.connectors.filter((c) => c.id !== entryId && touches(c, roomId) && c.isHidden !== true);
-	const exits = [];
-	const exitDoors = [];
-	for (const c of exitConns) {
-		const door = doorOf(d, c, i);
-		if (!door) continue;
-		exitDoors.push(door);
-		exits.push({
-			id: c.id,
-			name: c.name,
-			base: resolveBase(c, registry) ?? "",
-			surface: isSurfaceExit(c)
-		});
-	}
-	const subjects = d.entities.features.filter((f) => f.roomId === roomId && f.isHidden !== true).map((f) => ({
-		id: f.id,
-		name: f.name,
-		base: resolveBase(f, registry) ?? "",
-		kind: f.place?.fixture,
-		presence: featurePresence(f.keywords, f.place?.position),
-		position: f.place?.position
-	}));
-	const features = subjects.filter((x) => x.presence !== "sense");
-	const senses = subjects.filter((x) => x.presence === "sense");
-	const cellsOf = new Map(d.entities.features.map((f) => [f.id, f.place?.cells ?? []]));
-	const input = {
-		floor,
-		entry,
-		exits: exitDoors,
-		features: features.map((f) => ({
-			id: f.id,
-			cells: cellsOf.get(f.id) ?? []
-		}))
-	};
-	const view = illustrationView(input);
-	const stage = illustrationStage(input, view);
-	return {
-		roomId,
-		roomName: room.name,
-		roomBase: resolveBase(room, registry) ?? "",
-		entryId,
-		entry: {
-			id: entryConn.id,
-			name: entryConn.name,
-			base: resolveBase(entryConn, registry) ?? "",
-			surface: isSurfaceExit(entryConn)
-		},
-		input,
-		view,
-		exits,
-		features,
-		senses,
-		hotspots: illustrationHotspots(input, view),
-		...stage ? { stage } : {}
-	};
-}
-/**
-* The tag each thing carries in the guide image and the brief: letters for
-* ways out (the way in last), numbers for features. Only things in the picture
-* are tagged — a tag on something the camera cannot see would be a promise the
-* picture cannot keep.
-*/
-function illustrationTags(p) {
-	const tags = /* @__PURE__ */ new Map();
-	[...p.view.exits, p.view.entry].filter((s) => s.visible).forEach((s, i) => tags.set(s.id, String.fromCharCode(65 + i)));
-	p.view.features.filter((s, i) => s.visible && p.features[i].presence === "object").forEach((s, i) => tags.set(s.id, String(i + 1)));
-	return tags;
-}
-/**
-* Everything the chosen camera shows, as the prompt needs it: the viewpoint,
-* the doorways and objects with their tags and positions, and the surfaces.
-*
-* Only what is in the picture. A thing named in a prompt only to say "do not
-* draw this" tends to get drawn, so what the camera cannot see is left out
-* entirely; the page still has a hotspot for it.
-*/
-function illustrationInView(p) {
-	const v = p.view;
-	const tags = illustrationTags(p);
-	const viewpoint = `Standing ${v.standing} of the room at eye height, looking ${v.facing}. The floor runs about ${Math.round(v.deep / 5) * 5} ft ahead and ${Math.round(v.wide / 5) * 5} ft across.`;
-	const drawn = [];
-	const surfaces = [];
-	const doors = [...p.exits.map((x, i) => [x, v.exits[i]]), [p.entry, v.entry]];
-	for (const [x, s] of doors) if (s.visible) drawn.push({
-		subject: x,
-		tag: tags.get(x.id),
-		where: exitWhere(s),
-		doorway: true
-	});
-	p.features.forEach((f, i) => {
-		const s = v.features[i];
-		if (!s.visible) return;
-		if (f.presence === "surface") surfaces.push({
-			subject: f,
-			where: f.position === "throughout" ? "throughout the room" : featureWhere(s),
-			doorway: false
-		});
-		else drawn.push({
-			subject: f,
-			tag: tags.get(f.id),
-			where: featureWhere(s),
-			doorway: false
-		});
-	});
-	return {
-		viewpoint,
-		drawn,
-		surfaces
-	};
-}
-/**
-* Which way in a run's illustration of `roomId` is drawn from, or undefined when the
-* run has not been there (an illustration of an unentered room shows the player that
-* room) or the room cannot be drawn.
-*
-* The door is the one the FIRST arrival was logged with, since the illustration sits
-* at that arrival. An arrival logged before `via` was kept falls back to the
-* run's `arrivedVia` while they are still in the room, then to the way out of
-* the dungeon if the room has it, then to the first door the plan drew.
-*/
-function illustrationEntryFor(d, run, roomId) {
-	const first = run.log.find((e) => e.kind === "arrival" && e.roomId === roomId);
-	const here = run.currentRoomId === roomId;
-	if (!first && !here) return void 0;
-	const entries = illustrationEntries(d, roomId);
-	const wanted = first?.via ?? (here ? run.arrivedVia : void 0);
-	if (wanted && entries.includes(wanted)) return wanted;
-	return d.entities.connectors.find((c) => entries.includes(c.id) && isSurfaceExit(c))?.id ?? entries[0];
-}
-/**
-* The illustration's buttons: every door and every object, in the picture or not.
-* One in the picture sits at each point where the guide put a tag, so a button
-* sits on the thing the image model was told to draw there. Surfaces have
-* none: they are drawn over the room, not at a spot, so there is nowhere to
-* put one and nothing for an arrow to point at.
-*/
-function illustrationSpots(p) {
-	const surfaces = new Set(p.features.filter((f) => f.presence !== "object").map((f) => f.id));
-	return p.hotspots.filter((h) => !surfaces.has(h.id)).flatMap((h) => {
-		switch (h.status) {
-			case "shown": return h.points.map((q) => ({
-				id: h.id,
-				how: "shown",
-				x: q.x,
-				y: q.y
-			}));
-			case "behind-wall": return h.points.map((q) => ({
-				id: h.id,
-				how: "behind-wall",
-				x: q.x,
-				y: q.y
-			}));
-			case "around": return h.around ? [{
-				id: h.id,
-				how: "around",
-				x: h.around.x,
-				y: h.around.y,
-				turn: h.around.turn
-			}] : [];
-			case "off-frame": return h.edge ? [{
-				id: h.id,
-				how: "edge",
-				edge: h.edge,
-				along: h.along ?? .5
-			}] : [];
-		}
-	});
-}
-/**
-* What a dungeon's cover is drawn from: the opening the player reads, and the
-* way in that brings them to the first room — the place and its entrance as
-* someone approaching would see them.
-*
-* Not the theme: that is about the inside, and in the spike it put ceilings
-* into an outside view. Concealment does not arise; the way in from the surface
-* is never hidden. Undefined for a dungeon with no way in from the surface.
-*/
-function coverDescription(d) {
-	const entrance = d.stocked.entranceRoomId;
-	const way = d.entities.connectors.find((c) => isSurfaceExit(c) && touches(c, entrance));
-	if (!way) return void 0;
-	const base = resolveBase(way, d.entities.registry) ?? "";
-	return [
-		`THE PLACE: ${d.pass.name}`,
-		d.pass.openingProse,
-		"",
-		`THE WAY IN: ${way.name}. ${base}`
-	].join("\n");
-}
-//#endregion
-//#region src/illustrations/sketch.ts
-/**
-* A room illustration's GUIDE IMAGE: the composition as plain line work.
-*
-* The same `IllustrationView` the prompt is written from, projected through a pinhole
-* at the chosen eye. It is drawn to be handed to an image model as a reference,
-* and a reference gets copied — so it carries only what should be copied:
-*
-*   - the ARCHITECTURE as line art: floor line, ceiling line, a vertical at each
-*     corner, doorways as outlined openings. No floor grid and no seam every
-*     five feet of wall; the grid is how the room was built, not how it looks.
-*   - each FEATURE as a dashed outline of its footprint on the floor with a
-*     numbered tag, and each doorway with a lettered tag (`illustrationTags`). Never a
-*     solid: a box drawn where the altar goes comes back as a box. The prompt
-*     says what each tag is and that no mark is to be drawn (`ILLUSTRATION_GUIDE_NOTE`, src/illustrations/prompt.ts).
-*
-* `marks: false` draws the architecture alone, for comparing against a model
-* that copies the marks anyway.
-*
-* Nothing the camera cannot see is drawn or tagged. Framework-free, so the dev
-* scripts can call it under plain node. Painter's algorithm, far to near.
-*/
-var INK = "#000000";
-var PAPER = "#FFFFFF";
-/**
-* Tag lettering as strokes, not `<text>`. The guide is rasterised by sharp on
-* the server, and a serverless function has no fonts installed: `<text>` there
-* comes out as empty boxes or nothing. A path needs no font, so the guide is
-* the same on the author's machine and on Vercel.
-*
-* Capitals and digits on a 4 × 6 grid, y down. 0 is slashed so it is not O.
-*/
-var GLYPHS = {
-	"0": "M0 0H4V6H0ZM4 0L0 6",
-	"1": "M1 1L2 0V6M1 6H3",
-	"2": "M0 0H4V3H0V6H4",
-	"3": "M0 0H4V6H0M1 3H4",
-	"4": "M0 0V3H4M4 0V6",
-	"5": "M4 0H0V3H4V6H0",
-	"6": "M4 0H0V6H4V3H0",
-	"7": "M0 0H4L1 6",
-	"8": "M0 0H4V6H0ZM0 3H4",
-	"9": "M4 3H0V0H4V6H0",
-	A: "M0 6L2 0L4 6M1 3.5H3",
-	B: "M0 0V6H3L4 5V4L3 3H0M0 0H3L4 1V2L3 3",
-	C: "M4 0H0V6H4",
-	D: "M0 0V6H2.5L4 4.5V1.5L2.5 0Z",
-	E: "M4 0H0V6H4M0 3H3",
-	F: "M4 0H0V6M0 3H3",
-	G: "M4 0H0V6H4V3H2",
-	H: "M0 0V6M4 0V6M0 3H4",
-	I: "M1 0H3M2 0V6M1 6H3",
-	J: "M4 0V6H0V4",
-	K: "M0 0V6M4 0L0 3.5M1.5 2.5L4 6",
-	L: "M0 0V6H4",
-	M: "M0 6V0L2 3L4 0V6",
-	N: "M0 6V0L4 6V0",
-	O: "M0 0H4V6H0Z",
-	P: "M0 6V0H4V3H0",
-	Q: "M0 0H4V6H0ZM2.5 4.5L4 6",
-	R: "M0 6V0H4V3H0M2 3L4 6",
-	S: "M4 0H0V3H4V6H0",
-	T: "M0 0H4M2 0V6",
-	U: "M0 0V6H4V0",
-	V: "M0 0L2 6L4 0",
-	W: "M0 0L1 6L2 3L3 6L4 0",
-	X: "M0 0L4 6M4 0L0 6",
-	Y: "M0 0L2 3L4 0M2 3V6",
-	Z: "M0 0H4L0 6H4"
-};
-/** `text` centred on (cx, cy), about the size the old 11px bold label was. */
-function strokeText(text, cx, cy) {
-	const k = 8 / 6;
-	const advance = 7.333333333333333;
-	const chars = [...text.toUpperCase()].filter((ch) => GLYPHS[ch]);
-	const x0 = cx - (chars.length * advance - 2) / 2;
-	return `<g data-tag="${text}">${chars.map((ch, i) => `<path d="${GLYPHS[ch]}" transform="translate(${(x0 + i * advance).toFixed(1)} ${(cy - 4).toFixed(1)}) scale(${k.toFixed(3)})" fill="none" stroke="${INK}" stroke-width="${(1.7 / k).toFixed(2)}" stroke-linecap="round" stroke-linejoin="round"/>`).join("")}</g>`;
-}
-var WALL_FT = 11;
-var DOOR_FT = ILLUSTRATION_DOOR_FT;
-/** Nothing nearer the eye than this is drawn; polygons are cut at it. */
-var NEAR_FT = .3;
-/** How far a footprint outline is drawn inside its cells, so it clears the wall line. */
-var FOOTPRINT_INSET_FT = .75;
-/** Length of the pieces a footprint outline is cut into to test each for sight, in feet. */
-var OUTLINE_STEP_FT = .25;
-function illustrationSketchSvg(p, opts = {}) {
-	const W = opts.width ?? 480;
-	const H = Math.round(W / ILLUSTRATION_ASPECT);
-	const marks = opts.marks ?? true;
-	const { eye } = p.view;
-	const focal = W / 2 / Math.tan(50 * Math.PI / 180);
-	const tags = illustrationTags(p);
-	/** World feet to camera space: ahead, across, up. */
-	const cam = (q) => ({
-		a: (q.x - eye.x) * eye.forward.x + (q.y - eye.y) * eye.forward.y,
-		c: (q.x - eye.x) * eye.right.x + (q.y - eye.y) * eye.right.y,
-		u: q.z - ILLUSTRATION_EYE_FT
-	});
-	const screen = (q) => ({
-		x: W / 2 + q.c / q.a * focal,
-		y: H / 2 - q.u / q.a * focal
-	});
-	const fmt = (s) => `${s.x.toFixed(1)},${s.y.toFixed(1)}`;
-	/** Cut a camera-space polygon at the near plane (Sutherland–Hodgman, one plane). */
-	const clip = (poly, closed) => {
-		const out = [];
-		const n = closed ? poly.length : poly.length - 1;
-		for (let i = 0; i < n; i++) {
-			const s = poly[i];
-			const e = poly[(i + 1) % poly.length];
-			const sIn = s.a >= NEAR_FT;
-			const eIn = e.a >= NEAR_FT;
-			if (sIn) out.push(s);
-			if (sIn !== eIn) {
-				const t = (NEAR_FT - s.a) / (e.a - s.a);
-				out.push({
-					a: NEAR_FT,
-					c: s.c + (e.c - s.c) * t,
-					u: s.u + (e.u - s.u) * t
-				});
-			}
-		}
-		if (!closed && poly[n].a >= NEAR_FT) out.push(poly[n]);
-		return out;
-	};
-	const polygon = (pts, attrs) => {
-		const c = clip(pts.map(cam), true);
-		return c.length < 3 ? "" : `<polygon points="${c.map(screen).map(fmt).join(" ")}" ${attrs}/>`;
-	};
-	const line = (a, b, attrs) => {
-		const c = clip([cam(a), cam(b)], false);
-		return c.length < 2 ? "" : `<polyline points="${c.map(screen).map(fmt).join(" ")}" fill="none" ${attrs}/>`;
-	};
-	/** An open polyline in the room, cut at the near plane where it passes behind the eye. */
-	const line3 = (pts, attrs) => {
-		const runs = [[]];
-		for (let i = 0; i < pts.length - 1; i++) {
-			const seg = clip([cam(pts[i]), cam(pts[i + 1])], false);
-			if (seg.length < 2) {
-				if (runs[runs.length - 1].length) runs.push([]);
-				continue;
-			}
-			const run = runs[runs.length - 1];
-			if (!run.length) run.push(seg[0]);
-			run.push(seg[1]);
-		}
-		return runs.filter((r) => r.length > 1).map((r) => `<polyline points="${r.map(screen).map(fmt).join(" ")}" fill="none" ${attrs}/>`).join("");
-	};
-	const dist = (q) => Math.hypot(q.x - eye.x, q.y - eye.y);
-	const at3 = (q, z) => ({
-		x: q.x,
-		y: q.y,
-		z
-	});
-	const out = [`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">`, `<rect width="${W}" height="${H}" fill="${PAPER}"/>`];
-	const STROKE = `stroke="${INK}" stroke-width="1.4" stroke-linecap="round"`;
-	const floorKey = new Set(p.input.floor.map((c) => `${c.x},${c.y}`));
-	const isFloor = (x, y) => floorKey.has(`${x},${y}`);
-	const visibleDoors = /* @__PURE__ */ new Set();
-	const doorEdges = [...p.input.exits.map((d, i) => [d, p.view.exits[i]]), [p.input.entry, p.view.entry]];
-	for (const [d, s] of doorEdges) if (s.visible) visibleDoors.add(`${d.inside.x},${d.inside.y}>${d.outside.x},${d.outside.y}`);
-	const faces = [];
-	const STEPS = [
-		[0, -1],
-		[1, 0],
-		[0, 1],
-		[-1, 0]
-	];
-	for (const c of p.input.floor) for (const [dx, dy] of STEPS) {
-		if (isFloor(c.x + dx, c.y + dy)) continue;
-		const mid = {
-			x: (c.x + .5 + dx / 2) * 5,
-			y: (c.y + .5 + dy / 2) * 5
-		};
-		const t = {
-			x: -dy,
-			y: dx
-		};
-		const from = {
-			x: mid.x - t.x * 5 / 2,
-			y: mid.y - t.y * 5 / 2
-		};
-		const to = {
-			x: mid.x + t.x * 5 / 2,
-			y: mid.y + t.y * 5 / 2
-		};
-		if ((eye.x - mid.x) * -dx + (eye.y - mid.y) * -dy <= 0) continue;
-		const runs = (s) => isFloor(c.x + s * t.x, c.y + s * t.y) && !isFloor(c.x + s * t.x + dx, c.y + s * t.y + dy);
-		const key = `${c.x},${c.y}>${c.x + dx},${c.y + dy}`;
-		faces.push({
-			from,
-			to,
-			d: dist(mid),
-			cornerFrom: !runs(-1),
-			cornerTo: !runs(1),
-			door: visibleDoors.has(key)
-		});
-	}
-	faces.sort((a, b) => b.d - a.d);
-	const tagMarks = [];
-	const tag = (q, text) => {
-		const s = {
-			x: q.x * W,
-			y: q.y * H
-		};
-		tagMarks.push(`<circle cx="${s.x.toFixed(1)}" cy="${s.y.toFixed(1)}" r="9" fill="${PAPER}" stroke="${INK}" stroke-width="1.2"/>` + strokeText(text, s.x, s.y));
-	};
-	for (const f of faces) {
-		out.push(polygon([
-			at3(f.from, 0),
-			at3(f.to, 0),
-			at3(f.to, WALL_FT),
-			at3(f.from, WALL_FT)
-		], `fill="${PAPER}" stroke="${PAPER}" stroke-width="0.8"`), line(at3(f.from, 0), at3(f.to, 0), STROKE), line(at3(f.from, WALL_FT), at3(f.to, WALL_FT), STROKE));
-		if (f.cornerFrom) out.push(line(at3(f.from, 0), at3(f.from, WALL_FT), STROKE));
-		if (f.cornerTo) out.push(line(at3(f.to, 0), at3(f.to, WALL_FT), STROKE));
-		if (f.door) {
-			const lerp = (s) => ({
-				x: f.from.x + (f.to.x - f.from.x) * s,
-				y: f.from.y + (f.to.y - f.from.y) * s
-			});
-			const a = lerp(.15);
-			const b = lerp(.85);
-			out.push(polygon([
-				at3(a, 0),
-				at3(b, 0),
-				at3(b, DOOR_FT),
-				at3(a, DOOR_FT)
-			], `fill="${PAPER}" ${STROKE}`));
-		}
-	}
-	if (marks) {
-		const sees = illustrationSight(p.input, eye);
-		p.input.features.forEach((f, i) => {
-			if (!p.view.features[i].visible || p.features[i].presence !== "object") return;
-			for (const piece of connectedCells(f.cells)) {
-				const { outer, holes } = traceOutline(piece);
-				for (const ring of [outer, ...holes]) {
-					const pts = inset(ring, FOOTPRINT_INSET_FT / 5).map((q) => ({
-						x: q.x * 5,
-						y: q.y * 5
-					}));
-					for (const run of visibleRuns(pts, sees)) out.push(line3(run.map((q) => at3(q, .05)), `stroke="${INK}" stroke-width="1.2" stroke-dasharray="5 4"`));
-				}
-			}
-		});
-		if (p.stage) for (const run of stageOutline(p.input, p.view, p.stage)) out.push(line3(run.map((q) => at3(q, .05)), `stroke="${INK}" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="0.1 4"`));
-		for (const h of p.hotspots) {
-			const t = tags.get(h.id);
-			if (h.status === "shown" && t) for (const q of h.points) tag(q, t);
-		}
-	}
-	out.push(...tagMarks, "</svg>");
-	return out.filter(Boolean).join("\n");
-}
-/**
-* The stretches of a closed ring, in feet, whose every short piece passes the
-* sight test — as open polylines ready to draw.
-*/
-function visibleRuns(ring, sees) {
-	const runs = [];
-	let run = [];
-	for (let i = 0; i < ring.length; i++) {
-		const a = ring[i];
-		const b = ring[(i + 1) % ring.length];
-		const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / OUTLINE_STEP_FT));
-		for (let k = 0; k < steps; k++) {
-			const p0 = {
-				x: a.x + (b.x - a.x) * k / steps,
-				y: a.y + (b.y - a.y) * k / steps
-			};
-			const p1 = {
-				x: a.x + (b.x - a.x) * (k + 1) / steps,
-				y: a.y + (b.y - a.y) * (k + 1) / steps
-			};
-			if (sees({
-				x: (p0.x + p1.x) / 2,
-				y: (p0.y + p1.y) / 2
-			})) {
-				if (!run.length) run.push(p0);
-				run.push(p1);
-			} else if (run.length) {
-				runs.push(run);
-				run = [];
-			}
-		}
-	}
-	if (run.length) runs.push(run);
-	return runs;
-}
-/**
-* A rectilinear ring moved inward by `d` cells. `traceOutline` winds the outer
-* ring clockwise on screen (y down), so the inside is to the right of travel.
-*/
-function inset(ring, d) {
-	const n = ring.length;
-	return ring.map((v, i) => {
-		const prev = ring[(i - 1 + n) % n];
-		const next = ring[(i + 1) % n];
-		const inward = (a, b) => {
-			const dx = Math.sign(b.x - a.x);
-			return {
-				x: -Math.sign(b.y - a.y),
-				y: dx
-			};
-		};
-		const n1 = inward(prev, v);
-		const n2 = inward(v, next);
-		return {
-			x: v.x + (n1.x + n2.x) * d,
-			y: v.y + (n1.y + n2.y) * d
-		};
-	});
-}
-//#endregion
-//#region src/illustrations/visual.ts
-/**
-* ROOM ILLUSTRATIONS — the words
-* =======================
-*
-* The Haiku calls that cut a room's fiction down to what an illustrator would
-* draw, and the assembly of the image prompt from their answers and the
-* camera's. The request text and the prompt layout are pure and live in
-* `src/illustrations/prompt.ts`; this is the part that talks to the model.
-*
-* Three calls, each cached by the caller with what it describes:
-*
-*   setting   once per dungeon — what the place is built from, and its light
-*   visual    once per illustration — the room's shell, and a look per thing in view
-*   exterior  once per dungeon — the place and its way in, from outside
-*
-* Only what `illustrationInView` kept is sent: concealment filtered, sounds and smells
-* dropped, nothing out of frame. The model writes no positions and no numbers;
-* the prompt's WHERE comes from code.
-*/
-var visualSchema = z.object({
-	room: nonEmpty,
-	things: z.array(z.object({
-		ref: nonEmpty,
-		look: nonEmpty
-	}))
-});
-var lineSchema = z.object({ text: nonEmpty });
-/**
-* The refs the visual request keys on: the guide's tag where there is one,
-* and S1, S2… for surfaces, which carry none. Short on purpose — they are
-* echoed back once per thing.
-*/
-function visualSubjects(p) {
-	const { drawn, surfaces } = illustrationInView(p);
-	const refOf = /* @__PURE__ */ new Map();
-	const subjects = [];
-	for (const x of drawn) {
-		const ref = x.tag ?? `T${subjects.length + 1}`;
-		refOf.set(x.subject.id, ref);
-		subjects.push({
-			ref,
-			kind: x.doorway ? "doorway" : "object",
-			name: x.subject.name,
-			base: x.subject.base
-		});
-	}
-	surfaces.forEach((x, i) => {
-		const ref = `S${i + 1}`;
-		refOf.set(x.subject.id, ref);
-		subjects.push({
-			ref,
-			kind: "surface",
-			name: x.subject.name,
-			base: x.subject.base
-		});
-	});
-	return {
-		subjects,
-		refOf
-	};
-}
-async function requestIllustrationVisual(p) {
-	const { subjects } = visualSubjects(p);
-	const want = new Set(subjects.map((s) => s.ref));
-	const res = await callForJson({
-		task: "illustration-visual",
-		system: ILLUSTRATION_VISUAL_SYSTEM,
-		messages: [{
-			role: "user",
-			content: illustrationVisualMessage(p.roomName, p.roomBase, subjects)
-		}],
-		schema: visualSchema,
-		toolName: "illustration_visual",
-		toolDescription: "The room's shell in one sentence, and a look for every listed thing, keyed by ref.",
-		check: (v) => [...want].filter((ref) => !v.things.some((t) => t.ref === ref)).map((ref) => ({
-			path: "things",
-			message: `no look for ref ${ref}`
-		}))
-	});
-	return {
-		value: {
-			room: res.value.room,
-			looks: Object.fromEntries(res.value.things.map((t) => [t.ref, t.look]))
-		},
-		usage: res.usage
-	};
-}
-async function requestLine(system, message) {
-	const res = await callForJson({
-		task: "illustration-visual",
-		system,
-		messages: [{
-			role: "user",
-			content: message
-		}],
-		schema: lineSchema,
-		toolName: "illustration_line",
-		toolDescription: "The text asked for."
-	});
-	return {
-		value: res.value.text,
-		usage: res.usage
-	};
-}
-function requestIllustrationSetting(theme) {
-	return requestLine(ILLUSTRATION_SETTING_SYSTEM, illustrationSettingMessage(theme));
-}
-function requestIllustrationExterior(description) {
-	return requestLine(ILLUSTRATION_EXTERIOR_SYSTEM, description);
-}
-/**
-* The image prompt for a room illustration. `visual` may come from the model or —
-* for comparing against it — be built from the raw fiction; the prompt does
-* not care which.
-*/
-function illustrationImagePrompt(p, guide, setting, visual, style, references = 0) {
-	const { viewpoint, drawn, surfaces } = illustrationInView(p);
-	const { refOf } = visualSubjects(p);
-	const look = (id, fallback) => visual.looks[refOf.get(id) ?? ""] ?? fallback;
-	return roomIllustrationPrompt({
-		guide,
-		style,
-		references,
-		setting,
-		room: visual.room,
-		viewpoint,
-		drawn: drawn.map((x) => ({
-			tag: x.tag,
-			look: look(x.subject.id, x.subject.name),
-			where: x.where,
-			doorway: x.doorway
-		})),
-		surfaces: surfaces.map((x) => ({
-			look: look(x.subject.id, x.subject.name),
-			where: x.where
-		})),
-		openFloor: p.stage !== void 0
-	});
-}
-/**
-* The same prompt with the fiction passed through uncut: the room's whole base
-* as ROOM and each thing's whole base as its look. The control the condensing
-* call is measured against.
-*/
-function rawVisual(p) {
-	const { subjects } = visualSubjects(p);
-	return {
-		room: p.roomBase,
-		looks: Object.fromEntries(subjects.map((s) => [s.ref, s.base]))
-	};
-}
-//#endregion
-//#region src/server/illustrations/image.ts
-/**
-* ROOM ILLUSTRATIONS — the pixels
-* ========================
-*
-* Everything an illustration needs done to an image, with sharp: the guide drawn to a
-* PNG, and the model's picture thresholded to 1-bit. Shared by the server and
-* the spike script (`src/dev/cli-illustrate.ts`) so both make the same image.
-*
-* Node only: sharp is native.
-*/
-/** An illustration's size, the image model's 3:2 landscape. */
-var ILLUSTRATION_W = 1536;
-var ILLUSTRATION_H = 1024;
-/**
-* The guide at the illustration's full size. Drawn at the width its line weights
-* were set for and scaled up as a vector, so walls, dashes and tags all grow
-* together; drawn at full width instead, they come out hairline.
-*/
-function guidePng(p, marks) {
-	const drawnAt = 480;
-	return sharp(Buffer.from(illustrationSketchSvg(p, {
-		marks,
-		width: drawnAt
-	})), { density: 72 * ILLUSTRATION_W / drawnAt }).resize(ILLUSTRATION_W, ILLUSTRATION_H).png().toBuffer();
-}
-/**
-* Black ink on NOTHING: what the page gets. The paper is transparent, so the
-* page lays the illustration down as a mask over its own ink colour and the picture's
-* white is the page's paper — no box edge, and the lines are exactly the
-* text's ink. Same threshold as `oneBitPng`, so the two are the same drawing.
-*/
-async function inkPng(image) {
-	const { data, info } = await sharp(image).flatten({ background: "#ffffff" }).greyscale().threshold(150).raw().toBuffer({ resolveWithObject: true });
-	const n = info.width * info.height;
-	const rgba = Buffer.alloc(n * 4);
-	for (let i = 0; i < n; i++) rgba[i * 4 + 3] = data[i * info.channels] < 128 ? 255 : 0;
-	return sharp(rgba, { raw: {
-		width: info.width,
-		height: info.height,
-		channels: 4
-	} }).png({ compressionLevel: 9 }).toBuffer();
-}
-/** The style references, sent after the guide. Bundled with the function — see `vercel.json`. */
-var ILLUSTRATION_REFS_DIR = "assets/illustration-refs";
-var sha$1 = (s) => createHash("sha256").update(s).digest("hex");
-/** The key of the setting line a dungeon's illustrations share. */
-var settingKey = (theme) => `setting:${sha$1(ILLUSTRATION_SETTING_SYSTEM + "\n" + illustrationSettingMessage(theme))}`;
-/** What an illustration is drawn from, hashed. See the header for why not the prompt. */
-function illustrationKey(p, theme, references) {
-	const { subjects } = visualSubjects(p);
-	return sha$1(JSON.stringify({
-		style: 2,
-		model: `${IMAGE_MODELS[ILLUSTRATION_MODEL].guided} low ${ILLUSTRATION_W}x${ILLUSTRATION_H}`,
-		references,
-		setting: settingKey(theme),
-		visual: ILLUSTRATION_VISUAL_SYSTEM + "\n" + illustrationVisualMessage(p.roomName, p.roomBase, subjects),
-		layout: illustrationImagePrompt(p, "marks", "", rawVisual(p), void 0, references),
-		guide: illustrationSketchSvg(p, { marks: true })
-	}));
-}
-async function serveIllustration(d, roomId, entryId, work, store = repo_exports) {
-	const p = roomIllustration(d, roomId, entryId);
-	if (!p) return { status: "none" };
-	const theme = d.pass.theme;
-	const answer = await serveKeyed(illustrationKey(p, theme, work.references), ILLUSTRATION_MODEL, p.roomName, work, store, async () => {
-		const sKey = settingKey(theme);
-		const setting = await store.getIllustrationWords(sKey) ?? await store.saveIllustrationWords(sKey, await work.setting(theme));
-		const visual = await work.visual(p);
-		const prompt = illustrationImagePrompt(p, "marks", setting, visual, void 0, work.references);
-		return work.draw(prompt, await guidePng(p, true));
-	});
-	return answer.status === "ready" ? {
-		...answer,
-		spots: illustrationSpots(p)
-	} : answer;
-}
-/**
-* The dungeon from outside: the cover on its library card and above its
-* opening. Klein, prompt only, sparse style — the spike's exterior setup.
-*
-* Keyed like an illustration, by what it is drawn from. The key is written onto the
-* dungeon row (`dungeons.cover`) when the dungeon is finished; a dungeon with
-* no key has no cover and never gets one drawn.
-*/
-function coverKey(d) {
-	const description = coverDescription(d);
-	if (!description) return void 0;
-	return sha$1(JSON.stringify({
-		style: 2,
-		model: `${IMAGE_MODELS[COVER_MODEL].unguided} ${ILLUSTRATION_W}x${ILLUSTRATION_H}`,
-		seed: d.seeds.dungeonSeed,
-		scene: ILLUSTRATION_EXTERIOR_SYSTEM + "\n" + description,
-		prompt: exteriorIllustrationPrompt({ scene: "" })
-	}));
-}
-async function serveCover(d, key, work, store = repo_exports) {
-	const description = coverDescription(d);
-	if (!description) return { status: "none" };
-	return serveKeyed(key, COVER_MODEL, `${d.pass.name} (cover)`, work, store, async () => {
-		const scene = await work.scene(description);
-		return work.drawScene(exteriorIllustrationPrompt({ scene }), d.seeds.dungeonSeed);
-	});
-}
-/**
-* The claim, the draw and the store, for anything kept in `plates`: room
-* illustrations, covers, and creature sprites (`src/server/illustrations/sprites.ts`).
-*
-*   ready    → the URL
-*   pending  → "ask again", unless the claim is stale
-*   missing  → claim it, draw it, store it, return the URL
-*   failed   → claim it again while attempts are left; past that, none
-*/
-async function serveKeyed(key, model, label, work, store, make, finish = inkPng) {
-	const row = await store.getIllustration(key);
-	if (row?.status === "ready" && row.path) return {
-		status: "ready",
-		url: work.urlOf(row.path)
-	};
-	if (row?.status === "pending" && row.ageMs < 18e4) return { status: "pending" };
-	if (row?.status === "failed" && row.attempts >= 3) return { status: "none" };
-	if (!await store.claimIllustration(key, model, {
-		staleMs: 18e4,
-		maxAttempts: 3
-	})) {
-		const now = await store.getIllustration(key);
-		if (now?.status === "ready" && now.path) return {
-			status: "ready",
-			url: work.urlOf(now.path)
-		};
-		return now?.status === "pending" ? { status: "pending" } : { status: "none" };
-	}
-	try {
-		const picture = await make();
-		const path = `${key}.png`;
-		await work.upload(path, await finish(picture));
-		await store.finishIllustration(key, path);
-		return {
-			status: "ready",
-			url: work.urlOf(path)
-		};
-	} catch (e) {
-		const body = e.body;
-		const why = `${e.message}${body ? ` ${JSON.stringify(body).slice(0, 400)}` : ""}`;
-		console.error(`[illustration] ${label} (${key.slice(0, 12)}) failed: ${why}`);
-		await store.failIllustration(key, why);
-		return { status: "none" };
-	}
-}
-/**
-* The live worker, or undefined when the server is not set up to draw — no
-* `FAL_KEY`, or no service-role key to store with. Then every room simply has
-* no illustration, which is also the off switch.
-*/
-function liveIllustrationWork() {
-	const falKey = process.env.FAL_KEY;
-	const supabaseUrl = process.env.SUPABASE_URL?.replace(/\/$/, "");
-	const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-	if (!falKey || !supabaseUrl || !serviceKey) return void 0;
-	fal.config({ credentials: falKey });
-	const dir = resolve(process.cwd(), ILLUSTRATION_REFS_DIR);
-	const refFiles = readdirSync(dir).filter((f) => f.endsWith(".png")).sort();
-	let refUrls;
-	const refs = () => refUrls ??= Promise.all(refFiles.map((f) => fal.storage.upload(new Blob([readFileSync(resolve(dir, f))], { type: "image/png" })))).catch((e) => {
-		refUrls = void 0;
-		throw e;
-	});
-	return {
-		references: refFiles.length,
-		setting: async (theme) => (await requestIllustrationSetting(theme)).value,
-		visual: async (p) => (await requestIllustrationVisual(p)).value,
-		async draw(prompt, guide) {
-			const guideUrl = await fal.storage.upload(new Blob([new Uint8Array(guide)], { type: "image/png" }));
-			return fetchImage((await fal.subscribe(IMAGE_MODELS[ILLUSTRATION_MODEL].guided, { input: {
-				prompt,
-				quality: "low",
-				image_size: {
-					width: ILLUSTRATION_W,
-					height: ILLUSTRATION_H
-				},
-				output_format: "png",
-				image_urls: [guideUrl, ...await refs()]
-			} })).data);
-		},
-		scene: async (description) => (await requestIllustrationExterior(description)).value,
-		async drawScene(prompt, seed) {
-			const endpoint = IMAGE_MODELS[COVER_MODEL].unguided;
-			if (!endpoint) throw new Error(`${COVER_MODEL} has no prompt-only endpoint`);
-			return fetchImage((await fal.subscribe(endpoint, { input: {
-				prompt,
-				image_size: {
-					width: ILLUSTRATION_W,
-					height: ILLUSTRATION_H
-				},
-				seed,
-				output_format: "png"
-			} })).data);
-		},
-		async upload(path, png) {
-			const res = await fetch(`${supabaseUrl}/storage/v1/object/plates/${path}`, {
-				method: "POST",
-				headers: {
-					authorization: `Bearer ${serviceKey}`,
-					apikey: serviceKey,
-					"content-type": "image/png",
-					"cache-control": "max-age=31536000, immutable",
-					"x-upsert": "true"
-				},
-				body: new Uint8Array(png)
-			});
-			if (!res.ok) throw new Error(`storing the illustration failed (${res.status}): ${(await res.text()).slice(0, 300)}`);
-		},
-		urlOf: (path) => illustrationUrl(path)
-	};
-}
-/** The image a fal endpoint answered with. */
-async function fetchImage(data) {
-	const url = data.images?.[0]?.url;
-	if (!url) throw new Error(`no image in the response: ${JSON.stringify(data).slice(0, 300)}`);
-	const got = await fetch(url);
-	if (!got.ok) throw new Error(`fetching the image failed (${got.status})`);
-	return Buffer.from(await got.arrayBuffer());
-}
-/** The public URL of a stored illustration or cover, or undefined when Storage is not configured. */
-function illustrationUrl(path) {
-	const base = process.env.SUPABASE_URL?.replace(/\/$/, "");
-	return base ? `${base}/storage/v1/object/public/plates/${path}` : void 0;
-}
-//#endregion
 //#region src/illustrations/sprite-prompt.ts
 var SPRITE_STYLE = "Clean black ink line art in the manner of a 1970s-80s fantasy adventure module's illustration booklet. Crisp, confident outlines define every form. Shading is sparing: a few hatched strokes only in the deepest shadows, no dense cross-hatching, no stippled texture, no large areas of solid black. No grey, no colour. No lettering.";
 /**
@@ -18441,368 +18619,91 @@ function liveSpriteWork() {
 	};
 }
 //#endregion
-//#region src/server/app.ts
-/**
-* THE API
-* =======
-*
-* One Hono app, mounted as a single catch-all function. Every route the client
-* calls is here; every statement they run is in `repo.ts`.
-*
-* TWO RULES SHAPE THIS WHOLE FILE.
-*
-* ONE MODEL CALL PER REQUEST. A Vercel Hobby invocation may run for 300
-* seconds, and generation is N+2 calls. So building a dungeon is three routes —
-* structure, a region at a time, then apply-and-join — and the client fires the
-* middle one N times in parallel. A turn is one request because a turn is one
-* exchange; its worst case is `maxRounds` calls, which fits.
-*
-* THE CLIENT NEVER ASSERTS A RULE. It sends what the player typed and the
-* version it last saw. It does not say which stage it is on: a client that
-* names its own stage can name a flattering one and be handed a roll it never
-* earned. The version is opaque, so there is no value more favourable than
-* another — see `commitTurn`.
-*
-* Node only. This is the file `vite.config.ts` used to fake with two middleware
-* shims: the Anthropic proxy and the journal writer.
-*/
-/**
-* WHERE THE MODEL CALLS GO.
-*
-* The API calls Anthropic directly, with the key from the server's environment.
-* This is what keeps the key out of the browser: a browser talks only to this
-* API, and `llm/client.ts` has no default URL, so nothing calls the model
-* until a process with a key says where it is.
-*
-* Once per process. `configureTransport` is module state in the client, which
-* is right for a process that only ever talks to one provider.
-*/
-function configureAnthropic() {
-	const key = process.env.ANTHROPIC_API_KEY;
-	if (!key) throw new Error("ANTHROPIC_API_KEY is not set; the API cannot reach the model.");
-	configureTransport({
-		baseUrl: "https://api.anthropic.com",
-		headers: {
-			"x-api-key": key,
-			"anthropic-version": "2023-06-01"
-		}
-	});
-}
-/**
-* Who may call this API from a browser.
-*
-* Was a bare `cors()` — any origin at all — which was survivable while there
-* was nothing behind it worth taking. Now there are accounts, and an open CORS
-* policy means any page the player visits can spend their tokens with their
-* session. `CORS_ORIGINS` exists so a preview deployment or an itch.io embed is
-* an environment variable rather than a redeploy.
-*/
-function allowedOrigins() {
-	return [
-		"https://aidungeon.vercel.app",
-		"http://localhost:5173",
-		...(process.env.CORS_ORIGINS ?? "").split(",").map((s) => s.trim()).filter((s) => s !== "")
-	];
-}
-function createApp() {
-	configureAnthropic();
-	const app = new Hono();
-	app.use("/api/*", cors({
-		origin: allowedOrigins(),
-		credentials: true
-	}));
+//#region src/server/routes/illustrations.ts
+function illustrationRoutes(app) {
 	/**
-	* THE GATE. Everything under `/api` needs an account.
+	* A room's picture, for the arrival in the scrollback. See `illustrations.ts`.
 	*
-	* `/api/health` is the one exception and is registered before this: it is what
-	* the twice-weekly Vercel cron hits to stop Supabase pausing the project
-	* (§7.8), a cron holds no session, and it reads and writes nothing.
+	* Only a room this run has entered: an illustration of anywhere else is a look at a
+	* room the player has not reached. The way in is the run's, read off its
+	* log (`illustrationEntryFor`); the client names only the room.
 	*
-	* Until Phase 11 this API was open, and it spends an Anthropic key. That is
-	* the hole this line closes.
+	* `202` while somebody else's request is drawing it; the page asks again.
+	* Not a turn and not locked: it reads the run and writes nothing to it.
 	*/
-	app.get("/api/health", (c) => c.json({ ok: true }));
-	app.use("/api/*", requireUser);
-	app.onError((err, c) => {
-		if (err instanceof HTTPException) return err.getResponse();
-		console.error("[api]", err);
-		return c.json({ error: describeFailure(err) }, 500);
-	});
-	/**
-	* The roster: who the player has, what has happened to them, and where they
-	* are. Was `PlayerCharacter[]`; a sheet alone can no longer answer the
-	* question the screen asks, which is whether this person can be sent anywhere.
-	*/
-	app.get("/api/characters", async (c) => c.json(await listRoster(currentUser(c).id)));
-	/**
-	* Save a sheet — a new character, or one that has been to the market.
-	*
-	* EDITING SOMEBODY WHO IS STILL DOWN THERE IS REFUSED, the same way deleting
-	* them is and for a neighbouring reason. A run plays from its own copy of the
-	* sheet and writes what survives back when it ends, so a write from up here
-	* would either be overwritten without warning or overwrite the run's own
-	* result. The shop is the only caller that can reach this with an existing
-	* character and it does not offer the button to anyone in a run; this is the
-	* rule rather than the manners.
-	*/
-	app.post("/api/characters", async (c) => {
-		const user = currentUser(c);
-		const pc = await c.req.json();
-		const active = await activeRunFor(pc.id, user.id);
-		if (active) return c.json({
-			error: "that character is in a run — what they are carrying is the run's now",
-			runId: active.id
-		}, 409);
-		return c.json(await saveCharacter(pc, user.id));
-	});
-	/**
-	* Deleting somebody who is still down there is refused.
-	*
-	* The foreign key is `on delete set null`, so this would otherwise succeed and
-	* leave an active run belonging to nobody: a save file with no way to reach it
-	* and no way to end it, holding a lock against a character that no longer
-	* exists. Abandon first — that is what the verb is for.
-	*/
-	app.delete("/api/characters/:id", async (c) => {
-		const user = currentUser(c);
-		const id = c.req.param("id");
-		const active = await activeRunFor(id, user.id);
-		if (active) return c.json({
-			error: "that character is in a run — abandon it first",
-			runId: active.id
-		}, 409);
-		return c.json({ deleted: await deleteCharacter(id, user.id) });
-	});
-	/**
-	* The structure and the standing fiction.
-	*
-	* Journalled against the DUNGEON rather than a run: the player has not
-	* chosen a character yet, so there is no run for these to belong to. Every
-	* run down this dungeon reads them as the opening of its own journal.
-	*/
-	app.post("/api/dungeons", async (c) => {
-		const { seed, size, level } = await c.req.json();
-		const unfinished = await findUnfinishedDungeon(currentUser(c).id, {
-			seed,
-			size,
-			level
-		});
-		if (unfinished) return c.json({
-			dungeonId: unfinished.id,
-			chunks: chunksOf(unfinished.doc)
-		});
-		const allowance = await allowanceOf(currentUser(c));
-		if (!hasRunLeft(allowance)) return c.json({
-			error: refusal(allowance),
-			allowance
-		}, 429);
-		if (!(size <= allowance.maxSize)) return c.json({
-			error: `Only size ${allowance.maxSize} dungeons for now.`,
-			allowance
-		}, 400);
-		const { sink, events } = collectingSink();
-		const partial = await generateStructure({
-			seed,
-			size,
-			level,
-			journal: createJournal(sink)
-		});
-		const dungeonId = await insertPartialDungeon(partial, currentUser(c).id);
-		await appendDungeonEvents(dungeonId, events);
-		return c.json({
-			dungeonId,
-			chunks: chunksOf(partial)
-		});
-	});
-	/**
-	* A generation pass whose journal is written WHETHER OR NOT IT SUCCEEDS.
-	*
-	* This was the hole. A pass that throws never reached `appendDungeonEvents`,
-	* so a failed dungeon left the three `generation-error` events on the floor —
-	* the exact records §6.7 was built to keep, gone again the moment the runtime
-	* moved to a server. The console had them; the database did not, and the
-	* console belongs to whoever was tailing the function.
-	*
-	* Safe to write on failure here, unlike a turn: the sequence belongs to the
-	* DUNGEON, and a retry reads `lastDungeonSeq` and appends after these rather
-	* than colliding with them. A turn's events are dropped on a throw for that
-	* exact reason — see the note in `playTurn`.
-	*
-	* The structure pass cannot use this: when IT fails there is no dungeon row
-	* for the events to belong to. The console is the only record of that one.
-	*/
-	async function journalled(dungeonId, work) {
-		const { sink, events } = collectingSink();
-		const journal = createJournal(sink, await lastDungeonSeq(dungeonId));
-		try {
-			return await work(journal);
-		} finally {
-			await appendDungeonEvents(dungeonId, events);
-		}
-	}
-	/**
-	* One region. The client fires these in parallel, which is the parallelism
-	* the single-process pipeline always had — it has just moved up a layer.
-	*
-	* Idempotent: `saveChunk` keeps the first answer, so a retry of a call whose
-	* response already landed costs a model call and changes nothing.
-	*/
-	app.post("/api/dungeons/:id/chunks/:n", async (c) => {
-		const stored = await mustGetDungeon(c.req.param("id"), currentUser(c).id);
-		const partial = stored.doc;
-		const chunk = Number(c.req.param("n"));
-		if (!chunksOf(partial).includes(chunk)) throw new HTTPException(404, { message: `no region ${chunk} in that dungeon` });
-		if ((await listChunks(stored.id)).some((r) => r.chunk === chunk)) return c.json({
-			chunk,
-			done: true
-		});
-		const result = await journalled(stored.id, (journal) => generateChunk(partial, chunk, { journal }));
-		await saveChunk(stored.id, result);
-		return c.json({
-			chunk,
-			done: true
-		});
-	});
-	/**
-	* Apply every region in ascending order, then write the ways between them.
-	*
-	* `finishGeneration` refuses if a region is missing, which is the check that
-	* turns a lost chunk into a retryable request rather than an unwritten entity
-	* discovered at the end of a pass nobody can rerun. See §1.1.
-	*/
-	app.post("/api/dungeons/:id/finish", async (c) => {
-		const stored = await mustGetDungeon(c.req.param("id"), currentUser(c).id);
-		if (stored.status === "complete") return c.json({
-			dungeonId: stored.id,
-			already: true
-		});
-		const results = await listChunks(stored.id);
-		const complete = await journalled(stored.id, async (journal) => {
-			const done = await finishGeneration(stored.doc, results, { journal });
-			journal.log({
-				kind: "dungeon",
-				dungeon: done
-			});
-			return done;
-		});
-		await completeDungeon(stored.id, complete, currentUser(c).id);
-		const cover = coverKey(complete);
-		if (cover) await setDungeonCover(stored.id, cover);
-		return c.json({ dungeonId: stored.id });
-	});
-	/** The player's own worlds. Summaries — nobody needs six whole dungeons. */
-	app.get("/api/dungeons", async (c) => c.json((await listDungeons(currentUser(c).id)).map(withCover)));
-	/**
-	* THE LIBRARY — every complete world somebody else made, newest first.
-	*
-	* Registered before the `:id` routes below because `library` would otherwise
-	* be a plausible dungeon id, and a route that can be shadowed by a parameter
-	* is a route that works until somebody changes the order.
-	*
-	* SUMMARIES AND A CURSOR, and the cursor goes back out exactly as it came in.
-	* The client never composes one — see `listLibrary`.
-	*/
-	app.get("/api/dungeons/library", async (c) => {
-		const cursor = c.req.query("cursor");
-		const limit = Number(c.req.query("limit"));
-		const page = await listLibrary(currentUser(c).id, {
-			...cursor ? { cursor } : {},
-			...Number.isFinite(limit) ? { limit } : {}
-		});
-		return c.json({
-			...page,
-			dungeons: page.dungeons.map(withCover)
-		});
-	});
-	/**
-	* TAKE A COPY OF A WORLD.
-	*
-	* The one route that names a dungeon the caller does not own, and it is why
-	* the Phase 11 key split had to happen first: under 10a's schema, where the
-	* derived `dungeon_<seed>` name WAS the primary key, a second copy of one
-	* world collided on it.
-	*
-	* IT STILL SERVES NOTHING OF THE SOURCE. The reply is the id of the caller's
-	* OWN new row, and the source's `doc` — which is every answer in the world —
-	* is never on the wire. What "another player may see a dungeon" means is
-	* exactly this: they may have one of their own like it.
-	*
-	* `already` for the second click, in the shape `/finish` answers in. A copy is
-	* recorded as a copy (`dungeons.copied_from`), so pressing the button twice
-	* hands back the first copy rather than minting a second half-megabyte row.
-	*/
-	app.post("/api/dungeons/:id/duplicate", async (c) => {
-		const id = c.req.param("id");
-		const made = await duplicateDungeon(id, currentUser(c).id);
-		if (!made) throw new HTTPException(404, { message: `no such finished dungeon: ${id}` });
-		return c.json({
-			dungeonId: made.id,
-			already: made.already
-		});
-	});
-	app.get("/api/runs", async (c) => c.json(await listRuns(currentUser(c).id)));
-	/**
-	* How many runs are left today, and how big a dungeon may be written.
-	*
-	* Asked by run setup when it opens, so the screen can say so before the
-	* player presses anything. The gates above do not trust it: they ask again.
-	*/
-	app.get("/api/allowance", async (c) => c.json(await allowanceOf(currentUser(c))));
-	app.get("/api/runs/:id", async (c) => {
+	app.get("/api/runs/:id/illustrations/:roomId", async (c) => {
 		const user = currentUser(c);
 		const run = await mustGetRun(c.req.param("id"), user.id);
 		const dungeon = await mustGetDungeon(run.dungeonId, user.id);
-		return c.json({
-			run,
-			dungeon: dungeon.doc
-		});
+		const roomId = c.req.param("roomId");
+		const entryId = illustrationEntryFor(dungeon.doc, run.state, roomId);
+		if (!entryId) throw new HTTPException(404, { message: "no illustration for a room this run has not entered" });
+		const work = illustrationWorker();
+		if (!work) return c.json({ status: "none" });
+		const answer = await serveIllustration(dungeon.doc, roomId, entryId, work);
+		return c.json(answer, answer.status === "pending" ? 202 : 200);
 	});
 	/**
-	* A character walks into a finished dungeon.
+	* A creature's sprite, for standing it in an illustration. See `sprites.ts`.
 	*
-	* The run's journal opens here, with what this run IS. The generation events
-	* above it already exist against the dungeon, and the reader concatenates.
+	* Only a kind this run can see: some creature carrying the key (`spriteKeyOf`)
+	* that is not hidden and stands in a room the run has entered. A sprite of
+	* anything else is a look at a creature the player has not met. Read from
+	* the run's entities, so a creature brought in mid-run is drawn too.
+	*
+	* `202` while somebody else's request is drawing it; the page asks again.
 	*/
-	app.post("/api/runs", async (c) => {
-		const { dungeonId, character } = await c.req.json();
+	app.get("/api/runs/:id/sprites/:spriteId", async (c) => {
 		const user = currentUser(c);
-		const stored = await mustGetDungeon(dungeonId, user.id);
-		if (stored.status !== "complete") throw new HTTPException(409, { message: "that dungeon is still being written" });
-		const busy = await activeRunFor(character.id, user.id);
-		if (busy) return c.json({
-			error: "in a run",
-			runId: busy.id,
-			dungeonId: busy.dungeonId
-		}, 409);
-		const allowance = await allowanceOf(user);
-		if (!mayStartRunIn(allowance, stored.id)) return c.json({
-			error: refusal(allowance),
-			allowance
-		}, 429);
-		const state = newRun(stored.doc, character);
-		const run = await createRun({
-			dungeonId: stored.id,
-			characterId: character.id,
-			state,
-			owner: user.id
-		});
-		const { sink, events } = collectingSink();
-		createJournal(sink).log({
-			kind: "run",
-			runId: run.id,
-			seed: stored.doc.seeds.dungeonSeed,
-			size: stored.doc.size,
-			level: stored.doc.level,
-			offline: false,
-			models: MODELS,
-			character
-		});
-		await appendEvents(run.id, events);
-		return c.json({
-			run,
-			dungeon: stored.doc
-		});
+		const run = await mustGetRun(c.req.param("id"), user.id);
+		const spriteId = c.req.param("spriteId");
+		if (!mayDrawSprite(run.state, spriteId)) throw new HTTPException(404, { message: "no sprite for a creature this run has not met" });
+		const work = spriteWorker();
+		if (!work) return c.json({ status: "none" });
+		const dungeon = await mustGetDungeon(run.dungeonId, user.id);
+		const answer = await serveSprite(run.state.entities, dungeon.doc.pass.theme, spriteId, work);
+		return c.json(answer, answer.status === "pending" ? 202 : 200);
 	});
+	/**
+	* The dungeon's cover, for the opening. Drawn by the first ask — the client
+	* sends one the moment a run starts — and served from then on.
+	*
+	* Through the run rather than the dungeon so the caller needs no dungeon id,
+	* and so the owner check is the run's. A dungeon with no cover key (finished
+	* before covers) answers `none` and is never drawn.
+	*/
+	app.get("/api/runs/:id/cover", async (c) => {
+		const user = currentUser(c);
+		const dungeon = await mustGetDungeon((await mustGetRun(c.req.param("id"), user.id)).dungeonId, user.id);
+		const work = illustrationWorker();
+		if (!work || !dungeon.cover) return c.json({ status: "none" });
+		const answer = await serveCover(dungeon.doc, dungeon.cover, work);
+		return c.json(answer, answer.status === "pending" ? 202 : 200);
+	});
+}
+/**
+* The illustration worker, made on the first illustration asked for rather than at start-up:
+* it reads the reference files, and an app that never draws should not need
+* them. `null` is "not set up", and every room then has no illustration.
+*/
+var illustrationWork;
+function illustrationWorker() {
+	if (illustrationWork === void 0) illustrationWork = liveIllustrationWork() ?? null;
+	return illustrationWork ?? void 0;
+}
+/** The sprite worker, made on first use for the same reason as the illustration worker. */
+var spriteWork;
+function spriteWorker() {
+	if (spriteWork === void 0) spriteWork = liveSpriteWork() ?? null;
+	return spriteWork ?? void 0;
+}
+/** Some creature carrying this sprite key is in sight in a room the run has entered. */
+function mayDrawSprite(state, spriteId) {
+	return [.../* @__PURE__ */ new Set([state.currentRoomId, ...state.log.flatMap((e) => e.kind === "arrival" && e.roomId ? [e.roomId] : [])])].some((room) => drawableCreatures(state.entities.creatures, room).some((c) => spriteKeyOf(c) === spriteId));
+}
+//#endregion
+//#region src/server/routes/play.ts
+function playRoutes(app) {
 	/**
 	* WALK AWAY. The one ending that costs nothing.
 	*
@@ -18863,76 +18764,6 @@ function createApp() {
 		if (text === "") throw new HTTPException(400, { message: "nothing was typed" });
 		await s.submit(text);
 	}));
-	/**
-	* A room's picture, for the arrival in the scrollback. See `illustrations.ts`.
-	*
-	* Only a room this run has entered: an illustration of anywhere else is a look at a
-	* room the player has not reached. The way in is the run's, read off its
-	* log (`illustrationEntryFor`); the client names only the room.
-	*
-	* `202` while somebody else's request is drawing it; the page asks again.
-	* Not a turn and not locked: it reads the run and writes nothing to it.
-	*/
-	app.get("/api/runs/:id/illustrations/:roomId", async (c) => {
-		const user = currentUser(c);
-		const run = await mustGetRun(c.req.param("id"), user.id);
-		const dungeon = await mustGetDungeon(run.dungeonId, user.id);
-		const roomId = c.req.param("roomId");
-		const entryId = illustrationEntryFor(dungeon.doc, run.state, roomId);
-		if (!entryId) throw new HTTPException(404, { message: "no illustration for a room this run has not entered" });
-		const work = illustrationWorker();
-		if (!work) return c.json({ status: "none" });
-		const answer = await serveIllustration(dungeon.doc, roomId, entryId, work);
-		return c.json(answer, answer.status === "pending" ? 202 : 200);
-	});
-	/**
-	* A creature's sprite, for standing it in an illustration. See `sprites.ts`.
-	*
-	* Only a kind this run can see: some creature carrying the key (`spriteKeyOf`)
-	* that is not hidden and stands in a room the run has entered. A sprite of
-	* anything else is a look at a creature the player has not met. Read from
-	* the run's entities, so a creature brought in mid-run is drawn too.
-	*
-	* `202` while somebody else's request is drawing it; the page asks again.
-	*/
-	app.get("/api/runs/:id/sprites/:spriteId", async (c) => {
-		const user = currentUser(c);
-		const run = await mustGetRun(c.req.param("id"), user.id);
-		const spriteId = c.req.param("spriteId");
-		if (!mayDrawSprite(run.state, spriteId)) throw new HTTPException(404, { message: "no sprite for a creature this run has not met" });
-		const work = spriteWorker();
-		if (!work) return c.json({ status: "none" });
-		const dungeon = await mustGetDungeon(run.dungeonId, user.id);
-		const answer = await serveSprite(run.state.entities, dungeon.doc.pass.theme, spriteId, work);
-		return c.json(answer, answer.status === "pending" ? 202 : 200);
-	});
-	/**
-	* The dungeon's cover, for the opening. Drawn by the first ask — the client
-	* sends one the moment a run starts — and served from then on.
-	*
-	* Through the run rather than the dungeon so the caller needs no dungeon id,
-	* and so the owner check is the run's. A dungeon with no cover key (finished
-	* before covers) answers `none` and is never drawn.
-	*/
-	app.get("/api/runs/:id/cover", async (c) => {
-		const user = currentUser(c);
-		const dungeon = await mustGetDungeon((await mustGetRun(c.req.param("id"), user.id)).dungeonId, user.id);
-		const work = illustrationWorker();
-		if (!work || !dungeon.cover) return c.json({ status: "none" });
-		const answer = await serveCover(dungeon.doc, dungeon.cover, work);
-		return c.json(answer, answer.status === "pending" ? 202 : 200);
-	});
-	app.get("/api/runs/:id/journal.jsonl", async (c) => {
-		const run = await mustGetRun(c.req.param("id"), currentUser(c).id);
-		const events = await readJournal(run.id, run.dungeonId);
-		return c.text(events.map((e) => JSON.stringify(e)).join("\n"), 200, { "content-type": "application/x-ndjson; charset=utf-8" });
-	});
-	app.get("/api/runs/:id/transcript.md", async (c) => {
-		const run = await mustGetRun(c.req.param("id"), currentUser(c).id);
-		const text = (await readJournal(run.id, run.dungeonId)).map(render).filter((t) => t !== void 0).join("\n");
-		return c.text(text, 200, { "content-type": "text/markdown; charset=utf-8" });
-	});
-	return app;
 }
 /**
 * The whole of playing a turn, and the only place run state is written.
@@ -19018,51 +18849,258 @@ async function playTurn(c, act) {
 		events: session.store.getState().lastEvents
 	});
 }
+//#endregion
+//#region src/journal/render.ts
 /**
-* A dungeon, or a 404.
+* THE JOURNAL, AS SOMETHING YOU WOULD ACTUALLY READ
+* =================================================
 *
-* OWNERSHIP IS AN ARGUMENT, NOT AN AFTERTHOUGHT. Both of these take the owner
-* and pass it into the `where`, so there is no arrangement of calls in which a
-* handler reads a row first and remembers to check it second. "Not yours" and
-* "not there" are one answer.
+* `journal.jsonl` is the record and this is the reading. Same events, one
+* projection each: the file this produces drops the prompts, the token counts,
+* the latencies and the sequence numbers — about 95% of the bytes — and keeps
+* the run as it was played.
+*
+* It is a pure function of the journal, so it is also disposable: if the two
+* ever disagree the journal wins and this can be regenerated from it.
+*
+* A PURE MODULE ON PURPOSE. It is imported by the Vite dev server as well as by
+* the app, so every import here is `import type` and nothing in it touches a
+* DOM, a filesystem, or the engine.
 */
-async function mustGetDungeon(id, owner) {
-	const stored = await getDungeon(id, owner);
-	if (!stored) throw new HTTPException(404, { message: `no such dungeon: ${id}` });
-	return stored;
+var rule = "\n---\n";
+/**
+* One event, as markdown. `undefined` means it belongs in the record and not
+* in the reading — a prompt, a stage transition nobody needs narrated.
+*/
+function render(r) {
+	switch (r.kind) {
+		case "run": return [
+			`# Run ${r.runId}`,
+			``,
+			`**Seed** ${r.seed} · **size** ${r.size} · **level** ${r.level}${r.offline ? " · offline dungeon" : ""}`,
+			`**Character** ${r.character.name}, level ${r.character.level}, ${r.character.hp.current}/${r.character.hp.max} hp`,
+			`**Models** ${Object.entries(r.models).map(([task, model]) => `${task} → ${model}`).join(" · ")}`,
+			``,
+			`Started ${r.at}.`
+		].join("\n");
+		case "dungeon": return dungeon(r);
+		case "player": return `${rule}\n> ${r.text.replace(/\n/g, "\n> ")}`;
+		case "narration": return r.arrival ? `\n## Arrival\n\n${r.text}` : `\n${r.text}`;
+		case "effects": return `\n\`effects · ${r.text}\``;
+		case "foe": return `\n\`against you · ${r.text}\``;
+		case "roll": return r.source === "player" ? `\n\`${playerRoll(r)}\`` : `\n${r.outcomes.map((o) => `\`game master · ${o.id}: ${o.line}\``).join("\n")}`;
+		case "commit": return commit(r);
+		case "response": return working(r.text);
+		case "stage": return r.to === "dead" || r.to === "goal_met" ? `\n**${r.to === "dead" ? "The run ends here." : "The goal is met."}**` : void 0;
+		case "turn": return `\n*Turn ${r.turn} closed — ${r.diffs} change${r.diffs === 1 ? "" : "s"}.*`;
+		case "error": return `\n> [!WARNING]\n> **${r.where}** — ${r.message}`;
+		case "generation-error": {
+			const where = `${r.pass}${r.chunk === void 0 ? "" : ` chunk ${r.chunk}`}`;
+			const issues = r.issues.map((i) => `> - \`${i.path}\`: ${i.message}`).join("\n");
+			return `\n> [!WARNING]\n> **${where}, attempt ${r.attempt}** — ${r.message}` + (issues ? `\n>\n${issues}` : "") + `\n>\n> ${r.willRetry ? "Retrying." : "Giving up."}`;
+		}
+		case "generation":
+		case "system":
+		case "prompt": return;
+	}
+}
+function playerRoll(r) {
+	const o = r.outcome;
+	const dice = o.rolled.length > 1 ? `[${o.rolled.join(", ")}] keep ${o.kept}` : `${o.kept}`;
+	const sign = o.spec.bonus >= 0 ? "+" : "";
+	const crit = o.nat20 ? " · CRIT" : o.nat1 ? " · FUMBLE" : "";
+	const damage = o.damage ? ` · ${o.damage.expr} → ${o.damage.total}` : "";
+	return `player · ${o.spec.ability.toUpperCase()} ${o.spec.kind}: ${dice} ${sign}${o.spec.bonus} = ${o.total} vs ${o.spec.dc} — ${o.success ? "success" : "failure"}${crit}${damage}`;
+}
+function commit(r) {
+	const out = [];
+	if (!r.ok) {
+		out.push(`\n> [!CAUTION]\n> **Commit refused${r.retry ? " (again)" : ""}** — nothing was applied.`, ...(r.reasons ?? []).map((x) => `> - ${x}`));
+		return out.join("\n");
+	}
+	const prose = r.commit.diffs.filter((d) => d.path === "state" || d.path === "composed");
+	const values = r.commit.diffs.filter((d) => d.path !== "state" && d.path !== "composed");
+	if (prose.length > 0) out.push(`\n<details><summary>${prose.length} description${prose.length === 1 ? "" : "s"} written</summary>\n`, ...prose.map((d) => `\n**\`${d.entityId}\` · ${d.path}**\n\n${String(d.value)}\n`), `</details>`);
+	if (values.length > 0) out.push(`\n<details><summary>${values.length} change${values.length === 1 ? "" : "s"}</summary>\n`, ...values.map((d) => `- \`${describeDiff(d)}\``), `\n</details>`);
+	for (const e of r.events ?? []) out.push(`\n*${e.kind}: ${e.detail}*`);
+	return out.length ? out.join("\n") : void 0;
+}
+function working(text) {
+	const outside = text.replace(/<post>[\s\S]*?<\/post>/gi, "").trim();
+	if (outside === "") return void 0;
+	return `\n<details><summary>game master working</summary>\n\n\`\`\`\n${outside}\n\`\`\`\n\n</details>`;
 }
 /**
-* The illustration worker, made on the first illustration asked for rather than at start-up:
-* it reads the reference files, and an app that never draws should not need
-* them. `null` is "not set up", and every room then has no illustration.
+* The dungeon, room by room.
+*
+* The whole thing is in the record as JSON; this is the version you can read
+* to judge whether generation did a good job — which is a question about prose,
+* so it prints the prose.
 */
-var illustrationWork;
-function illustrationWorker() {
-	if (illustrationWork === void 0) illustrationWork = liveIllustrationWork() ?? null;
-	return illustrationWork ?? void 0;
+function dungeon(r) {
+	const d = r.dungeon;
+	const e = d.entities;
+	const reg = e.registry;
+	const base = (x) => x.base?.trim() || (x.narrative?.blueprintId ? reg.groups?.[x.narrative.blueprintId]?.base ?? "" : "") || "";
+	const inRoom = (roomId) => {
+		const lines = [];
+		for (const c of e.creatures.filter((x) => x.roomId === roomId)) lines.push(`  - **${c.name}**${(c.count ?? 1) > 1 ? ` ×${c.count}` : ""} (creature) — ${base(c)}` + (c.activity ? `\n    *doing:* ${c.activity}` : ""));
+		for (const f of e.features.filter((x) => x.roomId === roomId)) lines.push(`  - **${f.name}** (feature)${f.isHidden ? " — *hidden*" : ""} — ${base(f)}`);
+		for (const i of e.items.filter((x) => x.parentId === roomId)) lines.push(`  - **${i.name}** (item)${i.isHidden ? " — *hidden*" : ""} — ${base(i)}`);
+		return lines;
+	};
+	const rooms = e.rooms.map((room) => {
+		const exits = e.connectors.filter((c) => touches(c, room.id)).map((c) => {
+			const to = farSide(c, room.id);
+			const name = to === null ? "**out of the dungeon**" : e.rooms.find((x) => x.id === to)?.name ?? to;
+			return `  - ${c.name} → ${name}${c.conditional ? ` — *blocked: ${c.conditional}*` : ""}${c.isHidden ? " — *concealed*" : ""}`;
+		});
+		const contents = inRoom(room.id);
+		return [
+			`\n### ${room.name}`,
+			`\`${room.id}\``,
+			``,
+			base(room),
+			contents.length ? `\n**In it**\n${contents.join("\n")}` : `\n*Empty.*`,
+			exits.length ? `\n**Ways out**\n${exits.join("\n")}` : ``
+		].join("\n");
+	});
+	return [
+		`${rule}`,
+		`# The dungeon: ${d.pass.name}`,
+		``,
+		`**Theme.** ${d.pass.theme}`,
+		``,
+		`**History.** ${d.pass.history}`,
+		``,
+		`**Goal.** ${d.pass.goal.summary}`,
+		``,
+		`> ${d.pass.goal.spec.replace(/\n/g, "\n> ")}`,
+		``,
+		`${e.rooms.length} rooms · ${e.creatures.length} creature groups · ${e.items.length} items · ${e.features.length} features · ${e.hazards.length} hazards`,
+		``,
+		e.hazards.length ? `**Hazards.** ${e.hazards.map((h) => `${h.name} — ${base(h)}`).join(" · ")}` : ``,
+		``,
+		`## Opening`,
+		``,
+		d.pass.openingProse,
+		``,
+		`## Rooms`,
+		...rooms,
+		rule,
+		`# The run`
+	].join("\n");
 }
-/** The sprite worker, made on first use for the same reason as the illustration worker. */
-var spriteWork;
-function spriteWorker() {
-	if (spriteWork === void 0) spriteWork = liveSpriteWork() ?? null;
-	return spriteWork ?? void 0;
+//#endregion
+//#region src/server/routes/review.ts
+function reviewRoutes(app) {
+	app.get("/api/runs/:id/journal.jsonl", async (c) => {
+		const run = await mustGetRun(c.req.param("id"), currentUser(c).id);
+		const events = await readJournal(run.id, run.dungeonId);
+		return c.text(events.map((e) => JSON.stringify(e)).join("\n"), 200, { "content-type": "application/x-ndjson; charset=utf-8" });
+	});
+	app.get("/api/runs/:id/transcript.md", async (c) => {
+		const run = await mustGetRun(c.req.param("id"), currentUser(c).id);
+		const text = (await readJournal(run.id, run.dungeonId)).map(render).filter((t) => t !== void 0).join("\n");
+		return c.text(text, 200, { "content-type": "text/markdown; charset=utf-8" });
+	});
 }
-/** Some creature carrying this sprite key is in sight in a room the run has entered. */
-function mayDrawSprite(state, spriteId) {
-	return [.../* @__PURE__ */ new Set([state.currentRoomId, ...state.log.flatMap((e) => e.kind === "arrival" && e.roomId ? [e.roomId] : [])])].some((room) => drawableCreatures(state.entities.creatures, room).some((c) => spriteKeyOf(c) === spriteId));
+//#endregion
+//#region src/server/app.ts
+/**
+* THE API
+* =======
+*
+* One Hono app, mounted as a single catch-all function. This file is the shell:
+* CORS, the sign-in gate and the error handler. The routes are in `routes/`, one
+* file per area; every statement they run is in `db/repo.ts`.
+*
+* TWO RULES SHAPE THIS WHOLE FILE.
+*
+* ONE MODEL CALL PER REQUEST. A Vercel Hobby invocation may run for 300
+* seconds, and generation is N+2 calls. So building a dungeon is three routes —
+* structure, a region at a time, then apply-and-join — and the client fires the
+* middle one N times in parallel. A turn is one request because a turn is one
+* exchange; its worst case is `maxRounds` calls, which fits.
+*
+* THE CLIENT NEVER ASSERTS A RULE. It sends what the player typed and the
+* version it last saw. It does not say which stage it is on: a client that
+* names its own stage can name a flattering one and be handed a roll it never
+* earned. The version is opaque, so there is no value more favourable than
+* another — see `commitTurn`.
+*
+* Node only. This is the file `vite.config.ts` used to fake with two middleware
+* shims: the Anthropic proxy and the journal writer.
+*/
+/**
+* WHERE THE MODEL CALLS GO.
+*
+* The API calls Anthropic directly, with the key from the server's environment.
+* This is what keeps the key out of the browser: a browser talks only to this
+* API, and `llm/client.ts` has no default URL, so nothing calls the model
+* until a process with a key says where it is.
+*
+* Once per process. `configureTransport` is module state in the client, which
+* is right for a process that only ever talks to one provider.
+*/
+function configureAnthropic() {
+	const key = process.env.ANTHROPIC_API_KEY;
+	if (!key) throw new Error("ANTHROPIC_API_KEY is not set; the API cannot reach the model.");
+	configureTransport({
+		baseUrl: "https://api.anthropic.com",
+		headers: {
+			"x-api-key": key,
+			"anthropic-version": "2023-06-01"
+		}
+	});
 }
-async function mustGetRun(id, owner) {
-	const run = await getRun(id, owner);
-	if (!run) throw new HTTPException(404, { message: `no such run: ${id}` });
-	return run;
+/**
+* Who may call this API from a browser.
+*
+* Was a bare `cors()` — any origin at all — which was survivable while there
+* was nothing behind it worth taking. Now there are accounts, and an open CORS
+* policy means any page the player visits can spend their tokens with their
+* session. `CORS_ORIGINS` exists so a preview deployment or an itch.io embed is
+* an environment variable rather than a redeploy.
+*/
+function allowedOrigins() {
+	return [
+		"https://aidungeon.vercel.app",
+		"http://localhost:5173",
+		...(process.env.CORS_ORIGINS ?? "").split(",").map((s) => s.trim()).filter((s) => s !== "")
+	];
 }
-/** A summary as the client gets it: the cover as a URL, never a storage path. */
-function withCover({ coverPath, ...summary }) {
-	const cover = coverPath ? illustrationUrl(coverPath) : void 0;
-	return cover ? {
-		...summary,
-		cover
-	} : summary;
+function createApp() {
+	configureAnthropic();
+	const app = new Hono();
+	app.use("/api/*", cors({
+		origin: allowedOrigins(),
+		credentials: true
+	}));
+	/**
+	* THE GATE. Everything under `/api` needs an account.
+	*
+	* `/api/health` is the one exception and is registered before this: it is what
+	* the twice-weekly Vercel cron hits to stop Supabase pausing the project
+	* (§7.8), a cron holds no session, and it reads and writes nothing.
+	*
+	* Until Phase 11 this API was open, and it spends an Anthropic key. That is
+	* the hole this line closes.
+	*/
+	app.get("/api/health", (c) => c.json({ ok: true }));
+	app.use("/api/*", requireUser);
+	app.onError((err, c) => {
+		if (err instanceof HTTPException) return err.getResponse();
+		console.error("[api]", err);
+		return c.json({ error: describeFailure(err) }, 500);
+	});
+	characterRoutes(app);
+	dungeonRoutes(app);
+	runRoutes(app);
+	playRoutes(app);
+	illustrationRoutes(app);
+	reviewRoutes(app);
+	return app;
 }
 var vercel_default = { fetch: createApp().fetch };
 /**
