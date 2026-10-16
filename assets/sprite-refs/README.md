@@ -2,7 +2,7 @@
 
 Sent with every creature sprite to hold the drawing style: rough black pen line, mostly
 white paper, a little hatching in the deepest shadows, people plain and creatures gnarly.
-See *Illustrations*, "2. Creature sprites", in `docs/BUILD-PLAN.md`.
+See `docs/ARCHITECTURE.md` §10.
 
 | File | Subject | Round, take |
 |---|---|---|

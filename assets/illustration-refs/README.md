@@ -1,8 +1,8 @@
 # Room illustration style references
 
 Sent with every interior room illustration, after the guide image, to hold the drawing style:
-clean black ink line art, mostly white paper, sparing hatching. See *Illustrations* in
-`docs/BUILD-PLAN.md`.
+clean black ink line art, mostly white paper, sparing hatching. See
+`docs/ARCHITECTURE.md` §10.
 
 | File | Subject | Drawn by |
 |---|---|---|
