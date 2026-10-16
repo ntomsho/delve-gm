@@ -4,8 +4,8 @@ import { HTTPException } from "hono/http-exception";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { createMiddleware } from "hono/factory";
 import { z } from "zod";
-import { createHash } from "node:crypto";
 import postgres from "postgres";
+import { createHash } from "node:crypto";
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { fal } from "@fal-ai/client";
@@ -661,62 +661,6 @@ function db() {
 		onnotice: () => {}
 	});
 }
-//#endregion
-//#region src/server/db/repo.ts
-/**
-* THE DATABASE, AS FUNCTIONS
-* ==========================
-*
-* Every statement the server runs, in one place. Handlers above this file ask
-* for things; nothing above this file writes SQL.
-*
-* Two kinds of record: a dungeon is large and written twice — once partial,
-* once complete — and a run is small and written on every turn.
-*
-* THE ONE THING WORTH READING BEFORE THE REST is `commitTurn`. It is the write
-* that has to be correct under two requests at once, and everything it does is
-* one transaction on purpose. See the note above it.
-*
-* Node only.
-*/
-var repo_exports = /* @__PURE__ */ __exportAll({
-	activeRunFor: () => activeRunFor,
-	appendDungeonEvents: () => appendDungeonEvents,
-	appendEvents: () => appendEvents,
-	carriedOut: () => carriedOut,
-	claimIllustration: () => claimIllustration,
-	collectingSink: () => collectingSink,
-	commitTurn: () => commitTurn,
-	completeDungeon: () => completeDungeon,
-	createRun: () => createRun,
-	deleteCharacter: () => deleteCharacter,
-	duplicateDungeon: () => duplicateDungeon,
-	failIllustration: () => failIllustration,
-	findUnfinishedDungeon: () => findUnfinishedDungeon,
-	finishIllustration: () => finishIllustration,
-	getCharacter: () => getCharacter,
-	getDungeon: () => getDungeon,
-	getIllustration: () => getIllustration,
-	getIllustrationWords: () => getIllustrationWords,
-	getRun: () => getRun,
-	insertPartialDungeon: () => insertPartialDungeon,
-	lastDungeonSeq: () => lastDungeonSeq,
-	lastSeq: () => lastSeq,
-	listChunks: () => listChunks,
-	listDungeons: () => listDungeons,
-	listLibrary: () => listLibrary,
-	listRoster: () => listRoster,
-	listRuns: () => listRuns,
-	lockRun: () => lockRun,
-	readDungeonEvents: () => readDungeonEvents,
-	readJournal: () => readJournal,
-	releaseRun: () => releaseRun,
-	saveCharacter: () => saveCharacter,
-	saveChunk: () => saveChunk,
-	saveIllustrationWords: () => saveIllustrationWords,
-	setDungeonCover: () => setDungeonCover,
-	statusOf: () => statusOf
-});
 /**
 * A document, on its way into a jsonb column.
 *
@@ -726,19 +670,8 @@ var repo_exports = /* @__PURE__ */ __exportAll({
 * it is a plain serialisable document.
 */
 var doc = (sql, value) => sql.json(value);
-/**
-* A run's status, from the stage it is standing in.
-*
-* `departed` is deliberately absent: the store resolves it into `escaped` or
-* `goal_met` the moment a commit lands — which ending a departure was depends
-* on world state rather than on what the game master remembered — so it can never
-* be what is persisted. See `endingOf` in gameplay/state/store.ts.
-*/
-function statusOf(stage) {
-	if (stage === "dead" || stage === "escaped" || stage === "goal_met") return stage;
-	if (stage === "abandoned") return "abandoned";
-	return "active";
-}
+//#endregion
+//#region src/server/db/characters.ts
 var NO_RECORD = () => ({
 	dead: 0,
 	abandoned: 0,
@@ -913,6 +846,8 @@ async function deleteCharacter(id, owner, sql = db()) {
     delete from characters where id = ${id} and owner_id = ${owner} returning id
   `).length > 0;
 }
+//#endregion
+//#region src/server/db/dungeons.ts
 /**
 * The structure pass, stored, and the row id it was given.
 *
@@ -1163,6 +1098,15 @@ async function listChunks(dungeonId, sql = db()) {
      order by chunk asc
   `).map((r) => r.response);
 }
+//#endregion
+//#region src/server/db/events.ts
+/**
+* THE JOURNAL'S ROWS, for a dungeon and for a run.
+*
+* Prompts repeat thousands of words of identical text from call to call, so a
+* block of prompt is stored once by its hash and every event that carried it
+* names the hash instead.
+*/
 /**
 * A block's name, and the only thing that decides whether two blocks are one.
 *
@@ -1269,6 +1213,102 @@ async function readDungeonEvents(dungeonId, sql = db()) {
       from dungeon_events where dungeon_id = ${dungeonId} order by seq asc
   `).map((r) => r.payload);
 }
+/**
+* How many events this run has already written.
+*
+* A session is built fresh per request and its journal counts from whatever it
+* is told — so this is what it is told. Without it the second request into a
+* run numbers its events 1, 2, 3 on top of the first request's and collides on
+* the primary key. See `createJournal`.
+*/
+async function lastSeq(runId, sql = db()) {
+	const [row] = await sql`
+    select coalesce(max(seq), 0)::int as seq from journal_events where run_id = ${runId}
+  `;
+	return row?.seq ?? 0;
+}
+/**
+* A run's journal, whole: how its world was built, then how it was played.
+*
+* Two streams concatenated, which is also the order they happened in. They are
+* numbered independently — generation's `seq` belongs to the dungeon, play's to
+* the run — so the pair is renumbered on the way out. Nothing downstream reads
+* `seq` as a key; it reads it as an order, and this is the order.
+*/
+async function readJournal(runId, dungeonId, sql = db()) {
+	const [built, played] = await Promise.all([readDungeonEvents(dungeonId, sql), sql`
+      select rehydrate_blocks(payload) as payload
+        from journal_events where run_id = ${runId} order by seq asc
+    `.then((rows) => rows.map((r) => r.payload))]);
+	return [...built, ...played].map((e, i) => ({
+		...e,
+		seq: i + 1
+	}));
+}
+/**
+* A sink that keeps what it is given.
+*
+* The server cannot write events as they happen: they have to land in the same
+* transaction as the state they describe, or a turn that is rejected at the
+* write leaves a journal describing a turn that never happened. So a request's
+* journal collects, and `commitTurn` decides whether any of it is real.
+*/
+function collectingSink() {
+	const events = [];
+	return {
+		sink: { write: (r) => events.push(r) },
+		events
+	};
+}
+/**
+* Events in one statement rather than one per event.
+*
+* `unnest` over four parallel arrays, because a turn writes a dozen events and
+* a round trip each would be a dozen round trips inside a transaction holding a
+* pooled connection. The casts are explicit so nothing depends on the driver
+* inferring a type for an empty array.
+*/
+async function insertEvents(tx, runId, events) {
+	if (events.length === 0) return;
+	const seqs = events.map((e) => e.seq);
+	const ats = events.map((e) => e.at);
+	const kinds = events.map((e) => e.kind);
+	const { payloads, blocks } = dehydrate(events);
+	await saveBlocks(tx, blocks);
+	await tx`
+    insert into journal_events (run_id, seq, at, kind, payload)
+    select ${runId}::uuid, s.seq, s.at::timestamptz, s.kind, s.payload::jsonb
+      from unnest(${seqs}::int[], ${ats}::text[], ${kinds}::text[], ${payloads}::text[])
+        as s(seq, at, kind, payload)
+    on conflict (run_id, seq) do nothing
+  `;
+}
+/**
+* The first write of a run's journal — generation, and the room entry.
+*
+* Separate from `commitTurn` because there is no version to swap on yet: the
+* run has only just been created, nothing else can be holding it, and the state
+* that goes with these events was written by `createRun` a moment ago.
+*/
+async function appendEvents(runId, events, sql = db()) {
+	if (events.length === 0) return;
+	await sql.begin((tx) => insertEvents(tx, runId, events));
+}
+//#endregion
+//#region src/server/db/runs.ts
+/**
+* A run's status, from the stage it is standing in.
+*
+* `departed` is deliberately absent: the store resolves it into `escaped` or
+* `goal_met` the moment a commit lands — which ending a departure was depends
+* on world state rather than on what the game master remembered — so it can never
+* be what is persisted. See `endingOf` in gameplay/state/store.ts.
+*/
+function statusOf(stage) {
+	if (stage === "dead" || stage === "escaped" || stage === "goal_met") return stage;
+	if (stage === "abandoned") return "abandoned";
+	return "active";
+}
 async function createRun(input, sql = db()) {
 	const [row] = await sql`
     insert into runs (owner_id, dungeon_id, character_id, state, status)
@@ -1330,53 +1370,6 @@ async function lockRun(id, owner, holdSeconds = 300, sql = db()) {
 }
 async function releaseRun(id, owner, sql = db()) {
 	await sql`update runs set locked_until = null where id = ${id} and owner_id = ${owner}`;
-}
-/**
-* How many events this run has already written.
-*
-* A session is built fresh per request and its journal counts from whatever it
-* is told — so this is what it is told. Without it the second request into a
-* run numbers its events 1, 2, 3 on top of the first request's and collides on
-* the primary key. See `createJournal`.
-*/
-async function lastSeq(runId, sql = db()) {
-	const [row] = await sql`
-    select coalesce(max(seq), 0)::int as seq from journal_events where run_id = ${runId}
-  `;
-	return row?.seq ?? 0;
-}
-/**
-* A run's journal, whole: how its world was built, then how it was played.
-*
-* Two streams concatenated, which is also the order they happened in. They are
-* numbered independently — generation's `seq` belongs to the dungeon, play's to
-* the run — so the pair is renumbered on the way out. Nothing downstream reads
-* `seq` as a key; it reads it as an order, and this is the order.
-*/
-async function readJournal(runId, dungeonId, sql = db()) {
-	const [built, played] = await Promise.all([readDungeonEvents(dungeonId, sql), sql`
-      select rehydrate_blocks(payload) as payload
-        from journal_events where run_id = ${runId} order by seq asc
-    `.then((rows) => rows.map((r) => r.payload))]);
-	return [...built, ...played].map((e, i) => ({
-		...e,
-		seq: i + 1
-	}));
-}
-/**
-* A sink that keeps what it is given.
-*
-* The server cannot write events as they happen: they have to land in the same
-* transaction as the state they describe, or a turn that is rejected at the
-* write leaves a journal describing a turn that never happened. So a request's
-* journal collects, and `commitTurn` decides whether any of it is real.
-*/
-function collectingSink() {
-	const events = [];
-	return {
-		sink: { write: (r) => events.push(r) },
-		events
-	};
 }
 /**
 * A finished turn: the new state, and the events that describe it, together.
@@ -1444,40 +1437,8 @@ async function commitTurn(input, sql = db()) {
 		};
 	});
 }
-/**
-* Events in one statement rather than one per event.
-*
-* `unnest` over four parallel arrays, because a turn writes a dozen events and
-* a round trip each would be a dozen round trips inside a transaction holding a
-* pooled connection. The casts are explicit so nothing depends on the driver
-* inferring a type for an empty array.
-*/
-async function insertEvents(tx, runId, events) {
-	if (events.length === 0) return;
-	const seqs = events.map((e) => e.seq);
-	const ats = events.map((e) => e.at);
-	const kinds = events.map((e) => e.kind);
-	const { payloads, blocks } = dehydrate(events);
-	await saveBlocks(tx, blocks);
-	await tx`
-    insert into journal_events (run_id, seq, at, kind, payload)
-    select ${runId}::uuid, s.seq, s.at::timestamptz, s.kind, s.payload::jsonb
-      from unnest(${seqs}::int[], ${ats}::text[], ${kinds}::text[], ${payloads}::text[])
-        as s(seq, at, kind, payload)
-    on conflict (run_id, seq) do nothing
-  `;
-}
-/**
-* The first write of a run's journal — generation, and the room entry.
-*
-* Separate from `commitTurn` because there is no version to swap on yet: the
-* run has only just been created, nothing else can be holding it, and the state
-* that goes with these events was written by `createRun` a moment ago.
-*/
-async function appendEvents(runId, events, sql = db()) {
-	if (events.length === 0) return;
-	await sql.begin((tx) => insertEvents(tx, runId, events));
-}
+//#endregion
+//#region src/server/db/illustrations.ts
 async function getIllustration(key, sql = db()) {
 	const [row] = await sql`
     select key, status, path, attempts,
@@ -1528,6 +1489,46 @@ async function saveIllustrationWords(key, value, sql = db()) {
 async function setDungeonCover(id, key, sql = db()) {
 	await sql`update dungeons set cover = ${key} where id = ${id} and cover is null`;
 }
+//#endregion
+//#region src/server/db/repo.ts
+var repo_exports = /* @__PURE__ */ __exportAll({
+	activeRunFor: () => activeRunFor,
+	appendDungeonEvents: () => appendDungeonEvents,
+	appendEvents: () => appendEvents,
+	carriedOut: () => carriedOut,
+	claimIllustration: () => claimIllustration,
+	collectingSink: () => collectingSink,
+	commitTurn: () => commitTurn,
+	completeDungeon: () => completeDungeon,
+	createRun: () => createRun,
+	deleteCharacter: () => deleteCharacter,
+	duplicateDungeon: () => duplicateDungeon,
+	failIllustration: () => failIllustration,
+	findUnfinishedDungeon: () => findUnfinishedDungeon,
+	finishIllustration: () => finishIllustration,
+	getCharacter: () => getCharacter,
+	getDungeon: () => getDungeon,
+	getIllustration: () => getIllustration,
+	getIllustrationWords: () => getIllustrationWords,
+	getRun: () => getRun,
+	insertPartialDungeon: () => insertPartialDungeon,
+	lastDungeonSeq: () => lastDungeonSeq,
+	lastSeq: () => lastSeq,
+	listChunks: () => listChunks,
+	listDungeons: () => listDungeons,
+	listLibrary: () => listLibrary,
+	listRoster: () => listRoster,
+	listRuns: () => listRuns,
+	lockRun: () => lockRun,
+	readDungeonEvents: () => readDungeonEvents,
+	readJournal: () => readJournal,
+	releaseRun: () => releaseRun,
+	saveCharacter: () => saveCharacter,
+	saveChunk: () => saveChunk,
+	saveIllustrationWords: () => saveIllustrationWords,
+	setDungeonCover: () => setDungeonCover,
+	statusOf: () => statusOf
+});
 //#endregion
 //#region src/server/routes/characters.ts
 function characterRoutes(app) {

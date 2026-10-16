@@ -82,3 +82,15 @@ export async function closeDb(): Promise<void> {
   sql = undefined;
   await closing.end({ timeout: 5 });
 }
+
+/**
+ * A document, on its way into a jsonb column.
+ *
+ * postgres.js types `sql.json` against its own JSON value union, which nothing
+ * declared with an interface satisfies structurally. The cast is here, once and
+ * named, rather than at each of the six call sites — everything passed through
+ * it is a plain serialisable document.
+ */
+export const doc = (sql: postgres.Sql | postgres.TransactionSql, value: unknown) =>
+  sql.json(value as never);
+
