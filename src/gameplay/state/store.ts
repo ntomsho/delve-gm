@@ -292,6 +292,18 @@ export interface GameStore {
   run?: RunState;
   /** last commit's side effects, for narration and the UI to acknowledge */
   lastEvents: WorldEvent[];
+  /**
+   * What the server said when it refused a request outright — out of turns
+   * for the day, or the game's money spent — for the error card to say instead
+   * of "the game master didn't answer". Only a remote session sets it; it
+   * clears when a request next lands.
+   */
+  refusal: string | undefined;
+  /**
+   * Actions left today, as the server said with the last one. `null` for an
+   * unlimited account; undefined before the first action and on a local run.
+   */
+  turnsLeft: number | null | undefined;
 
   start(dungeon: GeneratedDungeon, pc: PlayerCharacter): void;
   /** Apply a game master commit. Returns false and changes nothing if it was refused. */
@@ -381,6 +393,8 @@ const init: StateCreator<GameStore> = (set, get) => ({
   dungeon: undefined,
   run: undefined,
   lastEvents: [],
+  refusal: undefined,
+  turnsLeft: undefined,
 
   start(dungeon, pc) {
     const run = newRun(dungeon, pc);
@@ -534,7 +548,7 @@ const init: StateCreator<GameStore> = (set, get) => ({
   },
 
   reset() {
-    set({ dungeon: undefined, run: undefined, lastEvents: [] });
+    set({ dungeon: undefined, run: undefined, lastEvents: [], refusal: undefined, turnsLeft: undefined });
   },
 });
 

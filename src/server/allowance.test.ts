@@ -15,7 +15,11 @@ import {
   mayStartRunIn,
   MEMBER_RUNS_PER_DAY,
   nextUtcMidnight,
+  GUEST_TURNS_PER_DAY,
+  hasTurnLeft,
+  MEMBER_TURNS_PER_DAY,
   refusal,
+  turnRefusal,
 } from "./allowance.ts";
 
 const NOW = new Date("2026-10-12T23:30:00Z");
@@ -61,6 +65,38 @@ describe("allowanceFor", () => {
     expect(nextUtcMidnight(new Date("2026-10-13T00:00:00Z")).toISOString()).toBe(
       "2026-10-14T00:00:00.000Z"
     );
+  });
+});
+
+describe("turns a day", () => {
+  it("gives a guest 30 and a member 60, across every run", () => {
+    expect(GUEST_TURNS_PER_DAY).toBe(30);
+    expect(MEMBER_TURNS_PER_DAY).toBe(60);
+    expect(allowanceFor({ guest: true, tier: "member", used: 0, turnsUsed: 12, now: NOW })).toMatchObject({
+      turnsLimit: 30,
+      turnsLeft: 18,
+    });
+    expect(allowanceFor({ guest: false, tier: "member", used: 0, turnsUsed: 12, now: NOW }).turnsLeft).toBe(48);
+  });
+
+  it("runs out at the limit and never goes negative", () => {
+    const done = allowanceFor({ guest: true, tier: "member", used: 1, turnsUsed: 31, now: NOW });
+    expect(done.turnsLeft).toBe(0);
+    expect(hasTurnLeft(done)).toBe(false);
+  });
+
+  it("exempts unlimited", () => {
+    const author = allowanceFor({ guest: false, tier: "unlimited", used: 0, turnsUsed: 500, now: NOW });
+    expect(author).toMatchObject({ turnsLimit: null, turnsLeft: null, turnsUsed: 500 });
+    expect(hasTurnLeft(author)).toBe(true);
+  });
+
+  it("tells the player the run is kept, and points a guest at Google", () => {
+    const guest = turnRefusal(allowanceFor({ guest: true, tier: "member", used: 1, turnsUsed: 30, now: NOW }));
+    expect(guest).toMatch(/30 turns for today\. Your run is saved/);
+    expect(guest).toMatch(/Sign in with Google for 60 a day/);
+    const member = turnRefusal(allowanceFor({ guest: false, tier: "member", used: 1, turnsUsed: 60, now: NOW }));
+    expect(member).not.toMatch(/Google/);
   });
 });
 

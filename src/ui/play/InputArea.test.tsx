@@ -36,6 +36,24 @@ function area(stage: Stage, turns: number, over: Partial<InputAreaProps> = {}) {
   return render(stage, turns, over).textContent!;
 }
 
+describe("the day's turns", () => {
+  it("says nothing while there are plenty left", () => {
+    expect(area("awaiting_action", 0, { turnsLeft: 25 })).not.toContain("left today");
+    expect(area("awaiting_action", 0, { turnsLeft: null })).not.toContain("left today");
+  });
+
+  it("counts down once few are left", () => {
+    expect(area("awaiting_action", 4, { turnsLeft: 5 })).toContain("Turn 5 · 5 left today");
+  });
+
+  it("says the server's refusal on the error card instead of a failure", () => {
+    const text = area("error", 4, { refusal: "That is your 30 turns for today." });
+    expect(text).toContain("That is your 30 turns for today.");
+    expect(text).not.toContain("didn’t answer");
+    expect(text).toContain("Try again");
+  });
+});
+
 describe("the turn tracker", () => {
   // `run.turnCount` is CLOSED turns. The player is
   // living through the next one, which is also the number the game master is given.

@@ -478,8 +478,11 @@ One Hono app (`src/server/app.ts`) deployed as a single Vercel function.
   account) that can be linked to Google later and keeps its characters.
 - **Ownership is a parameter, not a check.** Every query takes `owner_id`; row-level
   security is the floor under that, not the mechanism.
-- **Allowances** (`src/server/allowance.ts`): guests get one run a day and members three.
-  Generated dungeons are capped at size 1. An `unlimited` tier is set by hand.
+- **Allowances** (`src/server/allowance.ts`): guests get one run a day and members three,
+  and 30 and 60 turns a day across all their runs. A turn is a `player` event in the
+  journal, so only a committed action counts; only a new action (`/turn`) is refused,
+  never the roll or room entry finishing one, and the run waits, saved, for midnight
+  UTC. Generated dungeons are capped at size 1. An `unlimited` tier is set by hand.
 - **Spend** (`src/server/spend.ts`): every paid call is a row in the `spend` ledger,
   its cost worked out in code from the prices in `src/llm/models.ts` (`src/llm/cost.ts`).
   Text calls are recorded by the meter the server hands `configureTransport`; images by

@@ -10750,6 +10750,7 @@ function nextUtcMidnight(now) {
 }
 /** The rule, without the database, so it can be tested without one. */
 function allowanceFor(input) {
+	const turnsUsed = input.turnsUsed ?? 0;
 	const resetsAt = nextUtcMidnight(input.now).toISOString();
 	const unplayed = input.unplayed ?? [];
 	const closed = input.closed ?? false;
@@ -10759,18 +10760,25 @@ function allowanceFor(input) {
 		used: input.used,
 		limit: null,
 		left: null,
+		turnsUsed,
+		turnsLimit: null,
+		turnsLeft: null,
 		maxSize: 5,
 		resetsAt,
 		unplayed,
 		closed
 	};
 	const limit = input.guest ? 1 : 3;
+	const turnsLimit = input.guest ? 30 : 60;
 	return {
 		guest: input.guest,
 		unlimited: false,
 		used: input.used,
 		limit,
 		left: Math.max(0, limit - input.used),
+		turnsUsed,
+		turnsLimit,
+		turnsLeft: Math.max(0, turnsLimit - turnsUsed),
 		maxSize: 1,
 		resetsAt,
 		unplayed,
@@ -10789,6 +10797,18 @@ function mayStartRunIn(a, dungeonId) {
 	return hasRunLeft(a) || a.unplayed.includes(dungeonId);
 }
 /**
+* True when the account may type another action today.
+*
+* Asked before a NEW action only (`POST /api/runs/:id/turn`). Entering a room,
+* the roll, its resolution and a retry all finish an action already counted,
+* and a turn cut off between its roll and its outcome would be a run left
+* mid-sentence until midnight. Also asked before writing a dungeon or starting
+* a run, so nobody spends a run they cannot play.
+*/
+function hasTurnLeft(a) {
+	return a.turnsLeft === null || a.turnsLeft > 0;
+}
+/**
 * The sentence a refused player reads. Said by the server so that the copy is in
 * one place, and so a refusal the interface did not predict still reads well.
 */
@@ -10797,14 +10817,23 @@ function refusal(a) {
 	const more = a.guest ? ` Sign in with Google for 3 a day.` : "";
 	return `That is your ${a.limit} ${runs} for today. More at midnight UTC.${more}`;
 }
+/** The sentence a player out of turns reads, in a run or before one. */
+function turnRefusal(a) {
+	const more = a.guest ? ` Sign in with Google for 60 a day.` : "";
+	return `That is your ${a.turnsLimit} turns for today. Your run is saved; carry on after midnight UTC.${more}`;
+}
 /**
-* Read the tier, today's count and the unplayed dungeons in one round trip, and
+* Read the tier, today's counts and the unplayed dungeons in one round trip, and
 * today's spend beside it.
 *
 * A missing profile is a member. `handle_new_user` makes one for every account,
 * so this only matters in the instant between an account existing and its
 * trigger committing — and the safe reading of "we do not know" is the limited
 * one.
+*
+* A TURN is a `player` event in the journal: one per action typed, written
+* only when its turn commits, so a turn the server refused or dropped is not
+* counted. Its `at` is the server's clock when the action arrived.
 *
 * "Written" is `copied_from is null`: a copy from the library is a dungeon the
 * player did not pay to write. "Rode on a writing" is the earliest run in one
@@ -10836,6 +10865,8 @@ async function allowanceOf(user, sql = db(), now = /* @__PURE__ */ new Date()) {
           where runs.owner_id = ${user.id}
             and runs.created_at >= day.start
             and runs.id not in (select id from rode)) as used,
+      (select count(*)::int from journal_events e join runs r on r.id = e.run_id, day
+        where r.owner_id = ${user.id} and e.kind = 'player' and e.at >= day.start) as turns_used,
       (select array_agg(d.id::text) from dungeons d
         where d.owner_id = ${user.id} and d.copied_from is null and d.status = 'complete'
           and not exists (select 1 from runs where runs.dungeon_id = d.id)) as unplayed
@@ -10850,6 +10881,7 @@ async function allowanceOf(user, sql = db(), now = /* @__PURE__ */ new Date()) {
 		guest: user.guest,
 		tier,
 		used: row?.used ?? 0,
+		turnsUsed: row?.turns_used ?? 0,
 		unplayed: row?.unplayed ?? [],
 		now,
 		closed: !gate.mayStart
@@ -13021,6 +13053,10 @@ function dungeonRoutes(app) {
 			error: refusal(allowance),
 			allowance
 		}, 429);
+		if (!hasTurnLeft(allowance)) return c.json({
+			error: turnRefusal(allowance),
+			allowance
+		}, 429);
 		if (!(size <= allowance.maxSize)) return c.json({
 			error: `Only size ${allowance.maxSize} dungeons for now.`,
 			allowance
@@ -15101,6 +15137,8 @@ var init = (set, get) => ({
 	dungeon: void 0,
 	run: void 0,
 	lastEvents: [],
+	refusal: void 0,
+	turnsLeft: void 0,
 	start(dungeon, pc) {
 		const run = newRun(dungeon, pc);
 		if (run.challengeState) noteArrival(run.challengeState, dungeon.stocked.challenges ?? [], run.currentRoomId, 0);
@@ -15242,7 +15280,9 @@ var init = (set, get) => ({
 		set({
 			dungeon: void 0,
 			run: void 0,
-			lastEvents: []
+			lastEvents: [],
+			refusal: void 0,
+			turnsLeft: void 0
 		});
 	}
 });
@@ -15287,6 +15327,10 @@ function runRoutes(app) {
 		if (allowance.closed) throw closed();
 		if (!mayStartRunIn(allowance, stored.id)) return c.json({
 			error: refusal(allowance),
+			allowance
+		}, 429);
+		if (!hasTurnLeft(allowance)) return c.json({
+			error: turnRefusal(allowance),
 			allowance
 		}, 429);
 		const state = newRun(stored.doc, character);
@@ -18645,7 +18689,7 @@ function playRoutes(app) {
 		const text = String(body.text ?? "").trim();
 		if (text === "") throw new HTTPException(400, { message: "nothing was typed" });
 		await s.submit(text);
-	}));
+	}, { newTurn: true }));
 }
 /**
 * The whole of playing a turn, and the only place run state is written.
@@ -18654,7 +18698,8 @@ function playRoutes(app) {
 *
 *   1. the version, checked BEFORE anything is spent. A stale tab is turned
 *      away for free rather than after a game master conversation. A closed
-*      day (`spend.ts`) is turned away here too.
+*      day (`spend.ts`) is turned away here too, and so is a new action from
+*      a player who has used the day's turns (`allowance.ts`).
 *   2. the lock, which is not a correctness mechanism — `commitTurn` is — but
 *      stops a double-click paying for a turn that would be rejected anyway.
 *   3. the journal's starting sequence, so this request's events carry on from
@@ -18663,7 +18708,7 @@ function playRoutes(app) {
 *   5. the compare-and-swap, with the events in the same transaction, so a
 *      rejected turn leaves nothing at all behind.
 */
-async function playTurn(c, act, { paid = true } = {}) {
+async function playTurn(c, act, { paid = true, newTurn = false } = {}) {
 	const id = c.req.param("id");
 	if (!id) throw new HTTPException(400, { message: "no run named" });
 	const owner = currentUser(c).id;
@@ -18677,6 +18722,11 @@ async function playTurn(c, act, { paid = true } = {}) {
 	}, 409);
 	if (run.status !== "active") throw new HTTPException(409, { message: `that run is over: ${run.status}` });
 	if (paid && !(await gateNow()).mayCall) throw closed();
+	const allowance = newTurn ? await allowanceOf(currentUser(c)) : void 0;
+	if (allowance && !hasTurnLeft(allowance)) return c.json({
+		error: turnRefusal(allowance),
+		allowance
+	}, 429);
 	if (!await lockRun(id, owner)) return c.json({
 		error: "busy",
 		current: run
@@ -18730,7 +18780,8 @@ async function playTurn(c, act, { paid = true } = {}) {
 	return c.json({
 		state,
 		version: result.version,
-		events: session.store.getState().lastEvents
+		events: session.store.getState().lastEvents,
+		...allowance ? { turnsLeft: allowance.turnsLeft === null ? null : Math.max(0, allowance.turnsLeft - 1) } : {}
 	});
 }
 //#endregion

@@ -20,6 +20,7 @@ import { waitUntil } from "@vercel/functions";
 import { mustGetDungeon, mustGetRun } from "./lookup.ts";
 import { illustrationWorker, spriteWorker } from "./illustrations.ts";
 import { closed, gateNow } from "../spend.ts";
+import { allowanceOf, hasTurnLeft, turnRefusal } from "../allowance.ts";
 
 export function playRoutes(app: Hono<AuthEnv>): void {
   /**
@@ -81,12 +82,17 @@ export function playRoutes(app: Hono<AuthEnv>): void {
   app.post("/api/runs/:id/roll", (c) => playTurn(c, async (s) => s.throwDice(), { paid: false }));
   app.post("/api/runs/:id/resolve", (c) => playTurn(c, (s) => s.resolve()));
   app.post("/api/runs/:id/retry", (c) => playTurn(c, (s) => s.retry()));
+  // The only request that is a NEW action, so the only one the day's turns gate.
   app.post("/api/runs/:id/turn", (c) =>
-    playTurn(c, async (s, body) => {
-      const text = String((body as { text?: unknown }).text ?? "").trim();
-      if (text === "") throw new HTTPException(400, { message: "nothing was typed" });
-      await s.submit(text);
-    })
+    playTurn(
+      c,
+      async (s, body) => {
+        const text = String((body as { text?: unknown }).text ?? "").trim();
+        if (text === "") throw new HTTPException(400, { message: "nothing was typed" });
+        await s.submit(text);
+      },
+      { newTurn: true }
+    )
   );
 }
 
@@ -103,7 +109,8 @@ type Action = (session: ReturnType<typeof createGameSession>, body: unknown) => 
  *
  *   1. the version, checked BEFORE anything is spent. A stale tab is turned
  *      away for free rather than after a game master conversation. A closed
- *      day (`spend.ts`) is turned away here too.
+ *      day (`spend.ts`) is turned away here too, and so is a new action from
+ *      a player who has used the day's turns (`allowance.ts`).
  *   2. the lock, which is not a correctness mechanism — `commitTurn` is — but
  *      stops a double-click paying for a turn that would be rejected anyway.
  *   3. the journal's starting sequence, so this request's events carry on from
@@ -115,8 +122,15 @@ type Action = (session: ReturnType<typeof createGameSession>, body: unknown) => 
 async function playTurn(
   c: Context<AuthEnv>,
   act: Action,
-  /** false for a request that makes no model call (`/roll`), which a closed day does not stop */
-  { paid = true }: { paid?: boolean } = {}
+  {
+    paid = true,
+    newTurn = false,
+  }: {
+    /** false for a request that makes no model call (`/roll`), which a closed day does not stop */
+    paid?: boolean;
+    /** true for a new action (`/turn`), which counts against the day's turns (`allowance.ts`) */
+    newTurn?: boolean;
+  } = {}
 ): Promise<Response> {
   // Hono types `param` as possibly-undefined on a bare `Context`, which cannot
   // know a route's parameters. Every route below has an `:id`, and a request
@@ -143,6 +157,8 @@ async function playTurn(
   // A closed day, said before the lock and the session rather than as a turn
   // that lands on `error` when the meter refuses its first call. See `spend.ts`.
   if (paid && !(await gateNow()).mayCall) throw closed();
+  const allowance = newTurn ? await allowanceOf(currentUser(c)) : undefined;
+  if (allowance && !hasTurnLeft(allowance)) return c.json({ error: turnRefusal(allowance), allowance }, 429);
   if (!(await repo.lockRun(id, owner))) {
     return c.json({ error: "busy", current: run }, 409);
   }
@@ -222,5 +238,7 @@ async function playTurn(
     state,
     version: result.version,
     events: session.store.getState().lastEvents,
+    // The count before this action, less this action: what the tracker shows.
+    ...(allowance ? { turnsLeft: allowance.turnsLeft === null ? null : Math.max(0, allowance.turnsLeft - 1) } : {}),
   });
 }

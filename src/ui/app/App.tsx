@@ -314,6 +314,8 @@ export default function App() {
       dungeon={dungeon}
       run={run}
       items={play.items}
+      {...(play.refusal ? { refusal: play.refusal } : {})}
+      {...(play.turnsLeft !== undefined ? { turnsLeft: play.turnsLeft } : {})}
       onSubmit={(text) => void session.submit(text)}
       onRoll={() => void session.roll()}
       onRetry={() => void session.retry()}

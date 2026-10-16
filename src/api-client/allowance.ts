@@ -22,6 +22,12 @@ export interface Allowance {
   limit: number | null;
   /** `null` for an unlimited account. */
   left: number | null;
+  /** Actions typed today, across every run. */
+  turnsUsed: number;
+  /** `null` for an unlimited account. */
+  turnsLimit: number | null;
+  /** `null` for an unlimited account. */
+  turnsLeft: number | null;
   maxSize: number;
   /** ISO timestamp of the next midnight UTC. */
   resetsAt: string;

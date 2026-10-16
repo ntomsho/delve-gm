@@ -35,7 +35,7 @@ export function useRun({ onWaiting }: { onWaiting: () => void }) {
    * the new one.
    */
   const [session, setSession] = useState<PlayableSession>(fresh);
-  const { dungeon, run } = useGame(session.store);
+  const { dungeon, run, refusal, turnsLeft } = useGame(session.store);
   const [error, setError] = useState<string>();
   /** Held so a failed generation can be tried again on the same seed. */
   const [lastRequest, setLastRequest] = useState<RunRequest>();
@@ -168,6 +168,8 @@ export function useRun({ onWaiting }: { onWaiting: () => void }) {
     session,
     dungeon,
     run,
+    refusal,
+    turnsLeft,
     items,
     progress,
     error,

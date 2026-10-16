@@ -45,6 +45,10 @@ export interface PlayScreenProps {
   dungeon: GeneratedDungeon;
   run: RunState;
   items: NarrationItem[];
+  /** The server's sentence for a request it refused — see `GameStore.refusal`. */
+  refusal?: string;
+  /** Actions left today; `null` for unlimited, absent when nobody has said. */
+  turnsLeft?: number | null;
   onSubmit(text: string): void;
   onRoll(): void;
   onRetry(): void;
@@ -69,6 +73,8 @@ export function PlayScreen({
   dungeon,
   run,
   items,
+  refusal,
+  turnsLeft,
   onSubmit,
   onRoll,
   onRetry,
@@ -245,6 +251,8 @@ export function PlayScreen({
         stage={run.stage}
         roll={run.pendingRoll}
         turns={run.turnCount}
+        {...(refusal ? { refusal } : {})}
+        {...(turnsLeft !== undefined ? { turnsLeft } : {})}
         draft={draft}
         onDraft={setDraft}
         onSubmit={(text) => {

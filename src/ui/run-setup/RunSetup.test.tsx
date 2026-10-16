@@ -216,6 +216,9 @@ describe("the daily allowance", () => {
     resetsAt: new Date(Date.now() + 3 * 3_600_000).toISOString(),
     unplayed: [],
     closed: false,
+    turnsUsed: 0,
+    turnsLimit: 30,
+    turnsLeft: 30,
     ...over,
   });
   it("says how many are left, and offers a guest Google", () => {
@@ -255,6 +258,16 @@ describe("the daily allowance", () => {
     expect(chosen[0]).toMatchObject({ world: "existing", dungeonId: "d-1" });
   });
 
+  it("says how many turns are left, and will not go down with none", async () => {
+    const { page, chosen } = setup([], undefined, allowance({ turnsUsed: 30, turnsLeft: 0 }));
+    expect(text(page)).toContain("0 of 30 turns left today");
+    expect((byText(page, "Go down") as HTMLButtonElement).disabled).toBe(true);
+    expect(text(page)).toMatch(/No turns left today · more in 3 hours/i);
+
+    await press(byText(page, "Go down"));
+    expect(chosen).toEqual([]);
+  });
+
   it("will not go down on a day the game has spent its budget, even a free run", async () => {
     const shut = allowance({ unplayed: ["d-1"], closed: true });
     const { page, chosen } = setup([world()], undefined, shut);
@@ -270,7 +283,7 @@ describe("the daily allowance", () => {
     const { page } = setup(
       [],
       undefined,
-      allowance({ guest: false, unlimited: true, limit: null, left: null, maxSize: 5 })
+      allowance({ guest: false, unlimited: true, limit: null, left: null, turnsLimit: null, turnsLeft: null, maxSize: 5 })
     );
     expect((byText(page, "Go down") as HTMLButtonElement).disabled).toBe(false);
     expect(text(page)).not.toContain("left today");

@@ -16,7 +16,7 @@ import {
 import { createJournal } from "../../journal/journal.ts";
 import type { Size } from "../../generation/content/blueprint.ts";
 import * as repo from "../db/repo.ts";
-import { allowanceOf, hasRunLeft, refusal } from "../allowance.ts";
+import { allowanceOf, hasRunLeft, hasTurnLeft, refusal, turnRefusal } from "../allowance.ts";
 import { closed } from "../spend.ts";
 import { coverKey, illustrationUrl } from "../illustrations/serve.ts";
 import { mustGetDungeon } from "./lookup.ts";
@@ -54,6 +54,10 @@ export function dungeonRoutes(app: Hono<AuthEnv>): void {
     if (allowance.closed) throw closed();
     if (!hasRunLeft(allowance)) {
       return c.json({ error: refusal(allowance), allowance }, 429);
+    }
+    // A world nobody has a turn left to play is a run spent for nothing.
+    if (!hasTurnLeft(allowance)) {
+      return c.json({ error: turnRefusal(allowance), allowance }, 429);
     }
     if (!(size <= allowance.maxSize)) {
       return c.json({ error: `Only size ${allowance.maxSize} dungeons for now.`, allowance }, 400);

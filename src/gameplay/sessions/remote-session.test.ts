@@ -421,6 +421,23 @@ describe("a refusal", () => {
     routes.set("POST /api/runs/run-1/turn", () => ({ status: 500, json: { error: "the model is down" } }));
     await expect(session.submit("I search the floor")).resolves.toBeUndefined();
     expect(session.store.getState().run).toMatchObject({ stage: "error" });
+    // A failure, not a refusal: the card says so in its own words.
+    expect(session.store.getState().refusal).toBeUndefined();
+  });
+
+  it("keeps the server's sentence when it refuses on purpose, and clears it when a turn lands", async () => {
+    wireGeneration([0]);
+    const session = createRemoteSession();
+    await begin(session);
+
+    const sentence = "That is your 30 turns for today. Your run is saved; carry on after midnight UTC.";
+    routes.set("POST /api/runs/run-1/turn", () => ({ status: 429, json: { error: sentence } }));
+    await session.submit("I search the floor");
+    expect(session.store.getState()).toMatchObject({ refusal: sentence, turnsLeft: 0, run: { stage: "error" } });
+
+    routes.set("POST /api/runs/run-1/turn", () => ({ json: { state: run(3).state, version: 3, turnsLeft: 29 } }));
+    await session.retry();
+    expect(session.store.getState()).toMatchObject({ refusal: undefined, turnsLeft: 29 });
   });
 });
 

@@ -599,6 +599,46 @@ describe("the daily allowance", () => {
     }
   });
 
+  it("counts a day's turns across the player's own runs, and refuses one more", async () => {
+    const guest = await anAccount(true);
+    const stranger = await anAccount(false);
+    /** `n` typed actions in a run, as the journal records them, dated now. */
+    const typed = (runId: string, n: number) =>
+      sql`insert into journal_events (run_id, seq, at, kind, payload)
+          select ${runId}, 100 + i, now(), 'player', jsonb_build_object('kind', 'player', 'text', 'I look around')
+            from generate_series(1, ${n}) as i`;
+    try {
+      // The stranger's run is a bare row in the shared world: a second whole
+      // dungeon written for it is the large insert the header warns about.
+      const [theirs] = await sql<{ id: string }[]>`
+        insert into runs (owner_id, dungeon_id, state) values (${stranger.id}, ${hole}, '{}'::jsonb) returning id
+      `;
+      await typed(theirs.id, 5);
+
+      const started = await ask("/api/runs", {
+        method: "POST",
+        body: { dungeonId: await aFinishedDungeon(guest.id), character: guest.pc },
+        as: guest.as,
+      });
+      const { run } = (await started.json()) as Record<string, any>;
+      // Somebody else's turns are theirs.
+      expect(await allowanceOf(guest)).toMatchObject({ turnsUsed: 0, turnsLimit: 30, turnsLeft: 30 });
+
+      await typed(run.id, 30);
+      expect(await allowanceOf(guest)).toMatchObject({ turnsUsed: 30, turnsLeft: 0 });
+
+      const refused = await ask(`/api/runs/${run.id}/turn`, {
+        method: "POST",
+        body: { text: "I open the door", version: run.version },
+        as: guest.as,
+      });
+      expect(refused.status).toBe(429);
+      expect(((await refused.json()) as { error: string }).error).toMatch(/30 turns for today\. Your run is saved/);
+    } finally {
+      await sql`delete from auth.users where id in (${guest.id}, ${stranger.id})`;
+    }
+  });
+
   it("counts a run into somebody else's world as one", async () => {
     const guest = await anAccount(true);
     const stranger = await makeUser();

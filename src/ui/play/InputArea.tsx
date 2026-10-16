@@ -26,6 +26,10 @@ export interface InputAreaProps {
   roll?: RollSpec;
   /** CLOSED turns — the tracker adds the one in progress, the end card does not */
   turns: number;
+  /** The server's sentence for a request it refused, said on the error card instead of a failure. */
+  refusal?: string;
+  /** Actions left today; the tracker says so once few are. `null` or absent says nothing. */
+  turnsLeft?: number | null;
   /** kept across an error so a retry costs the player nothing */
   draft: string;
   onDraft(text: string): void;
@@ -100,15 +104,22 @@ function RollOffer({ roll, onRoll, compact }: { roll: RollSpec; onRoll(): void; 
   );
 }
 
-function Error({ onRetry, compact }: { onRetry(): void; compact?: boolean }) {
+/** The tracker starts counting down the day's turns at this many left. */
+const TURNS_LEFT_WARNING = 10;
+
+function Error({ onRetry, compact, refusal }: { onRetry(): void; compact?: boolean; refusal?: string }) {
   // The software talking, not the game master. Says what happened and what to do.
+  // A refusal is the server saying no on purpose — out of turns, or the day's
+  // money spent — so it is said in the server's words, not as a failure.
   return (
     <div className="mb-3 border-l-2 border-torch py-2 pl-3">
       <p className="font-mono text-[12px] text-ink">
-        The game master didn&rsquo;t answer.
+        {refusal ?? <>The game master didn&rsquo;t answer.</>}
       </p>
       <p className="mt-1 font-mono text-[11px] text-graphite">
-        Your action wasn&rsquo;t lost — it&rsquo;s still in the box below.
+        {refusal
+          ? "Your action is kept. Try again sends it."
+          : <>Your action wasn&rsquo;t lost — it&rsquo;s still in the box below.</>}
       </p>
       <button
         type="button"
@@ -241,7 +252,7 @@ function Abandon({ onAbandon, compact }: { onAbandon(): void; compact?: boolean 
 }
 
 export function InputArea(props: InputAreaProps) {
-  const { stage, roll, turns, draft, onDraft, onSubmit, onRoll, onRetry, onAbandon, compact = false } = props;
+  const { stage, roll, turns, refusal, turnsLeft, draft, onDraft, onSubmit, onRoll, onRetry, onAbandon, compact = false } = props;
   const open = acceptsInput(stage);
   const tone = STAGE_TONE[stage];
   const box = useRef<HTMLTextAreaElement>(null);
@@ -313,12 +324,14 @@ export function InputArea(props: InputAreaProps) {
         {!isTerminal(stage) && (
           <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-pencil">
             Turn {turns + 1}
+            {/* Said only once it is worth knowing, so most turns carry no count at all. */}
+            {typeof turnsLeft === "number" && turnsLeft <= TURNS_LEFT_WARNING && ` · ${turnsLeft} left today`}
           </span>
         )}
       </div>
 
       {stage === "roll_offered" && roll && <RollOffer roll={roll} onRoll={onRoll} compact={compact} />}
-      {stage === "error" && <Error onRetry={onRetry} compact={compact} />}
+      {stage === "error" && <Error onRetry={onRetry} compact={compact} {...(refusal ? { refusal } : {})} />}
       {(stage === "dead" ||
         stage === "escaped" ||
         stage === "goal_met" ||

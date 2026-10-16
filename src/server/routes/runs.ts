@@ -11,7 +11,7 @@ import { createJournal } from "../../journal/journal.ts";
 import { MODELS } from "../../llm/models.ts";
 import type { PlayerCharacter } from "../../rules/knave/character.ts";
 import * as repo from "../db/repo.ts";
-import { allowanceOf, mayStartRunIn, refusal } from "../allowance.ts";
+import { allowanceOf, hasTurnLeft, mayStartRunIn, refusal, turnRefusal } from "../allowance.ts";
 import { closed } from "../spend.ts";
 import { mustGetDungeon, mustGetRun } from "./lookup.ts";
 
@@ -77,6 +77,10 @@ export function runRoutes(app: Hono<AuthEnv>): void {
     if (allowance.closed) throw closed();
     if (!mayStartRunIn(allowance, stored.id)) {
       return c.json({ error: refusal(allowance), allowance }, 429);
+    }
+    // Nor one they have no turns left to play: it would be counted and sit there.
+    if (!hasTurnLeft(allowance)) {
+      return c.json({ error: turnRefusal(allowance), allowance }, 429);
     }
 
     const state = newRun(stored.doc, character);

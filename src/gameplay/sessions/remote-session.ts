@@ -67,6 +67,8 @@ export interface RemoteOptions {
 interface TurnReply {
   state: RunState;
   version: number;
+  /** On a new action only: how many the account has left today, `null` if unlimited. */
+  turnsLeft?: number | null;
 }
 
 export class ApiError extends Error {
@@ -127,7 +129,12 @@ export function createRemoteSession(opts: RemoteOptions = {}): PlayableSession {
   function land(reply: TurnReply): void {
     version = reply.version;
     unsent = undefined;
-    store.setState({ run: reply.state, lastEvents: [] });
+    store.setState({
+      run: reply.state,
+      lastEvents: [],
+      refusal: undefined,
+      ...(reply.turnsLeft !== undefined ? { turnsLeft: reply.turnsLeft } : {}),
+    });
   }
 
   /**
@@ -166,6 +173,14 @@ export function createRemoteSession(opts: RemoteOptions = {}): PlayableSession {
     const stage = r?.stage ?? "thinking";
     const step = r?.step ?? "1-target";
     unsent = { path, body, stage, step };
+    // A 429 (out of turns) or 503 (the day's money spent) is the server saying
+    // no, in a sentence meant for the player. Anything else is a failure, and
+    // the card says so in its own words.
+    const refused = e instanceof ApiError && (e.status === 429 || e.status === 503);
+    store.setState({
+      refusal: refused ? e.message : undefined,
+      ...(refused && e.status === 429 ? { turnsLeft: 0 } : {}),
+    });
     store.getState().setStage("error", step);
   }
 

@@ -248,6 +248,8 @@ export function RunSetup({
   // Nothing starts on a day the game has spent its money, free runs included:
   // the writing was paid for, the turns are not.
   const closed = allowance?.closed ?? false;
+  // A run with no turns to play it is a run spent for nothing, so none starts.
+  const outOfTurns = allowance?.turnsLeft === 0;
 
   return (
     <main className="min-h-screen bg-desk text-ink">
@@ -361,7 +363,7 @@ export function RunSetup({
         <div className="border-t border-rule-faint pt-8">
           <button
             type="button"
-            disabled={!character || outOfRuns || closed}
+            disabled={!character || outOfRuns || outOfTurns || closed}
             onClick={() =>
               character &&
               onConfirm(
@@ -377,6 +379,8 @@ export function RunSetup({
           <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.14em] text-graphite">
             {closed && allowance
               ? `Closed for today · the game has spent its budget · opens ${untilReset(allowance.resetsAt)}`
+              : outOfTurns && allowance
+              ? `No turns left today · more ${untilReset(allowance.resetsAt)}`
               : outOfRuns
               ? `No runs left today · more ${untilReset(allowance.resetsAt)}`
               : fresh
@@ -389,6 +393,12 @@ export function RunSetup({
             <p className="mt-1.5 font-mono text-[11px] text-graphite" role="status">
               {allowance.left} of {allowance.limit} run{allowance.limit === 1 ? "" : "s"} left today
               {" · writing a dungeon and your first run in it count as one"}
+            </p>
+          )}
+          {allowance && allowance.turnsLimit !== null && (
+            <p className="mt-1 font-mono text-[11px] text-graphite">
+              {allowance.turnsLeft} of {allowance.turnsLimit} turns left today
+              {" · across every run"}
             </p>
           )}
           {allowance?.guest && onUpgrade && (
