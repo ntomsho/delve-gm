@@ -72,8 +72,7 @@ export function SignIn({ onSignIn, onGuest, notice }: Props) {
           <img src="/logo-wordmark.svg" alt="Delve GM" className="h-12 w-auto" />
         </h1>
         <p className="text-sm mb-8" style={{ fontFamily: font.prose, color: color.graphite }}>
-          A single-player dungeon crawl with an AI game master. Say what your
-          character does; the game master works out what happens.
+          A single-player dungeon crawl with an AI game master.
         </p>
 
         {notice && (
