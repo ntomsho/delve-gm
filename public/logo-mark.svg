@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="4 2 56 60" role="img" aria-label="Delve GM">
+  <path d="M8 60 V28 A24 24 0 0 1 56 28 V60 Z" fill="#22201c"/>
+  <path d="M16.41 19.00 L11.22 16.00 M23.00 12.41 L20.00 7.22 M32.00 10.00 L32.00 4.00 M41.00 12.41 L44.00 7.22 M47.59 19.00 L52.78 16.00 M8 38 H15 M49 38 H56 M8 49 H15 M49 49 H56" stroke="#f6f2e8" stroke-width="1.6" fill="none"/>
+  <path d="M15 60 V30 A17 17 0 0 1 49 30 V60" stroke="#f6f2e8" stroke-width="2" fill="none"/>
+  <rect x="15" y="56" width="34" height="4" fill="#f6f2e8" opacity="1"/><rect x="19" y="51.5" width="26" height="2.700000000000003" fill="#f6f2e8" opacity="0.72"/><rect x="22.5" y="47.8" width="19" height="2" fill="#f6f2e8" opacity="0.46"/><rect x="25.5" y="45" width="13" height="1.3999999999999986" fill="#f6f2e8" opacity="0.26"/>
+  <path d="M32 28.5 C35.2 32.6 37.2 35.4 37.2 38.6 A5.2 5.2 0 0 1 26.8 38.6 C26.8 35.4 28.8 32.6 32 28.5 Z" fill="#b4521e"/>
+  <path d="M32 34.5 C33.5 36.4 34.4 37.6 34.4 39.1 A2.4 2.4 0 0 1 29.6 39.1 C29.6 37.6 30.5 36.4 32 34.5 Z" fill="#e9a66f"/></svg>
