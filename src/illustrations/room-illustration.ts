@@ -5,7 +5,7 @@
  * The join between a generated dungeon and `illustrationView`. This is where a room's
  * entities become cells and doors, and where CONCEALMENT IS FILTERED OUT: a
  * illustration is a picture for the player, and a hidden feature or a secret door fed
- * to an image model is a picture of the secret (BUILD-PLAN, Illustrations).
+ * to an image model is a picture of the secret (ARCHITECTURE §10.1).
  *
  * Reads the dungeon as GENERATED, never the run, so a room's illustration does not
  * depend on what one player has found — it is the dungeon's, and every player

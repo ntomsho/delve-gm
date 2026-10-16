@@ -3,25 +3,12 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
 /**
- * VITE SERVES THE CLIENT AND NOTHING ELSE, as of Phase 10.
- *
- * Two shims lived here and are gone, both replaced by a real server:
- *
- *   the journal endpoint  a page cannot write a file, so the client used to
- *                         post batches of events here and this appended them to
- *                         `out/runs/<id>/`. The API writes them to Postgres now,
- *                         and `GET /api/runs/:id/journal.jsonl` reads them back.
- *
- *   the Anthropic proxy   the key was attached to outbound requests here, in
- *                         the dev server process, so the browser never held it.
- *                         The rule has not moved, only the wall: the browser
- *                         now talks only to the API, and the API holds the key.
- *                         See `configureAnthropic` in src/server/app.ts.
- *
- * What is left is a proxy from `/api` to the API running beside this one, so
- * the browser sees a single origin in development exactly as it will in
- * production. `npm run dev` starts both (the API under `node --watch`, so it
- * restarts when the server changes); `npm run dev:web` is this one alone.
+ * VITE SERVES THE CLIENT AND NOTHING ELSE. The model key, the journal and the
+ * database all belong to the API (`src/server/`), which runs beside this one in
+ * development. Vite proxies `/api` to it, so the browser sees a single origin
+ * in development exactly as it will in production. `npm run dev` starts both
+ * (the API under `node --watch`, so it restarts when the server changes);
+ * `npm run dev:web` is this one alone.
  */
 export default defineConfig(() => {
   const api = process.env.API_URL ?? "http://localhost:8787";

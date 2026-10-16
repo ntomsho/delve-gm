@@ -115,7 +115,7 @@ const RANK: Record<string, number> = {
  *
  * `shared/` names Knave's character sheet and roll results, because the commit
  * a turn produces carries them. Deciding what a ruleset declares, so the shared
- * types can speak through it instead, is the ruleset seam (BUILD-PLAN §3).
+ * types can speak through it instead, is the ruleset seam (ROADMAP, *A second ruleset*).
  */
 const EXCEPTIONS = new Set([
   "shared/types/commit.ts -> rules/knave/character.ts",

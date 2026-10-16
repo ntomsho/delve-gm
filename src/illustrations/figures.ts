@@ -4,8 +4,7 @@
  *
  * An illustration is drawn once and shared; the creatures in a room change every turn.
  * So the illustration is drawn with no one in it and the creatures are stood in it
- * afterwards, each a sprite drawn once per kind (BUILD-PLAN, *Illustrations*,
- * "2. Creature sprites"). Everything here is geometry and rules, no pixels:
+ * afterwards, each a sprite drawn once per kind (ARCHITECTURE §10.2). Everything here is geometry and rules, no pixels:
  *
  *   illustrationStage     the patch of open floor every illustration keeps clear for figures,
  *                  chosen before the illustration is drawn and marked in its guide
@@ -236,7 +235,7 @@ export function figureRole(c: ICreature): FigureRole {
 /**
  * The sprite a creature is drawn with. A named person is keyed by template and
  * name, not by entity: generation can write one person into two rooms as two
- * entities (BUILD-PLAN, "One leader, one entity"), and they should still be one
+ * entities (ROADMAP, "One leader, one entity"), and they should still be one
  * drawing. Everyone else is their template, so a group's nameless members in
  * every room — and a pack worn down to one — share a drawing.
  */

@@ -64,7 +64,7 @@ const gameMasterStep = z.enum(["1-target", "4-confirm-roll", "5-resolution"]);
  * — but the four cases named so the game master reads what each one covers.
  *
  * `long` is on the wire and is refused on the way back in until Rest exists to
- * produce it (BUILD-PLAN §3); the description says so, because a model offered a value it
+ * produce it (ROADMAP, *Rest*); the description says so, because a model offered a value it
  * cannot use will reach for it.
  */
 const timeSpent = z.enum(["instant", "round", "short", "long"]).describe(

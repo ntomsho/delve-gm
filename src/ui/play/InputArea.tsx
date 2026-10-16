@@ -44,8 +44,7 @@ export interface InputAreaProps {
    */
   onShowSummary(): void;
   /**
-   * Drawn for a phone: tighter padding, bigger targets, and a Send button —
-   * see *Phones* in docs/BUILD-PLAN.md.
+   * Drawn for a phone: tighter padding, bigger targets, and a Send button.
    */
   compact?: boolean;
 }

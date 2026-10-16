@@ -3,7 +3,7 @@
  * =====================
  *
  * The character sheet and the current room, rendered fresh for every call. This
- * is the "re-rendered each turn" half of BUILD-PLAN §2.8, and it is the half
+ * is the "re-rendered each turn" half of ARCHITECTURE §5.3, and it is the half
  * that matters: the entity `state` fields are the game's long-term memory, and
  * this is how they reach the game master. The transcript only carries the thread of
  * a conversation.
@@ -353,7 +353,7 @@ export function renderRoll(o: RolledOutcome): string {
 }
 
 /**
- * Completed turns, as structure rather than prose — BUILD-PLAN §2.8. The paragraphs are
+ * Completed turns, as structure rather than prose — ARCHITECTURE §5.3. The paragraphs are
  * gone; what a finished turn owes the next one is a few facts.
  */
 export function renderRecords(records: TurnRecord[]): string {

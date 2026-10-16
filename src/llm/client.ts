@@ -19,7 +19,7 @@
  * See game-master.ts, which owns that loop and the stopping rules.
  *
  * No streaming, deliberately: prose is held back until the commit validates,
- * per BUILD-PLAN §2.8.
+ * per ARCHITECTURE §5.3.
  */
 
 import { z } from "zod";
@@ -321,7 +321,7 @@ export interface JsonCallOptions<T> extends CallOptions {
   toolName: string;
   toolDescription: string;
   /**
-   * Retry once with the validation errors appended, per BUILD-PLAN §2.2. A second
+   * Retry once with the validation errors appended, per ARCHITECTURE §3.2. A second
    * failure surfaces; there is no partial-content fallback.
    */
   retryOnInvalid?: boolean;

@@ -16,10 +16,8 @@ import type { SizeClass } from "../floorplan/room-size.ts";
  */
 
 /**
- * The equipment rows of REWARDS-SPEC §3.1, all drawn from tables already in the repo.
- *
- * The spec printed six. `potion` is the one that left: it is treasure now, for the
- * reason in the header, and every row still here prices itself from the catalog.
+ * The equipment rows of a general reward, all drawn from tables already in the repo.
+ * Potions are treasure, not equipment, so every row here prices itself from the catalog.
  */
 export type EquipmentRow =
   | "weapon"
@@ -29,7 +27,7 @@ export type EquipmentRow =
   | "general";
 
 /**
- * The treasure rows of REWARDS-SPEC §3.2. Which one fires is decided by the share drawn --
+ * The treasure rows of a general reward (ARCHITECTURE §8.2). Which one fires is decided by the share drawn --
  * every one of them is worth exactly that share, whatever it turns out to be.
  */
 export type TreasureRow = "coins" | "item" | "item-with-trait" | "ingredients" | "potion";

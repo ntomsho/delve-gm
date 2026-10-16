@@ -287,7 +287,7 @@ function missingPost(req: GameMasterRequest, c: CommitParsed): string[] {
  * twice for one move.
  *
  * `long` IS A NIGHT'S REST AND THERE IS NO WAY TO SAY SO YET. Rest is a feature
- * still to build (BUILD-PLAN §3, *Rest*) and arrives as a button, resolved
+ * still to build (ROADMAP, *Rest*) and arrives as a button, resolved
  * client-side like the player's own d20; until it exists a `long` turn is the
  * game master inventing an hour that nothing in the interface offered. It is on
  * the wire so Rest does not have to reopen the schema, and refused here so it
@@ -326,7 +326,7 @@ const IDLE_STAGES: readonly CommitParsed["nextStage"][] = ["clarifying", "reject
 /**
  * The cross-field rules a JSON Schema cannot state.
  *
- * BUILD-PLAN §2.5 wants these caught as schema violations rather than left to
+ * ARCHITECTURE §5.2 wants these caught as schema violations rather than left to
  * confuse the interface — a `roll_offered` with nothing to roll is a game
  * sitting on a Roll button that does nothing. Returned as text because that is
  * what goes back to the model.

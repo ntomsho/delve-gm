@@ -6,8 +6,7 @@
  *   Room        the picture of the room they are standing in, with its buttons
  *   Character   the sheet
  *
- * The layout is Claude Design's mobile handoff; see *Phones* in
- * docs/BUILD-PLAN.md. This component owns the shell — the top bar, the tab bar,
+ * The layout is Claude Design's mobile handoff. This component owns the shell — the top bar, the tab bar,
  * swiping between tabs, and the two badges that say a tab has something new —
  * and is handed the three bodies already built, so it never has to know what
  * a map or a turn is.

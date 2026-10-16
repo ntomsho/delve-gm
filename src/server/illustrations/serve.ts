@@ -3,7 +3,7 @@
  * ===============================
  *
  * What `GET /api/runs/:id/illustrations/:roomId` does once the route has checked the
- * run and found the way in (BUILD-PLAN, *Illustrations*, "Storage"):
+ * run and found the way in (ARCHITECTURE §10.3):
  *
  *   1. build the illustration from the dungeon as GENERATED (`roomIllustration`), and its key
  *   2. ready      → the URL

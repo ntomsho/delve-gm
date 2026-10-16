@@ -87,7 +87,7 @@ function slayCreature(ctx: Ctx, creature: ICreature): void {
  *
  * Two things are settled here rather than there. A route that does not exist is
  * a REJECTION, so the reasons reach the game master and it gets the one retry
- * BUILD-PLAN §2.2 allows — and so is one stopped before its first step, which goes nowhere; a
+ * ARCHITECTURE §5.2 allows — and so is one stopped before its first step, which goes nowhere; a
  * route that ends short is APPLIED, because getting as far as the Torture Room
  * and finding something in it is a real outcome and not an error.
  * The event says so, and the arrival pass describes wherever they actually are.

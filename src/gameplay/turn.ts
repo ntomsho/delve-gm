@@ -17,7 +17,7 @@
  *
  * WHAT THIS FILE DECIDES, as against what the game master decides:
  *
- *   - that a refused commit is worth exactly one more ask (BUILD-PLAN §2.2:
+ *   - that a refused commit is worth exactly one more ask (ARCHITECTURE §5.2:
  *     no partial fallback, and a second failure surfaces)
  *   - when a turn has CLOSED, and so when the clock ticks and the exchange is
  *     thrown away

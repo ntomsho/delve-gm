@@ -61,12 +61,8 @@ function configureAnthropic(): void {
 }
 
 /**
- * Who may call this API from a browser.
- *
- * Was a bare `cors()` — any origin at all — which was survivable while there
- * was nothing behind it worth taking. Now there are accounts, and an open CORS
- * policy means any page the player visits can spend their tokens with their
- * session. `CORS_ORIGINS` exists so a preview deployment or an itch.io embed is
+ * Who may call this API from a browser. An open CORS policy would let any page
+ * the player visits spend their allowance with their session. `CORS_ORIGINS` exists so a preview deployment or an itch.io embed is
  * an environment variable rather than a redeploy.
  */
 function allowedOrigins(): string[] {
@@ -88,7 +84,7 @@ export function createApp(): Hono<AuthEnv> {
    *
    * `/api/health` is the one exception and is registered before this: it is what
    * the twice-weekly Vercel cron hits to stop Supabase pausing the project
-   * when idle), a cron holds no session, and it reads and writes nothing.
+   * when idle; a cron holds no session, and it reads and writes nothing.
    *
    * This API spends an Anthropic key, so this is the line that keeps it from
    * being open to anyone.

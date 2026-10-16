@@ -3,8 +3,7 @@ import { SPRITE_FRAME, SPRITE_GRIT, SPRITE_STYLE } from "../prompts/loader.ts";
  * CREATURE SPRITES — what the models are told
  * ===========================================
  *
- * Two calls per sprite, once per dungeon kind (BUILD-PLAN, *Illustrations*,
- * "2. Creature sprites"):
+ * Two calls per sprite, once per dungeon kind (ARCHITECTURE §10.2):
  *
  *   1. Haiku turns the creature's base into what an illustrator would draw,
  *      and picks a size WORD (`FigureSize`). Code owns the feet.

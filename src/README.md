@@ -38,10 +38,9 @@ cycle of imports that load code.
 | `rules/` | The game systems, one folder each. `knave/` is Knave 1.0, the system played: dice, the character sheet, creation, levelling, equipment and the shop. `maze-rats/` and `cairn/` are the tables generation rolls on. Another game's rules would sit beside them. |
 | `shared/` | Used across areas. `types/` holds the turn and commit shapes; `world/` the world model (entities, challenges, placement, what a creature was rolled from); `utils/` small helpers: the seeded `Rng`, ids, grid keys, formatting, zod helpers. |
 
-**Not yet where it belongs.** Some code still sits inside a large file and will
-move when that file is split:
-
-- `rules/knave/`: Knave assumptions are still built into `gameplay/diffs/paths.ts`,
-  `gameplay/game-master/render.ts`, `gameplay/game-master/schemas.ts`, `gameplay/turn.ts`,
-  `shared/world/entities.ts` and the content pass's stat blocks, and `shared/types/`
-  names Knave's sheet and roll results (the two layer exceptions).
+**Not yet where it belongs.** Knave's assumptions still reach outside
+`rules/knave/`: `gameplay/diffs/paths.ts`, `gameplay/game-master/render.ts`,
+`gameplay/game-master/schemas.ts`, `gameplay/turn.ts`, `shared/world/entities.ts` and the
+content pass's stat blocks, and `shared/types/` names Knave's sheet and roll results (the
+two layer exceptions). They move behind a ruleset interface when there is a second game
+to put behind it (`docs/ROADMAP.md`, *A second ruleset*).

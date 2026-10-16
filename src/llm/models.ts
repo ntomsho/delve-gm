@@ -125,8 +125,8 @@ export const IMAGE_MODELS: Record<ImageModel, { guided: string; unguided?: strin
 
 /**
  * What draws a room illustration in the game: GPT Image 2 at low quality, from the
- * marked guide and the style references (BUILD-PLAN, *Illustrations*, "Spike
- * outcome"). Part of every illustration's key, so changing it redraws from then on.
+ * marked guide and the style references. Of the models tried, it followed the
+ * prompt and the guide most closely, and medium quality was no better. Part of every illustration's key, so changing it redraws from then on.
  */
 export const ILLUSTRATION_MODEL: ImageModel = "gpt-image-2";
 
@@ -139,7 +139,7 @@ export const COVER_MODEL: ImageModel = "flux-2-klein-4b";
 
 /**
  * What draws a creature sprite: GPT Image 2 at low quality, against the sprite
- * style references (BUILD-PLAN, *Illustrations*, "Sprite spike"). Klein
+ * style references. Klein
  * blanked body horror to a black square even with its safety checker off.
  * Part of every sprite's key, so changing it redraws from then on.
  */

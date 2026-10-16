@@ -92,7 +92,7 @@ const CARRIED_SHARE = 0.6;
 /** How many of the goal room's keyable properties get a placed key, beyond its location. */
 const GOAL_PROPERTY_KEYS: readonly [number, number] = [1, 3];
 
-/** The game master's ad-hoc allowance, held out of the partition. See REWARDS-SPEC §7.1. */
+/** The game master's ad-hoc allowance, held out of the partition. See ARCHITECTURE §8.2. */
 const ALLOWANCE_SHARE = 0.1;
 
 /**

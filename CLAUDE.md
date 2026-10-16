@@ -1,4 +1,4 @@
-Read docs/BUILD-PLAN.md before starting work.
+Read docs/ARCHITECTURE.md before starting work. Planned work is in docs/ROADMAP.md.
 
 Nothing outside src/ui/ imports React. Everything outside the shells (ui/, server/, dev/, api-client/) touches no environment global and must stay runnable under vitest.
 Entity base is immutable. Never writable at runtime, by any path.

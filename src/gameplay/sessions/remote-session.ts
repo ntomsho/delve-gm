@@ -4,7 +4,7 @@
  *
  * The same four verbs as `GameSession`, and the same store underneath — but
  * nothing here decides anything. The turn machine, the game master, the applier and
- * the dice all live on the server now; this posts what the player did and
+ * the dice all live on the server; this posts what the player did and
  * replaces the store with what came back.
  *
  * WHY THERE IS A STORE HERE. The interface reads run state through it, and none
@@ -24,16 +24,13 @@
  *
  * WHAT THE SCREEN DOES WHILE IT WAITS
  * -----------------------------------
- * The interface has always been driven by one thing, `run.stage`: it closes the
- * input, names what the game is doing, and runs the sweep under the narration.
- * In process, the turn machine moves the stage on the same tick as the keypress
- * and *then* awaits the model, so the screen reacts instantly.
- *
- * This file did none of that. It posted, awaited, and only touched the store
- * when the answer came back — so for the forty seconds a game master takes, the
- * stage was still `awaiting_action`: no line in the scrollback, no sweep, and an
- * open box that accepted three more actions the server then refused as `busy`.
- * The interface was intact; nothing was telling it anything.
+ * The interface is driven by one thing, `run.stage`: it closes the input, names
+ * what the game is doing, and runs the sweep under the narration. In process,
+ * the turn machine moves the stage on the same tick as the keypress and *then*
+ * awaits the model, so the screen reacts instantly. Posting and waiting would
+ * leave the stage at `awaiting_action` for the forty seconds a game master
+ * takes: no line in the scrollback, no sweep, and an open box accepting actions
+ * the server would refuse as `busy`.
  *
  * So every verb below moves the stage BEFORE its request, to the stage the
  * server is about to confirm, and `land` overwrites the guess with the truth.

@@ -190,7 +190,7 @@ function roleOf(c: ICreature): Role {
 function spriteOf(d: GeneratedDungeon, c: ICreature): Sprite {
   const role = roleOf(c);
   // A named person is keyed by group and name, not entity: generation can
-  // write one person into two rooms as two entities (BUILD-PLAN, "One leader,
+  // write one person into two rooms as two entities (ROADMAP, "One leader,
   // one entity"), and they should still be one drawing.
   const key = c.base !== undefined ? `${c.narrative.blueprintId}:${c.name}` : c.narrative.blueprintId;
   return { key, role, name: c.name, base: resolveBase(c, d.entities.registry) ?? "" };

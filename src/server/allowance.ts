@@ -2,10 +2,10 @@
  * HOW MUCH ONE PERSON MAY SPEND IN A DAY
  * ======================================
  *
- * Layer 3 of *Paying for strangers* in BUILD-PLAN: a cap per account, so that one
+ * A cap per account (ROADMAP, *Running it for strangers*), so that one
  * person in a burst of visitors cannot use the day up. It is NOT what bounds the
  * bill — a guest account costs one click, so a determined script simply makes
- * more of them. The budget ceiling (layer 2) is what bounds the bill; this only
+ * more of them. A budget ceiling, still to build, is what bounds the bill; this only
  * shares out what the ceiling allows.
  *
  * ONE "RUN" IS EITHER OF TWO THINGS, and the author's rule is exactly this:

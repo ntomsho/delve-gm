@@ -2,7 +2,7 @@
  * BUILDING THE CALL
  * =================
  *
- * BUILD-PLAN §2.8, in code. **Rebuilt fresh every call. Never appended to.**
+ * ARCHITECTURE §5.3, in code. **Rebuilt fresh every call. Never appended to.**
  *
  * The layout, and the reason for each part:
  *
@@ -68,7 +68,7 @@ import { CHALLENGE_LABEL } from "../../generation/content/challenges.ts";
 
 /**
  * A player renegotiating forever cannot blow the budget: the exchange is cut to
- * its last N messages. BUILD-PLAN §2.8 sets the number.
+ * its last N messages. ARCHITECTURE §5.3 sets the number.
  */
 export const MAX_EXCHANGE = 12;
 

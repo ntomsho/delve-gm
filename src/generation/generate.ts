@@ -313,8 +313,8 @@ export async function generateStructure(opts: GenerateOptions): Promise<Generate
     // derived rather than random.
     //
     // TODO: the real fix is to derive the centres from the planar embedding
-    // the graph already computes, instead of hill-climbing toward it (BUILD-PLAN
-    // §3, *Positions from the planar embedding*). Then this loop runs once, always.
+    // the graph already computes, instead of hill-climbing toward it (ROADMAP,
+    // *Positions from the planar embedding*). Then this loop runs once, always.
     for (let attempt = 0; ; attempt++) {
       // `generateValid` appends `#n` internally when a graph fails validation,
       // so a different separator keeps these seeds out of that space.

@@ -1,7 +1,7 @@
 /**
  * WHAT KIND OF SCREEN, AND WHAT KIND OF HAND.
  *
- * Two questions, deliberately kept apart (see *Phones* in docs/BUILD-PLAN.md):
+ * Two questions, deliberately kept apart:
  *
  *   PHONE   how wide — whether the play screen is one column of tabs. Width
  *           decides LAYOUT and nothing else.

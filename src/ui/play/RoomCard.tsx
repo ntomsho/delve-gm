@@ -116,7 +116,7 @@ function Exit({ exit }: { exit: ExitView }) {
  * rather than merely agreeing.
  *
  * A CREATURE LIGHTS NOTHING ON THE MAP, because creature markers do not exist
- * yet (BUILD-PLAN §3, *Creature markers*). The row still hovers, and it will link the day they do: the
+ * yet (ROADMAP, *Creature markers*). The row still hovers, and it will link the day they do: the
  * link is keyed on the entity id, which a creature already has.
  */
 function Content({ e, detail }: { e: EntityView; detail?: ReactNode }) {

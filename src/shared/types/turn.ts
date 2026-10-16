@@ -20,7 +20,7 @@ export type Stage =
   /**
    * The action has been sent and the game master is working.
    *
-   * Not in BUILD-PLAN §2.5, and needed because of the narration decision: prose
+   * Needed because prose
    * is held back until the commit validates and applies, so the player is not
    * watching text arrive. Without a stage for it the interface would have
    * nothing honest to show during the wait — and the wait is the normal case,
@@ -39,7 +39,7 @@ export type Stage =
   | "resolving"
   /**
    * The call failed, or came back unusable twice. The player's text is kept so
-   * a retry costs them nothing. Also not in BUILD-PLAN: a turn that cannot be
+   * a retry costs them nothing. A turn that cannot be
    * completed is a state the game can be in, and it is the software talking
    * rather than the game master.
    */

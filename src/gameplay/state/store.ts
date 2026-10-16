@@ -83,7 +83,7 @@ export interface TranscriptEntry {
  * fatal for a page: the player would watch the last hour of play blank itself
  * every time they finished an action. Keeping them apart lets this one hold the
  * game master's actual prose and survive a reload, while the transcript stays the
- * lean thing BUILD-PLAN §2.8 describes.
+ * lean thing ARCHITECTURE §5.3 describes.
  *
  * Never assembled into a prompt.
  */

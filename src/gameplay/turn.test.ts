@@ -850,7 +850,7 @@ describe("moving between rooms", () => {
 
   // The failure this whole change is about: a game master guessing between two exits
   // and picking the far one. It is now a rejection with the reason attached, and
-  // the one retry BUILD-PLAN §2.2 allows is enough to walk it back.
+  // the one retry ARCHITECTURE §5.2 allows is enough to walk it back.
   it("refuses a room the current one does not connect to, and recovers on the retry", async () => {
     const entrance = dungeon.stocked.entranceRoomId;
     const near = new Set(

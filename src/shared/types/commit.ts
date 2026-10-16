@@ -49,7 +49,7 @@ export interface Diff {
  * The applier reads exactly one thing off it: whether `approach` advances. See
  * the sweep at the foot of `applyCommit`.
  *
- * `long` is unsayable until the Rest button exists (BUILD-PLAN §3, *Rest*) and
+ * `long` is unsayable until the Rest button exists (ROADMAP, *Rest*) and
  * is refused in `game-master.ts` until then. It ships anyway, because the alternative is touching
  * the schema, two step files and the tests a second time for nothing.
  */

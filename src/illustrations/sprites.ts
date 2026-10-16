@@ -8,7 +8,7 @@
  *
  * The subject is read from the run's entities rather than the dungeon's, so a
  * creature the game master brought in mid-run can be drawn too. A base is never
- * written at runtime (BUILD-PLAN §2.4), so for a generated creature the two agree and its
+ * written at runtime (ARCHITECTURE §4.1), so for a generated creature the two agree and its
  * sprite's key is the same in every run of the dungeon.
  */
 

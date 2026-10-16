@@ -1169,7 +1169,7 @@ describe("approach", () => {
   });
 
   // The whole reason `roomId` and `approach` are different writes: this is the
-  // relational-key rule in BUILD-PLAN §2.9, and one assignment is all of it.
+  // relational-key rule in ARCHITECTURE §4.2, and one assignment is all of it.
   it("leaves the old room's occupancy and joins the new one", () => {
     const w = applyCommit(longWorld(), walks({ entityId: "ghoul", path: "approach", value: ROOM_A })).world!;
     const index = roomIndex(w.entities);
