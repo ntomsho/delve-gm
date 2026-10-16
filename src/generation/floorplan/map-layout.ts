@@ -26,7 +26,7 @@
  *
  * This is pure geometry and carries NO run state: no fog, no current position,
  * no gating. Those change every turn while this never does — see
- * `mapView` in the store's selectors, which layers them on top.
+ * `mapView` in `gameplay/view/map.ts`, which layers them on top.
  */
 
 import type { BlockPlan } from "./blockplan.ts";

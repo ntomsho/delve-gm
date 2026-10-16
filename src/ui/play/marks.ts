@@ -12,7 +12,7 @@
  * covers less ink, so the shapes are visually close in weight, not equal in area.
  */
 
-import type { FixtureShape } from "../../gameplay/view/selectors.ts";
+import type { FixtureShape } from "../../gameplay/view/map.ts";
 
 const f = (n: number) => +n.toFixed(2);
 

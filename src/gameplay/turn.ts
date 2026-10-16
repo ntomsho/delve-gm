@@ -45,7 +45,7 @@ import {
   type Step,
 } from "../shared/types/turn.ts";
 import type { GameStore, RunState } from "./state/store.ts";
-import { needsComposition, theRoom } from "./view/selectors.ts";
+import { needsComposition, theRoom } from "./view/room.ts";
 import { NO_JOURNAL, type Journal } from "../journal/journal.ts";
 import { characterEffects, describeEffects, describeFoeRolls, foeRolls } from "./mechanics/effects.ts";
 import type { DiceOutcome } from "../rules/knave/roll-tool.ts";

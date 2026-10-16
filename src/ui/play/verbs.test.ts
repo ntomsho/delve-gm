@@ -14,7 +14,7 @@
 
 import { describe, expect, it } from "vitest";
 import { definite, roomVerb, thingVerb, wayVerb, type Wayish } from "./verbs.ts";
-import type { MapRoomView } from "../../gameplay/view/selectors.ts";
+import type { MapRoomView } from "../../gameplay/view/map.ts";
 
 const room = (over: Partial<MapRoomView> = {}): MapRoomView => ({
   id: "r1",

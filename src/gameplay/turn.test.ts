@@ -18,7 +18,7 @@ import { PLAYER_ID, type Commit, type Diff } from "../shared/types/commit.ts";
 import { farSide, isSurfaceExit, touches } from "../shared/world/entities.ts";
 import { armorDefense as pcArmorDefense } from "../rules/knave/character.ts";
 import { createGameStore } from "./state/store.ts";
-import { needsComposition, shownRoom, theRoom } from "./view/selectors.ts";
+import { needsComposition, shownRoom, theRoom } from "./view/room.ts";
 import { acceptsInput } from "../shared/types/turn.ts";
 
 const SEED = 1005;

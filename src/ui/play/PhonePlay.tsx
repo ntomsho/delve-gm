@@ -28,7 +28,7 @@ import { InspectSheet } from "./hover.tsx";
 import { MARK_MS, hurt, useDrops } from "./CharacterPanel.tsx";
 import { STAGE_NAME, STAGE_TONE } from "../shared/theme.ts";
 import type { Stage } from "../../shared/types/turn.ts";
-import type { CharacterView } from "../../gameplay/view/selectors.ts";
+import type { CharacterView } from "../../gameplay/view/character.ts";
 
 export type Tab = "map" | "chat" | "room" | "sheet";
 

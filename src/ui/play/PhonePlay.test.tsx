@@ -13,7 +13,7 @@ import { fire, renderDom } from "../test-utils/dom.ts";
 import { STAGE_TONE } from "../shared/theme.ts";
 import { generateOffline, testCharacter } from "../../fixtures/offline.ts";
 import { newRun } from "../../gameplay/state/store.ts";
-import { characterView } from "../../gameplay/view/selectors.ts";
+import { characterView } from "../../gameplay/view/character.ts";
 import type { Stage } from "../../shared/types/turn.ts";
 
 const pc = characterView(newRun(generateOffline(1005, 2), testCharacter()));

@@ -414,7 +414,7 @@ noticing that it is doing so.
   `RoomView.geometry`. One derivation behind both; that is the whole of the feedback loop.
 - `describeGeometry` takes `{ omit }` and `roomView` hands it every concealed connector
   touching the room, so the count is what a person standing there can see; the way out of
-  the dungeon has a null id and is never omittable. The memo in `selectors.ts` holds the
+  the dungeon has a null id and is never omittable. The memo in `gameplay/view/room.ts` holds the
   `RoomGeometry` rather than the rendered line, because concealment is run state — a
   secret door found on turn nine has to start being counted. **The content pass passes
   nothing and sees them all**, deliberately: it is the pass that writes what the concealed

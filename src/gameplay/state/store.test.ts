@@ -3,7 +3,7 @@ import { createGameStore, newRun } from "./store.ts";
 /** This file's own store — see the note atop `gameplay/state/store.ts`. */
 const useGame = createGameStore();
 
-import { shownRoom } from "../view/selectors.ts";
+import { shownRoom } from "../view/room.ts";
 import { CountingRng } from "../../shared/utils/rng.ts";
 import { die } from "../../rules/knave/rolls.ts";
 import { PLAYER_ID } from "../../shared/types/commit.ts";

@@ -24,13 +24,10 @@
  * and the game master cannot end up looking at different rooms.
  */
 
-import {
-  exitLabel,
-  type CensusEntry,
-  type CharacterView,
-  type EntityView,
-  type RoomView,
-} from "../view/selectors.ts";
+import type { CharacterView } from "../view/character.ts";
+import type { CensusEntry } from "../view/census.ts";
+import { exitLabel, type RoomView } from "../view/room.ts";
+import type { EntityView } from "../view/entities.ts";
 import { positionPhrase } from "../../shared/world/placement.ts";
 import type { TurnRecord } from "../state/store.ts";
 import type { RolledOutcome } from "../turn.ts";

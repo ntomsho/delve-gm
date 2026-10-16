@@ -9,7 +9,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import type { CharacterView } from "../../gameplay/view/selectors.ts";
+import type { CharacterView } from "../../gameplay/view/character.ts";
 import { signed } from "../../shared/utils/format.ts";
 
 /** How long a change stays marked on the sheet. */

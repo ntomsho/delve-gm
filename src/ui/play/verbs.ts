@@ -42,7 +42,7 @@
  * travel stays on the pill, disabled, beside Examine (`Verb.blocked`).
  */
 
-import type { MapRoomView } from "../../gameplay/view/selectors.ts";
+import type { MapRoomView } from "../../gameplay/view/map.ts";
 
 /** A question, and what is sent if they say yes. */
 export interface Verb {
@@ -75,7 +75,7 @@ const EXAMINE = "Examine?";
  * words are part of somebody's actual name is not knowable here, and "I examine
  * the wendy wilberforce" is a worse sentence than the one this fixes.
  *
- * `theRoom` in `selectors.ts` is the display-side half of this and deliberately
+ * `theRoom` in `gameplay/view/room.ts` is the display-side half of this and deliberately
  * leaves an indefinite article alone, because a LABEL should read as it was
  * written; a sentence should not.
  */

@@ -22,7 +22,8 @@ import { generateOffline, testCharacter } from "../../fixtures/offline.ts";
 import { floorplanLayout } from "../../generation/floorplan/map-layout.ts";
 import { placedThings } from "../../gameplay/mechanics/occupancy.ts";
 import { newRun } from "../../gameplay/state/store.ts";
-import { mapView, roomView } from "../../gameplay/view/selectors.ts";
+import { mapView } from "../../gameplay/view/map.ts";
+import { roomView } from "../../gameplay/view/room.ts";
 
 // ===========================================================================
 // ONE ROOM, DRAWN TWICE

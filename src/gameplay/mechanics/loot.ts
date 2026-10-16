@@ -25,7 +25,7 @@ import type { RunState } from "../state/store.ts";
 import type { Stage } from "../../shared/types/turn.ts";
 import { purse, purseItem } from "../../rules/knave/character-creation.ts";
 import type { ICreature, IItem } from "../../shared/world/entities.ts";
-import { theRoom } from "../view/selectors.ts";
+import { theRoom } from "../view/room.ts";
 
 // ---------------------------------------------------------------------------
 // KEEPING IT

@@ -3,7 +3,7 @@
  *
  * The geometry under this component is already covered — `map-layout.test.ts` for
  * the outlines and the doors, `geometry.test.ts` for the room as words, and the
- * `mapView` blocks in `selectors.test.ts` for what the player is entitled to
+ * `mapView` blocks in `gameplay/view/view.test.ts` for what the player is entitled to
  * see. What none of them touch is the drawing itself, because a static render
  * runs a component body and then stops: it never clicks a door, never hovers a
  * room, and never finds out whether the fog branch draws nothing or draws
@@ -31,9 +31,9 @@ import { generateOffline, testCharacter } from "../../fixtures/offline.ts";
 import { floorplanLayout, pointLayout, type Shape } from "../../generation/floorplan/map-layout.ts";
 import { placedThings } from "../../gameplay/mechanics/occupancy.ts";
 import { newRun, type RunState } from "../../gameplay/state/store.ts";
-import { mapView } from "../../gameplay/view/selectors.ts";
+import { mapView } from "../../gameplay/view/map.ts";
 import { positionPhrase } from "../../shared/world/placement.ts";
-import type { MapConnectorView, MapRoomView, MapView } from "../../gameplay/view/selectors.ts";
+import type { MapConnectorView, MapRoomView, MapView } from "../../gameplay/view/map.ts";
 
 // ===========================================================================
 // FIXTURES

@@ -17,7 +17,7 @@ import { ILLUSTRATION_TIP, ThingTooltip } from "./hover.tsx";
 import type { IllustrationAnswer } from "../../illustrations/room-illustration.ts";
 import type { SpriteAnswer } from "../../illustrations/sprites.ts";
 import type { IllustrationFigure } from "../../illustrations/figures.ts";
-import type { MapView } from "../../gameplay/view/selectors.ts";
+import type { MapView } from "../../gameplay/view/map.ts";
 import type { LogEntry } from "../../gameplay/state/store.ts";
 import type { RolledOutcome } from "../../shared/types/turn.ts";
 import { isLoss, type Effect, type FoeRoll } from "../../gameplay/mechanics/effects.ts";

@@ -43,7 +43,8 @@ import {
   touches,
   type ICreature,
 } from "../shared/world/entities.ts";
-import { creatureDefense, needsComposition } from "../gameplay/view/selectors.ts";
+import { creatureDefense } from "../gameplay/view/character.ts";
+import { needsComposition } from "../gameplay/view/room.ts";
 import { directContents } from "../gameplay/mechanics/occupancy.ts";
 import { PLAYER_ID, type Commit, type Diff } from "../shared/types/commit.ts";
 import type { RollSpec } from "../shared/types/turn.ts";

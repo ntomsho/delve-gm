@@ -18,7 +18,7 @@ import { describe, expect, it } from "vitest";
 import { assemble, CARRIED_TURNS, MAX_EXCHANGE } from "./assemble.ts";
 import { stepPrompt } from "../../prompts/loader.ts";
 import { generateOffline, testCharacter } from "../../fixtures/offline.ts";
-import { exitLabel, needsComposition, roomView } from "../view/selectors.ts";
+import { exitLabel, needsComposition, roomView } from "../view/room.ts";
 import { createGameStore, type RunState } from "../state/store.ts";
 /** This file's own store — see the note atop `gameplay/state/store.ts`. */
 const useGame = createGameStore();

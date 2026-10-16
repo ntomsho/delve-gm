@@ -49,7 +49,9 @@ import type { GeneratedDungeon } from "../../generation/generate.ts";
 import type { RunState, TranscriptEntry } from "../state/store.ts";
 import type { Step } from "../../shared/types/turn.ts";
 import type { RolledOutcome } from "../turn.ts";
-import { characterView, censusView, needsComposition, roomView } from "../view/selectors.ts";
+import { characterView } from "../view/character.ts";
+import { censusView } from "../view/census.ts";
+import { needsComposition, roomView } from "../view/room.ts";
 import { SKILL, stepPrompt } from "../../prompts/loader.ts";
 import {
   renderCharacter,

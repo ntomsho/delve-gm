@@ -31,7 +31,9 @@ import { floorplanLayout, pointLayout } from "../../generation/floorplan/map-lay
 import { placedThings } from "../../gameplay/mechanics/occupancy.ts";
 import { causeOfDeath, keepsWhatTheyFound, lootOf } from "../../gameplay/mechanics/loot.ts";
 import { acceptsInput, isTerminal } from "../../shared/types/turn.ts";
-import { characterView, mapView, roomView, shownRoom, type MapView } from "../../gameplay/view/selectors.ts";
+import { mapView, type MapView } from "../../gameplay/view/map.ts";
+import { characterView } from "../../gameplay/view/character.ts";
+import { roomView, shownRoom } from "../../gameplay/view/room.ts";
 import type { GeneratedDungeon } from "../../generation/generate.ts";
 import type { RunState } from "../../gameplay/state/store.ts";
 import { roomFigures, type IllustrationAnswer } from "../../illustrations/room-illustration.ts";

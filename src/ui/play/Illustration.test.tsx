@@ -15,7 +15,7 @@ import { doorHeading, Illustration } from "./Illustration.tsx";
 import { color } from "../shared/theme.ts";
 import { hover, press, renderDom, unhover } from "../test-utils/dom.ts";
 import type { IllustrationAnswer } from "../../illustrations/room-illustration.ts";
-import type { MapConnectorView, MapFixtureView, MapView } from "../../gameplay/view/selectors.ts";
+import type { MapConnectorView, MapFixtureView, MapView } from "../../gameplay/view/map.ts";
 
 const door: MapConnectorView = {
   id: "c1",

@@ -4,10 +4,16 @@ import { createGameStore, newRun } from "../state/store.ts";
 /** This file's own store — see the note atop `gameplay/state/store.ts`. */
 const useGame = createGameStore();
 
+import { FIXTURE_SHAPES, mapView } from "./map.ts";
+import { characterView } from "./character.ts";
+import { censusView } from "./census.ts";
+import { exitLabel, needsComposition, roomView } from "./room.ts";
 import {
-  characterView, censusView, exitLabel, FIXTURE_SHAPES, mapView, needsComposition, roomView,
-} from "./selectors.ts";
-import { floorplanLayout, pathMidpoint, pointLayout, type Shape } from "../../generation/floorplan/map-layout.ts";
+  floorplanLayout,
+  pathMidpoint,
+  pointLayout,
+  type Shape,
+} from "../../generation/floorplan/map-layout.ts";
 import type { Diff } from "../../shared/types/commit.ts";
 import { describeGeometry, siteRooms } from "../../generation/floorplan/geometry.ts";
 import { isSurfaceExit, maxHp, setState } from "../../shared/world/entities.ts";
