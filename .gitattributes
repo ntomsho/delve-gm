@@ -8,3 +8,8 @@
 # checkout, so the same bundle built on Windows and on Vercel's Linux would
 # differ by every line and show as a full rewrite on every rebuild.
 api/index.js linguist-generated=true -diff -text
+
+# Prompts are sent to the model byte for byte, and some of them are hashed into
+# the illustration and sprite cache keys. Checked out with LF everywhere, so a
+# Windows clone sends — and hashes — the same bytes as Vercel's Linux.
+src/prompts/**/*.md text eol=lf

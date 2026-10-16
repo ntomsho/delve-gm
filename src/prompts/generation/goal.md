@@ -1,0 +1,1 @@
+Create exactly one entity that embodies the objective. Read the fiction and decide what type it needs to be -- an Item, a RoomFeature, or a Creature -- so that a party acting on it plausibly satisfies the mission. Then name and write it.

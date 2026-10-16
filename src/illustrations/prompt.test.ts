@@ -9,12 +9,14 @@
 import { describe, expect, it } from "vitest";
 import {
   exteriorIllustrationPrompt,
-  ILLUSTRATION_GUIDE_NOTE,
-  ILLUSTRATION_PLAIN_GUIDE_NOTE,
-  ILLUSTRATION_STYLE,
   roomIllustrationPrompt,
   type RoomPromptParts,
 } from "./prompt.ts";
+import {
+  ILLUSTRATION_GUIDE_NOTE,
+  ILLUSTRATION_PLAIN_GUIDE_NOTE,
+  ILLUSTRATION_STYLE,
+} from "../prompts/loader.ts";
 
 const parts = (guide: RoomPromptParts["guide"]): RoomPromptParts => ({
   guide,

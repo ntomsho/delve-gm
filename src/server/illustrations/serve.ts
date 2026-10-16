@@ -34,13 +34,15 @@ import { resolve } from "node:path";
 import { fal } from "@fal-ai/client";
 import {
   exteriorIllustrationPrompt,
-  ILLUSTRATION_EXTERIOR_SYSTEM,
-  ILLUSTRATION_SETTING_SYSTEM,
   ILLUSTRATION_STYLE_VERSION,
-  ILLUSTRATION_VISUAL_SYSTEM,
   illustrationSettingMessage,
   illustrationVisualMessage,
 } from "../../illustrations/prompt.ts";
+import {
+  ILLUSTRATION_EXTERIOR_SYSTEM,
+  ILLUSTRATION_SETTING_SYSTEM,
+  ILLUSTRATION_VISUAL_SYSTEM,
+} from "../../prompts/loader.ts";
 import type { GeneratedDungeon } from "../../generation/generate.ts";
 import { COVER_MODEL, IMAGE_MODELS, ILLUSTRATION_MODEL } from "../../llm/models.ts";
 import { illustrationSketchSvg } from "../../illustrations/sketch.ts";

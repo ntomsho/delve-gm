@@ -1,0 +1,1 @@
+The area inside the DOTTED outline in the guide is kept clear for figures who will be added to the picture later. Draw it as plain, bare, level floor, continuous with the floor around it: no pit, crack, chasm, water, rubble, furniture, feature, doorway or steps inside it. Do not draw the dotted outline itself.

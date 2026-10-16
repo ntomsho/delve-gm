@@ -21,15 +21,17 @@
 import { z } from "zod";
 import {
   exteriorIllustrationPrompt,
-  ILLUSTRATION_EXTERIOR_SYSTEM,
-  ILLUSTRATION_SETTING_SYSTEM,
-  ILLUSTRATION_VISUAL_SYSTEM,
   illustrationSettingMessage,
   illustrationVisualMessage,
   roomIllustrationPrompt,
   type GuideMode,
   type VisualSubject,
 } from "./prompt.ts";
+import {
+  ILLUSTRATION_EXTERIOR_SYSTEM,
+  ILLUSTRATION_SETTING_SYSTEM,
+  ILLUSTRATION_VISUAL_SYSTEM,
+} from "../prompts/loader.ts";
 import { callForJson, type Usage } from "../llm/client.ts";
 import { illustrationInView, type RoomIllustration } from "./room-illustration.ts";
 import { nonEmpty } from "../shared/utils/schema.ts";

@@ -15,7 +15,8 @@
 import { z } from "zod";
 import { figureRole, spriteKeyOf, type FigureSize } from "./figures.ts";
 import { resolveBase } from "../shared/world/entities.ts";
-import { SPRITE_LOOK_SYSTEM, spriteLookMessage } from "./sprite-prompt.ts";
+import { spriteLookMessage } from "./sprite-prompt.ts";
+import { SPRITE_LOOK_SYSTEM } from "../prompts/loader.ts";
 import type { EntityPassResult } from "../shared/world/entities.ts";
 import { callForJson, type Usage } from "../llm/client.ts";
 

@@ -1,0 +1,1 @@
+Clean black ink line art in the manner of a 1970s-80s fantasy adventure module's illustration booklet. Crisp, confident outlines define every form. Shading is sparing: a few hatched strokes only in the deepest shadows, no dense cross-hatching, no stippled texture, no large areas of solid black. No grey, no colour. No lettering.

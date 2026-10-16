@@ -46,7 +46,8 @@ import type {
   StockedDungeon,
 } from "../../types.ts";
 import { withheldKeyItems } from "../keys-pass.ts";
-import { CONTENT_PASS_INSTRUCTIONS, CONTENT_PASS_SCHEMA } from "./prompt.ts";
+import { CONTENT_PASS_INSTRUCTIONS } from "./prompt.ts";
+import { CONTENT_PASS_SCHEMA } from "../../../../prompts/loader.ts";
 
 export type KW = Record<string, string>;
 

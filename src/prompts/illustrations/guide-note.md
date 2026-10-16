@@ -1,0 +1,1 @@
+The guide image fixes the room's walls and the camera. Each dashed outline on the floor, tagged with a number, marks where the numbered feature stands; each lettered tag marks a doorway. Draw the thing described in place of each mark. Do not draw the dashed outlines, the tags, or any numbers or letters.

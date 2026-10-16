@@ -1,0 +1,1 @@
+The pen line is a working illustrator's: slightly rough and scratchy, never polished or smooth. Nothing glamorous or idealised: people look like ordinary people, plain rather than handsome; creatures are rough, scarred and unpleasant to look at, but not gory. Clothes and gear are as worn or as well kept as the figure's description says.

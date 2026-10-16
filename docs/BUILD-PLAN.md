@@ -534,32 +534,30 @@ otherwise assume none of them do.
 
 ---
 
-### Prompts in one place
+### Prompts in one place — **BUILT**
 
-**Every instruction to a model lives in `src/prompts/`, as markdown.** Today only the
-game master's playbook does (`src/prompts/game-master/`). The rest are TypeScript
-strings beside the code that sends them:
+**Every instruction to a model lives in `src/prompts/`, as markdown**, imported raw by
+`src/prompts/loader.ts` and nowhere else: the game master's playbook (`game-master/`), the
+four generation passes and their schemas (`generation/`), the tally (`tally/`), and the
+illustration and sprite prompts (`illustrations/`). Each prompt's design note sits beside
+its import in the loader, because a markdown file is sent verbatim.
 
-| Instructions | Where now | Fills in values from code |
-|---|---|---|
-| `DUNGEON_PASS_INSTRUCTIONS` (99 lines) | `generation/content/passes/dungeon-pass.ts` | none |
-| `CONTENT_PASS_INSTRUCTIONS` (169 lines) | `generation/content/passes/content-pass/prompt.ts` | 5 |
-| `SEAMS_PASS_INSTRUCTIONS` (24 lines) | `generation/content/passes/seams-pass.ts` | 2 |
-| `KEYS_PASS_INSTRUCTIONS` (33 lines) | `generation/content/passes/keys-pass.ts` | none |
-| `TALLY_INSTRUCTIONS` (33 lines) | `gameplay/tally/tally-pass.ts` | none |
-| `ILLUSTRATION_STYLE`, the guide notes, the visual / setting / exterior systems | `illustrations/prompt.ts` | none |
-
-Destinations: `prompts/generation/`, `prompts/tally/`, `prompts/illustrations/`, all loaded
-through `prompts/loader.ts`.
-
-- **Byte-identical, and tested so.** The text-only ones move as they are. The two that
-  interpolate (the fixture menu and position words, §2.11) need a `{{name}}` fill in the
-  loader, and the filled result must equal today's string exactly.
-- **The illustration cache key hashes this text** (`illustrationKey`,
-  `src/server/illustrations/serve.ts`). One changed character — a trailing newline the
-  markdown adds — misses every stored image and redraws it. Snapshot the keys of a fixed
-  dungeon before the move and assert they are unchanged after; the reorganisation that
-  created this folder did exactly that (28 keys, seed 4201).
+- **Byte-identical to the strings it replaced**, checked before commit for all 24 and
+  pinned since by the generation prompt snapshots and the illustration cache keys
+  (30 of 30 unchanged, seed 4201 size 2).
+- **Two templates.** The content and seams passes interpolate values code owns — the
+  connector rules, the fixture menu, the position words, the goal line — through
+  `{{slot}}`s, filled where the values are computed. `fill` refuses a slot with no value
+  and a value with no slot.
+- **LF everywhere.** `.gitattributes` checks prompt markdown out with LF on every OS and
+  `text()` normalises anyway. A Windows checkout had been giving the files CRLF, and the
+  server bundle is built on Windows and committed, so builds made from one carried
+  `\r\n` into every playbook line (1,339 in the bundle on the refactor branch before
+  this; none on `main`). The cache keys hash some of this text, so it matters beyond
+  tidiness.
+- **The dev CLIs teach Node `?raw` first.** Each `dev/cli-*.ts` that reaches a prompt is
+  a short entry that registers `lib/raw-md.ts` and then imports its script from
+  `dev/lib/`, as `cli-play.ts` already did.
 
 ---
 

@@ -1,0 +1,1 @@
+Draw ONE figure, whole from head to feet or tail, in three-quarter view toward the viewer. A person stands. A creature takes its natural stance: upright, hunched, on all fours or crawling, whatever it is. The figure is centred, with white paper all around it. Nothing else: no floor, no ground line, no cast shadow, no background, no scenery, no frame, no border.

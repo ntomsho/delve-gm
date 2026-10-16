@@ -28,11 +28,11 @@ import { resolve } from "node:path";
 import sharp from "sharp";
 import { fal } from "@fal-ai/client";
 import {
-  SPRITE_LOOK_SYSTEM,
   SPRITE_STYLE_VERSION,
   spriteImagePrompt,
   spriteLookMessage,
 } from "../../illustrations/sprite-prompt.ts";
+import { SPRITE_LOOK_SYSTEM } from "../../prompts/loader.ts";
 import type { EntityPassResult } from "../../shared/world/entities.ts";
 import { IMAGE_MODELS, SPRITE_MODEL } from "../../llm/models.ts";
 import { requestSpriteLook, spriteSubject, type SpriteAnswer, type SpriteLook, type SpriteSubject } from "../../illustrations/sprites.ts";
