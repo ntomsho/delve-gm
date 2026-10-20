@@ -45,10 +45,10 @@ export async function claimIllustration(
   const rows = await sql`
     insert into plates (key, status, model, attempts) values (${key}, 'pending', ${model}, 1)
     on conflict (key) do update
-       set status = 'pending', model = excluded.model, attempts = illustrations.attempts + 1,
+       set status = 'pending', model = excluded.model, attempts = plates.attempts + 1,
            error = null, updated_at = now()
-     where (illustrations.status = 'failed' and illustrations.attempts < ${opts.maxAttempts})
-        or (illustrations.status = 'pending' and illustrations.updated_at < now() - make_interval(secs => ${opts.staleMs / 1000}))
+     where (plates.status = 'failed' and plates.attempts < ${opts.maxAttempts})
+        or (plates.status = 'pending' and plates.updated_at < now() - make_interval(secs => ${opts.staleMs / 1000}))
     returning key
   `;
   return rows.length > 0;
