@@ -76,9 +76,9 @@ export function spriteKey(s: SpriteSubject, theme: string, references: number): 
 }
 
 /** Where a sprite's look and size are kept, beside the illustrations' words. */
-const lookKey = (key: string) => `sprite-look:${key}`;
+export const lookKey = (key: string) => `sprite-look:${key}`;
 
-const parseLook = (text: string | undefined): SpriteLook | undefined => {
+export const parseLook = (text: string | undefined): SpriteLook | undefined => {
   try {
     return text ? (JSON.parse(text) as SpriteLook) : undefined;
   } catch {

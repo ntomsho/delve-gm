@@ -72,9 +72,11 @@ export async function createRun(
 /**
  * A run, for the player whose run it is.
  *
- * THERE IS NO OTHER READ PATH. A run is two private things at once — our log
- * when something goes wrong, and the player's save file — and neither wants an
- * audience. Someone else's run 404s exactly as a missing one does.
+ * THERE IS NO OTHER READ PATH to a run's state. A run is two private things at
+ * once — our log when something goes wrong, and the player's save file — and
+ * neither wants an audience. Someone else's run 404s exactly as a missing one
+ * does. The one cross-owner read, `recentArrivals`, takes only which rooms
+ * were walked into, never the state.
  */
 export async function getRun(
   id: string,
@@ -87,6 +89,42 @@ export async function getRun(
       from runs where id = ${id} and owner_id = ${owner}
   `;
   return row;
+}
+
+/** Where one recent run has been, and nothing else about it. */
+export interface RunArrivals {
+  dungeonId: string;
+  currentRoomId: string;
+  arrivedVia?: string;
+  /** the run's arrivals, oldest first: the shape `illustrationEntryFor` reads */
+  log: { kind: "arrival"; roomId: string; via?: string }[];
+}
+
+/**
+ * The rooms the most recently played runs walked into, across every owner, for
+ * the landing page's pictures (`server/illustrations/showcase.ts`).
+ *
+ * THE ONLY CROSS-OWNER READ OF A RUN, and it takes room ids and the doors used,
+ * cut out of the log in SQL: no prose, no character, no owner. Only runs in a
+ * complete dungeon, which is the set the library already shows everybody.
+ */
+export async function recentArrivals(limit: number, sql: postgres.Sql = db()): Promise<RunArrivals[]> {
+  const rows = await sql<(Omit<RunArrivals, "arrivedVia"> & { arrivedVia: string | null })[]>`
+    select r.dungeon_id                  as "dungeonId",
+           r.state ->> 'currentRoomId'   as "currentRoomId",
+           r.state ->> 'arrivedVia'      as "arrivedVia",
+           coalesce((
+             select jsonb_agg(jsonb_strip_nulls(jsonb_build_object(
+                      'kind', 'arrival', 'roomId', e ->> 'roomId', 'via', e ->> 'via')))
+               from jsonb_array_elements(r.state -> 'log') e
+              where e ->> 'kind' = 'arrival' and e ->> 'roomId' is not null
+           ), '[]'::jsonb)               as log
+      from runs r
+      join dungeons d on d.id = r.dungeon_id and d.status = 'complete'
+     order by r.updated_at desc
+     limit ${limit}
+  `;
+  return rows.map(({ arrivedVia, ...r }) => (arrivedVia ? { ...r, arrivedVia } : r));
 }
 
 export async function listRuns(owner: string, sql: postgres.Sql = db()): Promise<RunSummary[]> {

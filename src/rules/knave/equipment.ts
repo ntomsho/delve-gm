@@ -1,43 +1,33 @@
 /**
- * STANDARD EQUIPMENT
- * ==================
+ * Standard equipment: one catalogue of every item the shop sells, a gear roll
+ * can give, or a new character starts with. The gear tables in `tables.ts` and
+ * the shop's sections both refer to entries here by key, so a rope has one
+ * price and one description however the player got it.
  *
- * One table of everything a shop sells, a gear roll can hand you, or a
- * character walks in carrying. The gear tables in `tables.ts` and the
- * shop's sections both index into it, so a rope is one object with one price
- * and one description however a player came by it.
+ * Knave prints two overlapping lists: the starting-gear tables (page 2) and
+ * Item Costs (page 3). Many items appear in both, sometimes under different
+ * names (Torches and Torch, Padlock and Padlock and key, Instrument and
+ * Musical instrument). Keeping both lists would mean writing every item's
+ * description twice, and the copies would drift apart. So each item is one
+ * entry here, and both lists use its key.
  *
- * IT WAS TWO LISTS. Knave prints its starting-gear tables on p.2 and its Item
- * Costs on p.3, and they overlap without agreeing: 155 rows between them for
- * 113 distinct things, 42 of which were the same name twice, and another 16 the
- * same object under two labels — Torches and Torch, Padlock and Padlock and
- * key, Instrument and Musical instrument. Prose written per row would have been
- * written twice and drifted, which is the thing `tables.ts` opens by
- * refusing. So the rows became keys into this, and the two places that print a
- * name print the same one.
+ * Each entry (a template) is an item without the things only a created copy
+ * has: its id, its holder, and anything rolled for it, like a book's subject.
+ * Entries use the same fields as items, including the description fields
+ * `base`, `state` and `composed`.
  *
- * A TEMPLATE IS AN ITEM, minus the three things only a minted copy can know:
- * its id, who is holding it, and whatever its kind rolls for. There is no
- * separate shape for "the description of a rope" — an item is an entity and
- * carries what every entity carries, so `base`, `state` and `composed` are
- * written here, on the entry, in the fields they will end up in.
+ * Descriptions are written here rather than generated, because a gambeson's
+ * description is the same in every dungeon, and generating it each time
+ * wastes a model call. An entry with empty descriptions still works: its
+ * items start undescribed, and the game writes a description the first time
+ * one is needed.
  *
- * WHY THE PROSE IS WRITTEN AND NOT GENERATED. `composed` is the only one of the
- * three the player has read, and for a gambeson it is the same paragraph in
- * every run of every dungeon — a call spent writing it is a call spent
- * reproducing a description of a quilted coat. Filling an entry in here retires
- * that call forever. An entry left blank is not broken: it mints exactly what
- * it minted before this file existed, prose-less, and the runtime writes one
- * when it first has to.
+ * `amount` is only ever a count or a measurement ("50 feet", "5", "4 hours").
+ * Knave's Item Costs page also uses that column for variants (Book *blank*,
+ * Spike *iron*, Tent *3 man*); here those go in the name instead.
  *
- * WHAT `amount` IS FOR. A count or a measure — "50 feet", "5", "4 hours". The
- * Item Costs page also used it for variants (Book *blank*, Spike *iron*, Tent
- * *3 man*), which is a different kind of fact entirely; those are folded into
- * the name here, so `amount` means one thing.
- *
- * The cycle between this file and `tables.ts` is types only — the tables
- * take `EquipmentKey`, this takes `Spell` — so nothing of it survives to
- * runtime.
+ * This file and `tables.ts` import each other, but only types (`tables.ts`
+ * uses `EquipmentKey`, this uses `Spell`), so there is no cycle at runtime.
  */
 
 import { rollBookSubject } from "../maze-rats/tables.ts";
@@ -60,21 +50,22 @@ import type { Spell } from "./tables.ts";
 // TEMPLATES
 // ===========================================================================
 
-/** What a copy knows and a template cannot: who it is, and who holds it. */
+/** Fields only a created item has: its id, its holder and its entity type. */
 type Minted = "id" | "parentId" | "type";
 
 /**
- * Five templates rather than one with everything optional, so that an entry
- * calling itself a weapon without a damage die does not compile. `slots`
- * defaults to 1 at the mint — Knave says most items take one and only armor and
- * weapons say otherwise — and a book's own facts are rolled there too.
+ * One template type per item kind, rather than one type with everything
+ * optional, so that a weapon entry without a damage die doesn't compile.
+ * `slots` may be left out and defaults to 1 when the item is created (in
+ * Knave most items take one slot; armour and weapons say otherwise). A book's
+ * facts can also be left out and are rolled when it is created.
  */
 export type GearTemplate = Omit<IItem, Minted | "slots"> & { slots?: number; itemKind?: "gear" };
 export type WeaponTemplate = Omit<IWeapon, Minted | "slots"> & { slots?: number };
 export type ArmorTemplate = Omit<IArmor, Minted | "slots"> & { slots?: number };
 export type BookTemplate = Omit<IBook, Minted | "slots" | "book"> & {
   slots?: number;
-  /** pin either half; whatever is left out is rolled when the book is made */
+  /** set either field to fix it; anything left out is rolled when the book is created */
   book?: Partial<BookFacts>;
 };
 export type SpellbookTemplate = Omit<ISpellbook, Minted | "slots" | "spellBook"> & {
@@ -93,13 +84,13 @@ export type ItemTemplate =
 // ===========================================================================
 
 /**
- * Every standard thing, keyed. Prices are Knave's Item Costs page in copper
- * pennies, which is also what the thing is WORTH — a shop that sold at one
- * number and valued at another would be two tables again.
+ * Every standard item, by key. `value` is the price from Knave's Item Costs
+ * page, in copper, and it is also what the item is worth everywhere else, so
+ * the shop never sells at one price and values at another.
  *
- * Armor and weapons are here rather than in a stat table of their own: their
- * numbers are item fields, and a gambeson's price, slots, quality and defense
- * are four facts about one object.
+ * Armour and weapon stats are kept here too, not in a separate stat table,
+ * because they are fields of the item: a gambeson's price, slots, quality and
+ * defense all describe the same object.
  */
 export const STANDARD_EQUIPMENT = {
   // --- armor -----------------------------------------------------------------
@@ -852,10 +843,9 @@ export const STANDARD_EQUIPMENT = {
     composed: "",
   },
   // --- not on either printed list --------------------------------------------
-  // A spellbook has no price in Knave and a purse is not bought at all. Both
-  // are still standard things a character carries, so both are described here.
-  // The 500 is ours: eight gambesons, half a chain shirt, and a placeholder
-  // until somebody decides what a spell is actually worth.
+  // Knave gives a spellbook no price, and copper isn't bought. Characters still
+  // carry both, so both have entries. The spellbook's 500 is our own
+  // placeholder (about eight gambesons) until spells are properly priced.
   spellbook: {
     name: "Spellbook", slots: 1, value: 500,
     itemKind: "spellbook",
@@ -873,15 +863,16 @@ export const STANDARD_EQUIPMENT = {
 
 export type EquipmentKey = keyof typeof STANDARD_EQUIPMENT;
 
-/** The template, for a screen that wants to price or describe a thing unbought. */
+/** The template for `key`, for a screen that shows an item nobody has bought yet. */
 export function equipment(key: EquipmentKey): ItemTemplate {
   return STANDARD_EQUIPMENT[key];
 }
 
 /**
- * The kind-specific facts of an ENTRY, for a screen pricing something nobody
- * has bought yet. Narrowing the template union in one place, so a shop row and
- * a weapon picker do not each write the same `itemKind ===` test.
+ * The weapon stats of a catalogue entry, or undefined if it isn't a weapon
+ * (and `armorFacts` below for armour). For screens showing items nobody has
+ * bought yet, so the shop and the weapon picker don't each repeat the same
+ * `itemKind` check.
  */
 export function weaponFacts(key: EquipmentKey): WeaponFacts | undefined {
   const t: ItemTemplate = STANDARD_EQUIPMENT[key];
@@ -894,23 +885,22 @@ export function armorFacts(key: EquipmentKey): ArmorFacts | undefined {
 }
 
 /**
- * HOW MANY ARE LEFT, WHERE THE STRING SAYS SO.
+ * The number at the start of an item's `amount`, or undefined if there isn't
+ * one.
  *
- * `amount` is prose — "2 days", "6 doses", "50 feet", "a handful" — because that
- * is how a player and a game master talk about a measure, and none of it is a number
- * the game does arithmetic on. The one question anything asks of it is whether
- * it has run out, and this is the whole of the parsing: the leading integer, or
- * nothing.
+ * `amount` is text ("2 days", "6 doses", "50 feet", "a handful"), because
+ * that's how people describe quantities, and the game never does arithmetic
+ * on it. The only question asked of it is whether the item has run out, and
+ * this is all the parsing that needs.
  *
- * NOTHING IS NOT ZERO, and the difference is a thing being deleted. "A handful"
- * has no count and must survive being written; only a stated zero is empty. So
- * this returns `undefined` rather than 0 for anything it cannot read, and the
- * caller that erases items reads it that way — see `applyToItem`.
+ * Undefined and 0 mean different things. "A handful" has no number and must
+ * not count as used up; only an amount that says 0 is empty. `applyToItem` in
+ * `src/gameplay/diffs/handlers.ts` relies on this: it destroys an item only
+ * when this returns 0.
  *
- * The purse parses its own string in `character-creation.ts` and keeps doing so.
- * That is deliberate: money is a value as well as a count, `setPurse` writes
- * both from one number, and folding the two together would make one function
- * answer to two different invariants.
+ * Copper is parsed separately by `purse` in `character-creation.ts`, on
+ * purpose: for money the amount and the `value` must stay equal, which
+ * `setPurse` handles, and that rule doesn't apply to other items.
  */
 export function amountCount(amount: string | undefined): number | undefined {
   const n = Number.parseInt(amount?.trim() ?? "", 10);
@@ -922,10 +912,9 @@ export function amountCount(amount: string | undefined): number | undefined {
 // ===========================================================================
 
 /**
- * What the two printed tables disagreed about: the same object in a different
- * quantity at a different price. Knave's gear roll hands you five torches for
- * five copper and its shop sells one for one, and that is the whole of the
- * difference between them.
+ * Lets one entry come in a different quantity and price. Knave's gear table
+ * gives five torches worth five copper, while its shop sells one for one
+ * copper; that is the only way the two lists disagree.
  */
 export interface ItemOverride {
   amount?: string;
@@ -933,12 +922,11 @@ export interface ItemOverride {
 }
 
 /**
- * What a bought or rolled thing is like before anything has happened to it.
+ * The `state` given to a new item whose entry has a `base` but no `state`.
  *
- * Used only where an entry has a `base` and no `state` of its own. A carried
- * item with no state at all would read as NOT YET ENCOUNTERED, which is exactly
- * wrong for something in the player's own pack — see the lifetimes at the top
- * of `entities.ts`.
+ * An item with no `state` counts as not yet encountered (see the description
+ * fields at the top of `src/shared/world/entities.ts`), which would be wrong
+ * for something already in the player's inventory.
  */
 export const STOCK_STATE = "Sound and unremarkable; nothing has happened to it yet.";
 
@@ -948,12 +936,12 @@ const written = (s: string | undefined): string | undefined => {
 };
 
 /**
- * The part every item has, whatever kind it is.
+ * Creates the fields every item has, whatever its kind.
  *
- * `composed` falls back to `base` and settles the description debt, which is
- * the point of the whole file: a thing that arrives described is never swept up
- * by a composition pass. An entry with no prose at all stays undescribed and
- * `needUpdate` is left alone, so an unfilled table mints what it always did.
+ * `composed` falls back to `base`. If the item ends up with either,
+ * `needUpdate` is set to false: it already counts as described, and the game
+ * won't spend a model call describing it. An entry with no descriptions at
+ * all creates an undescribed item and leaves `needUpdate` unset.
  */
 function mintCommon(t: ItemTemplate, parentId: string, over: ItemOverride): IItem {
   const base = written(t.base);
@@ -977,11 +965,11 @@ function mintCommon(t: ItemTemplate, parentId: string, over: ItemOverride): IIte
 }
 
 /**
- * Maze Rats: a book is about something.
+ * Rolls a book's subject on the Maze Rats table, unless the template sets one.
  *
- * The subject is rolled here because it is what the book IS. How much is in it
- * is not — `uses` starts at nothing and climbs as the book is read, and whether
- * a reading was the last one is settled at the reading. See `consultRoll`.
+ * The subject is fixed when the book is created. How much the book holds is
+ * not: `uses` starts at 0 and goes up with each reading, and `consultRoll` in
+ * `rolls.ts` decides at each reading whether it was the last.
  */
 function mintBook(t: BookTemplate, rng: Rng | undefined): BookFacts {
   const uses = t.book?.uses ?? 0;
@@ -991,18 +979,16 @@ function mintBook(t: BookTemplate, rng: Rng | undefined): BookFacts {
 }
 
 /**
- * An item from a template, which is what every mint here comes down to.
+ * Creates an item from a template. Every item this file creates goes through
+ * here.
  *
- * Separate from `mintItem` so that a template built somewhere else — a test, or
- * a thing the fiction has just invented — goes through exactly the same door as
- * a table entry, rather than through a second construction that could disagree
- * with it.
+ * Separate from `mintItem` so that a template from elsewhere (a test, or an
+ * item the game has just made up) is created the same way as a catalogue
+ * entry.
  *
- * The `Rng` is optional because most kinds roll for nothing — a purse of copper
- * and a coil of rope are entirely decided by the template — and required in
- * practice for the one kind that does. Which kinds those are is this file's
- * business rather than the caller's, so a book minted without a stream throws
- * here rather than quietly inventing what is written in it.
+ * The `Rng` is optional because most items roll nothing; copper or a rope is
+ * fully described by its template. Books need it for their subject, so
+ * creating a book without one throws instead of making up a subject.
  */
 export function mintTemplate(
   t: ItemTemplate,
@@ -1020,15 +1006,14 @@ export function mintTemplate(
     case "book":
       return { ...item, itemKind: "book", book: mintBook(t, rng) };
     case "spellbook":
-      // The template has everything about a spellbook except the one thing that
-      // makes it worth carrying, and this function has no way to know it.
+      // A spellbook needs a spell, which a template doesn't have.
       throw new Error(`${t.name} is a spellbook — mint it with mintSpellbook, which knows the spell`);
     default:
       return item;
   }
 }
 
-/** One standard thing, ready to be carried. */
+/** Creates the catalogue item with this key. */
 export function mintItem(
   key: EquipmentKey,
   parentId: string,
@@ -1039,12 +1024,12 @@ export function mintItem(
 }
 
 /**
- * A spellbook, which is the `spellbook` entry plus the spell it holds.
+ * Creates a spellbook: the `spellbook` entry plus the spell it holds.
  *
- * Knave's spellbook is one spell read once a day, so `exhausted` is the whole
- * of its state and the spell's own printed effect is the whole of its content.
- * The name carries the spell because a shelf of four books all called
- * "Spellbook" is a shelf nobody can act on.
+ * In Knave a spellbook holds one spell that can be cast once a day, so
+ * `exhausted` is all the state it needs, and its content is the spell's
+ * printed effect. The spell goes in the name so that several spellbooks can
+ * be told apart.
  */
 export function mintSpellbook(spell: Spell, parentId: string): ISpellbook {
   const t: ItemTemplate = STANDARD_EQUIPMENT.spellbook;
@@ -1060,12 +1045,8 @@ export function mintSpellbook(spell: Spell, parentId: string): ISpellbook {
 // WHAT SOMETHING FOUND IS WORTH
 // ===========================================================================
 //
-// NOTHING, HERE. `VALUE_BANDS` and `rollItemValue` were the whole of it, and
-// they are gone: grade alone set an item's worth, so a dungeon's total take was
-// whatever its grades happened to roll -- three significant parcels was
-// 3,600-36,000cp against a Knave starting purse of 60-360.
-//
-// Money is a conserved pot now, partitioned across the placed treasure before
-// anything reaches the LLM. See `rewards.ts`. What a found thing is
-// worth arrives WITH it, from the share it drew or from the catalog above, and
-// the game master still never names a number.
+// Not decided in this file. A dungeon's total wealth is fixed at generation
+// and divided among its treasure before any model sees it
+// (`src/generation/content/rewards.ts`). A found item's value comes with it,
+// either from that share or from the catalogue above, so the game master
+// never picks a number.

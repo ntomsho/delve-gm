@@ -33,7 +33,7 @@ import { characterRoutes } from "./routes/characters.ts";
 import { dungeonRoutes } from "./routes/dungeons.ts";
 import { runRoutes } from "./routes/runs.ts";
 import { playRoutes } from "./routes/play.ts";
-import { illustrationRoutes } from "./routes/illustrations.ts";
+import { illustrationRoutes, showcaseRoutes } from "./routes/illustrations.ts";
 import { reviewRoutes } from "./routes/review.ts";
 import { spendContext, spendMeter } from "./spend.ts";
 
@@ -97,11 +97,14 @@ export function createApp(): Hono<AuthEnv> {
    * `/api/health` is the one exception and is registered before this: it is what
    * the twice-weekly Vercel cron hits to stop Supabase pausing the project
    * when idle; a cron holds no session, and it reads and writes nothing.
+   * `/api/illustrations/recent` is the other: the landing page's pictures,
+   * shown before anyone signs in, read-only and never drawn (`showcaseRoutes`).
    *
    * This API spends an Anthropic key, so this is the line that keeps it from
    * being open to anyone.
    */
   app.get("/api/health", (c) => c.json({ ok: true }));
+  showcaseRoutes(app);
   app.use("/api/*", requireUser);
   // Whose money each call spends, for the ledger. After the gate: it needs the user.
   app.use("/api/*", spendContext);

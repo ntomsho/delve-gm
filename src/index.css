@@ -208,6 +208,27 @@ button:disabled {
   }
 }
 
+/* The landing page's wall of illustrations: each column is its list twice, so half its height is one loop. */
+@keyframes drift {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(-50%);
+  }
+}
+
+/* The landing page's "latest from runs" light. */
+@keyframes live-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

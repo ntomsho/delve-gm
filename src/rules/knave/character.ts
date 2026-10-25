@@ -1,20 +1,19 @@
 /**
- * character.ts
- * ====================
+ * The player character: the Knave 1.0 character sheet and the helpers that
+ * change it.
  *
- * The player character. Made during character creation, before play; the
- * runtime reads it into the context of every generation so the model always
- * knows who is standing in the room, what they can perceive, and what they can
- * reach or carry. Mutation in play (damage, inventory changes, quality loss,
- * conditions) happens through the helpers here.
+ * The character is made at character creation, before any run. Every game
+ * master call includes the sheet, so the model always knows who the player
+ * is, what they carry and what they have equipped. During play the diff
+ * applier changes the sheet (inventory, equipment) through the helpers here.
  *
- * Knave-native: six abilities stored as BONUSES (a defense is always bonus + 10),
- * HP, level (which caps ability bonuses), the eleven Knave background traits, an
- * inventory of real Item entities, and a free-text condition list.
+ * The sheet follows Knave: six abilities stored as bonuses (the matching
+ * defense is always bonus + 10), hit points, a level, the eleven Knave traits,
+ * an inventory of real Item entities, and a free-text list of conditions.
  *
- * CARRYING CAPACITY is Knave's: slots = CON defense = CON bonus + 10. Each item
- * costs its own `slots` (default 1); the total may not exceed capacity. See the
- * slot helpers below.
+ * Carrying capacity is also Knave's: a character has as many inventory slots
+ * as their CON defense (CON bonus + 10). Each item takes up its `slots` value
+ * (1 if unset). See the slot helpers below.
  */
 
 import { isArmor, isBook, isWeapon, type ArmorType, type IItem } from "../../shared/world/entities.ts";
@@ -29,9 +28,9 @@ export interface CharacterAbilities {
 }
 
 /**
- * The eleven Knave character-creation traits, each the rolled value as prose.
- * Stored in full; presentation trims as needed. All present -- creation rolls
- * every one.
+ * The eleven Knave traits, each stored as the full text that was rolled. The
+ * UI shortens them where needed. Creation rolls all eleven, so none is ever
+ * missing.
  */
 export interface CharacterTraits {
   physique: string;
@@ -48,10 +47,10 @@ export interface CharacterTraits {
 }
 
 /**
- * What the character currently has in hand and worn. Each slot holds the id of
- * an item in `inventory` (you can only equip what you carry). Validation lives in
- * the equip helpers below — a slot only accepts the right kind of item, and a
- * shield and a two-handed weapon cannot be equipped at once.
+ * What the character is holding and wearing. Each slot holds the id of an item
+ * in `inventory`, since you can only equip what you carry. The equip helpers
+ * below enforce the rules: each slot takes only its kind of item, and a shield
+ * can't be used with a two-handed weapon.
  */
 export interface EquippedSlots {
   weapon?: string;
@@ -63,59 +62,58 @@ export interface EquippedSlots {
 export type EquipSlot = keyof EquippedSlots;
 
 /**
- * Which set of creation rules made this character -- dice, swaps, points and
- * rerolls. See `character-creation.ts` for the table. Declared here rather than
- * there because `PlayerCharacter` carries it and that module already imports
- * this one; the other direction would be a cycle.
+ * Which set of creation rules made this character (how dice, swaps, points
+ * and rerolls work). `CREATION_RULES` in `character-creation.ts` has the
+ * details. The type is defined here, not there, because `PlayerCharacter`
+ * uses it and `character-creation.ts` already imports this file; importing
+ * the other way would create a cycle.
  *
- * Optional: the test character has no mode, and a missing one means nothing
- * more interesting than "we do not know".
+ * Optional: the test character has no mode, and a missing mode just means
+ * "unknown".
  */
 export type CreationMode = "normal" | "hardcore";
 
 export interface PlayerCharacter {
-  /** entity id -- inventory items point their parentId here */
+  /** the character's entity id; each inventory item's `parentId` is set to it */
   id: string;
   name: string;
-  /** Knave: level sets the ceiling on ability bonuses. */
+  /** Knave level, starting at 1. A level-up rolls this many d8s for maximum hit points. */
   level: number;
   /**
-   * Experience earned across every run this character has survived, in Knave's
-   * own units -- `XP_PER_LEVEL` is a level's worth.
+   * Total experience earned across every run this character survived.
+   * `XP_PER_LEVEL` in `level-up.ts` is one level's worth.
    *
-   * IT DOES NOT LEVEL THEM UP. Levelling is its own session and its own set of
-   * decisions (what a level costs, what it gives, whether the track at 1000 is
-   * the right track for a dungeon that pays out ~3000), and none of them are
-   * settled by adding a counter. This accumulates and is shown; `level` is still
-   * only moved by whatever lands next.
+   * It only ever goes up. Gaining XP doesn't change `level` by itself: the
+   * player takes each level they've earned on the level-up screen
+   * (`applyLevelUp` in `level-up.ts`).
    *
-   * ONLY A SURVIVOR EARNS IT. `carriedOut` is the one thing that writes this,
-   * and it is called on exactly the two endings that walk out of the dungeon.
+   * Only surviving a run earns XP. The one place that adds to it is
+   * `carriedOut` in `src/server/db/characters.ts`, which runs only when a run
+   * ends in `escaped` or `goal_met`.
    *
-   * Optional: every character made before the tally existed has none, and zero
-   * and "never scored a run" are the same thing for every purpose there is.
+   * Optional: characters made before XP existed don't have it, and missing
+   * means 0.
    */
   xp?: number;
-  /** How they were rolled up. Identity, and never writable at runtime. */
+  /** Which creation rules made the character. Nothing changes it during play. */
   mode?: CreationMode;
   hp: { current: number; max: number };
-  /** the six Knave abilities as BONUSES; the defense of each is bonus + 10 */
+  /** the six Knave abilities, stored as bonuses; each one's defense is bonus + 10 */
   abilities: CharacterAbilities;
   /** the eleven Knave traits */
   traits: CharacterTraits;
   /**
-   * Carried gear as full Item entities -- we need quality, weapon/armor, amount,
-   * etc., not just labels. Standard starting equipment will likely get a lighter
-   * treatment later so it is not verbose; that is a future change. Each item's
-   * parentId should be this character's id (addItem keeps that true).
+   * Everything carried, as full Item entities rather than names, because play
+   * needs each item's quality, weapon or armour stats, amount and so on. Each
+   * item's `parentId` is this character's id; `addItem` sets it.
    */
   inventory: IItem[];
-  /** what is wielded and worn -- ids into `inventory`; see the equip helpers */
+  /** what is held and worn, as ids of items in `inventory`; see the equip helpers */
   equipped: EquippedSlots;
   /**
-   * Descriptive status effects the model interprets freely -- "hungry",
-   * "poisoned", "blessed", "leg wound". No hard rules; the model reads them as
-   * fiction and applies them at its discretion.
+   * Free-text conditions such as "hungry", "poisoned", "blessed", "leg wound".
+   * No code enforces them; the game master reads them and decides what they
+   * mean in the story.
    */
   conditions: string[];
 }
@@ -128,7 +126,7 @@ export interface SlotReport {
   capacity: number;
   used: number;
   free: number;
-  /** carrying more than capacity -- Knave leaves the consequence to the table */
+  /** carrying more than capacity allows; Knave leaves the penalty up to the game master */
   overburdened: boolean;
 }
 
@@ -163,10 +161,10 @@ export function inventoryStatus(pc: PlayerCharacter): SlotReport {
 }
 
 /**
- * Add an item to the character's inventory, binding its parentId to the
- * character. Refuses (returns false) if it would exceed capacity, unless
- * `force` is set -- forcing leaves the character overburdened, which callers can
- * detect via isOverburdened().
+ * Adds an item to the inventory and sets its `parentId` to the character.
+ * Returns false and adds nothing if it wouldn't fit, unless `force` is set.
+ * Forcing it can leave the character overburdened, which `isOverburdened`
+ * reports.
  */
 export function addItem(pc: PlayerCharacter, item: IItem, opts: { force?: boolean } = {}): boolean {
   if (!opts.force && !canCarry(pc, item)) return false;
@@ -248,12 +246,11 @@ export function equip(pc: PlayerCharacter, slot: EquipSlot, itemId: string): Equ
 // ---------------------------------------------------------------------------
 
 /**
- * Which filled slots CANNOT stay filled if `itemId` goes into `slot`.
+ * Which filled slots would have to be emptied for `itemId` to go into `slot`.
  *
- * Only one rule in Knave: a shield and a two-handed weapon need three hands
- * between them. It is symmetric — taking up the halberd puts the shield away,
- * and taking up the shield puts the halberd away — because both are the same
- * physical fact stated from opposite ends.
+ * Knave has only one such rule: a shield and a two-handed weapon would need
+ * three hands. It works both ways: equipping a halberd puts the shield away,
+ * and equipping a shield puts the halberd away.
  */
 export function conflictingSlots(pc: PlayerCharacter, slot: EquipSlot, itemId: string): EquipSlot[] {
   const item = heldItem(pc, itemId);
@@ -270,17 +267,17 @@ export interface EquipOutcome extends EquipCheck {
 }
 
 /**
- * Equip, clearing whatever the new arrangement contradicts.
+ * Equips an item, first unequipping anything it conflicts with.
  *
- * This is what the diff applier calls. A diff states the destination — "the
- * halberd is now in their hands" — and it is this function's job to work out
- * everything that has to be true for that, rather than the game master's job to
- * remember to put the shield away first and lose a round trip when it forgets.
+ * The diff applier calls this. A diff states the end result ("the halberd is
+ * now in their hands"), and this function makes the rest true, so the game
+ * master doesn't have to remember to put the shield away first, and a turn
+ * isn't wasted on a refusal when it forgets.
  *
- * `canEquip` stays strict and is still the right question for a UI asking
- * "is this legal right now"; the failures it reports that this cannot resolve
- * — an item not carried, the wrong kind of thing for the slot — remain
- * failures here.
+ * `canEquip` is still the strict check, for a UI asking "is this allowed right
+ * now". Problems this function can't fix, such as an item that isn't carried
+ * or the wrong kind of item for the slot, still fail here, and nothing is
+ * changed.
  */
 export function equipResolving(pc: PlayerCharacter, slot: EquipSlot, itemId: string): EquipOutcome {
   const displaced = conflictingSlots(pc, slot, itemId);
@@ -289,7 +286,7 @@ export function equipResolving(pc: PlayerCharacter, slot: EquipSlot, itemId: str
 
   const check = canEquip(pc, slot, itemId);
   if (!check.ok) {
-    // Put back what we moved: a refusal must change nothing.
+    // Re-equip what was just put away, so a refusal changes nothing.
     for (const [s, id] of before) if (id !== undefined) pc.equipped[s] = id;
     return { ...check, displaced: [] };
   }
@@ -330,10 +327,10 @@ export function rangedAttackBonus(pc: PlayerCharacter): number {
 }
 
 /**
- * The character's armor defense — the number a foe must meet to hit them.
- * Starts from the item in the **armor** slot (its `armor.defense`), or 11 when
- * the slot is empty, then +1 for an equipped helmet and +1 for an equipped
- * shield. Parallels the creature-side `armorDefense(stats)` in dungeon-entities.
+ * The character's armour defense, which an attacker must beat to hit them.
+ * It is the body armour's `armor.defense` (11 with no body armour), plus 1 for
+ * a helmet and 1 for a shield. The creature version is `armorDefense` in
+ * `src/shared/world/entities.ts`.
  */
 export function armorDefense(pc: PlayerCharacter): number {
   const worn = heldItem(pc, pc.equipped.armor);
@@ -347,7 +344,7 @@ export function armorDefense(pc: PlayerCharacter): number {
 // DISPLAY
 // ===========================================================================
 
-/** A one-line label for an item, terse enough for the PC block in a prompt. */
+/** A short one-line description of an item, for the character sheet in a prompt. */
 export function itemSummary(it: IItem): string {
   const bits: string[] = [it.name || "unnamed item"];
   if (it.amount) bits.push(`(${it.amount})`);

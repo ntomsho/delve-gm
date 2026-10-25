@@ -1,35 +1,35 @@
 /**
- * DICE
- * ====
+ * Dice: the Knave 1.0 rolls.
  *
- * Every number in the game comes from here. The model never states one it did
- * not receive from these functions.
+ * Every die roll in play comes from these functions. The model only reports
+ * numbers it was given; it never makes one up.
  *
- * ONE THRESHOLD CONVENTION. Knave phrases success as "greater than" a target;
- * the game master's playbook phrases it as a DC of 16. They are the same rule, and
- * the model reads the playbook — so the code takes a DC and succeeds on
- * `total >= dc`. The one place the two meet is `dcFromDefense`: a *contest*
- * must exceed the opposing defense, so attacks and stunts convert internally
- * and no caller ever writes `+ 1` by hand.
+ * All rolls succeed on `total >= dc`. Knave says a save must beat 15; the game
+ * master's prompt calls that a DC of 16, and the code uses the prompt's
+ * convention. Attacks and stunts are different: in Knave they must beat the
+ * target's defense. `dcFromDefense` converts a defense into a DC by adding 1,
+ * so no caller has to add it themselves.
  *
- * These functions are pure. They report that a critical happened; they do not
- * spend the quality point, because quality lives on an entity and this file
- * knows nothing about entities.
+ * These functions don't change anything. A critical is reported, but the
+ * point of item quality it costs is spent elsewhere (by the game master's
+ * diff), because quality belongs to an entity and this file knows nothing
+ * about entities.
  */
 
 import type { RollRng } from "../../shared/utils/rng.ts";
 
 export type Edge = "none" | "advantage" | "disadvantage";
 
-/** An ordinary save. Knave: beat 15, i.e. meet 16. */
+/** The DC of an ordinary save. Knave says "beat 15", which is the same as "meet 16". */
 export const ORDINARY_DC = 16;
 
-/** Default 2d6 morale rating. */
+/** The morale rating a group has unless it says otherwise; morale rolls 2d6 against it. */
 export const DEFAULT_MORALE = 7;
 
 /**
- * A defense used as a roll target. Knave contests must EXCEED the defense, so
- * meeting `defense + 1` is the same bar. The only `+1` in the codebase.
+ * Converts a defense into a DC. In Knave an attack or stunt must exceed the
+ * target's defense, which is the same as meeting `defense + 1`. This is the
+ * only place in the codebase that adds that 1.
  */
 export function dcFromDefense(defense: number): number {
   return defense + 1;
@@ -53,9 +53,9 @@ export interface D20Result {
 }
 
 /**
- * Advantage and disadvantage are roll-two-keep-best / keep-worst, on the d20
- * only — never on damage. A natural 20 or 1 is read off the die that counts,
- * not off whichever die happened to show it.
+ * Rolls a d20. With advantage, roll two and keep the higher; with
+ * disadvantage, keep the lower. (Damage dice never get advantage.) A natural
+ * 20 or 1 counts only if it is on the kept die.
  */
 export function d20(rng: RollRng, edge: Edge = "none"): D20Result {
   const rolled = edge === "none" ? [die(rng, 20)] : [die(rng, 20), die(rng, 20)];
@@ -100,8 +100,8 @@ export function parseDamage(expr: string): DamageSpec {
 }
 
 /**
- * `extraDice` adds dice of the weapon's own type — a natural 20, or the right
- * weapon against the right enemy. Damage never takes advantage.
+ * Rolls damage. `extraDice` adds more dice of the same size, for a natural 20
+ * or for a weapon well suited to the enemy. The total is never below 0.
  */
 export function rollDamage(rng: RollRng, expr: string, extraDice = 0): DamageResult {
   const { count, sides, flat } = parseDamage(expr);
@@ -123,12 +123,13 @@ export interface RollOutcome extends D20Result {
 }
 
 /**
- * The contest underneath all three: d20 + bonus against a number to meet.
+ * The basic roll behind saves, attacks and stunts: d20 + bonus, succeeding on
+ * a total of at least `dc`.
  *
- * Exported because the turn machine resolves a `RollSpec` whose `dc` has
- * already been converted from a defense by whoever offered the roll — so it
- * needs the bare contest, and taking it from here keeps `dcFromDefense` the
- * only place a defense turns into a target.
+ * Exported for the turn machine (`src/gameplay/turn.ts`). When it rolls the
+ * player's offered roll, the `RollSpec.dc` was already converted from a
+ * defense when the roll was offered, so it needs this plain version rather
+ * than `attackRoll` or `stuntRoll`, which would convert again.
  */
 export function checkRoll(rng: RollRng, bonus: number, dc: number, edge: Edge = "none"): RollOutcome {
   const roll = d20(rng, edge);
@@ -137,21 +138,21 @@ export function checkRoll(rng: RollRng, bonus: number, dc: number, edge: Edge = 
 }
 
 /**
- * A save. `dc` defaults to the ordinary 16; when a creature is the source of
- * the risk, pass `dcFromDefense(creatureDefense)` instead — that is also how an
- * opposed save is expressed, since a defense is always bonus + 10.
+ * A save. `dc` defaults to the ordinary 16. When a creature causes the danger,
+ * pass `dcFromDefense(creatureDefense)` instead. That also covers a save
+ * opposed by a creature, because in Knave a defense is always bonus + 10.
  */
 export function saveRoll(rng: RollRng, bonus: number, dc: number = ORDINARY_DC, edge: Edge = "none"): RollOutcome {
   return checkRoll(rng, bonus, dc, edge);
 }
 
 /**
- * Which items a critical costs, and how much extra damage it deals.
+ * Which items a critical damages, and how many extra damage dice it adds.
  *
- * Knave's rule is symmetric across attacker and defender, but every roll in
- * this game is made by the attacker — creature turns resolve inside the action,
- * and stopping to ask the player for a defense roll would break the turn apart.
- * So only the attacker's two branches are reachable.
+ * Knave's critical rules cover both an attack roll and a defense roll. This
+ * game only ever has the attacker roll: creatures act during the player's
+ * turn, and stopping to ask the player for a defense roll would split the turn
+ * in two. So only the attacker's two cases can happen.
  */
 export interface CritEffects {
   /** natural 20: the defender's armor loses a point of quality */
@@ -177,7 +178,7 @@ export interface AttackOptions {
   edge?: Edge;
   /** the weapon's die, e.g. "1d8"; omit for a stunt or an attack that deals none */
   damage?: string;
-  /** the right weapon for the enemy — a blunt weapon against a skeleton */
+  /** the weapon is well suited to this enemy, like a blunt weapon against a skeleton */
   wellSuited?: boolean;
 }
 
@@ -188,9 +189,9 @@ export interface AttackResult extends RollOutcome {
 }
 
 /**
- * An attack. Takes the target's DEFENSE, not a DC — that is the vocabulary the
- * playbook uses. Rolls its own damage on a hit, including the extra die for a
- * natural 20 and for a well-suited weapon.
+ * An attack. Takes the target's defense rather than a DC, because that is what
+ * the prompt talks in. On a hit it also rolls the damage, adding a die for a
+ * natural 20 and another for a well-suited weapon.
  */
 export function attackRoll(rng: RollRng, opts: AttackOptions): AttackResult {
   const outcome = checkRoll(rng, opts.bonus, dcFromDefense(opts.targetDefense), opts.edge ?? "none");
@@ -203,12 +204,13 @@ export function attackRoll(rng: RollRng, opts: AttackOptions): AttackResult {
 }
 
 /**
- * A stunt — stunning, shoving, disarming, tripping, sundering. Resolved as a
- * contest against the target's defense and dealing no damage of its own.
+ * A stunt: stunning, shoving, disarming, tripping, breaking a weapon or shield.
+ * Rolled against the target's defense, and deals no damage.
  *
- * A player with advantage may instead spend it to stunt AND deal damage on the
- * same hit; the playbook passes `edge: "none"` in that case, because the
- * advantage bought the combination rather than a reroll.
+ * A player with advantage can spend it to stunt and deal damage on the same
+ * hit instead of rolling twice. In that case the prompt
+ * (`src/prompts/game-master/steps/4-confirm-and-roll.md`) tells the game
+ * master to set `edge` to `"none"`.
  */
 export function stuntRoll(rng: RollRng, bonus: number, targetDefense: number, edge: Edge = "none"): RollOutcome {
   return checkRoll(rng, bonus, dcFromDefense(targetDefense), edge);
@@ -221,16 +223,16 @@ export function stuntRoll(rng: RollRng, bonus: number, targetDefense: number, ed
 export interface MoraleResult {
   rolled: [number, number];
   total: number;
-  /** they stand; false means they flee, retreat, or parley */
+  /** true if they keep fighting; false means they flee, retreat or try to talk */
   holds: boolean;
 }
 
 /**
- * 2d6 against the group's morale rating. They break when the roll comes up
- * HIGHER than the rating, so equalling it still holds.
+ * A morale check: 2d6 against the group's morale rating. They break only if
+ * the roll is higher than the rating, so rolling exactly the rating holds.
  *
- * Triggered by half the group falling, the leader going down, or a lone
- * creature dropping to half its hit points.
+ * Knave calls for one when half a group has fallen, when its leader falls, or
+ * when a lone creature drops to half its hit points.
  */
 export function moraleRoll(rng: RollRng, rating: number = DEFAULT_MORALE): MoraleResult {
   const rolled: [number, number] = [die(rng, 6), die(rng, 6)];
@@ -243,25 +245,23 @@ export function moraleRoll(rng: RollRng, rating: number = DEFAULT_MORALE): Moral
 // ---------------------------------------------------------------------------
 
 export interface ConsultResult {
-  /** consultations made, this one included */
+  /** how many times the book has been read, counting this time */
   uses: number;
   rolled: number;
-  /** this reading was the last the book had in it */
+  /** this was the last useful reading; the book has nothing more to give */
   exhausted: boolean;
 }
 
 /**
- * A book gives up what it has, and then it has no more.
+ * Reading a book: each reading may use it up.
  *
- * Add one to the count of readings, roll a d6, and the book is spent when the
- * die comes up at or under that count. Nothing decides in advance how much is
- * in a book: the first reading is safe five times in six, the third is even
- * money, the sixth is certain, and the expected book answers between two and
- * three questions.
+ * Add one to the number of readings so far, then roll a d6. If the roll is
+ * at or below that count, this reading was the book's last. The first reading
+ * uses it up one time in six, the third half the time, and the sixth always.
+ * On average a book answers two or three questions.
  *
- * The roll happens at the READING, not at the writing — which is the difference
- * between a book whose depth is a fact about the world and one whose depth is
- * found out by using it. Only the second can surprise the person holding it.
+ * How much a book holds is not decided when it is generated; it is rolled as
+ * the player reads. That way the player finds out by using the book.
  */
 export function consultRoll(rng: RollRng, priorUses = 0): ConsultResult {
   const uses = Math.max(0, priorUses) + 1;

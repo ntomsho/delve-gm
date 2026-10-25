@@ -122,6 +122,25 @@ export async function getDungeon(
   return row;
 }
 
+/**
+ * Complete dungeons by row id, whoever owns them, for the landing page's
+ * pictures (`server/illustrations/showcase.ts`).
+ *
+ * A CROSS-OWNER READ OF `doc`, AND IT NEVER LEAVES THE SERVER. The pictures are
+ * worked out from the document — which room, drawn from which door — and only
+ * the picture's URL and the room's and dungeon's names are sent on, which is
+ * what the player who walked in was shown anyway.
+ */
+export async function getCompleteDungeons(
+  ids: string[],
+  sql: postgres.Sql = db()
+): Promise<Pick<StoredDungeon, "id" | "doc" | "cover">[]> {
+  if (!ids.length) return [];
+  return sql<Pick<StoredDungeon, "id" | "doc" | "cover">[]>`
+    select id, doc, cover from dungeons where status = 'complete' and id in ${sql(ids)}
+  `;
+}
+
 /** The player's own worlds, newest first. Summaries — nobody needs six `doc`s. */
 export async function listDungeons(
   owner: string,

@@ -54,11 +54,7 @@ import type { DiceOutcome } from "../rules/knave/roll-tool.ts";
 // THE SEAM
 // ---------------------------------------------------------------------------
 
-/**
- * A roll the player has already made — now defined beside `RollSpec` in
- * `types.ts`, and re-exported here because four files import it from this one
- * and the type did not change.
- */
+/** Defined in `src/shared/types/turn.ts`; re-exported for existing importers. */
 export type { RolledOutcome } from "../shared/types/turn.ts";
 
 export interface GameMasterRequest {

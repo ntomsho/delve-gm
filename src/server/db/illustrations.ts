@@ -81,3 +81,19 @@ export async function saveIllustrationWords(key: string, value: string, sql: pos
 export async function setDungeonCover(id: string, key: string, sql: postgres.Sql = db()): Promise<void> {
   await sql`update dungeons set cover = ${key} where id = ${id} and cover is null`;
 }
+
+/** Of these keys, the ones whose picture is drawn, with where it is stored. */
+export async function readyIllustrations(keys: string[], sql: postgres.Sql = db()): Promise<Map<string, string>> {
+  if (!keys.length) return new Map();
+  const rows = await sql<{ key: string; path: string }[]>`
+    select key, path from plates where status = 'ready' and path is not null and key in ${sql(keys)}
+  `;
+  return new Map(rows.map((r) => [r.key, r.path]));
+}
+
+/** Of these keys, the shared words kept under each — see `plate_words`. */
+export async function illustrationWordsFor(keys: string[], sql: postgres.Sql = db()): Promise<Map<string, string>> {
+  if (!keys.length) return new Map();
+  const rows = await sql<{ key: string; value: string }[]>`select key, value from plate_words where key in ${sql(keys)}`;
+  return new Map(rows.map((r) => [r.key, r.value]));
+}

@@ -608,19 +608,24 @@ export function farSide(c: IRoomConnector, roomId: string): string | null {
 // ---------------------------------------------------------------------------
 
 /**
- * An entity's standing prose identity, wherever it happens to live.
+ * An entity's base: the fixed prose that says what it is.
  *
- * Three storage sites, because three kinds of thing share identity differently:
+ * The base is stored in one of four places, checked in this order:
  *
- *   inline `base`          a one-off -- a room, a connector, a named person who
- *                          is nobody but themselves
- *   registry.groups[id]    one of a rolled population; every instance shares it
- *   registry.creatures[id] a one-off creature template -- an elite, a loose
- *   registry.hazards[id]   seed, the goal creature; a hazard's shared effect
+ *   1. `e.base`, on the entity itself. Used by things nothing else shares
+ *      a description with: a room, a connector, a named person. It wins
+ *      over the registry, so a named member of a group keeps their own
+ *      description instead of the group's.
+ *   2. `registry.hazards[id]`, for hazards. Holds the effect every instance
+ *      of that hazard shares.
+ *   3. `registry.groups[id]`, for a member of a rolled population. Every
+ *      member shares the group's description.
+ *   4. `registry.creatures[id]`, for a one-off creature template: an elite,
+ *      a loose seed, the goal creature.
  *
- * Inline wins, so a named member of a people group keeps their own identity
- * rather than the group's. Returns undefined only when generation left the
- * entity unwritten, which `validateWritten` treats as a hard failure.
+ * `id` is the entity's blueprint id. Returns undefined only when generation
+ * never wrote a base for the entity; `validateWritten` treats that as a
+ * hard failure.
  */
 export function resolveBase(e: IEntity, reg: TemplateRegistry): string | undefined {
   if (e.base !== undefined) return e.base;
@@ -698,7 +703,7 @@ export function setIsHidden(e: IEntity, hidden: boolean): void {
 /**
  * Whether this owes the player fresh prose.
  *
- * `undefined` means never described, and so yes. `false` is a settled state,
+ * `undefined` means never described. `false` is a settled state,
  * reached either by writing a description or by concealing the thing. `true`
  * means the description is out of date.
  */

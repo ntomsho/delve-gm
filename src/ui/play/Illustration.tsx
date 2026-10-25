@@ -35,7 +35,8 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { IllustrationAnswer, IllustrationSpot } from "../../illustrations/room-illustration.ts";
 import type { SpriteAnswer } from "../../illustrations/sprites.ts";
 import type { Shape } from "../../generation/floorplan/map-layout.ts";
-import { figureHeight, type IllustrationFigure } from "../../illustrations/figures.ts";
+import type { IllustrationFigure } from "../../illustrations/figures.ts";
+import { inkStyle, StandingFigure } from "../shared/ink.tsx";
 import type { HotspotEdge } from "../../illustrations/hotspots.ts";
 import type { MapView } from "../../gameplay/view/map.ts";
 import type { FixtureShape } from "../../gameplay/view/map.ts";
@@ -49,28 +50,6 @@ import type { Verb } from "./verbs.ts";
 const ILLUSTRATION_POLL_MS = 4000;
 /** Asks before giving up on a pending illustration: past the server's stale-claim timeout. */
 const ILLUSTRATION_POLL_TRIES = 50;
-
-/**
- * A stored illustration or cover laid down as ink: the page's ink colour, masked by
- * the picture. No box, no paper of its own. `className` sets the size.
- */
-export function Ink({ url, className = "", label }: { url: string; className?: string; label?: string }) {
-  return <div className={className} style={inkStyle(url)} {...(label ? { role: "img", "aria-label": label } : {})} />;
-}
-
-function inkStyle(url: string) {
-  return {
-    backgroundColor: "var(--color-ink)",
-    maskImage: `url("${url}")`,
-    WebkitMaskImage: `url("${url}")`,
-    maskSize: "contain",
-    WebkitMaskSize: "contain",
-    maskRepeat: "no-repeat",
-    WebkitMaskRepeat: "no-repeat",
-    maskPosition: "center",
-    WebkitMaskPosition: "center",
-  };
-}
 
 type Pt = { x: number; y: number };
 
@@ -375,59 +354,14 @@ function useAnswer<T extends { status: string }>(id: string, load: () => Promise
   return answer;
 }
 
-/** One coat of a sprite: the page's paper or ink, masked by one half of the stored image. */
-function coat(url: string, fill: string, half: "body" | "ink") {
-  const position = half === "body" ? "0% 0%" : "100% 0%";
-  return {
-    backgroundColor: fill,
-    maskImage: `url("${url}")`,
-    WebkitMaskImage: `url("${url}")`,
-    maskSize: "200% 100%",
-    WebkitMaskSize: "200% 100%",
-    maskPosition: position,
-    WebkitMaskPosition: position,
-    maskRepeat: "no-repeat",
-    WebkitMaskRepeat: "no-repeat",
-  };
-}
-
 /**
  * One creature, feet at its point. Laid down only once its sprite is drawn and
  * its shape known; until then the room shows without it, as it did before.
  */
 function Figure({ figure, sprite }: { figure: IllustrationFigure; sprite: (spriteId: string) => Promise<SpriteAnswer> }) {
   const answer = useAnswer(figure.sprite, () => sprite(figure.sprite));
-  // Width over height of one half of the stored image: the figure's own shape.
-  const [aspect, setAspect] = useState<number>();
-  const url = answer.status === "ready" ? answer.url : undefined;
-  useEffect(() => {
-    if (!url) return;
-    let live = true;
-    const img = new Image();
-    img.onload = () => live && img.naturalHeight > 0 && setAspect(img.naturalWidth / 2 / img.naturalHeight);
-    img.src = url;
-    return () => {
-      live = false;
-    };
-  }, [url]);
-  if (answer.status !== "ready" || !aspect) return null;
-  const tall = figureHeight(figure, answer.size);
-  return (
-    <div
-      className="pointer-events-none absolute"
-      data-figure={figure.sprite}
-      style={{
-        left: `${figure.x * 100}%`,
-        top: `${figure.y * 100}%`,
-        height: `${tall * 100}%`,
-        aspectRatio: String(aspect),
-        transform: `translate(-50%, -100%)${figure.flop ? " scaleX(-1)" : ""}`,
-      }}
-    >
-      <div className="absolute inset-0" style={coat(answer.url, "var(--color-paper)", "body")} />
-      <div className="absolute inset-0" style={coat(answer.url, "var(--color-ink)", "ink")} />
-    </div>
-  );
+  if (answer.status !== "ready") return null;
+  return <StandingFigure figure={figure} url={answer.url} size={answer.size} />;
 }
 
 /** Every figure, back to front as `illustrationFigures` ordered them. */

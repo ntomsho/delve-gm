@@ -1,23 +1,25 @@
 /**
- * CHALLENGES: what a dungeon asks of the player, and what a run has done about it.
+ * Challenges: what a dungeon asks of the player, and what a run has done about
+ * them. See docs/ARCHITECTURE.md section 8.
  *
- * The shapes only. Generation builds the challenges and the reserve
- * (`generation/content/challenges.ts`, `rewards.ts`); play keeps the ledger
- * (`gameplay/mechanics/challenges.ts`); the tally reads it. They live here
- * because the world a diff can touch (`shared/types/commit.ts`) holds all three.
+ * This file holds only the types. Generation builds the challenges and the
+ * reserve (`src/generation/content/challenges.ts` and `rewards.ts`). During
+ * play, `src/gameplay/mechanics/challenges.ts` keeps the ledger, and the
+ * end-of-run tally reads it. The types are in `shared/` because `World` in
+ * `src/shared/types/commit.ts` holds all three.
  */
 
 import type { Rolled } from "../utils/rng.ts";
 
 /**
- * One row of the table in the spec. Each names a source and the property on it
- * that a key can answer.
+ * The kinds of challenge. Each names a kind of thing and the property of it
+ * that a key can answer, such as a creature's weakness or a blocked way.
  *
- * `goal-property` is DECLARED BUT NOT ENUMERATED HERE. The goal's form is the
- * content pass's call -- `GoalDirective` deliberately does not pick an entity
- * type -- so its keyable properties do not exist until that pass has run, and
- * the keys pass is the first point at which they can be minted. The member is
- * here so that everything reading a challenge already handles the kind.
+ * `goal-property` challenges are not created with the others in
+ * `src/generation/content/challenges.ts`. The content pass decides what the
+ * goal is (`GoalDirective` doesn't fix its entity type), so its properties
+ * aren't known until that pass has run. The keys pass
+ * (`src/generation/content/passes/keys-pass.ts`) creates them afterwards.
  */
 export type ChallengeKind =
   | "creature-weakness"
@@ -36,48 +38,50 @@ export type ChallengeKind =
 export type ChallengeTarget = "mobile" | "connector" | "room" | "chunk";
 
 export interface Challenge {
-  /** derived from target and property position; stable across regeneration */
+  /** built from the target and the property's position, so regenerating from the same seed gives the same id */
   id: string;
   kind: ChallengeKind;
   target: ChallengeTarget;
   /**
-   * The stocking-level id: a `MobileEntity.id`, a `StockedConnector.id`, or a
-   * `RoomStock.roomId`. Chunk targets carry the chunk number as a string and
-   * `chunk` alongside it.
+   * The id from stocking (the generation step that fills rooms): a
+   * `MobileEntity.id`, a `StockedConnector.id` or a `RoomStock.roomId`. For a
+   * chunk target it is the chunk number as a string, and `chunk` holds the
+   * number too.
    */
   targetId: string;
   /**
-   * Where the player meets it. For a way, the SHALLOWER endpoint -- the side
-   * they arrive from. For a region, the shallowest room in the chunk.
+   * The room where the player meets it. For a way between rooms, this is the
+   * end nearer the entrance, the side the player arrives from. For a region,
+   * it is the room in the chunk nearest the entrance.
    */
   roomId: string;
   /** set on region challenges only */
   chunk?: number;
   /**
-   * Region challenges only: every room the chart covers.
+   * Region challenges only: every room the region's chart covers.
    *
-   * Carried on the challenge rather than looked up later because by the time a
-   * region key is drawn there is nothing left holding the chunk map — `RoomStock`
-   * belongs to generation and the runtime world has entities, which do not know
-   * which chunk they were written in. It is one array on one challenge per
-   * region, and it is what `mapped` is filled from.
+   * Stored here because nothing at play time can work it out. The chunk map
+   * (`RoomStock`) only exists during generation, and runtime entities don't
+   * record which chunk they came from. When the region key is drawn,
+   * `ChallengeState.mapped` is filled from this list.
    */
   roomIds?: string[];
   /**
-   * The rolled fact being keyed, verbatim: the weakness, the ability, the
-   * liability, the hazard, the puzzle's subject. Exact wording matters -- it is
-   * what a drawn key restates and what stops the fact drifting between calls.
+   * The rolled fact a key answers, word for word: the weakness, the ability,
+   * the liability, the hazard, the puzzle's subject. The exact wording matters:
+   * a drawn key repeats it, which keeps the fact the same from one model call
+   * to the next.
    */
   property: Rolled;
 }
 
 /**
- * A challenge with no placed key, held for a draw in play.
+ * A challenge whose key wasn't placed in a room, kept so the game master can
+ * hand it out during play (`Commit.draw`).
  *
- * PURE GENERATION DATA. No prose -- a reserve entry is written only when it is
- * drawn, so its form can match what the player is doing at the moment they get
- * it: information from an NPC mid-conversation, an object in the cabinet they
- * are searching.
+ * It holds only the fact, no prose. The game master writes the key when it is
+ * drawn, in a form that fits what the player is doing: something an NPC says
+ * in conversation, an object in the cabinet they're searching.
  */
 export interface ReserveEntry {
   challengeId: string;
@@ -90,25 +94,25 @@ export interface ReserveEntry {
 /** One thing the player did with a challenge in front of them. */
 export interface LedgerAction {
   turn: number;
-  /** what they did, in their own words — the action line, not a narration */
+  /** what the player did, as they typed it, not the narration */
   action: string;
   roll?: { kind: string; total: number; success: boolean };
-  /** hit points lost on this turn, if any. Risk is what the tally prices. */
+  /** hit points lost this turn, if any. The tally counts risk taken when it awards experience. */
   damageTaken?: number;
 }
 
 /**
- * A challenge's whole history.
+ * Everything the run has recorded about one challenge.
  *
- * `metTurn` is what makes bypass inferable: a creature the player met on turn 4
- * and never resolved, who then reached the goal on turn 20, got past it
- * somehow. A creature they met and fled from and never got past has no later
- * accomplishment to point at, and is correctly not credited.
+ * `metTurn` lets the tally tell when a challenge was bypassed. If the player
+ * met a creature on turn 4, never dealt with it, and reached the goal on turn
+ * 20, they got past it somehow and get credit. If they met it, fled, and never
+ * achieved anything beyond it, they get none.
  */
 export interface LedgerEntry {
   challengeId: string;
   kind: ChallengeKind;
-  /** the turn the player was first in the room with it */
+  /** the turn the player was first in the same room as it */
   metTurn?: number;
   /** the turn it was resolved outright, if it was */
   resolvedTurn?: number;
@@ -122,24 +126,27 @@ export interface DrawnKey {
   challengeId: string;
   turn: number;
   kind: "information" | "object";
-  /** the entity minted for it, when the draw put it in the world as a thing */
+  /** the entity created for it, when the key was a physical object */
   entityId?: string;
 }
 
 /**
- * Everything the run accumulates about its challenges.
+ * Everything the run records about its challenges.
  *
- * FIRST-CLASS RUN STATE, not the journal. The journal defaults to no sink and is
- * explicitly shaped for nobody, so the tally could not read from it — and the
- * tally is the whole reason any of this is written down.
+ * This is saved as part of the run, not written to the journal. The journal is
+ * a debugging record that by default writes nowhere (`NO_JOURNAL`), so the tally can't
+ * rely on it, and the tally is what this record is for.
  */
 export interface ChallengeState {
   drawn: DrawnKey[];
   /** challenge ids whose fact the player has been told, in the order told */
   known: string[];
-  /** rooms a region key put on the map. DISPLAY ONLY — see `mapped` in the spec */
+  /**
+   * Rooms a region key put on the map. Only the map display reads this; the
+   * player still can't travel to a room they have never entered.
+   */
   mapped: string[];
   ledger: LedgerEntry[];
-  /** what is left of the 10% held out of the pot, in copper */
+  /** copper left in the coin allowance (10% of the dungeon's wealth, held back at generation) */
   allowanceLeft: number;
 }

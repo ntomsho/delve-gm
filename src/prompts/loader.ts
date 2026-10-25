@@ -1,36 +1,32 @@
 /**
- * EVERY INSTRUCTION TO A MODEL, AS TEXT
- * =====================================
+ * Loads every prompt the app sends to a model.
  *
- * Prompts are prose the model performs, not code, so they live in the repo as
- * markdown and are imported raw — here and nowhere else. Vite's `?raw` works
- * identically under vitest, which is what lets prompt assembly be
- * snapshot-tested headlessly; plain `node` needs the hook in `dev/lib/raw-md.ts`.
+ * Prompts are text for the model to follow, not code, so they are kept as
+ * markdown files and imported as raw strings. This is the only file that
+ * imports them. Vite's `?raw` import also works under vitest, so prompt
+ * building can be snapshot-tested without a browser. Plain `node` needs the
+ * loader hook in `src/dev/lib/raw-md.ts`.
  *
- * AS THE MODEL READS IT. `text()` gives every file LF line endings, whatever the
- * checkout did, and drops the newline the file ends on. That matters beyond
- * tidiness: the illustration and sprite cache keys hash some of this text, so a
- * `\r` from a Windows checkout would give every local image a different key
- * from production's.
+ * Line endings are always converted to LF, whatever the checkout did (`lf`
+ * and `text` below). This matters: the illustration and sprite cache keys
+ * hash some of this text, so a `\r` from a Windows checkout would give every
+ * locally drawn image a different key from production's.
  *
- * THE GAME MASTER'S PLAYBOOK comes first, then the generation passes, the tally,
- * and the illustration and sprite prompts.
+ * The file is in four sections: the game master's prompts, the generation
+ * passes, the tally, and the illustration and sprite prompts.
  *
- * WHICH FILES LOAD, AND WHY IT IS NOT ONE.
+ * The game master is not sent every step file on every call, only the ones
+ * the current step can lead to (docs/ARCHITECTURE.md section 5.3). That is
+ * usually more than one file. A new action runs steps 1, 2 and 3 in one call:
+ * the game master finds what the action is aimed at, checks it, classifies
+ * it, and then either lets it happen or offers a roll, all before the player
+ * hears back. Sending only step 1 would leave it with no instructions for
+ * what comes next.
  *
- * ARCHITECTURE §5.3 says to load the current step's file and not the whole
- * playbook, and that is the rule this implements — but the unit is the ENTRY
- * POINT, not the single file. A fresh action runs steps 1, 2 and 3 inside one
- * call: the game master finds the target, judges it, classifies it, and either lets
- * it happen or puts a roll on the table, all before the player is spoken to
- * again. Handing it step 1 alone would leave it at the end of that file with
- * nowhere to go.
- *
- * So each entry point carries the chain reachable from it, and nothing else.
- * The saving is real and it is where the plan expected it: a fresh action never
- * loads step 4 or step 5, a roll confirmation loads only step 4, a resolution
- * only step 5, and a room entry only its own file — which is most of the
- * playbook left on the shelf on every call.
+ * So each step sends the chain of files reachable from it (`CHAIN` below). A
+ * new action never loads steps 4 or 5, a roll confirmation loads only step 4,
+ * a resolution only step 5, and a room entry only its own file, so most of
+ * the step files are left out of every call.
  */
 
 import type { Step } from "../shared/types/turn.ts";
@@ -70,24 +66,24 @@ import ILLUSTRATIONS_SPRITE_GRIT_MD from "./illustrations/sprite-grit.md?raw";
 import ILLUSTRATIONS_SPRITE_LOOK_SYSTEM_MD from "./illustrations/sprite-look-system.md?raw";
 
 /**
- * The playbook as it is sent: LF line endings, and its final newline kept,
- * because production has always sent it and the prompt cache's prefix is
- * matched byte for byte.
+ * Normalises a game master prompt file: LF line endings, keeping the final
+ * newline. The newline is kept because production has always sent it, and
+ * changing the text at all would stop the prompt cache matching.
  */
 function lf(raw: string): string {
   return raw.replace(/\r\n/g, "\n");
 }
 
-/** Any other prompt file as the model reads it: LF line endings, without the final newline. */
+/** Normalises any other prompt file: LF line endings, with the final newline removed. */
 function text(raw: string): string {
   const lf = raw.replace(/\r\n/g, "\n");
   return lf.endsWith("\n") ? lf.slice(0, -1) : lf;
 }
 
 /**
- * A template with its `{{name}}` slots filled. Every slot must be given a value
- * and every value must have a slot, so a renamed slot or a stale value is an
- * error at load rather than a prompt with a hole in it.
+ * Fills a template's `{{name}}` placeholders. Every placeholder must have a
+ * value and every value must have a placeholder, so a renamed placeholder or a
+ * leftover value throws, instead of sending a prompt with a gap in it.
  */
 export function fill(template: string, values: Record<string, string>): string {
   const slots = new Set([...template.matchAll(/\{\{(\w+)\}\}/g)].map((m) => m[1]));
@@ -100,7 +96,7 @@ export function fill(template: string, values: Record<string, string>): string {
 // THE GAME MASTER'S PLAYBOOK
 // ---------------------------------------------------------------------------
 
-/** The standing instructions: the conventions, the commit, and the dice tool. */
+/** The game master's main prompt, sent on every call: the conventions, the commit and the `roll` tool. */
 export const SKILL = lf(SKILL_MD);
 
 const STEP_1_TARGET = lf(STEP_1_TARGET_MD);
@@ -113,23 +109,24 @@ const STEP_5_RESOLUTION = lf(STEP_5_RESOLUTION_MD);
 const STEP_ROOM_ENTRY = lf(STEP_ROOM_ENTRY_MD);
 
 const CHAIN: Record<Step, readonly string[]> = {
-  // A fresh action, from the top. Runs to a roll offer, a rejection, a
-  // question, or a completed no-stakes action.
+  // A new action, from the start. Ends with a roll offered, the action
+  // rejected, a question to the player, or an action with nothing at stake
+  // carried out.
   "1-target": [STEP_1_TARGET, STEP_2_CLASSIFY, STEP_3_DISPATCH, STEP_3_INFORMATION, STEP_3_STANDARD],
-  // The player has answered a question about the target. Same chain, minus the
-  // step that asked.
+  // The player has answered a question about what the action is aimed at.
+  // The same chain without step 1, which asked it.
   "2-classify": [STEP_2_CLASSIFY, STEP_3_DISPATCH, STEP_3_INFORMATION, STEP_3_STANDARD],
   "3-information": [STEP_3_INFORMATION],
   "3-standard": [STEP_3_STANDARD],
-  // The negotiation. The roll is on the table and the player said something
-  // instead of taking it.
+  // A roll has been offered, and the player typed something instead of
+  // taking it.
   "4-confirm-roll": [STEP_4_CONFIRM],
-  // The dice have come back.
+  // The player has made the roll.
   "5-resolution": [STEP_5_RESOLUTION],
   "room-entry": [STEP_ROOM_ENTRY],
 };
 
-/** The step files for an entry point, in the order the heuristic runs them. */
+/** The step files for `step`, in the order the game master works through them. */
 export function stepPrompt(step: Step): string {
   return CHAIN[step].join("\n\n---\n\n");
 }
@@ -143,46 +140,50 @@ export const DUNGEON_PASS_INSTRUCTIONS = text(GENERATION_DUNGEON_PASS_MD);
 export const DUNGEON_PASS_SCHEMA = text(GENERATION_DUNGEON_PASS_SCHEMA_MD);
 
 /**
- * A connector is read from both ends, and it is one entity with one name.
+ * The rule for naming connectors (the ways between rooms).
  *
- * Name it "Corridor to the Kennel" and the player standing IN the Kennel reads
- * "Corridor to the Kennel" on the way out — pointing at where they already are.
- * A game master asked to route "go back to the Laboratory" then has two exits both
- * claiming to lead to the Kennel and picks by coin toss. So the name carries the
- * nature of the crossing and nothing else, and `renderRoom` appends the room on
- * the far side, correct from whichever end is being read.
+ * A connector is one entity with one name, seen from both of its rooms. If it
+ * were named "Corridor to the Kennel", a player in the Kennel would see an
+ * exit called "Corridor to the Kennel", pointing at the room they're in. Asked
+ * to "go back to the Laboratory", the game master would then see two exits
+ * that both claim to lead to the Kennel, and have to guess. So the name only
+ * says what kind of way it is, and `renderRoom` in
+ * `src/gameplay/game-master/render.ts` adds the room on the other side, which
+ * is right from either end.
  */
 export const CONNECTOR_NAMING = text(GENERATION_CONNECTOR_NAMING_MD);
 
 /**
- * A stair has a top and a bottom, and one entity read from both ends has no
- * "up" of its own.
+ * The rule for describing a connector that changes height, like a stair.
  *
- * So the form says which ROOM is the upper one, by name. That is the one phrasing
- * that survives being read from either side, and without it the same flight of
- * steps is written as descending from both of its rooms -- which is what a player
- * walking back the way they came finds out.
+ * A stair has a top and a bottom, but one connector seen from both rooms has
+ * no single "up". So the description names which room is the upper one. That
+ * is the only wording that is right from both sides; without it, the same
+ * stair could be described as going down from both rooms, which a player
+ * walking back the way they came would notice.
  *
- * Both rooms are named by whoever is writing: a chunk writes only the connectors
- * whose two rooms it is naming in the same response, and the seams pass is handed
- * the names the chunks settled.
+ * The writer always knows both rooms' names: a content-pass chunk only writes
+ * connectors whose two rooms it is also naming, and the seams pass is given
+ * the room names the chunks chose.
  */
 export const CONNECTOR_HEIGHT = text(GENERATION_CONNECTOR_HEIGHT_MD);
 
 export const GOAL_INSTRUCTION = text(GENERATION_GOAL_MD);
 
 /**
- * The content pass's standing instructions, with `{{slots}}` for what code
- * knows: the connector rules above, the fixture menu, the position words and
- * the goal line. Filled in `generation/content/passes/content-pass/prompt.ts`.
+ * The content pass's instructions, with `{{placeholders}}` for values that
+ * come from code: the connector rules above, the list of fixtures, the
+ * position words and the goal line. Filled in
+ * `src/generation/content/passes/content-pass/prompt.ts`.
  */
 export const CONTENT_PASS_TEMPLATE = text(GENERATION_CONTENT_PASS_MD);
 
 export const CONTENT_PASS_SCHEMA = text(GENERATION_CONTENT_PASS_SCHEMA_MD);
 
 /**
- * The seams pass's standing instructions, with `{{slots}}` for the connector
- * rules it shares with the content pass. Filled in `seams-pass.ts`.
+ * The seams pass's instructions, with `{{placeholders}}` for the connector
+ * rules it shares with the content pass. Filled in
+ * `src/generation/content/passes/seams-pass.ts`.
  */
 export const SEAMS_PASS_TEMPLATE = text(GENERATION_SEAMS_PASS_MD);
 
@@ -205,26 +206,28 @@ export const TALLY_SCHEMA = text(TALLY_TALLY_SCHEMA_MD);
 // ---------------------------------------------------------------------------
 
 /**
- * Version 2, "sparse". Version 1 asked for cross-hatching and stippling and got
- * exactly that: dense, dark engraving that turned busy or black at 1-bit. This
- * asks for mostly white paper and shading only where a shadow is deepest, and
- * says "no border" more than one way because klein drew one anyway.
+ * The illustration style, version 2 ("sparse"). Version 1 asked for
+ * cross-hatching and stippling and got dense, dark engraving that turned
+ * cluttered or black when reduced to black and white. This version asks for
+ * mostly white paper with shading only in the deepest shadows. It says "no
+ * border" in several ways because FLUX.2 [klein] drew one anyway.
  */
 export const ILLUSTRATION_STYLE = text(ILLUSTRATIONS_STYLE_MD);
 
 /**
- * What the marks in the guide image mean. The marks say WHERE; the prose says
- * WHAT; and none of them may survive into the drawing.
+ * Explains the marks on the guide image. The marks show where things go, the
+ * text says what they are, and no mark should appear in the finished drawing.
  */
 export const ILLUSTRATION_GUIDE_NOTE = text(ILLUSTRATIONS_GUIDE_NOTE_MD);
 
-/** The same, for a guide drawn with no marks: architecture only. */
+/** The same, for a guide image with no marks, which shows only the room's shape. */
 export const ILLUSTRATION_PLAIN_GUIDE_NOTE = text(ILLUSTRATIONS_PLAIN_GUIDE_NOTE_MD);
 
 /**
- * The patch of floor every illustration keeps clear for creatures, which are stood in
- * it afterwards (`illustrationStage`, src/illustrations/figures.ts). Only with the
- * marked guide, which carries the dotted outline it refers to.
+ * Asks the model to leave a patch of floor empty, where creature sprites are
+ * placed afterwards (`illustrationStage` in `src/illustrations/figures.ts`).
+ * Only sent with the marked guide, which has the dotted outline this refers
+ * to.
  */
 export const ILLUSTRATION_OPEN_FLOOR_NOTE = text(ILLUSTRATIONS_OPEN_FLOOR_NOTE_MD);
 
@@ -232,22 +235,23 @@ export const ILLUSTRATION_VISUAL_SYSTEM = text(ILLUSTRATIONS_VISUAL_SYSTEM_MD);
 
 export const ILLUSTRATION_SETTING_SYSTEM = text(ILLUSTRATIONS_SETTING_SYSTEM_MD);
 
-/** What Haiku is asked for an exterior: the place and its entrance, from outside. */
+/** The system prompt for describing an exterior: the place and its entrance, seen from outside. */
 export const ILLUSTRATION_EXTERIOR_SYSTEM = text(ILLUSTRATIONS_EXTERIOR_SYSTEM_MD);
 
 export const SPRITE_STYLE = text(ILLUSTRATIONS_SPRITE_STYLE_MD);
 
 /**
- * A person stands, so a group can be arranged; a creature keeps its own
- * stance, or a rat comes out on its hind legs.
+ * How to pose a sprite. People are drawn standing, so a group can be lined
+ * up; other creatures keep their natural stance (otherwise a rat would be
+ * drawn standing on its hind legs).
  */
 export const SPRITE_FRAME = text(ILLUSTRATIONS_SPRITE_FRAME_MD);
 
 /**
- * The look the references were picked for, in words, so the prompt does not
- * pull against them: the style text alone asks for crisp outlines, and that
- * came out too clean. Rags are not asked for — worn only where the figure's own
- * description says so.
+ * Describes in words the rough look the sprite reference images were chosen
+ * for, so the prompt agrees with them. The style text alone asks for crisp
+ * outlines, and the results looked too clean. It doesn't ask for ragged
+ * clothes; a sprite looks worn only if its own description says so.
  */
 export const SPRITE_GRIT = text(ILLUSTRATIONS_SPRITE_GRIT_MD);
 

@@ -37,7 +37,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "../create/shared.tsx";
 import type { DungeonSummary, LibraryPage } from "../../api-client/dungeons.ts";
-import { Ink } from "../play/Illustration.tsx";
+import { Ink } from "../shared/ink.tsx";
 import type { PlayerCharacter } from "../../rules/knave/character.ts";
 
 const LABEL = "font-mono text-[9px] tracking-[0.16em] text-graphite uppercase";

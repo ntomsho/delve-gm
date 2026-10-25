@@ -1,26 +1,26 @@
 /**
- * THE DICE TOOL
- * =============
+ * The `roll` tool: how the game master asks for dice.
  *
- * The game master's half of the split described in ARCHITECTURE §7. The player's
- * roll is thrown by the interface and arrives with their next message; every
- * other roll in the game — the creature that strikes back, the nerve that
- * breaks, the ceiling that comes down — is asked for here.
+ * See docs/ARCHITECTURE.md section 7. The player's own roll is made in code
+ * when they press the roll button. Every other roll (a creature striking
+ * back, a group losing its nerve, a ceiling coming down) is requested through
+ * this tool.
  *
- * IT TAKES A LIST, AND THAT IS THE WHOLE DESIGN. A resolution with three
- * creatures in it costs ONE extra exchange rather than three, so the playbook
- * can tell the game master to roll wide and discard rather than go back for more.
- * A morale check it did not end up needing is a rounding error; a second round
- * trip is not.
+ * The tool takes a list of rolls, so a resolution with three creatures in it
+ * needs one extra model exchange, not three. That is why the prompt tells the
+ * game master to ask for every roll it might need at once and ignore the
+ * unused ones: an unneeded morale roll costs nothing, while a second round
+ * trip costs time and money.
  *
- * Every kind maps onto `engine/dungeon-rolls`, which means advantage keep-best,
- * the natural 20's extra die, the well-suited bonus, the d6 that empties a book
- * and damage summation stay in tested code rather than moving into the prompt. Nothing here decides a
- * rule; it translates a request and reports what the dice said.
+ * Each kind of request calls a function in `src/rules/knave/rolls.ts`, so the
+ * rules (keep the higher die with advantage, the extra die on a natural 20 or
+ * for a well-suited weapon, the d6 that uses up a book, adding up damage) are
+ * in tested code, not in the prompt. This file only translates the request
+ * and reports what the dice said.
  *
- * The RNG is the run's, positioned where the run left off — the same stream the
- * player's own rolls draw from, advanced in list order. Two runs on one seed
- * roll the same dice.
+ * The dice come from the run's RNG, continuing from where the run left off.
+ * It is the same stream the player's rolls use, and requests are rolled in
+ * list order, so two runs with the same seed roll the same dice.
  */
 
 import { z } from "zod";
@@ -44,24 +44,27 @@ import { nonEmpty } from "../../shared/utils/schema.ts";
 // THE REQUEST
 // ---------------------------------------------------------------------------
 
-/** Advantage, disadvantage, or neither. Shared with the roll a commit offers the player. */
+/** Advantage, disadvantage or neither. Also used for the roll a commit offers the player. */
 export const edgeSchema = z.enum(["none", "advantage", "disadvantage"]);
 
 /**
- * One request in the batch. Flat rather than a discriminated union: JSON Schema
- * can express the union but the model reads a flat object with a `kind` more
- * reliably, and zod checks the per-kind requirements on the way back in.
+ * One roll in the list. It is one flat object with a `kind`, not a separate
+ * shape per kind, because the model fills in a flat object more reliably.
+ * Fields a kind needs are checked when the roll is made (`one` below).
  */
 const rollSpecRequest = z.object({
-  /** the caller's own label, so the results can be told apart */
+  /** a label the game master chooses, so it can tell the results apart */
   id: nonEmpty,
   kind: z.enum(["save", "attack", "stunt", "morale", "damage", "consult"]),
   /**
-   * Whose roll this is — and `"player"` is deliberately unsayable, because the
-   * player's own roll is offered rather than thrown (see `playersOwnDice`).
-   * Optional, and read only when a roll made at one of the player's bonuses
-   * would otherwise be refused: saying it is the ghoul's is how a game master gets
-   * a genuine coincidence past the guard.
+   * Whose roll this is. `"player"` isn't an option, because the player's own
+   * rolls are offered to them, never rolled by the game master.
+   *
+   * `playersOwnDice` in `src/gameplay/game-master/game-master.ts` refuses a
+   * roll whose bonus matches one of the player's ability bonuses, assuming it
+   * is the player's roll. When a creature's bonus just happens to match, the
+   * game master sets `actor` to say so and the roll is allowed. Nothing else
+   * reads it.
    */
   actor: z.enum(["creature", "world"]).optional(),
   edge: edgeSchema.optional(),
@@ -69,7 +72,7 @@ const rollSpecRequest = z.object({
   bonus: z.number().int().optional(),
   /** save: the number to meet. Defaults to 16. */
   dc: z.number().int().optional(),
-  /** save: a creature is the source of the risk — pass its defense instead */
+  /** save: when a creature causes the danger, its defense, used instead of `dc` */
   defenseAsDc: z.number().int().optional(),
   /** attack, stunt */
   targetDefense: z.number().int().optional(),
@@ -77,14 +80,14 @@ const rollSpecRequest = z.object({
   damage: z.string().optional(),
   expr: z.string().optional(),
   extraDice: z.number().int().optional(),
-  /** attack: the right weapon against the right enemy, for the extra die */
+  /** attack: the weapon is well suited to the target, which adds a damage die */
   wellSuited: z.boolean().optional(),
   /** morale: the group's rating. Defaults to 7. */
   rating: z.number().int().optional(),
   /**
-   * consult: how many times that book has been read ALREADY — its current
-   * `book.uses`, and 0 for one nobody has opened. This reading is added by the
-   * tool, which then says what to write back.
+   * consult: how many times the book has already been read (its current
+   * `book.uses`, or 0 if it has never been opened). The tool counts this
+   * reading itself and tells the game master what to write back.
    */
   uses: z.number().int().optional(),
 });
@@ -103,31 +106,33 @@ export interface DiceOutcome {
   /** the request could not be rolled as stated */
   failed: boolean;
   /**
-   * THE SAME RESULT, STRUCTURED, FOR THE SCREEN. The player is shown a
-   * creature's attack on them as dice (see `FoeRolls`), and a screen that
-   * parsed `line` would be one rewording away from showing nothing. The number
-   * the d20 had to meet is deliberately not here: `line` carries it for the
-   * game master, and nothing the player can be shown does.
+   * The same result as fields, for the screen. The player is shown a
+   * creature's attack on them as dice (`foeRolls` in
+   * `src/gameplay/mechanics/effects.ts`). Reading these fields is safer than
+   * parsing `line`, which breaks as soon as its wording changes.
+   *
+   * The DC is left out on purpose. `line` includes it for the game master, but
+   * the player must never see it.
    */
   d20?: { rolled: number[]; kept: number; bonus: number; total: number; success: boolean; nat20: boolean; nat1: boolean };
   damage?: { expr: string; rolls: number[]; total: number };
-  /** attack and stunt: the defense aimed at — how an attack on the player is told apart */
+  /** attack and stunt: the target's defense; matching the player's armour marks an attack on the player */
   targetDefense?: number;
 }
 
-/** A d20 result as the screen may see it — everything but the DC. */
+/** A d20 result with everything except the DC, which the player must not see. */
 function shown(o: { rolled: number[]; kept: number; bonus: number; total: number; success: boolean; nat20: boolean; nat1: boolean }) {
   return { rolled: [...o.rolled], kept: o.kept, bonus: o.bonus, total: o.total, success: o.success, nat20: o.nat20, nat1: o.nat1 };
 }
 
 
-/** The d20 and its bonus, spelled out so a total can never be a bare claim. */
+/** The d20, bonus, total and DC written out, so the game master sees how the total was reached. */
 function d20Line(o: { rolled: number[]; kept: number; bonus: number; total: number; dc: number }): string {
   const dice = o.rolled.length > 1 ? `[${o.rolled.join(", ")}] keep ${o.kept}` : `${o.kept}`;
   return `d20 ${dice} ${signed(o.bonus)} = ${o.total} vs ${o.dc}`;
 }
 
-/** Crits report themselves; spending the quality point is the game master's diff. */
+/** Tells the game master about a critical. Spending the quality point is left to the game master's diff. */
 function critNote(o: { nat20: boolean; nat1: boolean }): string {
   if (o.nat20) return " · NATURAL 20 — the defender's armour loses 1 currentQuality";
   if (o.nat1) return " · NATURAL 1 — the attacker's weapon loses 1 currentQuality";
@@ -135,8 +140,9 @@ function critNote(o: { nat20: boolean; nat1: boolean }): string {
 }
 
 /**
- * Roll one request. Draws from `rng` in call order, so the batch is
- * deterministic in the order the game master listed it.
+ * Rolls one request. Returns a failed outcome, with a `CANNOT ROLL` line, if a
+ * field the kind needs is missing. Draws from `rng` as it goes, so the same
+ * list on the same seed always rolls the same.
  */
 function one(rng: RollRng, r: RollRequestParsed): DiceOutcome {
   const edge: Edge = r.edge ?? "none";
@@ -145,7 +151,7 @@ function one(rng: RollRng, r: RollRequestParsed): DiceOutcome {
 
   switch (r.kind) {
     case "save": {
-      // A creature is the source of the risk, or it is the ordinary bar.
+      // Against a creature's defense if one was given, else the DC, else 16.
       const dc = r.defenseAsDc !== undefined ? dcFromDefense(r.defenseAsDc) : r.dc ?? ORDINARY_DC;
       const o = saveRoll(rng, bonus, dc, edge);
       return {
@@ -188,8 +194,8 @@ function one(rng: RollRng, r: RollRequestParsed): DiceOutcome {
       return {
         id: r.id,
         kind: r.kind,
-        // Stunts deal no damage of their own — the rule lives here so the
-        // prompt does not have to be trusted to remember it.
+        // The line says outright that a stunt deals no damage, so the game
+        // master doesn't have to remember the rule.
         line: `stunt — ${d20Line(o)} — ${o.success ? "SUCCESS, and it deals no damage" : "FAILURE"}${critNote(o)}`,
         failed: false,
         d20: shown(o),
@@ -210,8 +216,8 @@ function one(rng: RollRng, r: RollRequestParsed): DiceOutcome {
 
     case "consult": {
       const o = consultRoll(rng, r.uses ?? 0);
-      // Says what to write, for the same reason a crit does: the game master is
-      // reporting a number it was given, never choosing one.
+      // Tells the game master exactly what to write back, so it reports the
+      // count it was given rather than working one out.
       const verdict = o.exhausted
         ? `THE LAST OF IT · write book.uses ${o.uses} and book.exhausted true`
         : `THERE IS MORE IN IT · write book.uses ${o.uses}`;
@@ -246,7 +252,7 @@ export function rollBatch(rng: RollRng, rolls: RollRequestParsed[]): DiceOutcome
   return rolls.map((r) => one(rng, r));
 }
 
-/** The batch's results, keyed by the game master's own ids. */
+/** The results as text for the game master, one line per roll, each starting with its `id`. */
 export function renderOutcomes(outcomes: DiceOutcome[]): string {
   return outcomes.map((o) => `${o.id}: ${o.line}`).join("\n");
 }

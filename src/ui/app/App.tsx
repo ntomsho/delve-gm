@@ -26,7 +26,7 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { LoadingScreen } from "../run-setup/LoadingScreen.tsx";
 import { Characters } from "../characters/Characters.tsx";
-import { SignIn } from "../sign-in/SignIn.tsx";
+import { Landing } from "../sign-in/Landing.tsx";
 import { purse } from "../../rules/knave/character-creation.ts";
 import type { PlayerCharacter } from "../../rules/knave/character.ts";
 import { saveCharacter } from "../../api-client/characters.ts";
@@ -149,7 +149,7 @@ function Screens() {
    */
   if (!OFFLINE) {
     if (!ready) return desk;
-    if (!account) return <SignIn onSignIn={signIn} onGuest={signInAsGuest} />;
+    if (!account) return <Landing onSignIn={signIn} onGuest={signInAsGuest} />;
   }
 
   if (play.error) {

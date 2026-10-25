@@ -25,6 +25,8 @@ import {
   type SpriteWork,
 } from "../illustrations/sprites.ts";
 import { mustGetDungeon, mustGetRun } from "./lookup.ts";
+import * as repo from "../db/repo.ts";
+import { recentShowcase, SHOWCASE_MAX } from "../illustrations/showcase.ts";
 
 export function illustrationRoutes(app: Hono<AuthEnv>): void {
   /**
@@ -90,6 +92,33 @@ export function illustrationRoutes(app: Hono<AuthEnv>): void {
     if (!work || !dungeon.cover) return c.json({ status: "none" } satisfies IllustrationAnswer);
     const answer = await serveCover(dungeon.doc, dungeon.cover, work);
     return c.json(answer, answer.status === "pending" ? 202 : 200);
+  });
+}
+
+/**
+ * The landing page's pictures: rooms and covers already drawn in recent runs.
+ * See `showcase.ts`.
+ *
+ * OUTSIDE THE SIGN-IN GATE, so `app.ts` registers it before the gate. It
+ * spends nothing (it reads, and never draws) and it answers with what
+ * the library already shows anyone: pictures, and the names of rooms and
+ * dungeons. Cached at the edge, so a busy landing page is one query every
+ * few minutes rather than one per visit.
+ */
+export function showcaseRoutes(app: Hono<AuthEnv>): void {
+  app.get("/api/illustrations/recent", async (c) => {
+    const illustrations = illustrationWorker();
+    const sprites = spriteWorker();
+    c.header("cache-control", "public, max-age=60, s-maxage=600, stale-while-revalidate=3600");
+    if (!illustrations || !sprites) return c.json([]);
+    const asked = Math.trunc(Number(c.req.query("limit")));
+    const limit = Number.isFinite(asked) ? Math.min(Math.max(asked, 1), SHOWCASE_MAX) : SHOWCASE_MAX;
+    const work = {
+      illustrationReferences: illustrations.references,
+      spriteReferences: sprites.references,
+      urlOf: illustrations.urlOf,
+    };
+    return c.json(await recentShowcase(work, repo, limit));
   });
 }
 

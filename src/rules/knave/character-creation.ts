@@ -1,21 +1,17 @@
 /**
- * CHARACTER CREATION
- * ==================
+ * Character creation: the dice and rules for making a Knave character. The
+ * tables they roll on are in `tables.ts`.
  *
- * Pure and seeded, like all of the domain code outside the shells. Every number a
- * character is made of comes from an `Rng` passed in — the same rule the
- * game master lives under at runtime, applied here so that a character is a
- * function of a seed and a handful of choices rather than of when it was made.
+ * Every number comes from an `Rng` passed in, so the same seed and the same
+ * choices always make the same character.
  *
- * The tables are in `tables.ts`. This file is the dice and the rules.
+ * Rolls return their individual dice, not just the result: `rollAbilities`
+ * returns each d6 and `rollGearSlot` returns the d20 behind each line of
+ * gear. The creation screens show those dice ("2d6 → 4 2", "d20 → 11"), and
+ * they must show the dice that were actually rolled, not numbers made up to
+ * match the result.
  *
- * ROLLS CARRY THEIR DICE. `rollAbilities` returns the individual d6s and
- * `rollStartingGear` returns the d20 that produced each line, because the
- * interface prints them — "2d6 → 4 2", "d20→11". A screen that had to re-derive
- * those would be inventing numbers, which is the one thing nothing in this
- * project is allowed to do.
- *
- * TWO MODES. Normal is the generous one and hardcore is close to the book:
+ * There are two modes. Normal is more generous; hardcore is close to the book:
  *
  *   |                | normal    | hardcore | Knave 1.0 as printed |
  *   |----------------|-----------|----------|----------------------|
@@ -25,16 +21,15 @@
  *   | rerolls        | 3         | 0        | — (not in the book)  |
  *   | hit points     | 2d8 min 9 | d8 min 5 | d8, no floor         |
  *
- * The hit point floors are the sharpest departure from the book, and the reason
- * is the same one Knave's own note gives when it suggests letting a PC reroll
- * below 5: a level 1 character on 1 HP is not a hard start, it is a character
- * who does not get to play. Normal takes two dice and floors at 9; hardcore
- * keeps the single die and floors at 5.
+ * The minimum hit points are the biggest change from the book. Knave itself
+ * suggests letting a character reroll hit points below 5, for the same reason:
+ * a level 1 character with 1 hit point barely gets to play. Normal rolls two
+ * d8s with a minimum of 9; hardcore rolls one d8 with a minimum of 5.
  *
- * WHAT A REROLL BUYS. One budget, spent from three screens: abilities, hit
- * points, and starting gear. Traits are free — they are flavour and a player
- * fishing for a face they like is not gaming anything. Hit points are not
- * free, because an unlimited d8 is an 8 every time.
+ * Rerolls come from one budget, shared by three screens: abilities, hit points
+ * and starting gear. Rerolling traits is free, because traits are only
+ * description and rerolling them gains the player nothing. Hit point rerolls
+ * cost one, because with unlimited rerolls every d8 would end up an 8.
  */
 
 import { makeId } from "../../shared/utils/id.ts";
@@ -65,9 +60,9 @@ import {
 } from "./tables.ts";
 
 /**
- * `Ability` is `dungeon-entities`', not a second copy — a creature's six and a
- * character's six are the same six, and two unions that must agree are one
- * union.
+ * The six abilities in sheet order. The `Ability` type comes from
+ * `src/shared/world/entities.ts`, because creatures and characters have the
+ * same six abilities and one type keeps them from drifting apart.
  */
 export const ABILITIES: readonly Ability[] = ["str", "dex", "con", "int", "wis", "cha"];
 
@@ -77,7 +72,7 @@ export const TRAIT_KEYS: readonly TraitKey[] = [
   "vice", "speech", "background", "misfortunes", "alignment",
 ];
 
-/** Build one record per ability, without a cast that outruns what TS can see. */
+/** Builds a record with one entry per ability, typed without needing a cast. */
 function perAbility<T>(f: (a: Ability) => T): Record<Ability, T> {
   return { str: f("str"), dex: f("dex"), con: f("con"), int: f("int"), wis: f("wis"), cha: f("cha") };
 }
@@ -89,15 +84,15 @@ function perAbility<T>(f: (a: Ability) => T): Record<Ability, T> {
 export type { CreationMode };
 
 export interface CreationRules {
-  /** How many d6 per ability. The LOWEST is the bonus, either way. */
+  /** How many d6 to roll per ability. In both modes the lowest die is the bonus. */
   abilityDice: 2 | 3;
   /** How many pairs of abilities may be swapped after rolling. */
   swaps: number;
-  /** Point-buy budget, above the +1 every ability starts at. */
+  /** Points to spend in point buy, on top of the +1 every ability starts at. */
   pointBuy: number;
-  /** Rerolls for the whole of creation — abilities, hit points, gear. */
+  /** Rerolls for all of creation, shared by abilities, hit points and gear. */
   rerolls: number;
-  /** How many d8, and the total the result is never allowed below. */
+  /** How many d8s to roll, and the minimum hit points. */
   hp: { dice: number; floor: number };
 }
 
@@ -106,7 +101,7 @@ export const CREATION_RULES: Record<CreationMode, CreationRules> = {
   hardcore: { abilityDice: 3, swaps: 1, pointBuy: 7, rerolls: 0, hp: { dice: 1, floor: 5 } },
 };
 
-/** The best a mode's hit dice can do, for a screen that wants to show a range. */
+/** The highest hit points a mode's dice can roll, for showing the range on screen. */
 export const hpCeiling = (mode: CreationMode): number => CREATION_RULES[mode].hp.dice * 8;
 
 export const CREATION_MODES: readonly CreationMode[] = ["normal", "hardcore"];
@@ -115,7 +110,7 @@ export const CREATION_MODES: readonly CreationMode[] = ["normal", "hardcore"];
 // ABILITIES
 // ===========================================================================
 
-/** One ability's roll, dice and all. `bonus` is the lowest die. */
+/** One ability's roll: the dice, and the bonus (the lowest die). */
 export interface AbilityRoll {
   dice: number[];
   bonus: number;
@@ -123,16 +118,17 @@ export interface AbilityRoll {
 
 export type AbilityRolls = Record<Ability, AbilityRoll>;
 
-/** Roll n d6 and keep the lowest — Knave's mechanic, with n set by the mode. */
+/** Rolls the mode's number of d6s and keeps the lowest, as Knave does. */
 export function rollAbility(rng: Rng, mode: CreationMode): AbilityRoll {
   const dice = Array.from({ length: CREATION_RULES[mode].abilityDice }, () => rng.d(6));
   return { dice, bonus: Math.min(...dice) };
 }
 
-/** All six, in order. */
+/** Rolls all six abilities, in `ABILITIES` order. */
 export function rollAbilities(rng: Rng, mode: CreationMode): AbilityRolls {
-  // Rolled in ABILITIES order, so one seed gives one spread. `perAbility` would
-  // fix the order too, but stating it here is what makes that a promise.
+  // The loop over ABILITIES fixes the roll order, so a seed always gives the
+  // same abilities. `perAbility` would happen to use the same order, but this
+  // makes it explicit.
   const out = {} as AbilityRolls;
   for (const a of ABILITIES) out[a] = rollAbility(rng, mode);
   return out;
@@ -143,13 +139,11 @@ export function bonusesOf(rolls: AbilityRolls): CharacterAbilities {
 }
 
 /**
- * Swap two abilities. The DICE travel with the bonus, because the card shows
- * both and a swap that moved the number but left "2d6 → 4 2" underneath would
- * be showing the player a lie about where their +5 came from.
+ * Swaps two abilities. The dice move with the bonus, because the screen shows
+ * both, and moving only the bonus would show dice that didn't produce it.
  *
- * **Its own inverse**, which is what lets a swap be taken back: applying it a
- * second time to the same pair restores exactly the state before the first, so
- * an undo needs no saved copy of the spread — only the pair.
+ * Swapping the same pair again undoes it exactly, so undoing a swap only
+ * needs to remember the pair, not the whole set of rolls.
  */
 export function swapAbilities(rolls: AbilityRolls, x: Ability, y: Ability): AbilityRolls {
   return { ...rolls, [x]: rolls[y], [y]: rolls[x] };
@@ -160,16 +154,17 @@ export function swapAbilities(rolls: AbilityRolls, x: Ability, y: Ability): Abil
 // ---------------------------------------------------------------------------
 
 /**
- * Every ability starts at +1, and raising one to `v` costs `floor(v / 2)`. So
- * the first two steps are a point each and it gets dearer after that:
+ * Point buy. Every ability starts at +1, and each step up to `v` costs
+ * `floor(v / 2)` points. The first two steps cost 1 each, then it gets more
+ * expensive:
  *
  *   +1 → +2   1        +1 → +2 → +3        2
  *   +2 → +3   1        +1 → +2 → +3 → +4   4
  *   +3 → +4   2
  *
- * `MAX` is the ceiling on any one ability at level 1. Rolling can exceed it —
- * 2d6-keep-lowest can hand out a 6 — and that is allowed to stand; the cap is
- * on what a player may *choose*, not on what the dice may give.
+ * `MAX` is the highest a player can buy an ability to at level 1. Rolled
+ * abilities can go higher (2d6 keep lowest can give a 6), and that is
+ * allowed: the cap limits what a player can choose, not what the dice give.
  */
 export const POINT_BUY = {
   START: 1,
@@ -177,14 +172,14 @@ export const POINT_BUY = {
   costTo: (value: number): number => Math.floor(value / 2),
 } as const;
 
-/** What it costs to raise one ability from +1 to `value`. */
+/** The points it costs to raise one ability from +1 to `value`. */
 export function costOfAbility(value: number): number {
   let total = 0;
   for (let v = POINT_BUY.START + 1; v <= value; v++) total += POINT_BUY.costTo(v);
   return total;
 }
 
-/** What a whole spread costs. */
+/** The points spent on all six abilities. */
 export function pointsSpent(a: CharacterAbilities): number {
   return ABILITIES.reduce((n, k) => n + costOfAbility(a[k]), 0);
 }
@@ -193,12 +188,12 @@ export function pointsLeft(a: CharacterAbilities, mode: CreationMode): number {
   return CREATION_RULES[mode].pointBuy - pointsSpent(a);
 }
 
-/** The spread every point-buy character starts from: +1 across the board. */
+/** Where point buy starts: +1 in every ability. */
 export function startingBuy(): CharacterAbilities {
   return perAbility(() => POINT_BUY.START);
 }
 
-/** Whether one more step in `k` is affordable and legal. Cheap enough to call per render. */
+/** Whether ability `k` can be raised by one: under `MAX` and affordable. Cheap enough to call on every render. */
 export function canRaise(a: CharacterAbilities, k: Ability, mode: CreationMode): boolean {
   return a[k] < POINT_BUY.MAX && POINT_BUY.costTo(a[k] + 1) <= pointsLeft(a, mode);
 }
@@ -224,20 +219,21 @@ export function rollTraits(rng: Rng): CharacterTraits {
 
 export interface HpRoll {
   dice: number[];
-  /** What the dice actually said, before the floor. */
+  /** The sum of the dice, before the minimum is applied. */
   total: number;
-  /** The starting total AND the maximum. There is not another one coming. */
+  /** The character's starting and maximum hit points (they start at full). */
   hp: number;
-  /** Whether the floor did the work rather than the dice. */
+  /** True if the dice came in under the minimum, so the minimum set `hp`. */
   floored: boolean;
 }
 
 /**
- * Hit points, by mode: 2d8 floored at 9, or one d8 floored at 5.
+ * Rolls hit points for the mode: 2d8 with a minimum of 9 (normal), or 1d8
+ * with a minimum of 5 (hardcore).
  *
- * The dice are kept and the floor is reported separately, so the screen can say
- * *the rule caught you* rather than quietly print a number the dice never
- * showed. Same reasoning as the ability cards printing their d6s.
+ * The dice are returned along with whether the minimum applied, so the screen
+ * can show the real dice and say the minimum was used, instead of showing a
+ * number the dice never rolled.
  */
 export function rollHp(rng: Rng, mode: CreationMode): HpRoll {
   const { dice: count, floor } = CREATION_RULES[mode].hp;
@@ -251,9 +247,9 @@ export function rollHp(rng: Rng, mode: CreationMode): HpRoll {
 // ===========================================================================
 
 /**
- * The six rolls, as the things a player can reroll one at a time. A slot is
- * one die, and one die can produce more than one item — 20 on Helmets and
- * Shields is a helmet AND a shield — which is why a group holds a list.
+ * The six starting-gear rolls, each of which the player can reroll on its own.
+ * Each is one d20 on one table. One roll can give more than one item (20 on
+ * Helmets and Shields gives both), so a `GearGroup` holds a list.
  */
 export type GearSlot =
   | "armor"
@@ -272,7 +268,7 @@ export const GEAR_SLOTS: readonly GearSlot[] = [
   "general2",
 ];
 
-/** What the tables are called on the sheet. */
+/** Each gear table's name as the creation screen shows it. */
 export const GEAR_SLOT_LABEL: Record<GearSlot, string> = {
   armor: "Armor",
   helmetShield: "Helmets & shields",
@@ -289,9 +285,10 @@ export interface GearGroup {
 }
 
 /**
- * Everything a character walks in with. `groups` is empty on the buying path
- * and `copper` is 0 on the rolled one; the two paths are exclusive and the
- * shape says so without a discriminant nobody would read.
+ * Everything a new character starts with. A player either rolls their gear
+ * (`rollKit`) or gets money to buy it (`buyKit`). Rolled kits have `groups`
+ * and `copper` 0; bought kits have no `groups` and the money in `copper` and
+ * `coin`.
  */
 export interface StartingKit {
   rations: AnyItem;
@@ -302,13 +299,12 @@ export interface StartingKit {
 }
 
 /**
- * Nobody holds it yet. `finishCharacter` binds every item's `parentId` to the
- * character it mints, which is the last moment at which a kit is still a kit
- * rather than somebody's belongings.
+ * The `parentId` kit items have before the character exists.
+ * `finishCharacter` replaces it with the new character's id.
  */
 const PLACEHOLDER_PARENT = "";
 
-/** One line of a d20 gear table, in the quantity that table prints. */
+/** Creates the item for one row of a d20 gear table, with the amount the table gives. */
 function gearItem(row: GearRow, rng: Rng): AnyItem {
   return mintItem(row.key, PLACEHOLDER_PARENT, rng, {
     ...(row.amount !== undefined ? { amount: row.amount } : {}),
@@ -321,19 +317,20 @@ export function rollSpell(rng: Rng): Spell {
 }
 
 /**
- * Copper as a carried thing, so the shop and the sheet read the same row.
+ * The name of the inventory item that holds the character's money. Money is
+ * an ordinary item, so the shop and the character sheet read the same thing.
  *
- * The amount is prose — `IItem.amount` is "count or measurement WITH its unit"
- * and money is no exception — which means somebody has to read it back. That is
- * `purse` below, and it lives here rather than in the shop so that the one file
- * writing this string is the one file parsing it.
+ * Like every `IItem.amount`, the amount is text with its unit ("60 cp"), so
+ * it has to be parsed to get the number. `purse` below does that. It is in
+ * this file, not the shop, so the code that writes the text and the code that
+ * parses it are in one place.
  */
 export const COPPER_NAME = "Copper";
 
 /**
- * A purse is the one item whose `value` is not a fact about what kind of thing
- * it is: sixty copper is worth sixty copper. Written from the amount at every
- * mint, so the two can never disagree.
+ * Creates a copper item holding `amount`. Its `value` (what it is worth) is
+ * set to the same amount every time, so the two can't disagree. Money is the
+ * only item whose value depends on how much of it there is.
  */
 export function copperItem(amount: number): AnyItem {
   return mintItem("copper", PLACEHOLDER_PARENT, undefined, {
@@ -342,24 +339,23 @@ export function copperItem(amount: number): AnyItem {
   });
 }
 
-/** The copper row, if they are carrying one. */
+/** The character's copper item, if they have one. */
 export function purseItem(pc: PlayerCharacter): AnyItem | undefined {
   return pc.inventory.find((i) => i.name === COPPER_NAME && i.amount?.endsWith(" cp"));
 }
 
-/** How much money they have. Nothing carried and nothing parseable both mean 0. */
+/** How much copper the character has. 0 if they have no copper item or its amount can't be read. */
 export function purse(pc: PlayerCharacter): number {
   const n = Number.parseInt(purseItem(pc)?.amount ?? "", 10);
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
 /**
- * Set the purse, in place. **A purse of nothing is no row at all** — a line
- * reading "Copper (0 cp)" on a sheet is noise, and an empty pocket is better
- * said by an empty pocket.
+ * Sets how much copper the character has, changing `pc` in place. At 0 the
+ * copper item is removed, so the sheet doesn't show "Copper (0 cp)".
  *
- * Mutates, like `addItem` and `equip` beside it; the shop clones before it
- * calls anything here.
+ * Changes `pc` directly, like `addItem` and `equip` in `character.ts`; the
+ * shop makes a copy before calling it.
  */
 export function setPurse(pc: PlayerCharacter, amount: number): void {
   const held = purseItem(pc);
@@ -381,12 +377,12 @@ const PLAIN_TABLE: Partial<Record<GearSlot, readonly GearRow[]>> = {
 };
 
 /**
- * One table, one die. Rerollable on its own, which is what the interface's
- * per-line ↻ spends a reroll on.
+ * Rolls one gear table with one d20. The creation screen's ↻ button on each
+ * line spends a reroll on this.
  *
- * The two armor tables are house-ruled and can pay out a random spellbook
- * instead of protection — see `tables.ts` for the printed bands beside
- * ours. Everything else is a straight d20 index.
+ * The two armour tables are changed from the book so that some results give
+ * a random spellbook instead of armour; `tables.ts` shows the book's ranges
+ * beside ours. The other tables just use the d20 as a row number.
  */
 export function rollGearSlot(rng: Rng, slot: GearSlot): GearGroup {
   const plain = PLAIN_TABLE[slot];
@@ -415,9 +411,9 @@ export function rollGearSlot(rng: Rng, slot: GearSlot): GearGroup {
 }
 
 /**
- * The rolled path. Two days of rations and the chosen weapon are free, then
- * one roll each on Armor, Helmets & Shields, General Gear 1 and General Gear 2,
- * and **two** on Dungeoneering Gear.
+ * A rolled kit: two days of rations and the chosen weapon, then one roll each
+ * on Armor, Helmets & Shields, General Gear 1 and General Gear 2, and two on
+ * Dungeoneering Gear.
  */
 export function rollKit(rng: Rng, weapon: WeaponKey): StartingKit {
   return {
@@ -428,12 +424,12 @@ export function rollKit(rng: Rng, weapon: WeaponKey): StartingKit {
   };
 }
 
-/** The other path: 3d6 × 20 copper and no gear rolls. The shop spends it. */
+/** Starting money for a player who buys their gear: 3d6 × 20 copper, spent in the shop. */
 export function startingCopper(rng: Rng): number {
   return (rng.d(6) + rng.d(6) + rng.d(6)) * 20;
 }
 
-/** Rations, the chosen weapon, and the money. What a buyer walks in with. */
+/** A kit for buying: rations, the chosen weapon and starting money, with no gear rolls. */
 export function buyKit(rng: Rng, weapon: WeaponKey): StartingKit {
   const copper = startingCopper(rng);
   return {
@@ -445,18 +441,18 @@ export function buyKit(rng: Rng, weapon: WeaponKey): StartingKit {
   };
 }
 
-/** Swap the weapon without disturbing anything the dice decided. */
+/** Replaces the kit's weapon, leaving everything else as rolled. */
 export function withWeapon(kit: StartingKit, rng: Rng, weapon: WeaponKey): StartingKit {
   return { ...kit, weapon: mintItem(weapon, PLACEHOLDER_PARENT, rng) };
 }
 
-/** Replace one slot's roll, leaving the other five where they are. */
+/** Rerolls one gear table, leaving the other five as they were. */
 export function rerollGearSlot(kit: StartingKit, rng: Rng, slot: GearSlot): StartingKit {
   const next = rollGearSlot(rng, slot);
   return { ...kit, groups: kit.groups.map((g) => (g.slot === slot ? next : g)) };
 }
 
-/** Everything carried, in the order it should be read. */
+/** All the kit's items, in the order the inventory lists them. */
 export function kitItems(kit: StartingKit): AnyItem[] {
   return [
     kit.rations,
@@ -467,13 +463,12 @@ export function kitItems(kit: StartingKit): AnyItem[] {
 }
 
 /**
- * What starts equipped. The weapon always; armor, helmet and shield when the
- * dice supplied them.
+ * What the character starts with equipped: always the weapon, plus any armour,
+ * helmet and shield the kit has.
  *
- * A shield beside a two-hander is the one arrangement Knave forbids, so the
- * shield stays carried rather than worn — `canEquip` would refuse it and a
- * character who arrives failing `validateEquipment` is a character the applier
- * will complain about on the first commit of the run.
+ * Knave doesn't allow a shield with a two-handed weapon, so in that case the
+ * shield is carried but not equipped. Equipping both would fail
+ * `validateEquipment`, and the applier would object on the run's first commit.
  */
 export function kitEquipped(kit: StartingKit): EquippedSlots {
   const equipped: EquippedSlots = { weapon: kit.weapon.id };
@@ -499,10 +494,10 @@ const GIVEN = "Alma|Balthazar|Barsaba|Bertram|Bianca|Clovis|Constance|Damaris|Es
 const SURNAME = "Barrow|Beetleman|Berrycloth|Coffin|Culpepper|Dankworth|Digworthy|Dreggs|Gimble|Graveworm|Hardwick|Hovel|Knibbs|Midnighter|Nethercoat|Ottick|Relish|Rumbold|Rummage|Sallow|Saltmarsh|Silverless|Skitter|Slee|Stoker|Tarwater|Tumbler|Villin".split("|");
 
 /**
- * A name to start the field off with, not a name imposed. The lists are the
- * lower-class halves of the Maze Rats name tables in `blueprint.ts` —
- * copied rather than imported because those are private to that module and a PC
- * is not an NPC roll.
+ * A random name to fill the name field with; the player can change it. The
+ * lists are the lower-class halves of the Maze Rats name tables in
+ * `src/generation/content/blueprint.ts`. They are copied rather than imported
+ * because those tables are private to that file and are for naming NPCs.
  */
 export function rollName(rng: Rng): string {
   return `${rng.pick(GIVEN)} ${rng.pick(SURNAME)}`;
@@ -522,14 +517,13 @@ export interface CharacterDraft {
 }
 
 /**
- * The one place a draft becomes a `PlayerCharacter`. Ids are minted here and
- * every item's `parentId` is bound to the character, which is the invariant
- * `addItem` maintains at runtime and which nothing downstream re-checks.
+ * Turns a finished draft into a `PlayerCharacter`. This is the only place that
+ * happens. It creates the character's id and sets every item's `parentId` to
+ * it. During play `addItem` keeps that true, and nothing else checks it.
  *
- * Capacity is deliberately NOT enforced. A rolled kit can exceed CON defense —
- * that is Knave working as intended, `isOverburdened` reports it, and refusing
- * to make the character over it would mean silently dropping something the dice
- * gave them.
+ * Carrying capacity is not enforced here. A rolled kit can be more than the
+ * character's CON defense allows, which Knave permits; `isOverburdened`
+ * reports it. Refusing would mean throwing away something the dice gave them.
  */
 export function finishCharacter(draft: CharacterDraft): PlayerCharacter {
   const id = makeId();
@@ -554,5 +548,5 @@ export function finishCharacter(draft: CharacterDraft): PlayerCharacter {
   };
 }
 
-/** The weapons the picker offers, straight off the Item Costs page. */
+/** The weapons the creation screen offers, from Knave's Item Costs page. */
 export { WEAPONS };

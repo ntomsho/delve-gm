@@ -1,60 +1,62 @@
 /**
- * MODEL REGISTRY
- * ==============
+ * Every model the app uses, and what each costs.
  *
- * The ONLY file in the repo permitted to contain a model string. Enforced by
- * `models.test.ts`, which greps everything else.
+ * This is the only file allowed to contain a model name. The "model strings"
+ * test in `src/architecture.test.ts` searches every other file and fails if
+ * it finds one.
  *
- * Keyed by task so any one call can be repointed without touching the others.
- * Everything starts on one cheap fast model; expect the split to grow as the
- * passes turn out to have different appetites.
+ * Text models are chosen per task, so one kind of call can be moved to a
+ * different model without affecting the others. Today every task uses the
+ * same cheap, fast model.
  */
 
 export type Task =
-  /** one call, up front: theme, history, goal, and the inhabitant bases */
+  /** one call, first: the dungeon's theme, history, goal and inhabitant groups */
   | "dungeon-pass"
   /** one call per chunk: rooms and everything in them */
   | "content-pass"
-  /** one call at the end: the ways between chunks, once both their rooms exist */
+  /** one call after the content passes: the connections between chunks, once the rooms on both sides exist */
   | "seams-pass"
-  /** one call after that: the keys, once both they and their locks are written */
+  /** one call after that: the keys, once the things they answer have been written */
   | "keys-pass"
-  /** one call at the end of a run: what each accomplishment was worth */
+  /** one call at the end of a run: how much XP each accomplishment is worth */
   | "tally-pass"
   /** describing a room the player has just walked into */
   | "room-entry"
-  /** the runtime game master: triage, roll confirmation, resolution */
+  /** the game master during play: reading the action, confirming a roll, resolving it */
   | "turn-loop"
   /**
-   * a room illustration's words: the room's fiction cut down to what an illustrator
-   * would draw — its shell, and a short look for each thing in the frame
+   * the text for a room illustration: the room's description cut down to what
+   * an illustrator would draw (the room itself, and a short description of
+   * each thing in the picture)
    */
   | "illustration-visual"
   /**
-   * a creature sprite's words: what the figure looks like, and a size word
-   * the code turns into feet
+   * the text for a creature sprite: what the creature looks like, and a size
+   * word that code converts to a height in feet
    */
   | "sprite-look";
 
 /**
- * Everything is on Haiku 4.5 while the pipeline is being built: it is the
- * cheapest current model ($1 / $5 per million tokens in / out, against Sonnet
- * 5's $3 / $15), and prompt iteration means running the same seed many times.
+ * Which model each task uses. All tasks use Haiku 4.5 while the game is in
+ * development: it is the cheapest current model ($1 / $5 per million input /
+ * output tokens, against Sonnet 5's $3 / $15), and working on prompts means
+ * running the same seed many times.
  *
- * Two limits it carries that the larger models do not — neither binds today,
- * but both would if this stayed past the prototype:
- *   - 200K context, not 1M. A chunk prompt is a few thousand tokens, so there
- *     is a lot of headroom, but a very large dungeon would eventually crowd it.
- *   - 64K max output, not 128K. Above MAX_TOKENS below, so it does not bind.
+ * Haiku 4.5 has two limits the larger models don't. Neither matters today:
+ *   - a 200K-token context, not 1M. A chunk's prompt is a few thousand
+ *     tokens, so there is plenty of room, though a very large dungeon could
+ *     eventually fill it.
+ *   - 64K maximum output tokens, not 128K. That is above every `MAX_TOKENS`
+ *     value below.
  *
- * Haiku 4.5 also predates adaptive thinking and the effort parameter — it takes
- * the older `budget_tokens` form and errors on `effort`. Nothing here uses
- * either, but that is the thing to check before turning them on.
+ * Haiku 4.5 is also older than adaptive thinking and the `effort` parameter:
+ * it only accepts the older `budget_tokens` form and rejects `effort`. Nothing
+ * here uses either, but check this before turning them on.
  *
- * Expect this to stop being one model. The obvious first split is the Dungeon
- * Pass: it runs once, sets the fiction every other call is written against, and
- * costs a rounding error next to N content-pass calls — so it is the cheapest
- * place to buy quality. That is what this registry being task-keyed is for.
+ * The first task worth moving to a better model is probably the dungeon pass.
+ * It runs once, sets the background every other call builds on, and costs
+ * very little next to the many content-pass calls.
  */
 export const MODELS: Record<Task, string> = {
   "dungeon-pass": "claude-haiku-4-5",
@@ -69,26 +71,26 @@ export const MODELS: Record<Task, string> = {
 };
 
 /**
- * Per-task output ceiling. Generation passes write a lot; turns write a little.
- * The content pass writes six rooms and everything in them in one response,
- * which is why it gets four times the others.
+ * The maximum output tokens for each task. The content pass gets four times
+ * the others because it writes six rooms and everything in them in one
+ * response.
  */
 export const MAX_TOKENS: Record<Task, number> = {
   "dungeon-pass": 4096,
   "content-pass": 16384,
-  // A handful of connectors, two sentences each — a chunk boundary contributes
-  // about two, so even a large dungeon is under a dozen.
+  // A few connections, two sentences each. Each boundary between chunks has
+  // about two, so even a large dungeon has fewer than a dozen.
   "seams-pass": 4096,
   // Four or five objects at size 5, two sentences each, plus a short list of
-  // the objective's properties. Sized like the seams pass for the same reason.
+  // the goal's properties. A small output, like the seams pass.
   "keys-pass": 4096,
-  // One line per accomplishment, and a long run has thirty of them.
+  // One line per accomplishment; a long run has about thirty.
   "tally-pass": 4096,
   "room-entry": 4096,
   "turn-loop": 4096,
-  // A sentence for the room and a short phrase per thing in the picture.
+  // A sentence for the room and a short phrase for each thing in the picture.
   "illustration-visual": 1024,
-  // Thirty-odd words and one size word.
+  // About thirty words, plus one size word.
   "sprite-look": 512,
 };
 
@@ -101,11 +103,12 @@ export function modelFor(task: Task): string {
 // ---------------------------------------------------------------------------
 
 /**
- * What a million tokens cost, in US dollars, for every model in `MODELS`. Kept
- * beside the names so changing a model and changing its price are one edit;
- * `cost.test.ts` fails if a model in `MODELS` has no row here.
+ * The price per million tokens, in US dollars, for each model in `MODELS`.
+ * Kept next to the model names so changing a model and its price is one edit.
+ * `cost.test.ts` fails if a model in `MODELS` has no price here.
  *
- * Cache writes are the 5-minute kind, 1.25× input; cache reads are 0.1× input.
+ * Cache writes are the 5-minute kind, which cost 1.25× the input price; cache
+ * reads cost 0.1×.
  */
 export interface TextPrice {
   input: number;
@@ -123,62 +126,67 @@ export const TEXT_PRICES: Record<string, TextPrice> = {
 // ---------------------------------------------------------------------------
 
 /**
- * The image models under trial for room illustrations, as fal endpoint ids. Same rule
- * as the text models: no endpoint string anywhere else in the repo.
+ * The image models that have been tried, as fal endpoint ids. As with text
+ * models, no endpoint id may appear anywhere else in the repo.
  *
- * Each has two endpoints because an illustration is drawn either FROM the guide image
- * (`guided`: an edit or control endpoint that takes it) or from the prompt
- * alone (`unguided`: plain text-to-image — exteriors, and the no-guide
- * control). FLUX.1 [pro] Canny only exists guided: it is a structure lock and
- * there is nothing for it to lock to without one.
+ * Each model has up to two endpoints. `guided` draws from a guide image (an
+ * edit or control endpoint); `unguided` draws from the prompt alone (plain
+ * text-to-image, used for exteriors and for comparing against no guide).
+ * FLUX.1 [pro] Canny only has a guided endpoint: it follows the edges of the
+ * guide image, so it can't work without one.
  *
- * Settings that are not a model choice — quality, size, steps — live with the
- * caller, so trying GPT Image 2 at two qualities is one endpoint used twice.
+ * Settings that aren't a choice of model (quality, size, steps) are set by
+ * the caller, so trying GPT Image 2 at two qualities uses the same endpoint
+ * twice.
  */
 export type ImageModel = "gpt-image-2" | "flux-2-klein-4b" | "flux-2-pro" | "flux-1-pro-canny";
 
 export const IMAGE_MODELS: Record<ImageModel, { guided: string; unguided?: string }> = {
   "gpt-image-2": { guided: "openai/gpt-image-2/edit", unguided: "openai/gpt-image-2" },
-  // 4B rather than 9B: Apache 2.0, where the 9B is non-commercial.
+  // The 4B model rather than the 9B, because 4B is Apache 2.0 and 9B is licensed for non-commercial use only.
   "flux-2-klein-4b": { guided: "fal-ai/flux-2/klein/4b/edit", unguided: "fal-ai/flux-2/klein/4b" },
   "flux-2-pro": { guided: "fal-ai/flux-2-pro/edit", unguided: "fal-ai/flux-2-pro" },
   "flux-1-pro-canny": { guided: "fal-ai/flux-pro/v1/canny" },
 };
 
 /**
- * What draws a room illustration in the game: GPT Image 2 at low quality, from the
- * marked guide and the style references. Of the models tried, it followed the
- * prompt and the guide most closely, and medium quality was no better. Part of every illustration's key, so changing it redraws from then on.
+ * The model that draws room illustrations: GPT Image 2 at low quality, from
+ * the marked-up guide image and the style reference images. Of the models
+ * tried, it followed the prompt and the guide most closely, and medium
+ * quality was no better. The model is part of every illustration's cache
+ * key, so changing it means new illustrations are drawn from then on.
  */
 export const ILLUSTRATION_MODEL: ImageModel = "gpt-image-2";
 
 /**
- * What draws a dungeon's cover, its exterior: FLUX.2 [klein] 4B from the
- * prompt alone. The spike found it best on exteriors, and its text-to-image
- * endpoint takes no references.
+ * The model that draws a dungeon's cover (its exterior): FLUX.2 [klein] 4B,
+ * from the prompt alone. Testing found it best at exteriors. Its
+ * text-to-image endpoint takes no reference images.
  */
 export const COVER_MODEL: ImageModel = "flux-2-klein-4b";
 
 /**
- * What draws a creature sprite: GPT Image 2 at low quality, against the sprite
- * style references. Klein
- * blanked body horror to a black square even with its safety checker off.
- * Part of every sprite's key, so changing it redraws from then on.
+ * The model that draws creature sprites: GPT Image 2 at low quality, with the
+ * sprite style reference images. FLUX.2 [klein] wasn't usable here: it
+ * turned body horror into a black square even with its safety checker off.
+ * The model is part of every sprite's cache key, so changing it means new
+ * sprites are drawn from then on.
  */
 export const SPRITE_MODEL: ImageModel = "gpt-image-2";
 
 /**
- * What one image costs, in US dollars, at the size and quality this app draws it.
- * From fal's model pages, read 2026-10-16:
+ * The cost of one image in US dollars, at the size and quality this app uses.
+ * From fal's model pages, read on 2026-10-16:
  *
- *   - GPT Image 2 at low quality is $0.018 for 1024x1536, and the page prices
- *     one input image; an illustration sends the guide and four references, a
- *     sprite more, and fal says more input costs more. $0.03 is the estimate
- *     until fal's usage page says otherwise.
- *   - FLUX.2 [klein] 4B is $0.005 a megapixel; a cover is 1536x1024, 1.57 MP.
- *   - FLUX.2 [pro] and FLUX.1 [pro] Canny are not drawn by the game, only by
- *     the spike scripts, which record nothing. Their $0.05 is a placeholder,
- *     not looked up, so the table is whole; look it up before the game uses one.
+ *   - GPT Image 2 at low quality is $0.018 for 1024x1536 with one input
+ *     image. An illustration sends the guide and four reference images, and a
+ *     sprite sends more, and fal says more input costs more. So $0.03 is an
+ *     estimate until fal's usage page shows the real cost.
+ *   - FLUX.2 [klein] 4B is $0.005 per megapixel, and a cover is 1536x1024
+ *     (1.57 megapixels).
+ *   - FLUX.2 [pro] and FLUX.1 [pro] Canny are only used by experiment scripts, which
+ *     record no costs. Their $0.05 is a placeholder so every model has a
+ *     price; look up the real price before the game uses either.
  */
 export const IMAGE_PRICES: Record<ImageModel, number> = {
   "gpt-image-2": 0.03,

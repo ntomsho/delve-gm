@@ -34,7 +34,7 @@
 
 import { useState } from "react";
 import type { DungeonSummary } from "../../api-client/dungeons.ts";
-import { Ink } from "../play/Illustration.tsx";
+import { Ink } from "../shared/ink.tsx";
 import type { PlayerCharacter } from "../../rules/knave/character.ts";
 import type { Size } from "../../generation/content/blueprint.ts";
 import { untilReset, type Allowance } from "../../api-client/allowance.ts";

@@ -38,6 +38,7 @@ export {
   completeDungeon,
   type LibraryPage,
   listLibrary,
+  getCompleteDungeons,
   duplicateDungeon,
   saveChunk,
   listChunks,
@@ -57,6 +58,8 @@ export {
   createRun,
   getRun,
   listRuns,
+  type RunArrivals,
+  recentArrivals,
   lockRun,
   releaseRun,
   type CommitResult,
@@ -73,4 +76,6 @@ export {
   getIllustrationWords,
   saveIllustrationWords,
   setDungeonCover,
+  readyIllustrations,
+  illustrationWordsFor,
 } from "./illustrations.ts";

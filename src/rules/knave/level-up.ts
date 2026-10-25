@@ -1,36 +1,28 @@
 /**
- * LEVELLING UP
- * ============
+ * Levelling up, by Knave's rule: roll as many d8s as the new level for a new
+ * maximum hit points, and raise three different abilities by 1 each.
  *
- * What a thousand experience points buys, and it is Knave's own answer: roll a
- * number of d8s equal to your NEW level for a new hit point maximum, and raise
- * three different abilities by one each.
+ * The dice are seeded from the character and the level being taken, not from
+ * the clock (`levelUpSeed`). So the result for a character's next level is
+ * fixed before the screen opens, and closing the screen and reopening it shows
+ * the same roll.
  *
- * Pure and seeded like everything else here, and the seed is DERIVED FROM THE
- * CHARACTER rather than taken from the clock — see `levelUpSeed`. So the dice
- * for a given character's next level are decided before anybody presses
- * anything, and closing the screen to try again finds the same ones.
+ * XP is never spent. `xp` is a lifetime total, and `level` is how many levels
+ * the player has taken from it; `pendingLevels` is the difference, and the
+ * level-up button appears only when it is above 0. So 2,400 XP means level 3
+ * (once both levels are taken) with 400 towards the next, which is what the
+ * end-of-run screen (`src/ui/play/EndOfRun.tsx`) counts down to.
  *
- * THE TRACK IS CUMULATIVE AND NOTHING IS SPENT. `EndOfRun` has been counting
- * down to the next level as `XP_PER_LEVEL - (total % XP_PER_LEVEL)` since the
- * tally landed, and that sentence only means anything if a career total of 2,400
- * XP is a level 3 character with 400 towards the next. So `xp` accumulates
- * forever and `level` is what has been *claimed* of it — `pendingLevels` is the
- * difference, and it is the only thing that decides whether the button exists.
+ * Each call takes one level. A character who comes back with 3,000 XP is owed
+ * three levels; each gets its own roll and its own three raises, and the
+ * screen offers the button again after each one.
  *
- * ONE LEVEL PER CALL. A character who comes up from a size 5 dungeon with 3,000
- * XP has three levels owed, and each is its own roll and its own three raises —
- * so this hands back a sheet one level higher and the screen offers the button
- * again. Batching them would mean rolling 2d8, 3d8 and 4d8 at once and calling
- * it a choice.
- *
- * WHERE WE DEPART FROM THE BOOK, and it is one comparison: Knave says the
- * maximum goes up by 1 when the roll comes in *less than* the old maximum, which
- * leaves rolling exactly your old maximum as the one result that pays nothing —
- * strictly worse than rolling one under it. `hpFromRoll` uses `prev + 1` as the
- * floor, so the curve is monotonic and a level always buys at least a point. See
- * `CREATION_RULES` in `character-creation.ts` for the same kind of departure,
- * made for the same kind of reason.
+ * One change from Knave. Knave raises the maximum by 1 when the roll is less
+ * than the old maximum, which makes rolling exactly the old maximum the only
+ * result that gives nothing, worse than rolling one less. `hpFromRoll` makes
+ * the new maximum at least the old one plus 1, so every level gives at least
+ * a point. `CREATION_RULES` in `character-creation.ts` changes Knave for a
+ * similar reason.
  */
 
 import { Rng } from "../../shared/utils/rng.ts";
@@ -39,19 +31,18 @@ import { ABILITIES } from "./character-creation.ts";
 import type { PlayerCharacter } from "./character.ts";
 
 /**
- * A level's worth.
+ * XP needed for each level.
  *
- * The arithmetic is worth writing down while it is in front of us: about thirty
- * challenges in a size 5 dungeon, most of them moderate, is roughly 3000 XP --
- * three levels for one dungeon against this track. Either the track moves or the
- * rating does, and which is a design question rather than a coding one.
+ * An open balance question: a size 5 dungeon has about thirty challenges,
+ * mostly moderate, which comes to roughly 3,000 XP, or three levels from one
+ * dungeon. Either this number or the XP awards may need to change.
  */
 export const XP_PER_LEVEL = 1000;
 
 /**
- * Knave's ceiling, in the units a sheet stores. Abilities are held as BONUSES
- * and a defense is always bonus + 10, so "never higher than 20/+10" is one
- * number here rather than two that could disagree.
+ * The highest an ability bonus can go. Knave's limit is "20/+10"; the sheet
+ * stores bonuses, and a defense is always bonus + 10, so one number covers
+ * both.
  */
 export const ABILITY_MAX = 10;
 
@@ -59,11 +50,11 @@ export const ABILITY_MAX = 10;
 export const RAISES_PER_LEVEL = 3;
 
 /**
- * How many levels a career total has bought that have not been taken.
+ * How many levels an XP total has earned beyond the current level.
  *
- * The two numbers rather than the sheet, because the end-of-run screen asks the
- * same question about a total that includes an award which is not on any sheet
- * yet — and two answers to "is a level owed" is one too many.
+ * Takes the two numbers rather than a sheet because the end-of-run screen also
+ * needs this answer for a total that includes XP not yet saved to any sheet.
+ * Having one function answer for both keeps them from disagreeing.
  */
 export function levelsOwed(xp: number, level: number): number {
   return Math.max(0, Math.floor(xp / XP_PER_LEVEL) + 1 - level);
@@ -80,28 +71,30 @@ export const nextLevel = (pc: PlayerCharacter): number => pc.level + 1;
 export interface LevelUpRoll {
   /** One d8 per level of the level being taken, in the order rolled. */
   dice: number[];
-  /** What the dice actually said, before anything was done about it. */
+  /** The sum of the dice, before `hpFromRoll`'s minimum is applied. */
   total: number;
   /** The new maximum. Never below the old one plus a point. */
   hpMax: number;
-  /** Whether the rule did the work rather than the dice. */
+  /** True if the dice came in at or below the old maximum, so the minimum set `hpMax`. */
   floored: boolean;
 }
 
 /**
- * The new maximum from a raw total. Separate from the roll so the rule can be
- * tested without dice, and so the screen can say what the alternative was.
+ * The new maximum hit points from the dice total: the total, or the old
+ * maximum plus 1, whichever is higher. Separate from the roll so the rule can
+ * be tested without dice.
  */
 export function hpFromRoll(total: number, previousMax: number): number {
   return Math.max(total, previousMax + 1);
 }
 
 /**
- * Roll the new hit point maximum: `nextLevel(pc)` d8s, floored at one better
- * than what they had.
+ * Rolls the new maximum hit points: `nextLevel(pc)` d8s, and at least the old
+ * maximum plus 1.
  *
- * ROLLED ONCE, and the interface offers no reroll — an unlimited handful of d8s
- * is a handful of 8s, which is the same reasoning `StepHp` is built on.
+ * There is no reroll. With unlimited rerolls a player would just keep rolling
+ * until every die showed 8. Character creation's hit point step
+ * (`src/ui/create/StepHp.tsx`) limits rerolls for the same reason.
  */
 export function rollLevelUpHp(rng: Rng, pc: PlayerCharacter): LevelUpRoll {
   const dice = Array.from({ length: nextLevel(pc) }, () => rng.d(8));
@@ -110,18 +103,18 @@ export function rollLevelUpHp(rng: Rng, pc: PlayerCharacter): LevelUpRoll {
 }
 
 /**
- * THE SEED FOR THIS LEVEL'S DICE, and it is a fact about the character rather
- * than about when the screen opened.
+ * The seed for this level's dice, made from the character's id and the level
+ * being taken.
  *
- * Closing the modal and opening it again must not roll a second time — an
- * unlimited handful of d8s is a handful of 8s, which is the same reason
- * `StepHp` charges a reroll for one. Nothing is stored to enforce it: the seed
- * is derived from who they are and which level they are taking, so the dice are
- * decided before the button is pressed and pressing it again finds the same
- * ones. Taking the level moves `level`, which is what lets the next one differ.
+ * Closing the level-up screen and opening it again must not give a new roll,
+ * or the player could reroll for free. Nothing is stored to prevent it: the
+ * seed depends only on the character and the level, so every opening rolls
+ * the same dice. Taking the level raises `level`, which changes the seed for
+ * the next one.
  *
- * The hash is `makeRng`'s (xmur3, in `graph.ts`), stopped at the
- * integer — `Rng` wants a number and does its own mixing.
+ * The string hash is the same xmur3 hash as in `makeRng`
+ * (`src/generation/floorplan/graph.ts`), but returns the integer directly,
+ * because `Rng` takes a number and does its own mixing.
  */
 export function levelUpSeed(pc: PlayerCharacter): number {
   const key = `${pc.id}:${nextLevel(pc)}`;
@@ -133,20 +126,20 @@ export function levelUpSeed(pc: PlayerCharacter): number {
   return h >>> 0;
 }
 
-/** This character's roll for this level, and the same one every time it is asked. */
+/** This character's roll for their next level. Always the same for the same character and level. */
 export function levelUpRoll(pc: PlayerCharacter): LevelUpRoll {
   return rollLevelUpHp(new Rng(levelUpSeed(pc)), pc);
 }
 
-/** The abilities that are still under the ceiling, in sheet order. */
+/** The abilities still below `ABILITY_MAX`, in sheet order. */
 export function raisableAbilities(pc: PlayerCharacter): Ability[] {
   return ABILITIES.filter((a) => pc.abilities[a] < ABILITY_MAX);
 }
 
 /**
- * How many raises this level-up takes — three, or every ability still under the
- * ceiling when there are fewer than three of those left. A character at +10 in
- * five of six may still take the level; they simply cannot spend all of it.
+ * How many abilities this level-up must raise: three, or fewer if fewer than
+ * three abilities are below the cap. A character at +10 in five abilities can
+ * still take the level; they just raise only the sixth.
  */
 export function requiredRaises(pc: PlayerCharacter): number {
   return Math.min(RAISES_PER_LEVEL, raisableAbilities(pc).length);
@@ -154,23 +147,24 @@ export function requiredRaises(pc: PlayerCharacter): number {
 
 export interface LevelUpChoice {
   roll: LevelUpRoll;
-  /** Which abilities go up by one. Different from each other, and none at the cap. */
+  /** Which abilities go up by 1. They must all be different, and none may be at the cap. */
   raises: readonly Ability[];
 }
 
 /**
- * Take the level. Returns a NEW sheet; the argument is not touched.
+ * Takes the level. Returns a new sheet and leaves `pc` unchanged.
  *
- * THE CURRENT TOTAL RIDES UP WITH THE MAXIMUM. `carriedOut` heals a survivor to
- * full on the way out of the dungeon, so a character standing on the roster is
- * at full hit points and a level that raised only the maximum would read as a
- * wound they did not take. Anyone below full — a sheet mid-repair, a test —
- * gains the same points rather than being quietly healed to the new top.
+ * Current hit points go up by the same amount as the maximum.
+ * `carriedOut` (`src/server/db/characters.ts`) heals a survivor to full when
+ * they leave a dungeon, so characters between runs are at full hit points.
+ * Raising only the maximum would make them look wounded. A character below
+ * full (in a test, say) gains the same points rather than being healed to the
+ * new maximum.
  *
- * IT THROWS on a choice that breaks a rule, exactly as `checkout` throws on an
- * unaffordable cart: the screen disables the button that would do it, so getting
- * here with four raises or a duplicate is a bug in the caller and not a decision
- * to be silently rounded off.
+ * Throws on a choice that breaks the rules, as `checkout` in `shop.ts` does
+ * for a cart the player can't afford. The screen disables any button that
+ * would make such a choice, so reaching this with four raises or a duplicate
+ * is a bug in the caller.
  */
 export function applyLevelUp(pc: PlayerCharacter, choice: LevelUpChoice): PlayerCharacter {
   const { roll, raises } = choice;

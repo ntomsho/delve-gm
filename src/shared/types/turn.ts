@@ -19,12 +19,6 @@ export type Stage =
   | "awaiting_action"
   /**
    * The action has been sent and the game master is working.
-   *
-   * Needed because prose
-   * is held back until the commit validates and applies, so the player is not
-   * watching text arrive. Without a stage for it the interface would have
-   * nothing honest to show during the wait — and the wait is the normal case,
-   * not the exception.
    */
   | "thinking"
   /** the game master needs the player to disambiguate or justify */
@@ -48,26 +42,21 @@ export type Stage =
   /**
    * The player walked out through a way to the surface.
    *
-   * WRITTEN BY THE GAME MASTER, NEVER STORED. Which ending a departure is depends on
-   * whether the goal was accomplished, and that is world state rather than
-   * something the game master should be trusted to remember — so the store resolves
-   * this into `goal_met` or `escaped` the moment the commit lands, the same way
-   * hit points at zero override whatever came next. The player is never told
-   * "departed"; they are told which one it was.
+   * This is a placeholder stage where the game master has determined the player has left
+   * the dungeon, but the store has not yet resolved whether they achieved their goal yet or not.
+   * In the next stage, the game master will be sent a prompt including the player's goal state
+   * to determine which run ending they receive.
    */
   | "departed"
-  /** out alive, without what they came for */
+  /** The player escaped alive, but without achieving their goal */
   | "escaped"
-  /** out alive, with it */
+  /** The player achieved their goal and escaped alive */
   | "goal_met"
   /**
-   * The player walked away from the run rather than out of the dungeon.
-   *
-   * THE ONE TERMINAL STAGE NO GAME MASTER CAN WRITE. Every other ending is something
-   * that happened in the fiction and arrives on a commit; this one is the player
-   * closing the book, so it is set by an endpoint of its own and costs no model
-   * call, no dice, and no turn. The character is freed and the run keeps
-   * everything it had — abandoning ends a run, it does not delete one.
+   * The player abandoned the run artificially.
+   * 
+   * This is a non-gameplay ending provided as QoL for players that want to stop a run without having
+   * to finish it. It ends immediately with no rewards and allows the character to be used in a new run.
    */
   | "abandoned";
 
@@ -158,10 +147,10 @@ export interface RollSpec {
 /**
  * A roll the player has already made. The game master reads it; it never rolls.
  *
- * Here rather than in `turn.ts` — where it was until the pending request below
- * needed it — because a machine is not the only thing entitled to know what a
- * roll came to. `turn.ts` re-exports it, so the prompts and the journal did not
- * have to move with it.
+ * Defined here, not in the turn machine (`src/gameplay/turn.ts`), because
+ * `PendingRequest.roll` below uses it, and `PendingRequest` is stored with the
+ * run and read by the client. `src/gameplay/turn.ts` re-exports it for its
+ * existing importers.
  */
 export interface RolledOutcome {
   spec: RollSpec;
@@ -180,21 +169,19 @@ export interface RolledOutcome {
 }
 
 /**
- * THE ASK IN FLIGHT — what a retry has to repeat.
+ * The game master request currently in progress, or the last one that failed.
+ * `retry` sends it again.
  *
- * It was a closure variable inside the turn machine, which was correct for
- * exactly as long as one machine outlived one run. It does not: the server
- * builds a session per request and `resume`s it from a row, so the machine that
- * lands on `error` is destroyed before the player has finished reading the word,
- * and the one that answers their retry was born knowing nothing. `retry` guards
- * on having a request to repeat, so it repeated nothing — every "Try again" on a
- * deployed run bumped the version and did nothing else.
+ * Stored in the run's state (`RunState.pending`) rather than held in memory by
+ * the turn machine (`src/gameplay/turn.ts`). On the deployed server each HTTP
+ * request builds a fresh turn machine from the stored run, so a request kept
+ * only in memory was gone by the time the player clicked "Try again", and the
+ * retry silently did nothing.
  *
- * So it is state, and it rides along in the row the run is stored in. That the
- * client can then read it too is not a leak: it names what the player has
- * already done, and the client asserts nothing with it — see `remote-session`,
- * which uses it only to decide which busy stage to show while the server repeats
- * the ask it decided on for itself.
+ * The client can read it too. That is safe: it only contains what the player
+ * already sent. `remote-session`'s `retry` uses it only to choose which busy
+ * stage to show (`room_entry`, `resolving` or `thinking`) while the server
+ * repeats the request.
  */
 export interface PendingRequest {
   /** what the player typed, when this ask was triggered by input */

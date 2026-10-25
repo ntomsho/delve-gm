@@ -1,16 +1,16 @@
 /**
- * THE COMMIT
+ * The commit: what the game master sends back at the end of a turn.
  *
- * One uniform diff shape. The game master states what is now TRUE — a destination
- * value — and the applier works out what that means and does it properly.
+ * Every change to the world is a `Diff` of the same shape. A diff states the
+ * value something should now have, not the steps to get there, and the applier
+ * (`src/gameplay/diffs/apply.ts`) works out the consequences. For example,
  *
- *   { entityId: "<player>", path: "inventory[1]", value: null }
+ *   { entityId: "player", path: "inventory[1]", value: null }
  *
- * says the second carried thing is no longer in hand. The applier clears the
- * slot, closes the gap, drops any equipment slot pointing at it, and reparents
- * the item to the room the player is standing in. Four consequences, one stated
- * fact. Putting that logic here rather than in the prompt means it is tested
- * rather than merely instructed.
+ * says the player is no longer carrying their second item. The applier removes
+ * it from the inventory, closes the gap, unequips it if it was equipped, and
+ * puts it on the floor of the room the player is in. Doing that in code rather
+ * than asking for it in the prompt means it is tested, not just requested.
  */
 
 import type { Challenge } from "../world/challenges.ts";
@@ -29,29 +29,26 @@ export interface Diff {
 }
 
 /**
- * HOW LONG THE PLAYER'S ACTION TOOK — AND THERE IS NO CLOCK.
+ * Roughly how long the player's action took.
  *
- * The obvious shape was a number of minutes, because "rest for the night" and
- * "swing a sword" plainly differ and a number is how you say so. But nothing in
- * this game consumes elapsed time — light and rations are prototype non-goals —
- * so the number would exist to be read back by the thing that wrote it. `RunState`
- * gains no `elapsedMinutes` and `turnCount` stays what it is: closed turns.
+ * A category, not a number of minutes, because the game has no clock: nothing
+ * uses up time (light and rations are not in the game), so a minute count would
+ * only be read back by the game master that wrote it. What the category decides
+ * is whether other creatures get to move while the player is busy:
  *
- * What the difference is actually FOR is deciding which creatures get to act
- * while the player was busy. That is a scope selector, not a quantity, so it is
- * typed as one:
+ *   instant  a glance, a word, drawing a blade: nobody moves
+ *   round    up to 10 seconds, one exchange: approaching creatures move one room
+ *   short    up to an hour, such as searching or picking a lock: the same
+ *   long     a night's rest: anything may go anywhere
  *
- *   instant  a glance, a word, drawing a blade — nobody moves
- *   round    ≤10s, one exchange — the alerted move a room
- *   short    up to an hour, searching or picking a lock — likewise
- *   long     a night's rest — anything may go anywhere it likes
+ * The applier only checks whether it is `instant`. Anything else moves each
+ * creature with an `approach` destination one room closer (`walkApproaching` in
+ * `src/gameplay/diffs/apply.ts`).
  *
- * The applier reads exactly one thing off it: whether `approach` advances. See
- * the sweep at the foot of `applyCommit`.
- *
- * `long` is unsayable until the Rest button exists (ROADMAP, *Rest*) and
- * is refused in `game-master.ts` until then. It ships anyway, because the alternative is touching
- * the schema, two step files and the tests a second time for nothing.
+ * `long` is in the type but not usable yet. `timeNotSpent` in
+ * `src/gameplay/game-master/game-master.ts` refuses it until resting exists
+ * (docs/ROADMAP.md, "Rest"). It is defined now so that adding resting won't
+ * mean changing the schema, the step files and the tests again.
  */
 export type TimeSpent = "instant" | "round" | "short" | "long";
 
@@ -59,9 +56,10 @@ export interface Commit {
   nextStage: Stage;
   nextStep: Step;
   /**
-   * What the turn cost in time, and so who else got to move. Required: a commit
-   * that did not say is a commit the applier would have to guess for, and the
-   * guess would be wrong in whichever direction mattered.
+   * How long the action took, which decides whether other creatures move. It is
+   * required because the applier has no safe default: guessing too short lets
+   * the player act for free, and guessing too long moves creatures that
+   * shouldn't have moved.
    */
   timeSpent: TimeSpent;
   /** present iff nextStage === "roll_offered" */
@@ -69,70 +67,71 @@ export interface Commit {
   /** MUST be empty when nextStage is "clarifying" or "rejected" */
   diffs: Diff[];
   /**
-   * The dungeon's objective has been accomplished. A LATCH: once true it stays
-   * true, so a game master that stops mentioning it cannot take the win back.
+   * The player has achieved the dungeon's goal. Once set it stays set: a later
+   * commit that leaves this out does not undo it.
    *
-   * Not a stage, because accomplishing the goal does not end the run — walking
-   * out with it does, and the two can be many turns apart. Not a diff either: it
-   * is a fact about the RUN rather than about anything in the world.
+   * It is not a stage because achieving the goal does not end the run; leaving
+   * the dungeon afterwards does, and that can be many turns later. It is not a
+   * diff because it is a fact about the run, not about any entity.
    */
   goalMet?: boolean;
   /**
-   * Something the turn established about the DUNGEON — not about any one thing
-   * in it. Why the cells were dug, who the carvings are of, what the miners
-   * were actually down here for.
+   * A fact this turn established about the dungeon as a whole, not about one
+   * thing in it: why the cells were dug, who the carvings show, what the miners
+   * were looking for.
    *
-   * Prose written during play adds to the story of the place, and without this
-   * it is gone by the turn after next: the transcript is cleared when the action
-   * closes, the records carry two turns, and an entity's `state` can only hold
-   * what is true of that entity. So a fact about the whole place has nowhere to
-   * live, and the game master invents the history again, differently, three rooms
-   * later.
+   * Without this, such a fact would be forgotten within a couple of turns. The
+   * transcript is cleared when each action closes, only the last two turn
+   * records are sent to the game master, and an entity's `state` only holds
+   * facts about that entity. The game master would then make up a different
+   * history a few rooms later.
    *
-   * Appended to the run's fiction, never merged into `dungeonContext` — that was
-   * written before play and stays as written, the way a `base` does.
+   * The note is added to the end of `World.fiction`. It never changes
+   * `dungeonContext`, which was written at generation and, like an entity's
+   * `base`, never changes.
    */
   fictionNote?: string;
   /**
-   * A CHALLENGE ANSWERED OUT OF THE RESERVE.
+   * Hands the player a key from the reserve.
    *
-   * The dungeon places about four keys and holds thirty in reserve, because a
-   * key written into a room before play cannot be about what the player turned
-   * out to be doing. This is the other thirty: the game master names one challenge
-   * the reserve still holds, and the applier spends it.
+   * Generation places only some of a dungeon's keys in rooms and keeps the rest
+   * in a reserve. A key placed before play can't respond to what the player
+   * ends up doing; a reserve key can be given out when the moment fits. Here
+   * the game master names a challenge the reserve still holds a key for, and
+   * the applier spends that entry.
    *
-   * A GRANT MUST BE JUSTIFIED BY THE ACTION THAT EARNED IT — found in the rubble
-   * they were digging through, given by the thing they talked down, carried by
-   * the thing they killed. An object that simply appears in a room they have
-   * already searched is the same broken promise as an invented ledge. The
-   * applier cannot check that; the playbook asks for it and the offer list is
-   * weighted to make it easy.
+   * The key has to come from what the player just did: found in the rubble
+   * they were digging through, given by someone they talked round, carried by
+   * a creature they killed. An object that just appears in a room they already
+   * searched is as unfair as an invented ledge. The applier can't check this;
+   * the prompt asks for it.
    *
-   * `entityRef` names an entity created by a `children[]` diff in this same
-   * commit, for a draw that put a physical thing in the world. Information
-   * draws leave it unset: what the player got was told to them.
+   * `entityRef` is the `ref` of an entity created by a `children[]` diff in the
+   * same commit, when the key is a physical object. It is left out when the key
+   * is information the player was told.
    */
   draw?: { challengeId: string; entityRef?: string };
   /**
-   * Challenges whose fact the player now KNOWS.
+   * Ids of challenges whose key fact the player learned this turn.
    *
-   * Separate from the draw because the two are separate events: a key drawn
-   * this turn is usually read this turn, but a key placed during generation was
-   * picked up three rooms ago and is being read now. Both end in the same place
-   * — the fact written onto the thing it is true of, in the exact words the
-   * dungeon rolled. See `recordFact`.
+   * Separate from `draw` because getting a key and learning what it says can
+   * happen on different turns. A key drawn this turn is usually read this turn,
+   * but a key placed at generation may have been picked up rooms ago and read
+   * only now. Either way the applier writes the fact, in the exact words
+   * generation rolled, onto the entity it is about (`recordFact` in
+   * `src/gameplay/mechanics/challenges.ts`).
    */
   learned?: string[];
   /**
    * The player found money.
    *
-   * THE GAME MASTER SAYS THAT THEY DID; CODE SAYS HOW MUCH. A dungeon's wealth is a
-   * conserved pot settled at generation, and 10% of it is held back for exactly
-   * this — coin handed over in play, when the fiction puts some in front of
-   * them. `why` is one line for the record and is not spent on anything else.
+   * The game master says that they found some; code rolls how much. A
+   * dungeon's total wealth is fixed at generation, and 10% of it is held back
+   * as an allowance for coin found during play. `why` is a one-line reason
+   * kept for the record; nothing else reads it.
    *
-   * Refused when the allowance is spent: the dungeon does not have infinite
-   * money and a game master cannot mint any.
+   * The applier refuses the grant once the allowance is used up, so the game
+   * master can't create money.
    */
   coinGrant?: { why: string };
 }
@@ -141,16 +140,17 @@ export interface Commit {
 export const PLAYER_ID = "player";
 
 /**
- * A newly established thing — the keyring on the guard's belt. Created by
- * appending to a holder's `children[]`.
+ * A new entity the game master introduces, such as the keyring on the guard's
+ * belt. It is created by a diff that appends it to a holder's `children[]`.
  *
- * `ref` is optional and exists so later diffs in the SAME commit can address
- * the new entity: the game master cannot know the id, because the applier mints it.
+ * The applier assigns the new entity's id, so the game master can't know it.
+ * To refer to the new entity in a later diff of the same commit, the game
+ * master gives it a `ref` and uses that instead.
  */
 export interface EntitySpec {
   type: "Item" | "RoomFeature";
   name: string;
-  /** its fixed identity — what it is, with nothing in it that will stop being true */
+  /** what it is, worded so that it stays true for the rest of the run */
   base: string;
   /** its current condition, if the player is looking at it now */
   state?: string;
@@ -172,10 +172,10 @@ export interface Rejection {
 }
 
 /**
- * Consequences the game master did not state but the applier performed — an item
- * destroyed at zero quality, a creature slain, armour that fell off because it
- * became illegal. The narration should be able to acknowledge these, and the
- * retry prompt should be able to mention them.
+ * Something that happened while applying a commit, usually a consequence the
+ * game master didn't state: an item destroyed at zero quality, a creature
+ * killed, armour unequipped because it could no longer be worn. They are
+ * reported so the narration and the retry prompt can mention them.
  */
 export interface WorldEvent {
   kind:
@@ -204,7 +204,7 @@ export interface WorldEvent {
 }
 
 export interface ApplyResult {
-  /** false means NOTHING was applied — the batch is atomic */
+  /** false means none of the diffs were applied: a commit applies whole or not at all */
   ok: boolean;
   applied: Diff[];
   rejected: Rejection[];
@@ -218,37 +218,36 @@ export interface World {
   /** where the player is standing — dropped things land here */
   currentRoomId: string;
   /**
-   * The way they came in by: the last connector the walk actually crossed.
+   * The connector the player last walked through to reach this room.
    *
-   * Written by the applier rather than by the game master, because the applier is
-   * what routes the walk and so is the only thing that knows which of several
-   * ways into a room was used. Absent only before the first move.
+   * The applier sets this, not the game master, because the applier chooses the
+   * route for a move and so is the only thing that knows which way into the
+   * room was used. Unset until the player first moves.
    */
   arrivedVia?: string;
-  /** the objective is done; what makes walking out a win rather than an escape */
+  /** the goal is achieved, so leaving the dungeon ends as `goal_met`, not `escaped` */
   goalMet: boolean;
   /**
-   * What play has added to the story of the place, oldest first. Appended by
-   * `fictionNote`, never rewritten — this is a record of what the game has
-   * already told the player, and editing it is going back on it.
+   * Facts about the dungeon established during play, oldest first. Each
+   * `Commit.fictionNote` adds one to the end. Entries are never edited, because
+   * the player has already been told them.
    */
   fiction: string[];
   /**
-   * What this dungeon asks, and what is left to be given out. Both are
-   * GENERATION DATA and neither is written here — the challenges are fixed when
-   * the dungeon is stocked, and a reserve entry is spent by recording the draw
-   * rather than by removing the entry.
+   * The dungeon's challenges, and its reserve of keys not yet given out. Both
+   * come from generation and the applier never changes them. Spending a reserve
+   * entry is recorded in `challengeState`; the entry stays in this list.
    */
   challenges: readonly Challenge[];
   reserve: readonly ReserveEntry[];
-  /** what the run has accumulated about them; the one part of this that changes */
+  /** what the run has done about the challenges so far; unlike the two lists above, this changes */
   challengeState: ChallengeState;
-  /** which turn this is, for the ledger */
+  /** the current turn number, stamped on whatever `challengeState` records this turn */
   turn: number;
   /**
-   * The run's seed, for the one thing in here that needs randomness: how much
-   * coin a grant is worth. The model never writes a number, so somebody has to
-   * roll it, and it has to be the same number on a replay.
+   * The run's seed. Used only to roll how much coin a `coinGrant` is worth. The
+   * model never picks a number, so code rolls it, and seeding it from the run
+   * means a replay rolls the same amount.
    */
   runSeed: number;
 }

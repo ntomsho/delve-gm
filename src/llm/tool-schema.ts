@@ -1,26 +1,27 @@
 /**
- * ZOD -> TOOL INPUT SCHEMA
+ * Converts a zod schema into a tool's `input_schema`, and decides which tools
+ * can use strict mode.
  *
- * The tool's `input_schema` is what actually shapes a forced tool call. Handing
- * the API a permissive `{ type: "object", additionalProperties: true }` and
- * relying on the prompt to describe the shape does not work: the model has to
- * guess the parameter names, and it guesses differently each time. Observed on
- * one seed, same prompt, two attempts — `{ region_data: … }` once, `{ rooms: … }`
- * the next, and `{}` in the failure that started this. The prompt describes the
- * *content*; the schema declares the *shape*, and only one of them is machine
- * enforced.
+ * The `input_schema` is what tells the model the shape of a tool call. Sending
+ * a loose schema (`{ type: "object", additionalProperties: true }`) and
+ * describing the shape in the prompt doesn't work: the model has to guess the
+ * field names, and guesses differently each time. On one seed, with the same
+ * prompt, two attempts came back as `{ region_data: … }` and `{ rooms: … }`,
+ * and a third as `{}`. The prompt describes what to write; the schema defines
+ * the shape, and only the schema is enforced.
  *
- * So the schema goes on the wire, generated from the zod schema that validates
- * the response, which also means the two cannot drift apart.
+ * So the real schema is sent, generated from the zod schema that validates
+ * the response. Because both come from the same zod schema, they can't drift
+ * apart.
  *
- * Structured outputs rejects a few JSON Schema keywords that zod emits happily.
- * They are stripped here and still enforced by zod on the way back in — the
- * same split the official SDKs make.
+ * The API's structured outputs reject some JSON Schema keywords that zod
+ * produces. They are removed here, and zod still checks them when the
+ * response comes back.
  */
 
 import { z } from "zod";
 
-/** Keywords structured outputs does not accept. Zod still checks them locally. */
+/** JSON Schema keywords the API rejects. Zod still checks these rules on the response. */
 const UNSUPPORTED = new Set([
   "minLength", "maxLength", "pattern",
   "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf",
@@ -36,9 +37,9 @@ function strip(node: unknown): unknown {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
     if (UNSUPPORTED.has(k)) continue;
-    // Strict mode allows `additionalProperties` only as `false`. Zod emits a
-    // schema object there for a `z.record(...)`, which the API rejects with a
-    // 400 rather than ignoring — so no open-ended maps in a response schema.
+    // Strict mode only allows `additionalProperties: false`. For a
+    // `z.record(...)`, zod writes a schema there instead, and the API rejects
+    // the request with a 400. So response schemas can't use open-ended maps.
     if (k === "additionalProperties" && v !== false) {
       throw new Error(
         "a response schema cannot contain an open-ended record: " +
@@ -48,7 +49,7 @@ function strip(node: unknown): unknown {
     }
     out[k] = strip(v);
   }
-  // Every object level needs it, and zod omits it where nothing is optional.
+  // Every object needs `additionalProperties: false`, and zod sometimes leaves it out.
   if (out.type === "object") out.additionalProperties = false;
   return out;
 }
@@ -61,21 +62,19 @@ export interface ToolSchema {
 }
 
 /**
- * Strict mode compiles the schema into a grammar, and refuses to do so past 24
- * optional parameters — the content pass has 35, because most of what a room
- * can hold is optional (not every room has a hazard, a goal, an elite).
+ * The most optional fields strict mode accepts. Strict mode compiles the
+ * schema into a grammar and refuses to if there are more than 24 optional
+ * fields. The content pass has 35, because most of what a room can contain is
+ * optional (not every room has a hazard, the goal or an elite).
  *
- * Which is a limit on the guarantee, not on the schema: an accurate
- * `input_schema` is what stops the model guessing at parameter names, and that
- * works with or without strict. Where the schema is small enough, strict adds
- * a hard guarantee on top; where it is not, zod is still validating every
- * response and a bad one still costs only a retry.
+ * Going over the limit only loses strict mode's guarantee. The schema is
+ * still sent, and it still tells the model the field names. Without strict
+ * mode, zod still validates every response, and a bad one costs a retry.
  *
- * THE BUDGET IS PER REQUEST, NOT PER TOOL. The grammar is compiled for the call,
- * so every strict schema on the table spends from the same 24 — `commit_state`
- * (15) and `roll` (11) each fit alone and 400 the moment they are offered
- * together. `fitStrict` is where that is settled; `canBeStrict` answers only for
- * a tool that goes out on its own.
+ * The limit applies to the whole request, not to each tool: all the strict
+ * tools in one request share the same 24. `commit_state` (15) and `roll` (11)
+ * each fit alone, but sending both as strict gets a 400. `fitStrict` handles
+ * that; `canBeStrict` only answers for a tool sent on its own.
  */
 const STRICT_OPTIONAL_LIMIT = 24;
 
@@ -93,28 +92,29 @@ function countOptional(node: unknown): number {
   return n;
 }
 
-/** Whether this schema is simple enough for the API to guarantee it, alone. */
+/** Whether this schema is within strict mode's limit when it is the only tool in the request. */
 export function canBeStrict(schema: ToolSchema): boolean {
   return countOptional(schema) <= STRICT_OPTIONAL_LIMIT;
 }
 
-/** The `strict` flag is decided per request, so this is all a tool has to carry. */
+/** The parts of a tool `fitStrict` needs: its schema and its `strict` flag. */
 interface Strictable {
   input_schema: ToolSchema;
   strict?: boolean;
 }
 
 /**
- * Spend the request's strict budget across the tools going out together.
+ * Decides which tools in one request get strict mode, keeping the total
+ * optional fields within the limit.
  *
- * Only compiled schemas count against it — the content pass sends an
- * unguaranteed 35-optional tool — so this drops `strict` rather
- * than touching any schema. The tool keeps its real shape either way, and zod
- * still checks whatever comes back.
+ * Only strict tools count towards the limit, so a tool that doesn't fit just
+ * loses its `strict` flag; its schema is unchanged and zod still checks its
+ * results.
  *
- * Biggest first, so the guarantee lands where the model has the most to get
- * wrong. On the runtime's pair that is `commit_state`, which writes state; a
- * malformed `roll` costs one more exchange and nothing else.
+ * Tools with the most optional fields are given strict mode first, because
+ * they are the easiest for the model to get wrong. In gameplay that is
+ * `commit_state`, which changes the game's state; a malformed `roll` call
+ * only costs one more exchange.
  */
 export function fitStrict<T extends Strictable>(tools: T[]): T[] {
   const guaranteed = new Set<number>();
@@ -139,12 +139,12 @@ export function fitStrict<T extends Strictable>(tools: T[]): T[] {
 }
 
 /**
- * A tool `input_schema` for a zod object schema.
+ * Builds a tool `input_schema` from a zod object schema.
  *
- * Emits `required` and `additionalProperties: false` throughout, which is what
- * `strict: true` demands — with it the API guarantees the tool input validates
- * against this shape, so zod's job narrows to catching what the JSON Schema
- * subset cannot express.
+ * Every object gets `required` and `additionalProperties: false`, as strict
+ * mode requires. With strict mode the API guarantees the tool input matches
+ * this schema, so zod only has to catch the rules this schema can't express
+ * (the keywords stripped above).
  */
 export function toolSchema(schema: z.ZodType): ToolSchema {
   const json = strip(z.toJSONSchema(schema, { target: "draft-2020-12" })) as Record<string, unknown>;
@@ -152,7 +152,7 @@ export function toolSchema(schema: z.ZodType): ToolSchema {
   if (json.type !== "object" || typeof json.properties !== "object") {
     throw new Error("a tool input schema must be an object schema");
   }
-  // `additionalProperties: false` at every level is a strict-mode requirement,
-  // and zod omits it on the root when there is nothing optional to exclude.
+  // Strict mode needs `additionalProperties: false` on every object, including
+  // the root, where zod may leave it out.
   return { ...json, type: "object", additionalProperties: false } as ToolSchema;
 }

@@ -172,24 +172,25 @@ function describeFailure(e) {
 //#endregion
 //#region src/llm/models.ts
 /**
-* Everything is on Haiku 4.5 while the pipeline is being built: it is the
-* cheapest current model ($1 / $5 per million tokens in / out, against Sonnet
-* 5's $3 / $15), and prompt iteration means running the same seed many times.
+* Which model each task uses. All tasks use Haiku 4.5 while the game is in
+* development: it is the cheapest current model ($1 / $5 per million input /
+* output tokens, against Sonnet 5's $3 / $15), and working on prompts means
+* running the same seed many times.
 *
-* Two limits it carries that the larger models do not — neither binds today,
-* but both would if this stayed past the prototype:
-*   - 200K context, not 1M. A chunk prompt is a few thousand tokens, so there
-*     is a lot of headroom, but a very large dungeon would eventually crowd it.
-*   - 64K max output, not 128K. Above MAX_TOKENS below, so it does not bind.
+* Haiku 4.5 has two limits the larger models don't. Neither matters today:
+*   - a 200K-token context, not 1M. A chunk's prompt is a few thousand
+*     tokens, so there is plenty of room, though a very large dungeon could
+*     eventually fill it.
+*   - 64K maximum output tokens, not 128K. That is above every `MAX_TOKENS`
+*     value below.
 *
-* Haiku 4.5 also predates adaptive thinking and the effort parameter — it takes
-* the older `budget_tokens` form and errors on `effort`. Nothing here uses
-* either, but that is the thing to check before turning them on.
+* Haiku 4.5 is also older than adaptive thinking and the `effort` parameter:
+* it only accepts the older `budget_tokens` form and rejects `effort`. Nothing
+* here uses either, but check this before turning them on.
 *
-* Expect this to stop being one model. The obvious first split is the Dungeon
-* Pass: it runs once, sets the fiction every other call is written against, and
-* costs a rounding error next to N content-pass calls — so it is the cheapest
-* place to buy quality. That is what this registry being task-keyed is for.
+* The first task worth moving to a better model is probably the dungeon pass.
+* It runs once, sets the background every other call builds on, and costs
+* very little next to the many content-pass calls.
 */
 var MODELS = {
 	"dungeon-pass": "claude-haiku-4-5",
@@ -203,9 +204,9 @@ var MODELS = {
 	"sprite-look": "claude-haiku-4-5"
 };
 /**
-* Per-task output ceiling. Generation passes write a lot; turns write a little.
-* The content pass writes six rooms and everything in them in one response,
-* which is why it gets four times the others.
+* The maximum output tokens for each task. The content pass gets four times
+* the others because it writes six rooms and everything in them in one
+* response.
 */
 var MAX_TOKENS = {
 	"dungeon-pass": 4096,
@@ -243,36 +244,40 @@ var IMAGE_MODELS = {
 	"flux-1-pro-canny": { guided: "fal-ai/flux-pro/v1/canny" }
 };
 /**
-* What draws a room illustration in the game: GPT Image 2 at low quality, from the
-* marked guide and the style references. Of the models tried, it followed the
-* prompt and the guide most closely, and medium quality was no better. Part of every illustration's key, so changing it redraws from then on.
+* The model that draws room illustrations: GPT Image 2 at low quality, from
+* the marked-up guide image and the style reference images. Of the models
+* tried, it followed the prompt and the guide most closely, and medium
+* quality was no better. The model is part of every illustration's cache
+* key, so changing it means new illustrations are drawn from then on.
 */
 var ILLUSTRATION_MODEL = "gpt-image-2";
 /**
-* What draws a dungeon's cover, its exterior: FLUX.2 [klein] 4B from the
-* prompt alone. The spike found it best on exteriors, and its text-to-image
-* endpoint takes no references.
+* The model that draws a dungeon's cover (its exterior): FLUX.2 [klein] 4B,
+* from the prompt alone. Testing found it best at exteriors. Its
+* text-to-image endpoint takes no reference images.
 */
 var COVER_MODEL = "flux-2-klein-4b";
 /**
-* What draws a creature sprite: GPT Image 2 at low quality, against the sprite
-* style references. Klein
-* blanked body horror to a black square even with its safety checker off.
-* Part of every sprite's key, so changing it redraws from then on.
+* The model that draws creature sprites: GPT Image 2 at low quality, with the
+* sprite style reference images. FLUX.2 [klein] wasn't usable here: it
+* turned body horror into a black square even with its safety checker off.
+* The model is part of every sprite's cache key, so changing it means new
+* sprites are drawn from then on.
 */
 var SPRITE_MODEL = "gpt-image-2";
 /**
-* What one image costs, in US dollars, at the size and quality this app draws it.
-* From fal's model pages, read 2026-10-16:
+* The cost of one image in US dollars, at the size and quality this app uses.
+* From fal's model pages, read on 2026-10-16:
 *
-*   - GPT Image 2 at low quality is $0.018 for 1024x1536, and the page prices
-*     one input image; an illustration sends the guide and four references, a
-*     sprite more, and fal says more input costs more. $0.03 is the estimate
-*     until fal's usage page says otherwise.
-*   - FLUX.2 [klein] 4B is $0.005 a megapixel; a cover is 1536x1024, 1.57 MP.
-*   - FLUX.2 [pro] and FLUX.1 [pro] Canny are not drawn by the game, only by
-*     the spike scripts, which record nothing. Their $0.05 is a placeholder,
-*     not looked up, so the table is whole; look it up before the game uses one.
+*   - GPT Image 2 at low quality is $0.018 for 1024x1536 with one input
+*     image. An illustration sends the guide and four reference images, and a
+*     sprite sends more, and fal says more input costs more. So $0.03 is an
+*     estimate until fal's usage page shows the real cost.
+*   - FLUX.2 [klein] 4B is $0.005 per megapixel, and a cover is 1536x1024
+*     (1.57 megapixels).
+*   - FLUX.2 [pro] and FLUX.1 [pro] Canny are only used by experiment scripts, which
+*     record no costs. Their $0.05 is a placeholder so every model has a
+*     price; look up the real price before the game uses either.
 */
 var IMAGE_PRICES = {
 	"gpt-image-2": .03,
@@ -283,25 +288,26 @@ var IMAGE_PRICES = {
 //#endregion
 //#region src/llm/tool-schema.ts
 /**
-* ZOD -> TOOL INPUT SCHEMA
+* Converts a zod schema into a tool's `input_schema`, and decides which tools
+* can use strict mode.
 *
-* The tool's `input_schema` is what actually shapes a forced tool call. Handing
-* the API a permissive `{ type: "object", additionalProperties: true }` and
-* relying on the prompt to describe the shape does not work: the model has to
-* guess the parameter names, and it guesses differently each time. Observed on
-* one seed, same prompt, two attempts — `{ region_data: … }` once, `{ rooms: … }`
-* the next, and `{}` in the failure that started this. The prompt describes the
-* *content*; the schema declares the *shape*, and only one of them is machine
-* enforced.
+* The `input_schema` is what tells the model the shape of a tool call. Sending
+* a loose schema (`{ type: "object", additionalProperties: true }`) and
+* describing the shape in the prompt doesn't work: the model has to guess the
+* field names, and guesses differently each time. On one seed, with the same
+* prompt, two attempts came back as `{ region_data: … }` and `{ rooms: … }`,
+* and a third as `{}`. The prompt describes what to write; the schema defines
+* the shape, and only the schema is enforced.
 *
-* So the schema goes on the wire, generated from the zod schema that validates
-* the response, which also means the two cannot drift apart.
+* So the real schema is sent, generated from the zod schema that validates
+* the response. Because both come from the same zod schema, they can't drift
+* apart.
 *
-* Structured outputs rejects a few JSON Schema keywords that zod emits happily.
-* They are stripped here and still enforced by zod on the way back in — the
-* same split the official SDKs make.
+* The API's structured outputs reject some JSON Schema keywords that zod
+* produces. They are removed here, and zod still checks them when the
+* response comes back.
 */
-/** Keywords structured outputs does not accept. Zod still checks them locally. */
+/** JSON Schema keywords the API rejects. Zod still checks these rules on the response. */
 var UNSUPPORTED = /* @__PURE__ */ new Set([
 	"minLength",
 	"maxLength",
@@ -331,21 +337,19 @@ function strip(node) {
 	return out;
 }
 /**
-* Strict mode compiles the schema into a grammar, and refuses to do so past 24
-* optional parameters — the content pass has 35, because most of what a room
-* can hold is optional (not every room has a hazard, a goal, an elite).
+* The most optional fields strict mode accepts. Strict mode compiles the
+* schema into a grammar and refuses to if there are more than 24 optional
+* fields. The content pass has 35, because most of what a room can contain is
+* optional (not every room has a hazard, the goal or an elite).
 *
-* Which is a limit on the guarantee, not on the schema: an accurate
-* `input_schema` is what stops the model guessing at parameter names, and that
-* works with or without strict. Where the schema is small enough, strict adds
-* a hard guarantee on top; where it is not, zod is still validating every
-* response and a bad one still costs only a retry.
+* Going over the limit only loses strict mode's guarantee. The schema is
+* still sent, and it still tells the model the field names. Without strict
+* mode, zod still validates every response, and a bad one costs a retry.
 *
-* THE BUDGET IS PER REQUEST, NOT PER TOOL. The grammar is compiled for the call,
-* so every strict schema on the table spends from the same 24 — `commit_state`
-* (15) and `roll` (11) each fit alone and 400 the moment they are offered
-* together. `fitStrict` is where that is settled; `canBeStrict` answers only for
-* a tool that goes out on its own.
+* The limit applies to the whole request, not to each tool: all the strict
+* tools in one request share the same 24. `commit_state` (15) and `roll` (11)
+* each fit alone, but sending both as strict gets a 400. `fitStrict` handles
+* that; `canBeStrict` only answers for a tool sent on its own.
 */
 var STRICT_OPTIONAL_LIMIT = 24;
 function countOptional(node) {
@@ -360,21 +364,22 @@ function countOptional(node) {
 	for (const v of Object.values(o)) n += countOptional(v);
 	return n;
 }
-/** Whether this schema is simple enough for the API to guarantee it, alone. */
+/** Whether this schema is within strict mode's limit when it is the only tool in the request. */
 function canBeStrict(schema) {
 	return countOptional(schema) <= STRICT_OPTIONAL_LIMIT;
 }
 /**
-* Spend the request's strict budget across the tools going out together.
+* Decides which tools in one request get strict mode, keeping the total
+* optional fields within the limit.
 *
-* Only compiled schemas count against it — the content pass sends an
-* unguaranteed 35-optional tool — so this drops `strict` rather
-* than touching any schema. The tool keeps its real shape either way, and zod
-* still checks whatever comes back.
+* Only strict tools count towards the limit, so a tool that doesn't fit just
+* loses its `strict` flag; its schema is unchanged and zod still checks its
+* results.
 *
-* Biggest first, so the guarantee lands where the model has the most to get
-* wrong. On the runtime's pair that is `commit_state`, which writes state; a
-* malformed `roll` costs one more exchange and nothing else.
+* Tools with the most optional fields are given strict mode first, because
+* they are the easiest for the model to get wrong. In gameplay that is
+* `commit_state`, which changes the game's state; a malformed `roll` call
+* only costs one more exchange.
 */
 function fitStrict(tools) {
 	const guaranteed = /* @__PURE__ */ new Set();
@@ -399,12 +404,12 @@ function fitStrict(tools) {
 	});
 }
 /**
-* A tool `input_schema` for a zod object schema.
+* Builds a tool `input_schema` from a zod object schema.
 *
-* Emits `required` and `additionalProperties: false` throughout, which is what
-* `strict: true` demands — with it the API guarantees the tool input validates
-* against this shape, so zod's job narrows to catching what the JSON Schema
-* subset cannot express.
+* Every object gets `required` and `additionalProperties: false`, as strict
+* mode requires. With strict mode the API guarantees the tool input matches
+* this schema, so zod only has to catch the rules this schema can't express
+* (the keywords stripped above).
 */
 function toolSchema(schema) {
 	const json = strip(z.toJSONSchema(schema, { target: "draft-2020-12" }));
@@ -419,13 +424,13 @@ function toolSchema(schema) {
 //#region src/llm/client.ts
 var PATH = "/v1/messages";
 /**
-* Where requests go, and what rides along.
+* Where requests go and which headers they carry, set by `configureTransport`.
 *
-* NO DEFAULT. A call made before `configureTransport` throws rather than
-* guessing a URL: a guessed one that nothing answers fails as a 404 in the
-* middle of a generation, which reads like a network problem rather than a
-* missing setting. `server/app.ts` (`configureAnthropic`), the dev CLIs and the
-* live tests each configure it with the key from their own environment.
+* There is no default URL. A call made before `configureTransport` throws
+* instead of guessing one, because a wrong guess fails as a 404 partway
+* through a generation and looks like a network problem, not a missing
+* setting. `configureAnthropic` in `src/server/app.ts`, the dev CLIs and the
+* live tests each set it with the key from their own environment.
 */
 var baseUrl;
 var extraHeaders = {};
@@ -452,7 +457,7 @@ function addUsage(a, b) {
 		cacheReadTokens: a.cacheReadTokens + b.cacheReadTokens
 	};
 }
-/** The wire's usage, read into ours. The cache fields are absent when nothing was cached. */
+/** Converts the API's usage fields to `Usage`. The API leaves out the cache fields when nothing was cached. */
 function usageOf(u) {
 	return {
 		inputTokens: u.input_tokens,
@@ -463,7 +468,7 @@ function usageOf(u) {
 }
 var LlmError = class extends Error {
 	status;
-	/** 429 and 5xx are worth another go; 4xx generally is not. */
+	/** true for 429 and 5xx responses, which are worth retrying; other 4xx errors are not */
 	retryable;
 	constructor(message, status, retryable) {
 		super(message);
@@ -521,9 +526,11 @@ async function post(task, body, signal) {
 	throw lastError instanceof Error ? lastError : new LlmError(String(lastError), 0, false);
 }
 /**
-* `strict` here is provisional: it says this tool could be guaranteed on its
-* own. Whether it actually is depends on what else is on the table, and only
-* the request knows that — `callWithTools` settles it with `fitStrict`.
+* Builds a tool definition. `strict: true` here only means the tool's schema
+* is simple enough for strict mode on its own. Strict mode has a limit per
+* request, not per tool, so whether it stays strict depends on the other
+* tools sent with it. `callWithTools` decides that with `fitStrict` in
+* `tool-schema.ts`.
 */
 function toolFor(name, description, schema) {
 	const input_schema = toolSchema(schema);
@@ -535,8 +542,8 @@ function toolFor(name, description, schema) {
 	};
 }
 /**
-* One exchange with tools on the table. Does NOT loop — the caller decides
-* whether what came back finishes the turn, and only the caller knows that.
+* One request to the model with tools available. It doesn't loop: only the
+* caller knows whether the response finishes the turn.
 */
 async function callWithTools(opts) {
 	const json = await post(opts.task, {
@@ -560,11 +567,11 @@ async function callWithTools(opts) {
 	};
 }
 /**
-* The answers to a batch of tool calls, as one user turn.
+* Builds one user message holding the results of several tool calls.
 *
-* One turn, however many calls: splitting results across messages teaches the
-* model to stop asking for them together, and asking for them together is the
-* whole point of the dice tool taking a list.
+* All the results go in one message, however many calls there were. Spreading
+* them across messages teaches the model to stop making calls together, and
+* making them together is why the `roll` tool takes a list.
 */
 function toolResults(results) {
 	return {
@@ -577,6 +584,10 @@ function toolResults(results) {
 		}))
 	};
 }
+/**
+* Forces the model to call one tool and returns its input, validated against
+* `schema` and `check`, with one retry on failure. See the file header.
+*/
 async function callForJson(opts) {
 	const retry = opts.retryOnInvalid ?? true;
 	const messages = [...opts.messages];
@@ -937,6 +948,21 @@ async function getDungeon(id, owner, sql = db()) {
       from dungeons where id = ${id} and owner_id = ${owner}
   `;
 	return row;
+}
+/**
+* Complete dungeons by row id, whoever owns them, for the landing page's
+* pictures (`server/illustrations/showcase.ts`).
+*
+* A CROSS-OWNER READ OF `doc`, AND IT NEVER LEAVES THE SERVER. The pictures are
+* worked out from the document — which room, drawn from which door — and only
+* the picture's URL and the room's and dungeon's names are sent on, which is
+* what the player who walked in was shown anyway.
+*/
+async function getCompleteDungeons(ids, sql = db()) {
+	if (!ids.length) return [];
+	return sql`
+    select id, doc, cover from dungeons where status = 'complete' and id in ${sql(ids)}
+  `;
 }
 /** The player's own worlds, newest first. Summaries — nobody needs six `doc`s. */
 async function listDungeons(owner, sql = db()) {
@@ -1369,9 +1395,11 @@ async function createRun(input, sql = db()) {
 /**
 * A run, for the player whose run it is.
 *
-* THERE IS NO OTHER READ PATH. A run is two private things at once — our log
-* when something goes wrong, and the player's save file — and neither wants an
-* audience. Someone else's run 404s exactly as a missing one does.
+* THERE IS NO OTHER READ PATH to a run's state. A run is two private things at
+* once — our log when something goes wrong, and the player's save file — and
+* neither wants an audience. Someone else's run 404s exactly as a missing one
+* does. The one cross-owner read, `recentArrivals`, takes only which rooms
+* were walked into, never the state.
 */
 async function getRun(id, owner, sql = db()) {
 	const [row] = await sql`
@@ -1380,6 +1408,34 @@ async function getRun(id, owner, sql = db()) {
       from runs where id = ${id} and owner_id = ${owner}
   `;
 	return row;
+}
+/**
+* The rooms the most recently played runs walked into, across every owner, for
+* the landing page's pictures (`server/illustrations/showcase.ts`).
+*
+* THE ONLY CROSS-OWNER READ OF A RUN, and it takes room ids and the doors used,
+* cut out of the log in SQL: no prose, no character, no owner. Only runs in a
+* complete dungeon, which is the set the library already shows everybody.
+*/
+async function recentArrivals(limit, sql = db()) {
+	return (await sql`
+    select r.dungeon_id                  as "dungeonId",
+           r.state ->> 'currentRoomId'   as "currentRoomId",
+           r.state ->> 'arrivedVia'      as "arrivedVia",
+           coalesce((
+             select jsonb_agg(jsonb_strip_nulls(jsonb_build_object(
+                      'kind', 'arrival', 'roomId', e ->> 'roomId', 'via', e ->> 'via')))
+               from jsonb_array_elements(r.state -> 'log') e
+              where e ->> 'kind' = 'arrival' and e ->> 'roomId' is not null
+           ), '[]'::jsonb)               as log
+      from runs r
+      join dungeons d on d.id = r.dungeon_id and d.status = 'complete'
+     order by r.updated_at desc
+     limit ${limit}
+  `).map(({ arrivedVia, ...r }) => arrivedVia ? {
+		...r,
+		arrivedVia
+	} : r);
 }
 async function listRuns(owner, sql = db()) {
 	return sql`
@@ -1500,10 +1556,10 @@ async function claimIllustration(key, model, opts, sql = db()) {
 	return (await sql`
     insert into plates (key, status, model, attempts) values (${key}, 'pending', ${model}, 1)
     on conflict (key) do update
-       set status = 'pending', model = excluded.model, attempts = illustrations.attempts + 1,
+       set status = 'pending', model = excluded.model, attempts = plates.attempts + 1,
            error = null, updated_at = now()
-     where (illustrations.status = 'failed' and illustrations.attempts < ${opts.maxAttempts})
-        or (illustrations.status = 'pending' and illustrations.updated_at < now() - make_interval(secs => ${opts.staleMs / 1e3}))
+     where (plates.status = 'failed' and plates.attempts < ${opts.maxAttempts})
+        or (plates.status = 'pending' and plates.updated_at < now() - make_interval(secs => ${opts.staleMs / 1e3}))
     returning key
   `).length > 0;
 }
@@ -1530,6 +1586,20 @@ async function saveIllustrationWords(key, value, sql = db()) {
 async function setDungeonCover(id, key, sql = db()) {
 	await sql`update dungeons set cover = ${key} where id = ${id} and cover is null`;
 }
+/** Of these keys, the ones whose picture is drawn, with where it is stored. */
+async function readyIllustrations(keys, sql = db()) {
+	if (!keys.length) return /* @__PURE__ */ new Map();
+	const rows = await sql`
+    select key, path from plates where status = 'ready' and path is not null and key in ${sql(keys)}
+  `;
+	return new Map(rows.map((r) => [r.key, r.path]));
+}
+/** Of these keys, the shared words kept under each — see `plate_words`. */
+async function illustrationWordsFor(keys, sql = db()) {
+	if (!keys.length) return /* @__PURE__ */ new Map();
+	const rows = await sql`select key, value from plate_words where key in ${sql(keys)}`;
+	return new Map(rows.map((r) => [r.key, r.value]));
+}
 //#endregion
 //#region src/server/db/repo.ts
 var repo_exports = /* @__PURE__ */ __exportAll({
@@ -1548,10 +1618,12 @@ var repo_exports = /* @__PURE__ */ __exportAll({
 	findUnfinishedDungeon: () => findUnfinishedDungeon,
 	finishIllustration: () => finishIllustration,
 	getCharacter: () => getCharacter,
+	getCompleteDungeons: () => getCompleteDungeons,
 	getDungeon: () => getDungeon,
 	getIllustration: () => getIllustration,
 	getIllustrationWords: () => getIllustrationWords,
 	getRun: () => getRun,
+	illustrationWordsFor: () => illustrationWordsFor,
 	insertPartialDungeon: () => insertPartialDungeon,
 	lastDungeonSeq: () => lastDungeonSeq,
 	lastSeq: () => lastSeq,
@@ -1563,6 +1635,8 @@ var repo_exports = /* @__PURE__ */ __exportAll({
 	lockRun: () => lockRun,
 	readDungeonEvents: () => readDungeonEvents,
 	readJournal: () => readJournal,
+	readyIllustrations: () => readyIllustrations,
+	recentArrivals: () => recentArrivals,
 	releaseRun: () => releaseRun,
 	saveCharacter: () => saveCharacter,
 	saveChunk: () => saveChunk,
@@ -2713,54 +2787,44 @@ function rollSheet(bp) {
 //#endregion
 //#region src/rules/knave/equipment.ts
 /**
-* STANDARD EQUIPMENT
-* ==================
+* Standard equipment: one catalogue of every item the shop sells, a gear roll
+* can give, or a new character starts with. The gear tables in `tables.ts` and
+* the shop's sections both refer to entries here by key, so a rope has one
+* price and one description however the player got it.
 *
-* One table of everything a shop sells, a gear roll can hand you, or a
-* character walks in carrying. The gear tables in `tables.ts` and the
-* shop's sections both index into it, so a rope is one object with one price
-* and one description however a player came by it.
+* Knave prints two overlapping lists: the starting-gear tables (page 2) and
+* Item Costs (page 3). Many items appear in both, sometimes under different
+* names (Torches and Torch, Padlock and Padlock and key, Instrument and
+* Musical instrument). Keeping both lists would mean writing every item's
+* description twice, and the copies would drift apart. So each item is one
+* entry here, and both lists use its key.
 *
-* IT WAS TWO LISTS. Knave prints its starting-gear tables on p.2 and its Item
-* Costs on p.3, and they overlap without agreeing: 155 rows between them for
-* 113 distinct things, 42 of which were the same name twice, and another 16 the
-* same object under two labels — Torches and Torch, Padlock and Padlock and
-* key, Instrument and Musical instrument. Prose written per row would have been
-* written twice and drifted, which is the thing `tables.ts` opens by
-* refusing. So the rows became keys into this, and the two places that print a
-* name print the same one.
+* Each entry (a template) is an item without the things only a created copy
+* has: its id, its holder, and anything rolled for it, like a book's subject.
+* Entries use the same fields as items, including the description fields
+* `base`, `state` and `composed`.
 *
-* A TEMPLATE IS AN ITEM, minus the three things only a minted copy can know:
-* its id, who is holding it, and whatever its kind rolls for. There is no
-* separate shape for "the description of a rope" — an item is an entity and
-* carries what every entity carries, so `base`, `state` and `composed` are
-* written here, on the entry, in the fields they will end up in.
+* Descriptions are written here rather than generated, because a gambeson's
+* description is the same in every dungeon, and generating it each time
+* wastes a model call. An entry with empty descriptions still works: its
+* items start undescribed, and the game writes a description the first time
+* one is needed.
 *
-* WHY THE PROSE IS WRITTEN AND NOT GENERATED. `composed` is the only one of the
-* three the player has read, and for a gambeson it is the same paragraph in
-* every run of every dungeon — a call spent writing it is a call spent
-* reproducing a description of a quilted coat. Filling an entry in here retires
-* that call forever. An entry left blank is not broken: it mints exactly what
-* it minted before this file existed, prose-less, and the runtime writes one
-* when it first has to.
+* `amount` is only ever a count or a measurement ("50 feet", "5", "4 hours").
+* Knave's Item Costs page also uses that column for variants (Book *blank*,
+* Spike *iron*, Tent *3 man*); here those go in the name instead.
 *
-* WHAT `amount` IS FOR. A count or a measure — "50 feet", "5", "4 hours". The
-* Item Costs page also used it for variants (Book *blank*, Spike *iron*, Tent
-* *3 man*), which is a different kind of fact entirely; those are folded into
-* the name here, so `amount` means one thing.
-*
-* The cycle between this file and `tables.ts` is types only — the tables
-* take `EquipmentKey`, this takes `Spell` — so nothing of it survives to
-* runtime.
+* This file and `tables.ts` import each other, but only types (`tables.ts`
+* uses `EquipmentKey`, this uses `Spell`), so there is no cycle at runtime.
 */
 /**
-* Every standard thing, keyed. Prices are Knave's Item Costs page in copper
-* pennies, which is also what the thing is WORTH — a shop that sold at one
-* number and valued at another would be two tables again.
+* Every standard item, by key. `value` is the price from Knave's Item Costs
+* page, in copper, and it is also what the item is worth everywhere else, so
+* the shop never sells at one price and values at another.
 *
-* Armor and weapons are here rather than in a stat table of their own: their
-* numbers are item fields, and a gambeson's price, slots, quality and defense
-* are four facts about one object.
+* Armour and weapon stats are kept here too, not in a separate stat table,
+* because they are fields of the item: a gambeson's price, slots, quality and
+* defense all describe the same object.
 */
 var STANDARD_EQUIPMENT = {
 	gambeson: {
@@ -3823,23 +3887,22 @@ var STANDARD_EQUIPMENT = {
 	}
 };
 /**
-* HOW MANY ARE LEFT, WHERE THE STRING SAYS SO.
+* The number at the start of an item's `amount`, or undefined if there isn't
+* one.
 *
-* `amount` is prose — "2 days", "6 doses", "50 feet", "a handful" — because that
-* is how a player and a game master talk about a measure, and none of it is a number
-* the game does arithmetic on. The one question anything asks of it is whether
-* it has run out, and this is the whole of the parsing: the leading integer, or
-* nothing.
+* `amount` is text ("2 days", "6 doses", "50 feet", "a handful"), because
+* that's how people describe quantities, and the game never does arithmetic
+* on it. The only question asked of it is whether the item has run out, and
+* this is all the parsing that needs.
 *
-* NOTHING IS NOT ZERO, and the difference is a thing being deleted. "A handful"
-* has no count and must survive being written; only a stated zero is empty. So
-* this returns `undefined` rather than 0 for anything it cannot read, and the
-* caller that erases items reads it that way — see `applyToItem`.
+* Undefined and 0 mean different things. "A handful" has no number and must
+* not count as used up; only an amount that says 0 is empty. `applyToItem` in
+* `src/gameplay/diffs/handlers.ts` relies on this: it destroys an item only
+* when this returns 0.
 *
-* The purse parses its own string in `character-creation.ts` and keeps doing so.
-* That is deliberate: money is a value as well as a count, `setPurse` writes
-* both from one number, and folding the two together would make one function
-* answer to two different invariants.
+* Copper is parsed separately by `purse` in `character-creation.ts`, on
+* purpose: for money the amount and the `value` must stay equal, which
+* `setPurse` handles, and that rule doesn't apply to other items.
 */
 function amountCount(amount) {
 	const n = Number.parseInt(amount?.trim() ?? "", 10);
@@ -3850,12 +3913,12 @@ var written = (s) => {
 	return t === "" ? void 0 : t;
 };
 /**
-* The part every item has, whatever kind it is.
+* Creates the fields every item has, whatever its kind.
 *
-* `composed` falls back to `base` and settles the description debt, which is
-* the point of the whole file: a thing that arrives described is never swept up
-* by a composition pass. An entry with no prose at all stays undescribed and
-* `needUpdate` is left alone, so an unfilled table mints what it always did.
+* `composed` falls back to `base`. If the item ends up with either,
+* `needUpdate` is set to false: it already counts as described, and the game
+* won't spend a model call describing it. An entry with no descriptions at
+* all creates an undescribed item and leaves `needUpdate` unset.
 */
 function mintCommon(t, parentId, over) {
 	const base = written(t.base);
@@ -3883,11 +3946,11 @@ function mintCommon(t, parentId, over) {
 	};
 }
 /**
-* Maze Rats: a book is about something.
+* Rolls a book's subject on the Maze Rats table, unless the template sets one.
 *
-* The subject is rolled here because it is what the book IS. How much is in it
-* is not — `uses` starts at nothing and climbs as the book is read, and whether
-* a reading was the last one is settled at the reading. See `consultRoll`.
+* The subject is fixed when the book is created. How much the book holds is
+* not: `uses` starts at 0 and goes up with each reading, and `consultRoll` in
+* `rolls.ts` decides at each reading whether it was the last.
 */
 function mintBook(t, rng) {
 	const uses = t.book?.uses ?? 0;
@@ -3902,18 +3965,16 @@ function mintBook(t, rng) {
 	};
 }
 /**
-* An item from a template, which is what every mint here comes down to.
+* Creates an item from a template. Every item this file creates goes through
+* here.
 *
-* Separate from `mintItem` so that a template built somewhere else — a test, or
-* a thing the fiction has just invented — goes through exactly the same door as
-* a table entry, rather than through a second construction that could disagree
-* with it.
+* Separate from `mintItem` so that a template from elsewhere (a test, or an
+* item the game has just made up) is created the same way as a catalogue
+* entry.
 *
-* The `Rng` is optional because most kinds roll for nothing — a purse of copper
-* and a coil of rope are entirely decided by the template — and required in
-* practice for the one kind that does. Which kinds those are is this file's
-* business rather than the caller's, so a book minted without a stream throws
-* here rather than quietly inventing what is written in it.
+* The `Rng` is optional because most items roll nothing; copper or a rope is
+* fully described by its template. Books need it for their subject, so
+* creating a book without one throws instead of making up a subject.
 */
 function mintTemplate(t, parentId, rng, over = {}) {
 	const item = mintCommon(t, parentId, over);
@@ -3937,17 +3998,17 @@ function mintTemplate(t, parentId, rng, over = {}) {
 		default: return item;
 	}
 }
-/** One standard thing, ready to be carried. */
+/** Creates the catalogue item with this key. */
 function mintItem(key, parentId, rng, over = {}) {
 	return mintTemplate(STANDARD_EQUIPMENT[key], parentId, rng, over);
 }
 /**
-* A spellbook, which is the `spellbook` entry plus the spell it holds.
+* Creates a spellbook: the `spellbook` entry plus the spell it holds.
 *
-* Knave's spellbook is one spell read once a day, so `exhausted` is the whole
-* of its state and the spell's own printed effect is the whole of its content.
-* The name carries the spell because a shelf of four books all called
-* "Spellbook" is a shelf nobody can act on.
+* In Knave a spellbook holds one spell that can be cast once a day, so
+* `exhausted` is all the state it needs, and its content is the spell's
+* printed effect. The spell goes in the name so that several spellbooks can
+* be told apart.
 */
 function mintSpellbook(spell, parentId) {
 	const t = STANDARD_EQUIPMENT.spellbook;
@@ -4039,19 +4100,24 @@ function farSide(c, roomId) {
 	return c.endpointA === roomId ? c.endpointB : c.endpointA;
 }
 /**
-* An entity's standing prose identity, wherever it happens to live.
+* An entity's base: the fixed prose that says what it is.
 *
-* Three storage sites, because three kinds of thing share identity differently:
+* The base is stored in one of four places, checked in this order:
 *
-*   inline `base`          a one-off -- a room, a connector, a named person who
-*                          is nobody but themselves
-*   registry.groups[id]    one of a rolled population; every instance shares it
-*   registry.creatures[id] a one-off creature template -- an elite, a loose
-*   registry.hazards[id]   seed, the goal creature; a hazard's shared effect
+*   1. `e.base`, on the entity itself. Used by things nothing else shares
+*      a description with: a room, a connector, a named person. It wins
+*      over the registry, so a named member of a group keeps their own
+*      description instead of the group's.
+*   2. `registry.hazards[id]`, for hazards. Holds the effect every instance
+*      of that hazard shares.
+*   3. `registry.groups[id]`, for a member of a rolled population. Every
+*      member shares the group's description.
+*   4. `registry.creatures[id]`, for a one-off creature template: an elite,
+*      a loose seed, the goal creature.
 *
-* Inline wins, so a named member of a people group keeps their own identity
-* rather than the group's. Returns undefined only when generation left the
-* entity unwritten, which `validateWritten` treats as a hard failure.
+* `id` is the entity's blueprint id. Returns undefined only when generation
+* never wrote a base for the entity; `validateWritten` treats that as a
+* hard failure.
 */
 function resolveBase(e, reg) {
 	if (e.base !== void 0) return e.base;
@@ -4120,7 +4186,7 @@ function setIsHidden(e, hidden) {
 /**
 * Whether this owes the player fresh prose.
 *
-* `undefined` means never described, and so yes. `false` is a settled state,
+* `undefined` means never described. `false` is a settled state,
 * reached either by writing a description or by concealing the thing. `true`
 * means the description is out of date.
 */
@@ -6049,22 +6115,22 @@ var sprite_look_system_default = "You brief an illustrator who will draw one cre
 //#endregion
 //#region src/prompts/loader.ts
 /**
-* The playbook as it is sent: LF line endings, and its final newline kept,
-* because production has always sent it and the prompt cache's prefix is
-* matched byte for byte.
+* Normalises a game master prompt file: LF line endings, keeping the final
+* newline. The newline is kept because production has always sent it, and
+* changing the text at all would stop the prompt cache matching.
 */
 function lf(raw) {
 	return raw.replace(/\r\n/g, "\n");
 }
-/** Any other prompt file as the model reads it: LF line endings, without the final newline. */
+/** Normalises any other prompt file: LF line endings, with the final newline removed. */
 function text(raw) {
 	const lf = raw.replace(/\r\n/g, "\n");
 	return lf.endsWith("\n") ? lf.slice(0, -1) : lf;
 }
 /**
-* A template with its `{{name}}` slots filled. Every slot must be given a value
-* and every value must have a slot, so a renamed slot or a stale value is an
-* error at load rather than a prompt with a hole in it.
+* Fills a template's `{{name}}` placeholders. Every placeholder must have a
+* value and every value must have a placeholder, so a renamed placeholder or a
+* leftover value throws, instead of sending a prompt with a gap in it.
 */
 function fill(template, values) {
 	const slots = new Set([...template.matchAll(/\{\{(\w+)\}\}/g)].map((m) => m[1]));
@@ -6072,7 +6138,7 @@ function fill(template, values) {
 	for (const key of Object.keys(values)) if (!slots.has(key)) throw new Error(`prompt has no slot {{${key}}}`);
 	return template.replace(/\{\{(\w+)\}\}/g, (_, slot) => values[slot]);
 }
-/** The standing instructions: the conventions, the commit, and the dice tool. */
+/** The game master's main prompt, sent on every call: the conventions, the commit and the `roll` tool. */
 var SKILL = lf(SKILL_default);
 var STEP_1_TARGET = lf(_1_determine_target_default);
 var STEP_2_CLASSIFY = lf(_2_validate_and_classify_default);
@@ -6102,48 +6168,52 @@ var CHAIN = {
 	"5-resolution": [STEP_5_RESOLUTION],
 	"room-entry": [STEP_ROOM_ENTRY]
 };
-/** The step files for an entry point, in the order the heuristic runs them. */
+/** The step files for `step`, in the order the game master works through them. */
 function stepPrompt(step) {
 	return CHAIN[step].join("\n\n---\n\n");
 }
 var DUNGEON_PASS_INSTRUCTIONS = text(dungeon_pass_default);
 var DUNGEON_PASS_SCHEMA = text(dungeon_pass_schema_default);
 /**
-* A connector is read from both ends, and it is one entity with one name.
+* The rule for naming connectors (the ways between rooms).
 *
-* Name it "Corridor to the Kennel" and the player standing IN the Kennel reads
-* "Corridor to the Kennel" on the way out — pointing at where they already are.
-* A game master asked to route "go back to the Laboratory" then has two exits both
-* claiming to lead to the Kennel and picks by coin toss. So the name carries the
-* nature of the crossing and nothing else, and `renderRoom` appends the room on
-* the far side, correct from whichever end is being read.
+* A connector is one entity with one name, seen from both of its rooms. If it
+* were named "Corridor to the Kennel", a player in the Kennel would see an
+* exit called "Corridor to the Kennel", pointing at the room they're in. Asked
+* to "go back to the Laboratory", the game master would then see two exits
+* that both claim to lead to the Kennel, and have to guess. So the name only
+* says what kind of way it is, and `renderRoom` in
+* `src/gameplay/game-master/render.ts` adds the room on the other side, which
+* is right from either end.
 */
 var CONNECTOR_NAMING = text(connector_naming_default);
 /**
-* A stair has a top and a bottom, and one entity read from both ends has no
-* "up" of its own.
+* The rule for describing a connector that changes height, like a stair.
 *
-* So the form says which ROOM is the upper one, by name. That is the one phrasing
-* that survives being read from either side, and without it the same flight of
-* steps is written as descending from both of its rooms -- which is what a player
-* walking back the way they came finds out.
+* A stair has a top and a bottom, but one connector seen from both rooms has
+* no single "up". So the description names which room is the upper one. That
+* is the only wording that is right from both sides; without it, the same
+* stair could be described as going down from both rooms, which a player
+* walking back the way they came would notice.
 *
-* Both rooms are named by whoever is writing: a chunk writes only the connectors
-* whose two rooms it is naming in the same response, and the seams pass is handed
-* the names the chunks settled.
+* The writer always knows both rooms' names: a content-pass chunk only writes
+* connectors whose two rooms it is also naming, and the seams pass is given
+* the room names the chunks chose.
 */
 var CONNECTOR_HEIGHT = text(connector_height_default);
 var GOAL_INSTRUCTION = text(goal_default);
 /**
-* The content pass's standing instructions, with `{{slots}}` for what code
-* knows: the connector rules above, the fixture menu, the position words and
-* the goal line. Filled in `generation/content/passes/content-pass/prompt.ts`.
+* The content pass's instructions, with `{{placeholders}}` for values that
+* come from code: the connector rules above, the list of fixtures, the
+* position words and the goal line. Filled in
+* `src/generation/content/passes/content-pass/prompt.ts`.
 */
 var CONTENT_PASS_TEMPLATE = text(content_pass_default);
 var CONTENT_PASS_SCHEMA = text(content_pass_schema_default);
 /**
-* The seams pass's standing instructions, with `{{slots}}` for the connector
-* rules it shares with the content pass. Filled in `seams-pass.ts`.
+* The seams pass's instructions, with `{{placeholders}}` for the connector
+* rules it shares with the content pass. Filled in
+* `src/generation/content/passes/seams-pass.ts`.
 */
 var SEAMS_PASS_TEMPLATE = text(seams_pass_default);
 var SEAMS_PASS_SCHEMA = text(seams_pass_schema_default);
@@ -6152,40 +6222,43 @@ var KEYS_PASS_SCHEMA = text(keys_pass_schema_default);
 var TALLY_INSTRUCTIONS = text(tally_default);
 var TALLY_SCHEMA = text(tally_schema_default);
 /**
-* Version 2, "sparse". Version 1 asked for cross-hatching and stippling and got
-* exactly that: dense, dark engraving that turned busy or black at 1-bit. This
-* asks for mostly white paper and shading only where a shadow is deepest, and
-* says "no border" more than one way because klein drew one anyway.
+* The illustration style, version 2 ("sparse"). Version 1 asked for
+* cross-hatching and stippling and got dense, dark engraving that turned
+* cluttered or black when reduced to black and white. This version asks for
+* mostly white paper with shading only in the deepest shadows. It says "no
+* border" in several ways because FLUX.2 [klein] drew one anyway.
 */
 var ILLUSTRATION_STYLE = text(style_default);
 /**
-* What the marks in the guide image mean. The marks say WHERE; the prose says
-* WHAT; and none of them may survive into the drawing.
+* Explains the marks on the guide image. The marks show where things go, the
+* text says what they are, and no mark should appear in the finished drawing.
 */
 var ILLUSTRATION_GUIDE_NOTE = text(guide_note_default);
-/** The same, for a guide drawn with no marks: architecture only. */
+/** The same, for a guide image with no marks, which shows only the room's shape. */
 var ILLUSTRATION_PLAIN_GUIDE_NOTE = text(plain_guide_note_default);
 /**
-* The patch of floor every illustration keeps clear for creatures, which are stood in
-* it afterwards (`illustrationStage`, src/illustrations/figures.ts). Only with the
-* marked guide, which carries the dotted outline it refers to.
+* Asks the model to leave a patch of floor empty, where creature sprites are
+* placed afterwards (`illustrationStage` in `src/illustrations/figures.ts`).
+* Only sent with the marked guide, which has the dotted outline this refers
+* to.
 */
 var ILLUSTRATION_OPEN_FLOOR_NOTE = text(open_floor_note_default);
 var ILLUSTRATION_VISUAL_SYSTEM = text(visual_system_default);
 var ILLUSTRATION_SETTING_SYSTEM = text(setting_system_default);
-/** What Haiku is asked for an exterior: the place and its entrance, from outside. */
+/** The system prompt for describing an exterior: the place and its entrance, seen from outside. */
 var ILLUSTRATION_EXTERIOR_SYSTEM = text(exterior_system_default);
 var SPRITE_STYLE = text(sprite_style_default);
 /**
-* A person stands, so a group can be arranged; a creature keeps its own
-* stance, or a rat comes out on its hind legs.
+* How to pose a sprite. People are drawn standing, so a group can be lined
+* up; other creatures keep their natural stance (otherwise a rat would be
+* drawn standing on its hind legs).
 */
 var SPRITE_FRAME = text(sprite_frame_default);
 /**
-* The look the references were picked for, in words, so the prompt does not
-* pull against them: the style text alone asks for crisp outlines, and that
-* came out too clean. Rags are not asked for — worn only where the figure's own
-* description says so.
+* Describes in words the rough look the sprite reference images were chosen
+* for, so the prompt agrees with them. The style text alone asks for crisp
+* outlines, and the results looked too clean. It doesn't ask for ragged
+* clothes; a sprite looks worn only if its own description says so.
 */
 var SPRITE_GRIT = text(sprite_grit_default);
 var SPRITE_LOOK_SYSTEM = text(sprite_look_system_default);
@@ -10591,26 +10664,27 @@ function describeDiff(d) {
 //#endregion
 //#region src/llm/cost.ts
 /**
-* WHAT A CALL COST
-* ================
+* What a model call cost, in US dollars, worked out from the prices in
+* `models.ts`.
 *
-* Dollars, worked out in code from the prices in `models.ts`. The provider's
-* invoice is the truth; this is the running estimate the daily budget and
-* ceiling are checked against (`src/server/spend.ts`), so it has to be close
-* and it has to err high rather than low.
+* The provider's invoice is the real figure. This is the running estimate
+* that `src/server/spend.ts` checks against the daily budget and limit, so it
+* needs to be close, and if it is wrong it should be too high rather than too
+* low.
 */
 var PER_MILLION = 1e6;
 /**
-* A text call's cost. Throws on a model with no price: a call that cannot be
-* priced is a call the ceiling cannot see, and `cost.test.ts` keeps every model
-* in `MODELS` priced so this never fires in the game.
+* The cost of a text call. Throws if the model has no price, because a call
+* that can't be priced can't be counted against the daily limit.
+* `cost.test.ts` checks that every model in `MODELS` has a price, so this
+* should never throw in the game.
 */
 function textCost(model, usage) {
 	const price = TEXT_PRICES[model];
 	if (!price) throw new Error(`no price for ${model}; add it to TEXT_PRICES in src/llm/models.ts`);
 	return (usage.inputTokens * price.input + usage.outputTokens * price.output + usage.cacheWriteTokens * price.cacheWrite + usage.cacheReadTokens * price.cacheRead) / PER_MILLION;
 }
-/** An image call's cost: one picture, at the size and quality the game draws. */
+/** The cost of an image call: `images` pictures at the size and quality the game uses. */
 function imageCost(model, images = 1) {
 	return IMAGE_PRICES[model] * images;
 }
@@ -11476,8 +11550,19 @@ var STAGE_FT = {
 	ahead: 7.5,
 	side: 6
 };
+/** Behind-row offsets from the front, in feet, [ahead, across]: left, right, then the second rank. */
+var BEHIND_FT = [
+	[3, -2.5],
+	[3, 2.5],
+	[5.5, -4.5],
+	[5.5, 4.5]
+];
+/** Feet between named figures side by side: under a body's width, so they overlap a little. */
+var SIDE_BY_SIDE_FT = 2;
 /** Where a cluster would ideally stand: this far ahead of the eye. */
 var PREFERRED_AHEAD_FT = 13;
+/** Clusters in one room stand at least this far apart. */
+var CLUSTER_GAP_FT = 7;
 /** Feet a stand point keeps from a feature's cells: a drawn footprint is wider than its outline. */
 var FEATURE_MARGIN_FT = 2.5;
 /** Feet a stand point keeps from a doorway, so nobody stands in one. */
@@ -11618,6 +11703,101 @@ function spriteKeyOf(c) {
 /** The creatures that can be drawn: there, seen, and at least one of them. */
 function drawableCreatures(creatures, roomId) {
 	return creatures.filter((c) => c.roomId === roomId && c.isHidden !== true && (c.count ?? 1) > 0);
+}
+/**
+* A room's creatures as the clusters they stand in. Pass only the drawable ones
+* (`drawableCreatures`). Leaders first, each with its own group's pack behind
+* it; then the named, with any unclaimed pack behind them as if they were one
+* leader; then each unclaimed pack on its own, one copy in front; then solos.
+*/
+function roomClusters(creatures) {
+	const packs = creatures.filter((c) => figureRole(c) === "group");
+	const claimed = /* @__PURE__ */ new Set();
+	const behindOf = (pack, n) => pack ? Array.from({ length: Math.max(0, Math.min(n, 4)) }, () => spriteKeyOf(pack)) : [];
+	const claim = (pick) => {
+		const pack = packs.find((p) => !claimed.has(p.id) && pick(p));
+		if (pack) claimed.add(pack.id);
+		return pack;
+	};
+	const out = [];
+	for (const leader of creatures.filter((c) => figureRole(c) === "leader")) {
+		const pack = claim((p) => p.narrative.blueprintId === leader.affiliationGroupId);
+		out.push({
+			front: [spriteKeyOf(leader)],
+			behind: behindOf(pack, pack?.count ?? 0)
+		});
+	}
+	const named = creatures.filter((c) => figureRole(c) === "named");
+	if (named.length) {
+		const pack = claim(() => true);
+		out.push({
+			front: named.map(spriteKeyOf),
+			behind: behindOf(pack, pack?.count ?? 0)
+		});
+	}
+	for (const pack of packs.filter((p) => !claimed.has(p.id))) out.push({
+		front: [spriteKeyOf(pack)],
+		behind: behindOf(pack, (pack.count ?? 1) - 1)
+	});
+	for (const solo of creatures.filter((c) => figureRole(c) === "solo")) out.push({
+		front: [spriteKeyOf(solo)],
+		behind: []
+	});
+	return out;
+}
+/**
+* Every figure in the room, back to front so the nearer is laid down last. The
+* first cluster stands on the stage the illustration kept clear; the rest take the
+* next best stand points at least `CLUSTER_GAP_FT` from any other. A cluster
+* with nowhere left to stand is left out.
+*/
+function illustrationFigures(input, view, clusters) {
+	if (!clusters.length) return [];
+	const points = standPoints(input, view);
+	const taken = [];
+	const placed = [];
+	for (const cl of clusters) {
+		const pick = points.find((p) => taken.every((t) => Math.hypot(t.x - p.at.x, t.y - p.at.y) >= CLUSTER_GAP_FT));
+		if (!pick) continue;
+		taken.push(pick.at);
+		cl.behind.forEach((sprite, i) => {
+			const [ahead, across] = BEHIND_FT[i];
+			placed.push({
+				at: offset(view, pick.at, ahead, across),
+				sprite,
+				flop: across > 0
+			});
+		});
+		cl.front.forEach((sprite, i) => {
+			const across = (i - (cl.front.length - 1) / 2) * SIDE_BY_SIDE_FT;
+			placed.push({
+				at: offset(view, pick.at, 0, across),
+				sprite,
+				flop: false
+			});
+		});
+	}
+	const out = [];
+	for (const p of placed) {
+		const foot = projectToFrame(view.eye, {
+			...p.at,
+			z: 0
+		});
+		const oneUp = projectToFrame(view.eye, {
+			...p.at,
+			z: 1
+		});
+		if (!foot || !oneUp) continue;
+		out.push({
+			sprite: p.sprite,
+			x: foot.x,
+			y: foot.y,
+			perFoot: foot.y - oneUp.y,
+			flop: p.flop,
+			ahead: aheadOf(view, p.at)
+		});
+	}
+	return out.sort((a, b) => b.ahead - a.ahead).map(({ ahead: _, ...f }) => f);
 }
 //#endregion
 //#region src/generation/floorplan/map-layout.ts
@@ -13212,22 +13392,21 @@ function withCover({ coverPath, ...summary }) {
 //#endregion
 //#region src/rules/knave/character.ts
 /**
-* character.ts
-* ====================
+* The player character: the Knave 1.0 character sheet and the helpers that
+* change it.
 *
-* The player character. Made during character creation, before play; the
-* runtime reads it into the context of every generation so the model always
-* knows who is standing in the room, what they can perceive, and what they can
-* reach or carry. Mutation in play (damage, inventory changes, quality loss,
-* conditions) happens through the helpers here.
+* The character is made at character creation, before any run. Every game
+* master call includes the sheet, so the model always knows who the player
+* is, what they carry and what they have equipped. During play the diff
+* applier changes the sheet (inventory, equipment) through the helpers here.
 *
-* Knave-native: six abilities stored as BONUSES (a defense is always bonus + 10),
-* HP, level (which caps ability bonuses), the eleven Knave background traits, an
-* inventory of real Item entities, and a free-text condition list.
+* The sheet follows Knave: six abilities stored as bonuses (the matching
+* defense is always bonus + 10), hit points, a level, the eleven Knave traits,
+* an inventory of real Item entities, and a free-text list of conditions.
 *
-* CARRYING CAPACITY is Knave's: slots = CON defense = CON bonus + 10. Each item
-* costs its own `slots` (default 1); the total may not exceed capacity. See the
-* slot helpers below.
+* Carrying capacity is also Knave's: a character has as many inventory slots
+* as their CON defense (CON bonus + 10). Each item takes up its `slots` value
+* (1 if unset). See the slot helpers below.
 */
 /** Total slots this character can carry: CON defense (CON bonus + 10). */
 function slotCapacity(pc) {
@@ -13259,10 +13438,10 @@ function inventoryStatus(pc) {
 	};
 }
 /**
-* Add an item to the character's inventory, binding its parentId to the
-* character. Refuses (returns false) if it would exceed capacity, unless
-* `force` is set -- forcing leaves the character overburdened, which callers can
-* detect via isOverburdened().
+* Adds an item to the inventory and sets its `parentId` to the character.
+* Returns false and adds nothing if it wouldn't fit, unless `force` is set.
+* Forcing it can leave the character overburdened, which `isOverburdened`
+* reports.
 */
 function addItem(pc, item, opts = {}) {
 	if (!opts.force && !canCarry(pc, item)) return false;
@@ -13323,12 +13502,11 @@ function canEquip(pc, slot, itemId) {
 	return { ok: true };
 }
 /**
-* Which filled slots CANNOT stay filled if `itemId` goes into `slot`.
+* Which filled slots would have to be emptied for `itemId` to go into `slot`.
 *
-* Only one rule in Knave: a shield and a two-handed weapon need three hands
-* between them. It is symmetric — taking up the halberd puts the shield away,
-* and taking up the shield puts the halberd away — because both are the same
-* physical fact stated from opposite ends.
+* Knave has only one such rule: a shield and a two-handed weapon would need
+* three hands. It works both ways: equipping a halberd puts the shield away,
+* and equipping a shield puts the halberd away.
 */
 function conflictingSlots(pc, slot, itemId) {
 	const item = heldItem(pc, itemId);
@@ -13338,17 +13516,17 @@ function conflictingSlots(pc, slot, itemId) {
 	return [];
 }
 /**
-* Equip, clearing whatever the new arrangement contradicts.
+* Equips an item, first unequipping anything it conflicts with.
 *
-* This is what the diff applier calls. A diff states the destination — "the
-* halberd is now in their hands" — and it is this function's job to work out
-* everything that has to be true for that, rather than the game master's job to
-* remember to put the shield away first and lose a round trip when it forgets.
+* The diff applier calls this. A diff states the end result ("the halberd is
+* now in their hands"), and this function makes the rest true, so the game
+* master doesn't have to remember to put the shield away first, and a turn
+* isn't wasted on a refusal when it forgets.
 *
-* `canEquip` stays strict and is still the right question for a UI asking
-* "is this legal right now"; the failures it reports that this cannot resolve
-* — an item not carried, the wrong kind of thing for the slot — remain
-* failures here.
+* `canEquip` is still the strict check, for a UI asking "is this allowed right
+* now". Problems this function can't fix, such as an item that isn't carried
+* or the wrong kind of item for the slot, still fail here, and nothing is
+* changed.
 */
 function equipResolving(pc, slot, itemId) {
 	const displaced = conflictingSlots(pc, slot, itemId);
@@ -13392,10 +13570,10 @@ function rangedAttackBonus(pc) {
 	return pc.abilities.wis;
 }
 /**
-* The character's armor defense — the number a foe must meet to hit them.
-* Starts from the item in the **armor** slot (its `armor.defense`), or 11 when
-* the slot is empty, then +1 for an equipped helmet and +1 for an equipped
-* shield. Parallels the creature-side `armorDefense(stats)` in dungeon-entities.
+* The character's armour defense, which an attacker must beat to hit them.
+* It is the body armour's `armor.defense` (11 with no body armour), plus 1 for
+* a helmet and 1 for a shield. The creature version is `armorDefense` in
+* `src/shared/world/entities.ts`.
 */
 function armorDefense(pc) {
 	const worn = heldItem(pc, pc.equipped.armor);
@@ -13404,7 +13582,7 @@ function armorDefense(pc) {
 	const shield = heldItem(pc, pc.equipped.shield) ? 1 : 0;
 	return base + helmet + shield;
 }
-/** A one-line label for an item, terse enough for the PC block in a prompt. */
+/** A short one-line description of an item, for the character sheet in a prompt. */
 function itemSummary(it) {
 	const bits = [it.name || "unnamed item"];
 	if (it.amount) bits.push(`(${it.amount})`);
@@ -13461,9 +13639,9 @@ function acceptsInput(stage) {
 //#endregion
 //#region src/rules/knave/character-creation.ts
 /**
-* `Ability` is `dungeon-entities`', not a second copy — a creature's six and a
-* character's six are the same six, and two unions that must agree are one
-* union.
+* The six abilities in sheet order. The `Ability` type comes from
+* `src/shared/world/entities.ts`, because creatures and characters have the
+* same six abilities and one type keeps them from drifting apart.
 */
 var ABILITIES = [
 	"str",
@@ -13474,15 +13652,14 @@ var ABILITIES = [
 	"cha"
 ];
 /**
-* Nobody holds it yet. `finishCharacter` binds every item's `parentId` to the
-* character it mints, which is the last moment at which a kit is still a kit
-* rather than somebody's belongings.
+* The `parentId` kit items have before the character exists.
+* `finishCharacter` replaces it with the new character's id.
 */
 var PLACEHOLDER_PARENT = "";
 /**
-* A purse is the one item whose `value` is not a fact about what kind of thing
-* it is: sixty copper is worth sixty copper. Written from the amount at every
-* mint, so the two can never disagree.
+* Creates a copper item holding `amount`. Its `value` (what it is worth) is
+* set to the same amount every time, so the two can't disagree. Money is the
+* only item whose value depends on how much of it there is.
 */
 function copperItem(amount) {
 	return mintItem("copper", PLACEHOLDER_PARENT, void 0, {
@@ -13490,22 +13667,21 @@ function copperItem(amount) {
 		value: amount
 	});
 }
-/** The copper row, if they are carrying one. */
+/** The character's copper item, if they have one. */
 function purseItem(pc) {
 	return pc.inventory.find((i) => i.name === "Copper" && i.amount?.endsWith(" cp"));
 }
-/** How much money they have. Nothing carried and nothing parseable both mean 0. */
+/** How much copper the character has. 0 if they have no copper item or its amount can't be read. */
 function purse(pc) {
 	const n = Number.parseInt(purseItem(pc)?.amount ?? "", 10);
 	return Number.isFinite(n) && n > 0 ? n : 0;
 }
 /**
-* Set the purse, in place. **A purse of nothing is no row at all** — a line
-* reading "Copper (0 cp)" on a sheet is noise, and an empty pocket is better
-* said by an empty pocket.
+* Sets how much copper the character has, changing `pc` in place. At 0 the
+* copper item is removed, so the sheet doesn't show "Copper (0 cp)".
 *
-* Mutates, like `addItem` and `equip` beside it; the shop clones before it
-* calls anything here.
+* Changes `pc` directly, like `addItem` and `equip` in `character.ts`; the
+* shop makes a copy before calling it.
 */
 function setPurse(pc, amount) {
 	const held = purseItem(pc);
@@ -15359,8 +15535,9 @@ function runRoutes(app) {
 	});
 }
 /**
-* A defense used as a roll target. Knave contests must EXCEED the defense, so
-* meeting `defense + 1` is the same bar. The only `+1` in the codebase.
+* Converts a defense into a DC. In Knave an attack or stunt must exceed the
+* target's defense, which is the same as meeting `defense + 1`. This is the
+* only place in the codebase that adds that 1.
 */
 function dcFromDefense(defense) {
 	return defense + 1;
@@ -15369,9 +15546,9 @@ function die(rng, sides) {
 	return Math.floor(rng.next() * sides) + 1;
 }
 /**
-* Advantage and disadvantage are roll-two-keep-best / keep-worst, on the d20
-* only — never on damage. A natural 20 or 1 is read off the die that counts,
-* not off whichever die happened to show it.
+* Rolls a d20. With advantage, roll two and keep the higher; with
+* disadvantage, keep the lower. (Damage dice never get advantage.) A natural
+* 20 or 1 counts only if it is on the kept die.
 */
 function d20(rng, edge = "none") {
 	const rolled = edge === "none" ? [die(rng, 20)] : [die(rng, 20), die(rng, 20)];
@@ -15399,8 +15576,8 @@ function parseDamage(expr) {
 	};
 }
 /**
-* `extraDice` adds dice of the weapon's own type — a natural 20, or the right
-* weapon against the right enemy. Damage never takes advantage.
+* Rolls damage. `extraDice` adds more dice of the same size, for a natural 20
+* or for a weapon well suited to the enemy. The total is never below 0.
 */
 function rollDamage(rng, expr, extraDice = 0) {
 	const { count, sides, flat } = parseDamage(expr);
@@ -15414,12 +15591,13 @@ function rollDamage(rng, expr, extraDice = 0) {
 	};
 }
 /**
-* The contest underneath all three: d20 + bonus against a number to meet.
+* The basic roll behind saves, attacks and stunts: d20 + bonus, succeeding on
+* a total of at least `dc`.
 *
-* Exported because the turn machine resolves a `RollSpec` whose `dc` has
-* already been converted from a defense by whoever offered the roll — so it
-* needs the bare contest, and taking it from here keeps `dcFromDefense` the
-* only place a defense turns into a target.
+* Exported for the turn machine (`src/gameplay/turn.ts`). When it rolls the
+* player's offered roll, the `RollSpec.dc` was already converted from a
+* defense when the roll was offered, so it needs this plain version rather
+* than `attackRoll` or `stuntRoll`, which would convert again.
 */
 function checkRoll(rng, bonus, dc, edge = "none") {
 	const roll = d20(rng, edge);
@@ -15433,9 +15611,9 @@ function checkRoll(rng, bonus, dc, edge = "none") {
 	};
 }
 /**
-* A save. `dc` defaults to the ordinary 16; when a creature is the source of
-* the risk, pass `dcFromDefense(creatureDefense)` instead — that is also how an
-* opposed save is expressed, since a defense is always bonus + 10.
+* A save. `dc` defaults to the ordinary 16. When a creature causes the danger,
+* pass `dcFromDefense(creatureDefense)` instead. That also covers a save
+* opposed by a creature, because in Knave a defense is always bonus + 10.
 */
 function saveRoll(rng, bonus, dc = 16, edge = "none") {
 	return checkRoll(rng, bonus, dc, edge);
@@ -15448,9 +15626,9 @@ function critEffects(o, wellSuited = false) {
 	};
 }
 /**
-* An attack. Takes the target's DEFENSE, not a DC — that is the vocabulary the
-* playbook uses. Rolls its own damage on a hit, including the extra die for a
-* natural 20 and for a well-suited weapon.
+* An attack. Takes the target's defense rather than a DC, because that is what
+* the prompt talks in. On a hit it also rolls the damage, adding a die for a
+* natural 20 and another for a well-suited weapon.
 */
 function attackRoll(rng, opts) {
 	const outcome = checkRoll(rng, opts.bonus, dcFromDefense(opts.targetDefense), opts.edge ?? "none");
@@ -15463,22 +15641,23 @@ function attackRoll(rng, opts) {
 	return result;
 }
 /**
-* A stunt — stunning, shoving, disarming, tripping, sundering. Resolved as a
-* contest against the target's defense and dealing no damage of its own.
+* A stunt: stunning, shoving, disarming, tripping, breaking a weapon or shield.
+* Rolled against the target's defense, and deals no damage.
 *
-* A player with advantage may instead spend it to stunt AND deal damage on the
-* same hit; the playbook passes `edge: "none"` in that case, because the
-* advantage bought the combination rather than a reroll.
+* A player with advantage can spend it to stunt and deal damage on the same
+* hit instead of rolling twice. In that case the prompt
+* (`src/prompts/game-master/steps/4-confirm-and-roll.md`) tells the game
+* master to set `edge` to `"none"`.
 */
 function stuntRoll(rng, bonus, targetDefense, edge = "none") {
 	return checkRoll(rng, bonus, dcFromDefense(targetDefense), edge);
 }
 /**
-* 2d6 against the group's morale rating. They break when the roll comes up
-* HIGHER than the rating, so equalling it still holds.
+* A morale check: 2d6 against the group's morale rating. They break only if
+* the roll is higher than the rating, so rolling exactly the rating holds.
 *
-* Triggered by half the group falling, the leader going down, or a lone
-* creature dropping to half its hit points.
+* Knave calls for one when half a group has fallen, when its leader falls, or
+* when a lone creature drops to half its hit points.
 */
 function moraleRoll(rng, rating = 7) {
 	const rolled = [die(rng, 6), die(rng, 6)];
@@ -15490,17 +15669,15 @@ function moraleRoll(rng, rating = 7) {
 	};
 }
 /**
-* A book gives up what it has, and then it has no more.
+* Reading a book: each reading may use it up.
 *
-* Add one to the count of readings, roll a d6, and the book is spent when the
-* die comes up at or under that count. Nothing decides in advance how much is
-* in a book: the first reading is safe five times in six, the third is even
-* money, the sixth is certain, and the expected book answers between two and
-* three questions.
+* Add one to the number of readings so far, then roll a d6. If the roll is
+* at or below that count, this reading was the book's last. The first reading
+* uses it up one time in six, the third half the time, and the sixth always.
+* On average a book answers two or three questions.
 *
-* The roll happens at the READING, not at the writing — which is the difference
-* between a book whose depth is a fact about the world and one whose depth is
-* found out by using it. Only the second can surprise the person holding it.
+* How much a book holds is not decided when it is generated; it is rolled as
+* the player reads. That way the player finds out by using the book.
 */
 function consultRoll(rng, priorUses = 0) {
 	const uses = Math.max(0, priorUses) + 1;
@@ -15522,42 +15699,42 @@ var signed = (n) => `${n >= 0 ? "+" : ""}${n}`;
 //#endregion
 //#region src/rules/knave/roll-tool.ts
 /**
-* THE DICE TOOL
-* =============
+* The `roll` tool: how the game master asks for dice.
 *
-* The game master's half of the split described in ARCHITECTURE §7. The player's
-* roll is thrown by the interface and arrives with their next message; every
-* other roll in the game — the creature that strikes back, the nerve that
-* breaks, the ceiling that comes down — is asked for here.
+* See docs/ARCHITECTURE.md section 7. The player's own roll is made in code
+* when they press the roll button. Every other roll (a creature striking
+* back, a group losing its nerve, a ceiling coming down) is requested through
+* this tool.
 *
-* IT TAKES A LIST, AND THAT IS THE WHOLE DESIGN. A resolution with three
-* creatures in it costs ONE extra exchange rather than three, so the playbook
-* can tell the game master to roll wide and discard rather than go back for more.
-* A morale check it did not end up needing is a rounding error; a second round
-* trip is not.
+* The tool takes a list of rolls, so a resolution with three creatures in it
+* needs one extra model exchange, not three. That is why the prompt tells the
+* game master to ask for every roll it might need at once and ignore the
+* unused ones: an unneeded morale roll costs nothing, while a second round
+* trip costs time and money.
 *
-* Every kind maps onto `engine/dungeon-rolls`, which means advantage keep-best,
-* the natural 20's extra die, the well-suited bonus, the d6 that empties a book
-* and damage summation stay in tested code rather than moving into the prompt. Nothing here decides a
-* rule; it translates a request and reports what the dice said.
+* Each kind of request calls a function in `src/rules/knave/rolls.ts`, so the
+* rules (keep the higher die with advantage, the extra die on a natural 20 or
+* for a well-suited weapon, the d6 that uses up a book, adding up damage) are
+* in tested code, not in the prompt. This file only translates the request
+* and reports what the dice said.
 *
-* The RNG is the run's, positioned where the run left off — the same stream the
-* player's own rolls draw from, advanced in list order. Two runs on one seed
-* roll the same dice.
+* The dice come from the run's RNG, continuing from where the run left off.
+* It is the same stream the player's rolls use, and requests are rolled in
+* list order, so two runs with the same seed roll the same dice.
 */
-/** Advantage, disadvantage, or neither. Shared with the roll a commit offers the player. */
+/** Advantage, disadvantage or neither. Also used for the roll a commit offers the player. */
 var edgeSchema = z.enum([
 	"none",
 	"advantage",
 	"disadvantage"
 ]);
 /**
-* One request in the batch. Flat rather than a discriminated union: JSON Schema
-* can express the union but the model reads a flat object with a `kind` more
-* reliably, and zod checks the per-kind requirements on the way back in.
+* One roll in the list. It is one flat object with a `kind`, not a separate
+* shape per kind, because the model fills in a flat object more reliably.
+* Fields a kind needs are checked when the roll is made (`one` below).
 */
 var rollSpecRequest = z.object({
-	/** the caller's own label, so the results can be told apart */
+	/** a label the game master chooses, so it can tell the results apart */
 	id: nonEmpty,
 	kind: z.enum([
 		"save",
@@ -15568,11 +15745,14 @@ var rollSpecRequest = z.object({
 		"consult"
 	]),
 	/**
-	* Whose roll this is — and `"player"` is deliberately unsayable, because the
-	* player's own roll is offered rather than thrown (see `playersOwnDice`).
-	* Optional, and read only when a roll made at one of the player's bonuses
-	* would otherwise be refused: saying it is the ghoul's is how a game master gets
-	* a genuine coincidence past the guard.
+	* Whose roll this is. `"player"` isn't an option, because the player's own
+	* rolls are offered to them, never rolled by the game master.
+	*
+	* `playersOwnDice` in `src/gameplay/game-master/game-master.ts` refuses a
+	* roll whose bonus matches one of the player's ability bonuses, assuming it
+	* is the player's roll. When a creature's bonus just happens to match, the
+	* game master sets `actor` to say so and the roll is allowed. Nothing else
+	* reads it.
 	*/
 	actor: z.enum(["creature", "world"]).optional(),
 	edge: edgeSchema.optional(),
@@ -15580,7 +15760,7 @@ var rollSpecRequest = z.object({
 	bonus: z.number().int().optional(),
 	/** save: the number to meet. Defaults to 16. */
 	dc: z.number().int().optional(),
-	/** save: a creature is the source of the risk — pass its defense instead */
+	/** save: when a creature causes the danger, its defense, used instead of `dc` */
 	defenseAsDc: z.number().int().optional(),
 	/** attack, stunt */
 	targetDefense: z.number().int().optional(),
@@ -15588,19 +15768,19 @@ var rollSpecRequest = z.object({
 	damage: z.string().optional(),
 	expr: z.string().optional(),
 	extraDice: z.number().int().optional(),
-	/** attack: the right weapon against the right enemy, for the extra die */
+	/** attack: the weapon is well suited to the target, which adds a damage die */
 	wellSuited: z.boolean().optional(),
 	/** morale: the group's rating. Defaults to 7. */
 	rating: z.number().int().optional(),
 	/**
-	* consult: how many times that book has been read ALREADY — its current
-	* `book.uses`, and 0 for one nobody has opened. This reading is added by the
-	* tool, which then says what to write back.
+	* consult: how many times the book has already been read (its current
+	* `book.uses`, or 0 if it has never been opened). The tool counts this
+	* reading itself and tells the game master what to write back.
 	*/
 	uses: z.number().int().optional()
 });
 var rollBatchSchema = z.object({ rolls: z.array(rollSpecRequest).min(1) });
-/** A d20 result as the screen may see it — everything but the DC. */
+/** A d20 result with everything except the DC, which the player must not see. */
 function shown(o) {
 	return {
 		rolled: [...o.rolled],
@@ -15612,19 +15792,20 @@ function shown(o) {
 		nat1: o.nat1
 	};
 }
-/** The d20 and its bonus, spelled out so a total can never be a bare claim. */
+/** The d20, bonus, total and DC written out, so the game master sees how the total was reached. */
 function d20Line(o) {
 	return `d20 ${o.rolled.length > 1 ? `[${o.rolled.join(", ")}] keep ${o.kept}` : `${o.kept}`} ${signed(o.bonus)} = ${o.total} vs ${o.dc}`;
 }
-/** Crits report themselves; spending the quality point is the game master's diff. */
+/** Tells the game master about a critical. Spending the quality point is left to the game master's diff. */
 function critNote(o) {
 	if (o.nat20) return " · NATURAL 20 — the defender's armour loses 1 currentQuality";
 	if (o.nat1) return " · NATURAL 1 — the attacker's weapon loses 1 currentQuality";
 	return "";
 }
 /**
-* Roll one request. Draws from `rng` in call order, so the batch is
-* deterministic in the order the game master listed it.
+* Rolls one request. Returns a failed outcome, with a `CANNOT ROLL` line, if a
+* field the kind needs is missing. Draws from `rng` as it goes, so the same
+* list on the same seed always rolls the same.
 */
 function one(rng, r) {
 	const edge = r.edge ?? "none";
@@ -15727,7 +15908,7 @@ function one(rng, r) {
 function rollBatch(rng, rolls) {
 	return rolls.map((r) => one(rng, r));
 }
-/** The batch's results, keyed by the game master's own ids. */
+/** The results as text for the game master, one line per roll, each starting with its `id`. */
 function renderOutcomes(outcomes) {
 	return outcomes.map((o) => `${o.id}: ${o.line}`).join("\n");
 }
@@ -18544,6 +18725,90 @@ function liveSpriteWork() {
 		}
 	};
 }
+/**
+* The pictures, most recently played first: at most `limit` rooms, then the
+* covers. The page shuffles them.
+*/
+async function recentShowcase(work, store, limit = 24) {
+	const runs = await store.recentArrivals(24);
+	const ids = [...new Set(runs.map((r) => r.dungeonId))].slice(0, 8);
+	const dungeons = await store.getCompleteDungeons(ids);
+	const byId = new Map(dungeons.map((d) => [d.id, d]));
+	const rooms = [];
+	const keyed = /* @__PURE__ */ new Set();
+	for (const run of runs) {
+		const stored = byId.get(run.dungeonId);
+		if (!stored) continue;
+		const d = stored.doc;
+		const walked = [.../* @__PURE__ */ new Set([...run.log.map((e) => e.roomId), run.currentRoomId])];
+		for (const roomId of walked) {
+			if (rooms.length >= 48) break;
+			const entryId = illustrationEntryFor(d, run, roomId);
+			const p = entryId ? roomIllustration(d, roomId, entryId) : void 0;
+			if (!p) continue;
+			const key = illustrationKey(p, d.pass.theme, work.illustrationReferences);
+			if (keyed.has(key)) continue;
+			keyed.add(key);
+			const creatures = drawableCreatures(d.entities.creatures, roomId).flatMap((c) => {
+				const subject = spriteSubject(d.entities, spriteKeyOf(c));
+				return subject ? [{
+					c,
+					sprite: spriteKey(subject, d.pass.theme, work.spriteReferences)
+				}] : [];
+			});
+			rooms.push({
+				key,
+				d,
+				p,
+				creatures
+			});
+		}
+	}
+	const covers = [...new Map(dungeons.flatMap((s) => s.cover ? [[s.cover, {
+		key: s.cover,
+		d: s.doc
+	}]] : [])).values()];
+	const sprites = [...new Set(rooms.flatMap((r) => r.creatures.map((x) => x.sprite)))];
+	const ready = await store.readyIllustrations([
+		...rooms.map((r) => r.key),
+		...covers.map((c) => c.key),
+		...sprites
+	]);
+	const drawnSprites = sprites.filter((s) => ready.has(s));
+	const looks = await store.illustrationWordsFor(drawnSprites.map(lookKey));
+	const shown = [];
+	for (const r of rooms) {
+		const path = ready.get(r.key);
+		if (!path) continue;
+		const spriteOf = new Map(r.creatures.filter((x) => ready.has(x.sprite)).map((x) => [spriteKeyOf(x.c), x.sprite]));
+		const standing = r.creatures.filter((x) => ready.has(x.sprite)).map((x) => x.c);
+		const figures = (standing.length ? illustrationFigures(r.p.input, r.p.view, roomClusters(standing)) : []).flatMap((f) => {
+			const key = spriteOf.get(f.sprite);
+			return [{
+				...f,
+				url: work.urlOf(ready.get(key)),
+				size: parseLook(looks.get(lookKey(key)))?.size ?? "medium"
+			}];
+		});
+		shown.push({
+			kind: "room",
+			url: work.urlOf(path),
+			roomTitle: r.p.roomName,
+			dungeonTitle: r.d.pass.name,
+			figures
+		});
+	}
+	for (const c of covers) {
+		const path = ready.get(c.key);
+		if (path) shown.push({
+			kind: "cover",
+			url: work.urlOf(path),
+			dungeonTitle: c.d.pass.name,
+			figures: []
+		});
+	}
+	return [...shown.filter((s) => s.kind === "room").slice(0, limit), ...shown.filter((s) => s.kind === "cover")];
+}
 //#endregion
 //#region src/server/routes/illustrations.ts
 function illustrationRoutes(app) {
@@ -18605,6 +18870,32 @@ function illustrationRoutes(app) {
 		if (!work || !dungeon.cover) return c.json({ status: "none" });
 		const answer = await serveCover(dungeon.doc, dungeon.cover, work);
 		return c.json(answer, answer.status === "pending" ? 202 : 200);
+	});
+}
+/**
+* The landing page's pictures: rooms and covers already drawn in recent runs.
+* See `showcase.ts`.
+*
+* OUTSIDE THE SIGN-IN GATE, so `app.ts` registers it before the gate. It
+* spends nothing (it reads, and never draws) and it answers with what
+* the library already shows anyone: pictures, and the names of rooms and
+* dungeons. Cached at the edge, so a busy landing page is one query every
+* few minutes rather than one per visit.
+*/
+function showcaseRoutes(app) {
+	app.get("/api/illustrations/recent", async (c) => {
+		const illustrations = illustrationWorker();
+		const sprites = spriteWorker();
+		c.header("cache-control", "public, max-age=60, s-maxage=600, stale-while-revalidate=3600");
+		if (!illustrations || !sprites) return c.json([]);
+		const asked = Math.trunc(Number(c.req.query("limit")));
+		const limit = Number.isFinite(asked) ? Math.min(Math.max(asked, 1), 24) : 24;
+		const work = {
+			illustrationReferences: illustrations.references,
+			spriteReferences: sprites.references,
+			urlOf: illustrations.urlOf
+		};
+		return c.json(await recentShowcase(work, repo_exports, limit));
 	});
 }
 /**
@@ -19020,11 +19311,14 @@ function createApp() {
 	* `/api/health` is the one exception and is registered before this: it is what
 	* the twice-weekly Vercel cron hits to stop Supabase pausing the project
 	* when idle; a cron holds no session, and it reads and writes nothing.
+	* `/api/illustrations/recent` is the other: the landing page's pictures,
+	* shown before anyone signs in, read-only and never drawn (`showcaseRoutes`).
 	*
 	* This API spends an Anthropic key, so this is the line that keeps it from
 	* being open to anyone.
 	*/
 	app.get("/api/health", (c) => c.json({ ok: true }));
+	showcaseRoutes(app);
 	app.use("/api/*", requireUser);
 	app.use("/api/*", spendContext);
 	app.onError((err, c) => {
