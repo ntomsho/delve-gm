@@ -89,6 +89,16 @@ describe("Landing", () => {
     expect(page.one('[aria-label="A drawing of Flooded nave"]')).toBeTruthy();
   });
 
+  it("shows how a room gets drawn whether or not any run has pictures, and a still to reduced motion", async () => {
+    answering("down");
+    const page = renderDom(h(Landing, { onSignIn: async () => {}, onGuest: async () => {} }));
+    await landed();
+
+    expect(page.container.textContent).toContain("How a room gets drawn");
+    expect(page.one('img[src="/how-a-room-is-drawn.gif"]')).toBeTruthy();
+    expect(page.one('source[media="(prefers-reduced-motion: reduce)"]')!.getAttribute("srcset")).toBe("/how-a-room-is-drawn.png");
+  });
+
   it("shows the style references as examples when no run has pictures", async () => {
     answering("down");
     const page = renderDom(h(Landing, { onSignIn: async () => {}, onGuest: async () => {} }));

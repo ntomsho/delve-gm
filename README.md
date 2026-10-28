@@ -33,13 +33,32 @@ exists to keep the model honest.
   stored on the entity and handed back to the model on every turn, so it doesn't drift.
 - **The map only knows what you know.** Fog of war is the same rule as the prose: a
   thing appears on the map once you've been told about it.
-- **Illustrations are composed in code.** For each room, a camera search picks the view
-  that frames the most of it. A guide image drawn from the floor plan then tells the
-  image model where the walls and doors go, and the result is thresholded to one-bit
-  ink. Images are cached by what they show, so a room is drawn once for everyone who
-  plays that dungeon.
+- **Illustrations are composed in code.** The image model draws, but where everything
+  goes is decided before it is asked. See below.
 
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) has the full design.
+
+## How a room gets drawn
+
+<img src="public/how-a-room-is-drawn.gif" alt="A dungeon's floor plan drawn on a grid, zooming in on one room and the camera's view of it, then the same view as a wireframe, the finished illustration, and the creatures standing in it" width="720">
+
+1. **Layout.** Generation lays the dungeon out on a five-foot grid: every room, door
+   and feature has cells before any prose is written.
+2. **Camera.** For the door the player came in by, every standing spot and heading in
+   the room is tried, and the view that frames the most features, then exits, then
+   floor, wins.
+3. **Wireframe.** That view is drawn as line work, the guide image: walls, doorways,
+   a tagged outline where each feature goes, and a patch of floor kept clear for
+   creatures. The prompt says what each tag is.
+4. **Illustration.** The image model draws over the guide in a fixed style, and the
+   result is thresholded to one-bit ink. Images are cached by what they show, so a
+   room is drawn once for everyone who plays that dungeon.
+5. **Creatures.** Each kind of creature is drawn once as a sprite and stood in the
+   room through the same camera, so it lands on the reserved floor at the right
+   size. The room is drawn empty because creatures move and die; the picture
+   shouldn't go stale when they do.
+
+The recording is Stilton's Chamber in *The Frozen Chancel*.
 
 ## The stack
 

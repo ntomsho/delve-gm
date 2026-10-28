@@ -7,8 +7,8 @@
  * stops appearing.
  *
  * A landing page, because for most visitors this is the portfolio piece's
- * front cover: what the game is, what makes it different, how a turn goes,
- * and pictures from real runs. Two ways in, offered throughout: a guest is the
+ * front cover: what the game is, what makes it different, how a room gets
+ * drawn, how a turn goes, and pictures from real runs. Two ways in, offered throughout: a guest is the
  * one-click door, and "Log in" is Google, the one identity, for a returning
  * player.
  *
@@ -95,6 +95,26 @@ const STEPS = [
   { title: "The dungeon responds.", body: "The outcome plays out, and the dungeon remembers it." },
 ];
 
+/** The stages of `public/how-a-room-is-drawn.gif`, in the order it plays them. */
+const DRAWN = [
+  {
+    title: "Layout.",
+    body: "The dungeon is laid out on a five-foot grid before you arrive. Every room, door and feature has its place.",
+  },
+  {
+    title: "Wireframe.",
+    body: "A camera searches the room for the view that shows the most of it, and draws that view as line work: walls, doors, and where each thing goes.",
+  },
+  {
+    title: "Illustration.",
+    body: "An image model draws over the wireframe in the style of classic adventure modules, so the door on the map is the door in the picture.",
+  },
+  {
+    title: "Creatures.",
+    body: "Each creature is drawn once and stood in the room through the same camera, on the floor and at the right size.",
+  },
+];
+
 const EYEBROW = "font-mono text-[11px] uppercase tracking-[0.2em]";
 const H2 = "font-display font-bold text-[30px] leading-[1.08] [text-wrap:balance] md:text-[clamp(30px,3.4vw,42px)]";
 const GUTTER = "px-5 md:px-[clamp(20px,4vw,48px)]";
@@ -161,6 +181,7 @@ export function Landing({ onSignIn, onGuest, notice }: Props) {
       <Nav onLogIn={() => void google()} loggingIn={busy === "google"} door={door} />
       <Hero pictures={pictures} notice={notice} onLogIn={() => void google()} door={door} />
       <Different wash={washes[0]} />
+      <Drawn />
       <Turn wash={washes[1]} />
       {gallery.length > 0 && <Gallery rooms={gallery} />}
       <Closing door={door} />
@@ -438,18 +459,60 @@ function Turn({ wash }: { wash?: Picture }) {
         <div className={`${EYEBROW} text-graphite`}>How a turn works</div>
         <h2 className={`mt-3 max-w-[24ch] ${H2}`}>Say what you do. The game master runs with it.</h2>
         <div className="mt-11 grid grid-cols-[repeat(auto-fit,minmax(min(100%,420px),1fr))] items-start gap-12">
-          <ol className="m-0 flex list-none flex-col p-0">
-            {STEPS.map((s, i) => (
-              <li key={s.title} className="grid grid-cols-[44px_1fr] gap-4 border-t border-rule py-5">
-                <span className="font-display text-[28px] font-bold leading-none text-torch">{i + 1}</span>
-                <span className="flex flex-col gap-1.5">
-                  <span className="font-display text-lg font-bold leading-[1.3]">{s.title}</span>
-                  <span className="text-base leading-[1.55] text-graphite [text-wrap:pretty]">{s.body}</span>
-                </span>
-              </li>
-            ))}
-          </ol>
+          <Steps steps={STEPS} />
           <SampleTurn />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function Steps({ steps }: { steps: { title: string; body: string }[] }) {
+  return (
+    <ol className="m-0 flex list-none flex-col p-0">
+      {steps.map((s, i) => (
+        <li key={s.title} className="grid grid-cols-[44px_1fr] gap-4 border-t border-rule py-5">
+          <span className="font-display text-[28px] font-bold leading-none text-torch">{i + 1}</span>
+          <span className="flex flex-col gap-1.5">
+            <span className="font-display text-lg font-bold leading-[1.3]">{s.title}</span>
+            <span className="text-base leading-[1.55] text-graphite [text-wrap:pretty]">{s.body}</span>
+          </span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+/**
+ * How a room gets drawn: one real room, from the grid to the creatures in it.
+ * A fixed recording, not a live run — `public/how-a-room-is-drawn.gif`, which
+ * the README shows too. Reduced motion gets its last frame as a still.
+ */
+function Drawn() {
+  return (
+    <section className="relative border-t border-rule">
+      <div className={SECTION}>
+        <div className={`${EYEBROW} text-graphite`}>How a room gets drawn</div>
+        <h2 className={`mt-3 max-w-[24ch] ${H2}`}>Every picture is drawn from the dungeon itself.</h2>
+        <div className="mt-11 grid grid-cols-[repeat(auto-fit,minmax(min(100%,420px),1fr))] items-start gap-12">
+          <figure className="m-0 border border-ink bg-paper shadow-[4px_4px_0_var(--color-ink)]">
+            <div className="flex items-center justify-between border-b border-rule px-4 py-2.5 font-mono text-[10px] uppercase tracking-[0.16em] text-graphite">
+              <span>Stilton’s Chamber</span>
+              <span>The Frozen Chancel</span>
+            </div>
+            <picture>
+              <source srcSet="/how-a-room-is-drawn.png" media="(prefers-reduced-motion: reduce)" />
+              <img
+                src="/how-a-room-is-drawn.gif"
+                alt="A dungeon's floor plan drawn on a grid, zooming in on one room and the camera's view of it, then the same view as a wireframe, the finished illustration, and the creatures standing in it"
+                width={960}
+                height={640}
+                loading="lazy"
+                className="block aspect-[3/2] h-auto w-full"
+              />
+            </picture>
+          </figure>
+          <Steps steps={DRAWN} />
         </div>
       </div>
     </section>
