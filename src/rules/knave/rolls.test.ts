@@ -9,6 +9,7 @@ import {
   moraleRoll,
   ORDINARY_DC,
   parseDamage,
+  readDamage,
   rollDamage,
   saveRoll,
   stuntRoll,
@@ -157,6 +158,35 @@ describe("damage expressions", () => {
 
   it.each(["", "d", "6", "1d", "1x6", "0d6", "1d0", "abc"])("refuses %s", (expr) => {
     expect(() => parseDamage(expr)).toThrow();
+  });
+
+  it.each([
+    ["1d6", "1d6"],
+    ["d10", "1d10"],
+    ["2D6 + 1", "2d6+1"],
+    ["2d6 fire", "2d6"],
+    ["1d8 (blunt)", "1d8"],
+    ["1d6 − 1", "1d6-1"],
+    ["1d6 – 1", "1d6-1"],
+    ["claws, 2d4", "2d4"],
+  ])("reads %s as %s", (written, expr) => {
+    expect(readDamage(written)).toEqual({ expr });
+  });
+
+  it.each([
+    ["3", "no dice"],
+    ["", "no dice"],
+    ["add 2", "no dice"],
+    ["1d6+1d4", "more than one dice term"],
+    ["2d6/2", "arithmetic"],
+    ["1d6+STR", "arithmetic"],
+    ["2 x 1d6", "arithmetic"],
+    ["0d6", "can be rolled"],
+    ["1d0", "can be rolled"],
+  ])("refuses %s, saying why and what to write instead", (written, why) => {
+    const read = readDamage(written);
+    expect("why" in read && read.why).toContain(why);
+    expect("why" in read && read.why).toContain(`"1d8+1"`);
   });
 
   it("adds the flat modifier and never goes below zero", () => {

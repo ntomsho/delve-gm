@@ -36,9 +36,9 @@
  * results it did not choose.
  */
 
-import { dcFromDefense, ORDINARY_DC } from "../../rules/knave/rolls.ts";
+import { dcFromDefense, ORDINARY_DC, readDamage } from "../../rules/knave/rolls.ts";
 import { armorDefense as pcArmorDefense } from "../../rules/knave/character.ts";
-import { renderOutcomes, rollBatch, type DiceOutcome } from "../../rules/knave/roll-tool.ts";
+import { damageProblems, renderOutcomes, rollBatch, type DiceOutcome } from "../../rules/knave/roll-tool.ts";
 import { assemble } from "./assemble.ts";
 import {
   callWithTools,
@@ -118,7 +118,7 @@ function toRollSpec(r: ParsedRollRequest): RollSpec {
     ...(r.weapon !== undefined ? { weapon: r.weapon } : {}),
     ...(r.mode !== undefined ? { mode: r.mode } : {}),
     ...(r.advantageUse !== undefined ? { advantageUse: r.advantageUse } : {}),
-    ...(r.damage !== undefined ? { damage: r.damage } : {}),
+    ...(r.damage !== undefined ? { damage: damageToRoll(r.damage) } : {}),
     ...(r.targetId !== undefined ? { targetId: r.targetId } : {}),
   };
 }
@@ -348,6 +348,12 @@ function problemsWith(c: CommitParsed): string[] {
     if (r.targetDefense === undefined && r.dc === undefined) {
       out.push(`a ${r.kind} rollRequest needs targetDefense — the defense of what is being struck.`);
     }
+  }
+  // Caught now, not when the player presses the button and the dice can't be
+  // read: by then the turn that offered them is over.
+  if (c.rollRequest?.damage !== undefined) {
+    const read = readDamage(c.rollRequest.damage);
+    if ("why" in read) out.push(`the rollRequest's damage ${read.why}`);
   }
   return out;
 }
@@ -603,6 +609,16 @@ function withoutPlaceholders(input: unknown): unknown {
 }
 
 /**
+ * The clean form of an offered attack's damage, so the roll the player makes
+ * later parses. One that can't be read is passed through as written: the commit
+ * carrying it is refused (`problemsWith`) before it goes anywhere.
+ */
+function damageToRoll(written: string): string {
+  const read = readDamage(written);
+  return "expr" in read ? read.expr : written;
+}
+
+/**
  * Validate a commit, or say what is wrong with it in the model's own terms.
  *
  * `also` is the pair of checks that need the turn's own history — whether any
@@ -689,7 +705,14 @@ function answerRoll(
 
   // Checked before the stream is touched: a refused batch must cost no draws,
   // or the dice the game master is about to ask for properly come out different.
-  const refused = guard(batch);
+  // Damage it can't read goes first, and says the whole batch is to come again:
+  // nothing in it was rolled, so nothing in it is rolled twice.
+  const unreadable = damageProblems(batch.rolls);
+  const refused = [
+    ...unreadable,
+    ...(unreadable.length > 0 ? ["Nothing in this batch was rolled. Send all of it again with that fixed."] : []),
+    ...guard(batch),
+  ];
   if (refused.length > 0) {
     return {
       result: {

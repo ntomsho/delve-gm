@@ -573,6 +573,58 @@ describe("damage nobody rolled for", () => {
     expect(out.commit.diffs).toHaveLength(1);
   });
 
+  it("refuses the whole batch, drawing nothing, when one damage expression can't be read", async () => {
+    queue.push(
+      reply(
+        use("r1", "roll", {
+          rolls: [
+            { id: "nerve", kind: "morale", rating: 7 },
+            { id: "fall", kind: "damage", expr: "2d6/2" },
+          ],
+        })
+      )
+    );
+    queue.push(reply(use("r2", "roll", { rolls: [{ id: "nerve", kind: "morale" }, { id: "fall", kind: "damage", expr: "1d6" }] })));
+    queue.push(reply(hurt(3)));
+
+    const out = await gameMaster()(request());
+
+    const refusal = sent[1].messages.at(-1).content[0];
+    expect(refusal.is_error).toBe(true);
+    expect(refusal.content).toContain(`[fall] expr "2d6/2"`);
+    expect(refusal.content).toContain("Send all of it again");
+    // The good roll in the refused batch was not thrown, so the resend is the
+    // first and only time it is: 2d6 morale and 1d6 damage, three draws.
+    expect(useGame.getState().run!.rngDraws).toBe(3);
+    expect(out.commit.diffs).toHaveLength(1);
+  });
+
+  it("refuses an offered attack whose damage the player's roll could not read", async () => {
+    const offering = (damage: string) =>
+      commit({
+        post: "The ghoul is open. Strike, +3.",
+        nextStage: "roll_offered",
+        nextStep: "4-confirm-roll",
+        rollRequest: {
+          kind: "attack",
+          ability: "str",
+          bonus: 3,
+          edge: "none",
+          description: "Strike at it.",
+          targetDefense: 12,
+          damage,
+        },
+      });
+    queue.push(reply(offering("1d6+1d4")));
+    queue.push(reply(offering("1d8 (blunt)")));
+
+    const out = await gameMaster()(request());
+
+    expect(sent[1].messages.at(-1).content[0].content).toContain("more than one dice term");
+    // Stored clean, so the roll made later parses.
+    expect(out.commit.rollRequest?.damage).toBe("1d8");
+  });
+
   it("allows it when the player's own roll is what this turn is resolving", async () => {
     queue.push(reply(hurt(3)));
 

@@ -99,6 +99,60 @@ export function parseDamage(expr: string): DamageSpec {
   return { count, sides, flat };
 }
 
+/** What a damage expression may look like, said to the game master when it wrote something else. */
+export const DAMAGE_FORMAT =
+  `Write one dice term: NdS, NdS+K or NdS-K (e.g. "2d6", "1d8+1", "d4"). ` +
+  `Put any description (fire, blunt) in your narration, not the expression.`;
+
+/** A damage expression read: the clean form to roll, or why there is none. */
+export type DamageReading = { expr: string } | { why: string };
+
+/** One NdS[±K] anywhere in a string; the `d` must not be the end of a word, and K must not be another term's count. */
+const DICE_TERM = /(?<![a-z])(\d*)\s*d\s*(\d+)(?:\s*([+-])\s*(\d+)(?!\d|\s*d))?/g;
+
+/**
+ * Reads the damage expression the game master actually wrote.
+ *
+ * Anything `parseDamage` accepts is read as it is. Beyond that, ONE dice term
+ * is picked out of the words around it ("2d6 fire", "1d8 (blunt)", "1d6 − 1"
+ * with a typographic minus), because the dice are plainly there and refusing
+ * would spend a whole model round on a label.
+ *
+ * Refused, with a reason the game master can act on:
+ * - no dice at all ("3"). Rolling it would be the model choosing the damage.
+ * - more than one dice term ("1d6+1d4"). `extraDice` adds dice of one size,
+ *   so a mixed pool has no single size to add to.
+ * - arithmetic left over once the term is out ("2d6/2", "1d6+STR"). Reading
+ *   past it would quietly roll something other than what was meant.
+ */
+export function readDamage(written: string): DamageReading {
+  const refused = (problem: string): DamageReading => ({
+    why: `${JSON.stringify(written)} ${problem}. ${DAMAGE_FORMAT}`,
+  });
+
+  const text = written
+    .toLowerCase()
+    .replace(/[−–—]/g, "-")
+    .replace(/\([^)]*\)|\[[^\]]*\]/g, " ");
+
+  const terms = [...text.matchAll(DICE_TERM)];
+  if (terms.length === 0) return refused("has no dice in it");
+  if (terms.length > 1) return refused("has more than one dice term");
+
+  const [term] = terms;
+  const left = text.slice(0, term.index) + text.slice(term.index + term[0].length);
+  if (/[\d+\-*/×=]/.test(left)) return refused("does arithmetic the dice can't");
+
+  let spec: DamageSpec;
+  try {
+    spec = parseDamage(term[0]);
+  } catch {
+    return refused("isn't a die that can be rolled");
+  }
+  const flat = spec.flat > 0 ? `+${spec.flat}` : spec.flat < 0 ? `${spec.flat}` : "";
+  return { expr: `${spec.count}d${spec.sides}${flat}` };
+}
+
 /**
  * Rolls damage. `extraDice` adds more dice of the same size, for a natural 20
  * or for a weapon well suited to the enemy. The total is never below 0.

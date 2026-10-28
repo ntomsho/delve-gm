@@ -459,7 +459,7 @@ The kinds, and what each returns:
 - `{ kind: "damage", expr, extraDice }` — damage from something that is not an attack: a fall, a trap, a ceiling coming down.
 - `{ kind: "consult", uses }` — the player reads a book. Pass its **current** `book.uses`, which is 0 for one nobody has opened; the reading is added for you. Comes back saying whether there is more in it, and giving you the two numbers to write. **The reading always happens** — this decides whether the book has anything left afterwards, never whether the player learns something now.
 
-`edge` is `"none"` unless you have a reason. All seeded and deterministic; you never supply a result, and you never state a number that did not come back from this tool.
+A damage expression (`damage`, `expr`) is one dice term — `"2d6"`, `"1d8+1"`, `"d4"` — with no words, no second term and no arithmetic; the description belongs in your narration. `edge` is `"none"` unless you have a reason. All seeded and deterministic; you never supply a result, and you never state a number that did not come back from this tool.
 
 **Ask for everything at once, then decide.** It costs nothing to roll for a creature and then not use it — a morale check you did not end up needing is a rounding error, and going back for a second batch is a whole extra exchange. Roll wide, then narrate.
 

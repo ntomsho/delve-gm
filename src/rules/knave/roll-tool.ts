@@ -31,6 +31,7 @@ import {
   dcFromDefense,
   moraleRoll,
   ORDINARY_DC,
+  readDamage,
   rollDamage,
   saveRoll,
   stuntRoll,
@@ -149,6 +150,15 @@ function one(rng: RollRng, r: RollRequestParsed): DiceOutcome {
   const bonus = r.bonus ?? 0;
   const failed = (why: string): DiceOutcome => ({ id: r.id, kind: r.kind, line: `CANNOT ROLL — ${why}`, failed: true });
 
+  // Read before any die is drawn, so a refusal costs the stream nothing.
+  const written = damageWritten(r);
+  const read = written === undefined ? undefined : readDamage(written);
+  if (read && "why" in read) return failed(read.why);
+  const expr = read?.expr;
+  // Said when the words around the dice were dropped, so the game master
+  // knows what was actually rolled.
+  const readAs = written !== undefined && expr !== undefined && written.trim() !== expr ? ` (read ${JSON.stringify(written)} as ${expr})` : "";
+
   switch (r.kind) {
     case "save": {
       // Against a creature's defense if one was given, else the DC, else 16.
@@ -169,11 +179,11 @@ function one(rng: RollRng, r: RollRequestParsed): DiceOutcome {
         bonus,
         targetDefense: r.targetDefense,
         edge,
-        damage: r.damage,
+        damage: expr,
         wellSuited: r.wellSuited,
       });
       const damage = o.damage
-        ? ` · damage ${o.damage.expr} → [${o.damage.rolls.join(", ")}] = ${o.damage.total}`
+        ? ` · damage ${o.damage.expr}${readAs} → [${o.damage.rolls.join(", ")}] = ${o.damage.total}`
         : o.success && r.damage === undefined
           ? ` · no damage die was given, so none was rolled`
           : "";
@@ -230,22 +240,43 @@ function one(rng: RollRng, r: RollRequestParsed): DiceOutcome {
     }
 
     case "damage": {
-      const expr = r.expr ?? r.damage;
       if (expr === undefined) return failed("damage needs an expression, e.g. 2d6");
-      try {
-        const o = rollDamage(rng, expr, r.extraDice ?? 0);
-        return {
-          id: r.id,
-          kind: r.kind,
-          line: `damage — ${o.expr} → [${o.rolls.join(", ")}] = ${o.total}`,
-          failed: false,
-          damage: { expr: o.expr, rolls: [...o.rolls], total: o.total },
-        };
-      } catch (e) {
-        return failed(e instanceof Error ? e.message : String(e));
-      }
+      const o = rollDamage(rng, expr, r.extraDice ?? 0);
+      return {
+        id: r.id,
+        kind: r.kind,
+        line: `damage — ${o.expr}${readAs} → [${o.rolls.join(", ")}] = ${o.total}`,
+        failed: false,
+        damage: { expr: o.expr, rolls: [...o.rolls], total: o.total },
+      };
     }
   }
+}
+
+/** The damage expression a request carries, if its kind rolls one. */
+function damageWritten(r: RollRequestParsed): string | undefined {
+  if (r.kind === "damage") return r.expr ?? r.damage;
+  if (r.kind === "attack") return r.damage;
+  return undefined;
+}
+
+/**
+ * Every damage expression in the batch that can't be read, one line each.
+ *
+ * Checked over the WHOLE batch before anything is rolled. A batch that is half
+ * rolled leaves the game master holding results for some ids and an error for
+ * others, and one that asks again for all of it rerolls dice that already
+ * landed. Refusing the lot, with nothing drawn, makes "send it again" safe.
+ */
+export function damageProblems(rolls: RollRequestParsed[]): string[] {
+  const out: string[] = [];
+  for (const r of rolls) {
+    const written = damageWritten(r);
+    if (written === undefined) continue;
+    const read = readDamage(written);
+    if ("why" in read) out.push(`[${r.id}] ${r.kind === "damage" && r.expr !== undefined ? "expr" : "damage"} ${read.why}`);
+  }
+  return out;
 }
 
 export function rollBatch(rng: RollRng, rolls: RollRequestParsed[]): DiceOutcome[] {

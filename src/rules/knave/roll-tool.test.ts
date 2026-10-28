@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { rollBatch, renderOutcomes } from "./roll-tool.ts";
+import { damageProblems, rollBatch, renderOutcomes } from "./roll-tool.ts";
 import { CountingRng } from "../../shared/utils/rng.ts";
 import { attackRoll, consultRoll, dcFromDefense, moraleRoll, saveRoll } from "./rolls.ts";
 
@@ -131,12 +131,52 @@ describe("bad requests", () => {
     expect(got.failed).toBe(true);
   });
 
+  it("refuses an attack whose damage can't be read, drawing nothing, rather than throwing", () => {
+    // It used to throw from inside the hit, after the d20 was drawn.
+    const r = rng();
+    const [got] = rollBatch(r, [{ id: "a", kind: "attack", bonus: 20, targetDefense: 1, damage: "1d6+1d4" }]);
+    expect(got.failed).toBe(true);
+    expect(got.line).toContain("more than one dice term");
+    expect(r.draws).toBe(0);
+  });
+
   it("keeps rolling the rest of the batch", () => {
     const out = rollBatch(rng(), [
       { id: "bad", kind: "attack" },
       { id: "good", kind: "morale", rating: 9 },
     ]);
     expect(out.map((o) => o.failed)).toEqual([true, false]);
+  });
+});
+
+describe("damage written with words around it", () => {
+  it("rolls the dice and says what it read them as", () => {
+    const [got] = rollBatch(rng(), [{ id: "roof", kind: "damage", expr: "2d6 crushing" }]);
+    expect(got.failed).toBe(false);
+    expect(got.damage?.expr).toBe("2d6");
+    expect(got.line).toContain(`read "2d6 crushing" as 2d6`);
+  });
+
+  it("says nothing extra when the expression was already clean", () => {
+    const [got] = rollBatch(rng(), [{ id: "roof", kind: "damage", expr: "2d6" }]);
+    expect(got.line).not.toContain("read");
+  });
+
+  it("rolls an attack's salvaged damage on a hit", () => {
+    const [got] = rollBatch(rng(), [{ id: "a", kind: "attack", bonus: 20, targetDefense: 1, damage: "1d8 (blunt)" }]);
+    expect(got.damage?.expr).toBe("1d8");
+  });
+
+  it("lists every unreadable expression in a batch by id, and nothing else", () => {
+    const problems = damageProblems([
+      { id: "ok", kind: "damage", expr: "1d6 fire" },
+      { id: "flat", kind: "damage", expr: "3" },
+      { id: "mixed", kind: "attack", targetDefense: 12, damage: "1d6+1d4" },
+      { id: "nerve", kind: "morale" },
+    ]);
+    expect(problems).toHaveLength(2);
+    expect(problems[0]).toMatch(/^\[flat\] expr "3" has no dice/);
+    expect(problems[1]).toMatch(/^\[mixed\] damage "1d6\+1d4"/);
   });
 });
 
