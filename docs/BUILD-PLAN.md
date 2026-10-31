@@ -22,11 +22,16 @@ dungeons, one per region. That is not part of this plan.
 `"small" | "medium" | "large"`. The room count is rolled in code from the generation
 seed, inside the size's range:
 
-| Size | Rooms | Circuit rank (independent loops) | Inhabitant groups |
-|---|---|---|---|
-| small | 5–6 | 1 | 1 |
-| medium | 7–9 | 2 | 1–2 |
-| large | 10–12 | 2–3 | 2 |
+| Size | Rooms | Loops (circuit rank) | Max dead ends | Inhabitant groups |
+|---|---|---|---|---|
+| small | 5–6 | 1–2, weighted to 2 | 1 | 1 |
+| medium | 7–9 | 2–3 | 1 | 1–2 |
+| large | 10–12 | 3–4 | 2 | 2 |
+
+The room and loop counts are rolled once, before any graph attempt, so a retried graph
+keeps the dungeon's shape. `chunksFor` in `src/generation/seeds.ts` becomes
+`shapeFor(size, graphSeed)`, returning `{ rooms, loops }`. The table lives there so
+`floorplan/` doesn't import from `content/`.
 
 Anything that scaled with `size` scales with the room count instead, at the density
 it has today:
@@ -43,29 +48,103 @@ it has today:
 
 `src/generation/floorplan/graph.ts` is built around chunks (six rooms, six interior
 edges, a 2-edge-connected graph of chunks). It is replaced by a whole-dungeon generator,
-not adapted. The new spec:
+not adapted. `buildChunkInterior`, `buildChunkMultigraph`, `pickStubRoom` and the chunk
+checks in `validate` go.
 
-- `V` rooms from the size's range; `E = V − 1 + μ` edges, μ from the table.
-- Max degree 4. Keep the target degree mix of 1/6 dead ends, 1/3 corridors and 1/2
-  junctions as far as small graphs allow.
-- Planar (`planarity.ts`), with the embedding the block plan uses.
-- **Routes to the goal.** At medium and large, the entrance and the goal must have two
-  edge-disjoint paths between them. Stocking's structural pre-pass picks the entrance and
-  goal (`stock.ts` step 0), so the check goes there. On failure the graph seed advances,
-  the same way a failed block plan does today.
-- `EdgeKind` and `Room.chunk` go, along with `onCycle`/`cycleIndex` if nothing outside
-  the old generator reads them.
+**Construction**, for `V` rooms and `μ` loops (`E = V − 1 + μ`):
+
+1. **A loop core.** A cycle of 3–6 rooms, then `μ − 1` extra paths (ears), each joining
+   two different core rooms with doors to spare and carrying 0–2 new rooms. An ear
+   never joins two rooms that are already neighbours.
+2. **The rest.** Remaining rooms attach to rooms with doors to spare, singly or in a
+   short chain. Dead ends are not built on purpose; they are whatever this leaves.
+3. **Rejection.** Every graph is checked (below), and a failure advances the graph seed,
+   as a non-planar graph does today.
+
+The old degree-mix target (1/6 dead ends, 1/3 corridors, 1/2 junctions) is dropped. At
+these loop counts a large dungeon averages about 2.3 doors a room, so half the rooms
+can't be junctions. The dead-end cap replaces it.
+
+**Entrance and goal.** `Dungeon.entrances: number[]` becomes `entrance: number`, the room
+furthest from the drawing's centre. That ends the leftover 2–3-entrance behaviour
+`structuralPrePass` works around (`steps.ts:59`). The goal pick (depth × 10 + doors,
+from `structuralPrePass`) moves into a function `graph.ts` exports, so the route checks
+and stocking use the same goal. Neither the entrance nor the goal has to be on a loop;
+a goal at the end of a chain is fine if the routes to it pass the checks.
+
+**Routes.** A *route* is a path from the entrance to the goal that never visits a room
+twice. Two routes are *distinct* when each has at least one room the other lacks, so
+routes may share rooms, including a choke point. A route that only skips a room on
+another is a bypass, not a second route. Graphs this small make it cheap to list every
+route.
+
+**Checks.** Small dungeons get slack, because there aren't enough rooms for more.
+
+| Check | small | medium | large |
+|---|---|---|---|
+| Room count and loop count match the shape | yes | yes | yes |
+| Connected, planar, max degree 4 | yes | yes | yes |
+| Dead ends | ≤ 1 | ≤ 1 | ≤ 2 |
+| Distinct routes to the goal | ≥ 2 | ≥ 3 | ≥ 3 |
+| A bypass: some room on the shortest route can be skipped by a detour of ≤ 2 extra rooms | – | yes | yes |
+| Balance: the two shortest distinct routes differ by ≤ 2 rooms | – | yes | yes |
+
+If a seed range at small fails the route check too often, small drops to accepting a
+single loop that the entrance and goal both sit on, which always gives two routes.
+Measure first.
+
+**Data model.** `Room.chunk`, `onCycle`, `cycleIndex`, `EdgeKind`/`Edge.kind` and
+`Dungeon.chunkCount` go. `Stats` drops `interChunkEdges` and `cycleLengths` and gains
+`deadEnds` and `routes`. `batch()` takes a size.
+
+**Positions.** `initialPositions` becomes one scatter with radius `95·√(V/6)`, the
+single-chunk radius scaled up. `relax` uses one rest length, 72.
+
+### Gates
+
+`gateConnectors` (`src/generation/content/stock/steps.ts`) keeps deciding, in code, which
+connectors are gated and which are hidden. The content pass keeps writing what each one
+is. Gates are topology: key placement, reachability and the route checks all depend on
+them, and route reasoning is where the model is weakest.
+
+What changes is that gating now accounts for routes. Today gates are spread evenly,
+guarded only per room, so one gate on each of two routes leaves two routes on paper and
+one in play. The rules:
+
+- **The goal is never hidden-only.** At least one route to the goal passes no hidden
+  connector. A hidden connector rewards discovery; it is never required to finish.
+- **Routes ask different things.** Prefer gating one distinct route and leaving another
+  open, and never the same kind of gate on both.
+- **Hidden connectors go on shortcuts.** An ear with no rooms on it (a direct connection
+  between two core rooms) is where a secret passage belongs, because it bypasses
+  something. Concealment draws from those first.
+- **Unchanged:** the budget (a sixth to a quarter of connectors), no room fully gated
+  except the secret room, and an open way into the entrance. With no dead ends there is
+  no secret room; that already happens ("may be null").
+
+In phase 2 the outline chooses from gate candidates that code has already checked
+against these rules, and picks each gate's kind: blocked, hidden or hazardous.
 
 ### Layout
 
-- `blockplan.ts` `spaceOut` sets two target distances by chunk membership
-  (`TARGET_SAME`, `TARGET_ACROSS`). It gets one target, or a target from graph distance
-  if the plans read better that way. Decide by looking at plans for five seeds.
-- `map-layout.ts` drops `chunk` (region tint) and `interChunk`. Check the map UI for
-  readers of either.
-- Measure the block plan's failure rate at large (12 rooms). It should be far below the
-  old size 5 rate. If it is, drop the roadmap item **Positions from the planar
+- **Spacing.** `blockplan.ts` `spaceOut` drops its `chunkOf` argument, and
+  `TARGET_ACROSS` goes, so every connection targets `TARGET_SAME = 6`. Try a target from
+  graph distance only if the plans for five seeds read badly.
+- **Entrance.** `blockplan.ts:924` and `geometry.ts` `roomDepths` read `graph.entrance`.
+- **Map.** `map-layout.ts` drops `chunk` and `interChunk`. `DungeonMap.tsx:659` draws every
+  connector at stroke width 1.4, and the `interChunk` assertion in `view.test.ts:118`
+  goes.
+- **Failure rate.** Measure how often the block plan fails at large. It should be far
+  below the old size 5 rate. If it is, drop the roadmap item **Positions from the planar
   embedding**.
+
+### Landing layout before the passes
+
+Stocking sets `RoomStock.chunk = 0` for every room, so the current pipeline runs the whole
+dungeon as one region: one content call, no seams, one region challenge. That is how
+size 1 runs today. Layout can land and be checked on its own; the passes step then
+deletes `chunk` for good. Production is capped at small, so raise the content pass's
+`MAX_TOKENS` only if a medium or large dev run hits it.
 
 ### Passes
 
@@ -127,9 +206,11 @@ routes become:
 
 - Tests pass: `graph.test`, `generation.test`, `keys.test`, `rewards.test`, determinism
   and snapshots (updated, not deleted).
-- An offline run (`generateOffline` / `--dry`) on five seeds per size gives each size's
-  room count and circuit rank, the entrance-to-goal route check at medium and large, and
-  a block plan on every seed.
+- `graph.test`, at 3 sizes × 7 seeds, asserts every check in the table above.
+  `stock.test` asserts the gate rules: the goal is never hidden-only, and hidden
+  connectors go on shortcuts when there are any.
+- An offline run (`generateOffline` / `--dry`) on five seeds per size draws a block plan
+  on every seed and prints graph attempts per size. Then look at the three maps.
 - One live generation per size finishes and plays its first room.
 
 ---
