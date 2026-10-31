@@ -206,7 +206,7 @@ routes become:
 
 - Tests pass: `graph.test`, `generation.test`, `keys.test`, `rewards.test`, determinism
   and snapshots (updated, not deleted).
-- `graph.test`, at 3 sizes × 7 seeds, asserts every check in the table above.
+- `graph.test`, at 3 sizes × 7 seeds, asserts every row of the **Checks** table under *The room graph*.
   `stock.test` asserts the gate rules: the goal is never hidden-only, and hidden
   connectors go on shortcuts when there are any.
 - An offline run (`generateOffline` / `--dry`) on five seeds per size draws a block plan
