@@ -35,6 +35,7 @@ import { runRoutes } from "./routes/runs.ts";
 import { playRoutes } from "./routes/play.ts";
 import { illustrationRoutes, showcaseRoutes } from "./routes/illustrations.ts";
 import { reviewRoutes } from "./routes/review.ts";
+import { portraitRoutes } from "./routes/portraits.ts";
 import { spendContext, spendMeter } from "./spend.ts";
 
 // ---------------------------------------------------------------------------
@@ -122,6 +123,7 @@ export function createApp(): Hono<AuthEnv> {
   runRoutes(app);
   playRoutes(app);
   illustrationRoutes(app);
+  portraitRoutes(app);
   reviewRoutes(app);
 
   return app;

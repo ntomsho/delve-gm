@@ -209,7 +209,7 @@ export async function beforeImage(): Promise<void> {
  * After an image call that came back. Never throws, for the meter's reason: the
  * picture is bought, and losing the row is better than losing the picture.
  */
-export async function recordImage(task: "illustration" | "cover" | "sprite", model: ImageModel): Promise<void> {
+export async function recordImage(task: "illustration" | "cover" | "sprite" | "portrait", model: ImageModel): Promise<void> {
   try {
     await record({ task, model, images: 1, cost: imageCost(model) });
   } catch (e) {

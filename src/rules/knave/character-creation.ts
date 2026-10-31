@@ -39,6 +39,7 @@ import { mintItem, mintSpellbook, type EquipmentKey } from "./equipment.ts";
 import type {
   CharacterAbilities,
   CharacterTraits,
+  Gender,
   CreationMode,
   EquipSlot,
   EquippedSlots,
@@ -512,6 +513,7 @@ export interface CharacterDraft {
   name: string;
   abilities: CharacterAbilities;
   traits: CharacterTraits;
+  gender?: Gender;
   hp: number;
   kit: StartingKit;
 }
@@ -542,6 +544,7 @@ export function finishCharacter(draft: CharacterDraft): PlayerCharacter {
     hp: { current: draft.hp, max: draft.hp },
     abilities: { ...draft.abilities },
     traits: { ...draft.traits },
+    ...(draft.gender ? { gender: draft.gender } : {}),
     inventory,
     equipped,
     conditions: [],

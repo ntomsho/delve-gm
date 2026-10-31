@@ -18,6 +18,10 @@ import {
   GUEST_TURNS_PER_DAY,
   hasTurnLeft,
   MEMBER_TURNS_PER_DAY,
+  GUEST_PORTRAITS_PER_DAY,
+  MEMBER_PORTRAITS_PER_DAY,
+  hasPortraitLeft,
+  portraitRefusal,
   refusal,
   turnRefusal,
 } from "./allowance.ts";
@@ -96,6 +100,40 @@ describe("turns a day", () => {
     expect(guest).toMatch(/30 turns for today\. Your run is saved/);
     expect(guest).toMatch(/Sign in with Google for 60 a day/);
     const member = turnRefusal(allowanceFor({ guest: false, tier: "member", used: 1, turnsUsed: 60, now: NOW }));
+    expect(member).not.toMatch(/Google/);
+  });
+});
+
+describe("portraits a day", () => {
+  it("gives a guest 1 and a member 3", () => {
+    expect(GUEST_PORTRAITS_PER_DAY).toBe(1);
+    expect(MEMBER_PORTRAITS_PER_DAY).toBe(3);
+    expect(allowanceFor({ guest: true, tier: "member", used: 0, now: NOW })).toMatchObject({
+      portraitsUsed: 0,
+      portraitsLimit: 1,
+      portraitsLeft: 1,
+    });
+    expect(allowanceFor({ guest: false, tier: "member", used: 0, portraitsUsed: 1, now: NOW }).portraitsLeft).toBe(2);
+  });
+
+  it("runs out at the limit and never goes negative", () => {
+    const done = allowanceFor({ guest: true, tier: "member", used: 0, portraitsUsed: 2, now: NOW });
+    expect(done.portraitsLeft).toBe(0);
+    expect(hasPortraitLeft(done)).toBe(false);
+  });
+
+  it("exempts unlimited", () => {
+    const author = allowanceFor({ guest: false, tier: "unlimited", used: 0, portraitsUsed: 40, now: NOW });
+    expect(author).toMatchObject({ portraitsLimit: null, portraitsLeft: null });
+    expect(hasPortraitLeft(author)).toBe(true);
+  });
+
+  it("points at uploading, and a guest at Google", () => {
+    const guest = portraitRefusal(allowanceFor({ guest: true, tier: "member", used: 0, portraitsUsed: 1, now: NOW }));
+    expect(guest).toMatch(/1 portrait for today.*upload your own/);
+    expect(guest).toMatch(/Sign in with Google for 3 a day/);
+    const member = portraitRefusal(allowanceFor({ guest: false, tier: "member", used: 0, portraitsUsed: 3, now: NOW }));
+    expect(member).toMatch(/3 portraits for today/);
     expect(member).not.toMatch(/Google/);
   });
 });

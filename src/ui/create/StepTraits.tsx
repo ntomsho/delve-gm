@@ -8,12 +8,22 @@
  * **These rerolls are free.** They are the one place in creation where a player
  * fishing for something they like is not taking anything from the game — a face
  * they believe in is worth more to the run than a face they shrugged at.
+ *
+ * GENDER IS CHOSEN, NOT ROLLED, and only if the player wants: Knave has no
+ * table for it. Nothing is picked to begin with. The portrait is what reads
+ * it; with none chosen, the drawing decides.
  */
 
 import { TRAIT_KEYS, type TraitKey } from "../../rules/knave/character-creation.ts";
-import type { CharacterTraits } from "../../rules/knave/character.ts";
+import type { CharacterTraits, Gender } from "../../rules/knave/character.ts";
 import { describePerson } from "../shared/person.ts";
-import { Button, RerollGlyph, StepHeading } from "./shared.tsx";
+import { Button, RerollGlyph, StepHeading, Toggle } from "./shared.tsx";
+
+const GENDER_OPTIONS: readonly { value: Gender; label: string }[] = [
+  { value: "male", label: "Male" },
+  { value: "female", label: "Female" },
+  { value: "nonbinary", label: "Non-binary" },
+];
 
 const HEADING: Record<TraitKey, string> = {
   physique: "Physique",
@@ -31,10 +41,14 @@ const HEADING: Record<TraitKey, string> = {
 
 export function StepTraits({
   traits,
+  gender,
+  onGender,
   onRerollOne,
   onRerollAll,
 }: {
   traits: CharacterTraits;
+  gender: Gender | undefined;
+  onGender: (g: Gender) => void;
   onRerollOne: (k: TraitKey) => void;
   onRerollAll: () => void;
 }) {
@@ -46,7 +60,12 @@ export function StepTraits({
         cost nothing.
       </StepHeading>
 
-      <div className="mt-7 border border-rule bg-paper py-2">
+      <div className="mt-7 flex flex-wrap items-center gap-4" role="group" aria-label="Gender">
+        <span className="font-display text-[10px] uppercase tracking-[0.16em] text-graphite">Gender</span>
+        <Toggle options={GENDER_OPTIONS} value={gender} onChange={onGender} />
+      </div>
+
+      <div className="mt-5 border border-rule bg-paper py-2">
         <div className="grid md:grid-cols-2">
           {TRAIT_KEYS.map((k, i) => (
             <div

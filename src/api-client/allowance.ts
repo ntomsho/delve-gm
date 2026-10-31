@@ -28,6 +28,12 @@ export interface Allowance {
   turnsLimit: number | null;
   /** `null` for an unlimited account. */
   turnsLeft: number | null;
+  /** Portraits drawn today. Uploads are not counted. */
+  portraitsUsed: number;
+  /** `null` for an unlimited account. */
+  portraitsLimit: number | null;
+  /** `null` for an unlimited account. */
+  portraitsLeft: number | null;
   maxSize: number;
   /** ISO timestamp of the next midnight UTC. */
   resetsAt: string;

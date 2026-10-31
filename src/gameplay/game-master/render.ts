@@ -33,6 +33,7 @@ import type { TurnRecord } from "../state/store.ts";
 import type { RolledOutcome } from "../turn.ts";
 import type { DrawOffer } from "../mechanics/challenges.ts";
 import { signed } from "../../shared/utils/format.ts";
+import type { Gender } from "../../rules/knave/character.ts";
 
 const ABILITY_ORDER = ["str", "dex", "con", "int", "wis", "cha"] as const;
 
@@ -43,6 +44,16 @@ const lines = (xs: (string | undefined)[]): string => xs.filter((x) => x !== und
 // ---------------------------------------------------------------------------
 // THE CHARACTER
 // ---------------------------------------------------------------------------
+
+/**
+ * The gender the player chose, with the pronouns narration should use, so the
+ * game master does not have to guess them from a name. No line when they chose none.
+ */
+const GENDER_LINE: Record<Gender, string> = {
+  male: "Gender: male (he/him)",
+  female: "Gender: female (she/her)",
+  nonbinary: "Gender: non-binary (they/them)",
+};
 
 export function renderCharacter(pc: CharacterView): string {
   const abilities = ABILITY_ORDER.map((k) => {
@@ -62,6 +73,7 @@ export function renderCharacter(pc: CharacterView): string {
     `## The player character`,
     ``,
     `**${pc.name}** — level ${pc.level}, referred to in diffs as \`player\`.`,
+    pc.gender ? GENDER_LINE[pc.gender] : undefined,
     `Hit points **${pc.hp.current}/${pc.hp.max}**.`,
     abilities,
     `Armour defense ${pc.armorDefense} · melee attack ${signed(pc.meleeBonus)} · ranged attack ${signed(pc.rangedBonus)}`,

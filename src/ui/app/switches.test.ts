@@ -42,5 +42,7 @@ describe("what the URL asks for", () => {
     expect(s.endings).toBe(true);
     expect(s.bypass).toBe(false);
     expect(readSwitches("").endings).toBe(false);
+    expect(readSwitches("?portraits").portraits).toBe(true);
+    expect(readSwitches("").portraits).toBe(false);
   });
 });

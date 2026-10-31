@@ -93,6 +93,12 @@ version of `docs/BUILD-PLAN.md` in git history
   unique items drawn the first time they are taken or inspected.
 - **State illustrations.** Redraw a room that has changed, always editing from the base
   illustration, on re-entry only, under a per-run cap.
+- **Portraits, further.** Built: drawing and uploading at creation, with the
+  thumbnail on the Characters roster, in run setup and on the sheet in play.
+  Next: changing a saved character's portrait (the shop or the
+  roster); the player's own figure stood in the room illustrations, cut out of the
+  stored ink the way creature sprites are; a cap on uploads, and a sweep of
+  portraits whose character was never saved.
 - **Figures after a reload.** A room left earlier keeps its creatures only in memory.
 - **Refinements:** framing (the image model sometimes swaps an angled view for a
   straight-on one), rooms dense with foliage or texture, and a depth-map lock if button

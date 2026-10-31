@@ -15,6 +15,9 @@ import { createElement as h } from "react";
 import { CreateCharacter } from "./CreateCharacter.tsx";
 import { renderDom, type Rendered } from "../test-utils/dom.ts";
 import { act } from "react";
+import type { Allowance } from "../../api-client/allowance.ts";
+import type { PortraitService } from "../../api-client/portraits.ts";
+import type { PlayerCharacter, Portrait } from "../../rules/knave/character.ts";
 
 const noop = () => {};
 
@@ -520,5 +523,128 @@ describe("point buy", () => {
     while (raises(r).some((b) => !b.disabled)) click(raises(r).find((b) => !b.disabled)!);
     click(r.one("button[aria-label='Lower str']"));
     expect(headerCount(r)).toContain("3 of 3");
+  });
+});
+
+/*
+ * THE PORTRAIT. The server counts the day's drawings; what this screen owes the
+ * player is to say how many are left, to stop offering the button at none, to
+ * keep what was drawn on the character it saves, and to say a refusal in the
+ * server's words.
+ */
+describe("the portrait", () => {
+  const allowance = (portraitsLeft: number): Allowance =>
+    ({ guest: true, portraitsUsed: 1 - portraitsLeft, portraitsLimit: 1, portraitsLeft, resetsAt: "2099-01-01T00:00:00Z" }) as Allowance;
+  const drawn: Portrait = { id: "p1", url: "https://cdn.test/p1.png", thumbUrl: "https://cdn.test/p1-thumb.png", source: "drawn" };
+
+  function service(over: Partial<PortraitService> = {}): PortraitService & { drawn: PlayerCharacter[] } {
+    const asked: PlayerCharacter[] = [];
+    return {
+      drawn: asked,
+      allowance: async () => allowance(1),
+      draw: async (pc) => {
+        asked.push(pc);
+        return { portrait: drawn, allowance: allowance(0) };
+      },
+      upload: async () => ({ portrait: { ...drawn, id: "u1", source: "uploaded" } }),
+      ...over,
+    };
+  }
+
+  const settle = () => act(async () => {});
+  const button = (r: Rendered, label: string) =>
+    r.all("button").find((b) => b.textContent === label) as HTMLButtonElement | undefined;
+
+  async function openWith(portraits: PortraitService, onSave: (pc: unknown) => void = noop) {
+    const r = renderDom(h(CreateCharacter, { seed: SEED, onCancel: noop, onSave, portraits }));
+    await settle();
+    goToStep(r, "Name & confirm");
+    return r;
+  }
+
+  it("is not offered where there is no server", () => {
+    const r = open();
+    goToStep(r, "Name & confirm");
+    expect(button(r, "Draw them")).toBeUndefined();
+  });
+
+  it("draws from the sheet on the step, says what is left, and saves the picture with the character", async () => {
+    const svc = service();
+    const onSave = vi.fn();
+    const r = await openWith(svc, onSave);
+    expect(r.container.textContent).toContain("1 of 1 drawing left today");
+
+    click(button(r, "Draw them")!);
+    await settle();
+    expect(svc.drawn).toHaveLength(1);
+    expect(svc.drawn[0].traits).toBeDefined();
+    expect(r.one("[aria-label$=\"'s portrait\"]")).toBeTruthy();
+    expect(r.container.textContent).toContain("No drawings left today");
+    expect(button(r, "Draw again")!.disabled).toBe(true);
+    // Uploading is free, so it stays open with none left.
+    expect(button(r, "Upload your own")!.disabled).toBe(false);
+
+    click(button(r, "Save and send them down")!);
+    expect(onSave.mock.calls[0][0]).toMatchObject({ portrait: drawn });
+  });
+
+  it("keeps the picture across a trip back through the steps", async () => {
+    const r = await openWith(service());
+    click(button(r, "Draw them")!);
+    await settle();
+    goToStep(r, "Traits");
+    goToStep(r, "Name & confirm");
+    expect(button(r, "Draw again")).toBeDefined();
+  });
+
+  it("says a refusal in the server's words", async () => {
+    const r = await openWith(
+      service({
+        draw: async () => {
+          throw Object.assign(new Error("That is your 1 portrait for today."), { allowance: allowance(0) });
+        },
+      })
+    );
+    click(button(r, "Draw them")!);
+    await settle();
+    expect(r.one("[role='alert']").textContent).toBe("That is your 1 portrait for today.");
+    expect(button(r, "Draw them")!.disabled).toBe(true);
+  });
+
+  it("draws and saves the gender chosen on the traits step, and none until one is chosen", async () => {
+    const svc = service();
+    const onSave = vi.fn();
+    const r = renderDom(h(CreateCharacter, { seed: SEED, onCancel: noop, onSave, portraits: svc }));
+    await settle();
+    goToStep(r, "Traits");
+    const female = button(r, "Female")!;
+    expect(female.getAttribute("aria-pressed")).toBe("false");
+    expect(button(r, "Male")!.getAttribute("aria-pressed")).toBe("false");
+    click(female);
+    expect(female.getAttribute("aria-pressed")).toBe("true");
+
+    goToStep(r, "Name & confirm");
+    click(button(r, "Draw them")!);
+    await settle();
+    expect(svc.drawn[0].gender).toBe("female");
+    click(button(r, "Save and send them down")!);
+    expect(onSave.mock.calls[0][0]).toMatchObject({ gender: "female" });
+
+    const untouched = vi.fn();
+    const r2 = open(untouched);
+    goToStep(r2, "Name & confirm");
+    click(button(r2, "Save and send them down")!);
+    expect(untouched.mock.calls[0][0]).not.toHaveProperty("gender");
+  });
+
+  it("takes an upload", async () => {
+    const onSave = vi.fn();
+    const r = await openWith(service(), onSave);
+    const input = r.one("input[type='file']") as HTMLInputElement;
+    Object.defineProperty(input, "files", { value: [new File(["x"], "me.png", { type: "image/png" })] });
+    act(() => void input.dispatchEvent(new Event("change", { bubbles: true })));
+    await settle();
+    click(button(r, "Save and send them down")!);
+    expect(onSave.mock.calls[0][0]).toMatchObject({ portrait: { id: "u1", source: "uploaded" } });
   });
 });

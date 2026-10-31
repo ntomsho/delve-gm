@@ -39,6 +39,7 @@ import {
 import { pendingLevels } from "../../rules/knave/level-up.ts";
 import { Button } from "../create/shared.tsx";
 import { describePerson } from "../shared/person.ts";
+import { PortraitThumb } from "../shared/portrait.tsx";
 import type { ActiveRun, CharacterEntry, CharacterRecord } from "../../api-client/characters.ts";
 
 const ABILITIES = ["str", "dex", "con", "int", "wis", "cha"] as const;
@@ -95,7 +96,9 @@ function Row({
 
   return (
     <li className="grid items-start gap-6 border-b border-rule py-6 sm:grid-cols-[minmax(0,1fr)_auto]">
-      <div>
+      <div className="flex items-start gap-5">
+      {pc.portrait && <PortraitThumb portrait={pc.portrait} name={pc.name} size={88} expandable />}
+      <div className="min-w-0">
         <div className="flex flex-wrap items-baseline gap-3">
           <h2 className="font-prose text-[26px] font-semibold leading-tight text-ink">{pc.name}</h2>
           {pc.mode === "hardcore" ? (
@@ -149,6 +152,7 @@ function Row({
         </div>
 
         <Record record={entry.record} />
+      </div>
       </div>
 
       <div className="flex flex-col items-stretch gap-2">

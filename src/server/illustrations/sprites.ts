@@ -53,8 +53,12 @@ export const SPRITE_REFS_DIR = "assets/sprite-refs";
 /** Where a sprite's words and pixels come from. The real ones are `liveSpriteWork`; tests pass fakes. */
 export interface SpriteWork extends Pick<IllustrationWork, "upload" | "urlOf" | "mayDraw"> {
   look(s: SpriteSubject, theme: string): Promise<SpriteLook>;
-  /** the figure on white, from the prompt; the references are the worker's own */
-  draw(prompt: string): Promise<Buffer>;
+  /**
+   * the figure on white, from the prompt; the references are the worker's own.
+   * `task` is what the spend ledger calls it: a character portrait is drawn
+   * by this worker too (`portraits.ts`).
+   */
+  draw(prompt: string, task?: "sprite" | "portrait"): Promise<Buffer>;
   /** how many style references `draw` sends, which the prompt has to say */
   references: number;
 }
@@ -139,7 +143,7 @@ export function liveSpriteWork(): SpriteWork | undefined {
     urlOf: illustrations.urlOf,
     mayDraw: illustrations.mayDraw,
     look: async (s, theme) => (await requestSpriteLook(s, theme)).value,
-    async draw(prompt) {
+    async draw(prompt, task = "sprite") {
       await beforeImage();
       const res = await fal.subscribe(IMAGE_MODELS[SPRITE_MODEL].guided, {
         input: {
@@ -150,7 +154,7 @@ export function liveSpriteWork(): SpriteWork | undefined {
           image_urls: await refs(),
         },
       });
-      await recordImage("sprite", SPRITE_MODEL);
+      await recordImage(task, SPRITE_MODEL);
       const png = await fetchImage(res.data);
       // A moderated answer is a black square, not an error.
       if ((await sharp(png).greyscale().stats()).channels[0].mean < 5) throw new Error("blank image");

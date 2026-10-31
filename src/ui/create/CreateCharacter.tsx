@@ -19,9 +19,15 @@
  * WHAT YOU REVIEW IS WHAT IS SAVED. `preview` is a real `PlayerCharacter` built
  * by `finishCharacter`, and the save button hands that exact object to the
  * store. There is no second construction that could disagree with the sheet.
+ *
+ * A PORTRAIT IS THE ONE THING MADE BEFORE THE SAVE. Drawing one is a paid call
+ * on the server, so it happens when the player presses the button on the last
+ * step, from the sheet as it then stands, and is kept on the draft. Changing a
+ * trait afterwards keeps the picture: the player can draw again if they mind,
+ * and that is their call to spend.
  */
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CREATION_RULES,
   bonusesOf,
@@ -50,8 +56,12 @@ import type {
   CharacterAbilities,
   CharacterTraits,
   CreationMode,
+  Gender,
   PlayerCharacter,
+  Portrait,
 } from "../../rules/knave/character.ts";
+import type { Allowance } from "../../api-client/allowance.ts";
+import type { PortraitService } from "../../api-client/portraits.ts";
 import type { WeaponKey } from "../../rules/knave/tables.ts";
 import { randomSeed } from "../../generation/seeds.ts";
 import { Button } from "./shared.tsx";
@@ -81,6 +91,8 @@ interface Draft {
   /** The card waiting for its partner, mid-swap. */
   swapFrom: Ability | null;
   traits: CharacterTraits;
+  /** chosen on the traits step, or not at all */
+  gender?: Gender;
   hp: HpRoll;
   weapon: WeaponKey;
   eqMode: EquipmentMode;
@@ -91,6 +103,8 @@ interface Draft {
   rolled: StartingKit;
   bought: StartingKit;
   name: string;
+  /** drawn or uploaded on the last step; absent until then, and often for good */
+  portrait?: Portrait;
   rerollsUsed: number;
   /** Whether any die has been taken yet. Only the mode step reads it. */
   touched: boolean;
@@ -120,6 +134,7 @@ export function CreateCharacter({
   seed,
   onCancel,
   onSave,
+  portraits,
 }: {
   /**
    * Which character the dice make. Omitted in the app, where every visit to
@@ -131,6 +146,8 @@ export function CreateCharacter({
   seed?: number;
   onCancel: () => void;
   onSave: (pc: PlayerCharacter) => void;
+  /** Drawing and uploading portraits. Absent where there is no server, and then the step offers neither. */
+  portraits?: PortraitService;
 }) {
   // Lazy ref rather than state: the stream is not rendered and must not be
   // rebuilt when anything else changes.
@@ -140,6 +157,40 @@ export function CreateCharacter({
 
   const [step, setStep] = useState(0);
   const [draft, setDraft] = useState<Draft>(() => freshDraft(rng, "normal"));
+
+  // --- the portrait ------------------------------------------------------------
+
+  const [portraitAllowance, setPortraitAllowance] = useState<Allowance>();
+  const [portraitBusy, setPortraitBusy] = useState<"drawing" | "uploading">();
+  const [portraitError, setPortraitError] = useState<string>();
+
+  // Read once, so the button can say how many are left before it is pressed.
+  // A failure here only means the count is not shown; the server still decides.
+  useEffect(() => {
+    if (!portraits) return;
+    let live = true;
+    portraits.allowance().then((a) => live && setPortraitAllowance(a), () => {});
+    return () => {
+      live = false;
+    };
+  }, [portraits]);
+
+  /** Both buttons go through here: one at a time, and a refusal is said in the server's words. */
+  const portraitJob = (busy: "drawing" | "uploading", job: () => Promise<{ portrait: Portrait; allowance?: Allowance }>) => {
+    if (portraitBusy) return;
+    setPortraitBusy(busy);
+    setPortraitError(undefined);
+    job()
+      .then(({ portrait, allowance }) => {
+        setDraft((d) => ({ ...d, portrait }));
+        if (allowance) setPortraitAllowance(allowance);
+      })
+      .catch((e: Error & { allowance?: Allowance }) => {
+        setPortraitError(e.message);
+        if (e.allowance) setPortraitAllowance(e.allowance);
+      })
+      .finally(() => setPortraitBusy(undefined));
+  };
 
   const rules = CREATION_RULES[draft.mode];
   const rerollsLeft = rules.rerolls - draft.rerollsUsed;
@@ -202,16 +253,19 @@ export function CreateCharacter({
   // --- the sheet -----------------------------------------------------------
 
   const preview = useMemo(
-    () =>
-      finishCharacter({
+    () => ({
+      ...finishCharacter({
         mode: draft.mode,
         name: draft.name,
         abilities,
         traits: draft.traits,
+        ...(draft.gender ? { gender: draft.gender } : {}),
         hp: draft.hp.hp,
         kit,
       }),
-    [draft.mode, draft.name, abilities, draft.traits, draft.hp, kit]
+      ...(draft.portrait ? { portrait: draft.portrait } : {}),
+    }),
+    [draft.mode, draft.name, abilities, draft.traits, draft.gender, draft.hp, kit, draft.portrait]
   );
 
   // No "you have overspent" guard here on purpose. `canRaise` disables the +
@@ -316,6 +370,8 @@ export function CreateCharacter({
         {step === 2 ? (
           <StepTraits
             traits={draft.traits}
+            gender={draft.gender}
+            onGender={(g) => edit(() => ({ gender: g }))}
             onRerollOne={(k: TraitKey) => edit((d) => ({ traits: { ...d.traits, [k]: rollTrait(k, rng) } }))}
             onRerollAll={() => edit(() => ({ traits: rollTraits(rng) }))}
           />
@@ -351,6 +407,17 @@ export function CreateCharacter({
             name={draft.name}
             onName={(v) => edit(() => ({ name: v }))}
             onRollName={() => edit(() => ({ name: rollName(rng) }))}
+            {...(portraits
+              ? {
+                  portraits: {
+                    ...(portraitAllowance ? { allowance: portraitAllowance } : {}),
+                    ...(portraitBusy ? { busy: portraitBusy } : {}),
+                    ...(portraitError ? { error: portraitError } : {}),
+                    onDraw: () => portraitJob("drawing", () => portraits.draw(preview)),
+                    onUpload: (file: File) => portraitJob("uploading", () => portraits.upload(file)),
+                  },
+                }
+              : {})}
             onBack={() => setStep(4)}
             onSave={() => onSave(preview)}
           />

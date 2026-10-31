@@ -64,6 +64,7 @@ import ILLUSTRATIONS_SPRITE_STYLE_MD from "./illustrations/sprite-style.md?raw";
 import ILLUSTRATIONS_SPRITE_FRAME_MD from "./illustrations/sprite-frame.md?raw";
 import ILLUSTRATIONS_SPRITE_GRIT_MD from "./illustrations/sprite-grit.md?raw";
 import ILLUSTRATIONS_SPRITE_LOOK_SYSTEM_MD from "./illustrations/sprite-look-system.md?raw";
+import ILLUSTRATIONS_PORTRAIT_FRAME_MD from "./illustrations/portrait-frame.md?raw";
 
 /**
  * Normalises a game master prompt file: LF line endings, keeping the final
@@ -256,3 +257,11 @@ export const SPRITE_FRAME = text(ILLUSTRATIONS_SPRITE_FRAME_MD);
 export const SPRITE_GRIT = text(ILLUSTRATIONS_SPRITE_GRIT_MD);
 
 export const SPRITE_LOOK_SYSTEM = text(ILLUSTRATIONS_SPRITE_LOOK_SYSTEM_MD);
+
+/**
+ * How to pose the player's own character: one adventurer, standing, face clear.
+ * Drawn in the sprites' style (`SPRITE_STYLE`, `SPRITE_GRIT`) against the
+ * sprite references. The traits that cannot be drawn go to bearing and
+ * expression, so the image model does not turn "honest" into a badge.
+ */
+export const PORTRAIT_FRAME = text(ILLUSTRATIONS_PORTRAIT_FRAME_MD);

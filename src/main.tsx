@@ -11,11 +11,23 @@ const EndingsPreview = lazy(() =>
   import("./ui/dev/EndingsPreview.tsx").then((m) => ({ default: m.EndingsPreview }))
 );
 
+// `?portraits`, the same way: the screens that show a portrait, over drawings
+// from `cli-portraits.ts`, with no account and no database.
+const PortraitsPreview = lazy(() =>
+  import("./ui/dev/PortraitsPreview.tsx").then((m) => ({ default: m.PortraitsPreview }))
+);
+
+const switches = readSwitches(location.search);
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    {readSwitches(location.search).endings ? (
+    {switches.endings ? (
       <Suspense>
         <EndingsPreview />
+      </Suspense>
+    ) : switches.portraits ? (
+      <Suspense>
+        <PortraitsPreview />
       </Suspense>
     ) : (
       <App />

@@ -35,6 +35,7 @@
 import { useState } from "react";
 import type { DungeonSummary } from "../../api-client/dungeons.ts";
 import { Ink } from "../shared/ink.tsx";
+import { PortraitThumb } from "../shared/portrait.tsx";
 import type { PlayerCharacter } from "../../rules/knave/character.ts";
 import type { Size } from "../../generation/content/blueprint.ts";
 import { untilReset, type Allowance } from "../../api-client/allowance.ts";
@@ -343,14 +344,17 @@ export function RunSetup({
                     type="button"
                     onClick={() => setCharacterId(pc.id)}
                     aria-pressed={chosen}
-                    className={`flex w-full items-baseline justify-between gap-4 border px-5 py-3.5 text-left transition-colors ${
+                    className={`flex w-full items-center justify-between gap-4 border px-5 py-3.5 text-left transition-colors ${
                       chosen
                         ? "border-torch bg-torch-wash"
                         : "border-rule bg-paper hover:border-graphite active:bg-desk"
                     }`}
                   >
-                    <span className="font-display text-[16px] font-bold text-ink">{pc.name}</span>
-                    <span className="font-mono text-[11px] text-graphite">
+                    <span className="flex min-w-0 items-center gap-3">
+                      {pc.portrait && <PortraitThumb portrait={pc.portrait} name={pc.name} size={40} />}
+                      <span className="font-display text-[16px] font-bold text-ink">{pc.name}</span>
+                    </span>
+                    <span className="shrink-0 font-mono text-[11px] text-graphite">
                       Level {pc.level} · {pc.hp.current}/{pc.hp.max} HP
                     </span>
                   </button>

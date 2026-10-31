@@ -79,3 +79,12 @@ export {
   readyIllustrations,
   illustrationWordsFor,
 } from "./illustrations.ts";
+export {
+  type PortraitRow,
+  claimPortrait,
+  portraitsDrawnToday,
+  finishPortrait,
+  failPortrait,
+  insertUploadedPortrait,
+  getPortrait,
+} from "./portraits.ts";

@@ -11,6 +11,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { CharacterView } from "../../gameplay/view/character.ts";
 import { signed } from "../../shared/utils/format.ts";
+import { PortraitThumb } from "../shared/portrait.tsx";
 
 /** How long a change stays marked on the sheet. */
 export const MARK_MS = 2600;
@@ -85,10 +86,13 @@ export function CharacterPanel({
 
   return (
     <aside className="flex h-full flex-col overflow-y-auto bg-panel px-5 py-6">
-      <header className="mb-5">
-        <h2 className="font-display text-[20px] font-bold leading-tight text-ink">{pc.name}</h2>
-        <div className={`${LABEL} mt-1`}>
-          Level {pc.level} · Knave
+      <header className="mb-5 flex items-center gap-3">
+        {pc.portrait && <PortraitThumb portrait={pc.portrait} name={pc.name} size={52} expandable />}
+        <div className="min-w-0">
+          <h2 className="font-display text-[20px] font-bold leading-tight text-ink">{pc.name}</h2>
+          <div className={`${LABEL} mt-1`}>
+            Level {pc.level} · Knave
+          </div>
         </div>
       </header>
 
@@ -268,9 +272,12 @@ function CompactSheet({
   return (
     <aside className="bg-panel px-4 pb-7 pt-5">
       <header className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <h2 className="font-display text-[24px] font-bold leading-tight text-ink">{pc.name}</h2>
-          <div className={`${C_LABEL} mt-1`}>Level {pc.level} · Knave</div>
+        <div className="flex min-w-0 items-center gap-3">
+          {pc.portrait && <PortraitThumb portrait={pc.portrait} name={pc.name} size={56} expandable />}
+          <div className="min-w-0">
+            <h2 className="font-display text-[24px] font-bold leading-tight text-ink">{pc.name}</h2>
+            <div className={`${C_LABEL} mt-1`}>Level {pc.level} · Knave</div>
+          </div>
         </div>
         <div
           key={drops.hp?.key}

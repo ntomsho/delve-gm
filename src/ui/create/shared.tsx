@@ -68,14 +68,17 @@ export function Button({
   return <button type="button" className={`${BASE} ${TONE[tone]} ${className}`} {...rest} />;
 }
 
-/** The two-way choice that heads Abilities and Equipment. */
+/**
+ * The two-way choice that heads Abilities and Equipment, and the three-way one
+ * for gender on Traits. `value` undefined is nothing chosen yet.
+ */
 export function Toggle<T extends string>({
   options,
   value,
   onChange,
 }: {
   options: readonly { value: T; label: string }[];
-  value: T;
+  value: T | undefined;
   onChange: (v: T) => void;
 }) {
   return (

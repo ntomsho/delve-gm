@@ -219,6 +219,9 @@ describe("the daily allowance", () => {
     turnsUsed: 0,
     turnsLimit: 30,
     turnsLeft: 30,
+    portraitsUsed: 0,
+    portraitsLimit: 1,
+    portraitsLeft: 1,
     ...over,
   });
   it("says how many are left, and offers a guest Google", () => {

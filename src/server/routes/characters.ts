@@ -7,6 +7,8 @@ import type { Hono } from "hono";
 import { currentUser, type AuthEnv } from "../auth.ts";
 import type { PlayerCharacter } from "../../rules/knave/character.ts";
 import * as repo from "../db/repo.ts";
+import { portraitFor } from "../illustrations/portraits.ts";
+import { illustrationUrl } from "../illustrations/serve.ts";
 
 export function characterRoutes(app: Hono<AuthEnv>): void {
   /**
@@ -26,6 +28,10 @@ export function characterRoutes(app: Hono<AuthEnv>): void {
    * result. The shop is the only caller that can reach this with an existing
    * character and it does not offer the button to anyone in a run; this is the
    * rule rather than the manners.
+   *
+   * A PORTRAIT IS THE SERVER'S WORD, not the sheet's. The sheet names one by
+   * id; what is saved is that portrait as the database has it, or none when
+   * it is not this account's (`portraitFor`).
    */
   app.post("/api/characters", async (c) => {
     const user = currentUser(c);
@@ -37,6 +43,9 @@ export function characterRoutes(app: Hono<AuthEnv>): void {
         409
       );
     }
+    const portrait = await portraitFor(pc.portrait, user.id, illustrationUrl);
+    if (portrait) pc.portrait = portrait;
+    else delete pc.portrait;
     return c.json(await repo.saveCharacter(pc, user.id));
   });
 

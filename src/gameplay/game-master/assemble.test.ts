@@ -16,10 +16,12 @@
 
 import { describe, expect, it } from "vitest";
 import { assemble, CARRIED_TURNS, MAX_EXCHANGE } from "./assemble.ts";
+import { renderCharacter } from "./render.ts";
+import { characterView } from "../view/character.ts";
 import { stepPrompt } from "../../prompts/loader.ts";
 import { generateOffline, testCharacter } from "../../fixtures/offline.ts";
 import { exitLabel, needsComposition, roomView } from "../view/room.ts";
-import { createGameStore, type RunState } from "../state/store.ts";
+import { createGameStore, newRun, type RunState } from "../state/store.ts";
 /** This file's own store — see the note atop `gameplay/state/store.ts`. */
 const useGame = createGameStore();
 
@@ -457,5 +459,24 @@ describe("what the game master is told that the player is not", () => {
     const brief = assemble({ step: "1-target", dungeon, run }).messages[0].content as string;
     expect(brief).toContain("armour defense");
     expect(brief).toContain("morale");
+  });
+});
+
+/*
+ * GENDER, chosen at creation, reaches the game master with the pronouns to use.
+ * A character who chose none gets no line, so the snapshots above are unchanged.
+ */
+describe("the character's gender", () => {
+  const sheet = (pc: ReturnType<typeof testCharacter>) =>
+    renderCharacter(characterView(newRun(generateOffline(1005, 1), pc)));
+
+  it("is said with its pronouns", () => {
+    expect(sheet(testCharacter({ gender: "female" }))).toContain("Gender: female (she/her)");
+    expect(sheet(testCharacter({ gender: "male" }))).toContain("Gender: male (he/him)");
+    expect(sheet(testCharacter({ gender: "nonbinary" }))).toContain("Gender: non-binary (they/them)");
+  });
+
+  it("is left out when none was chosen", () => {
+    expect(sheet(testCharacter())).not.toContain("Gender:");
   });
 });

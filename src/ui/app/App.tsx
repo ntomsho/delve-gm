@@ -30,6 +30,7 @@ import { Landing } from "../sign-in/Landing.tsx";
 import { purse } from "../../rules/knave/character-creation.ts";
 import type { PlayerCharacter } from "../../rules/knave/character.ts";
 import { saveCharacter } from "../../api-client/characters.ts";
+import { portraitService } from "../../api-client/portraits.ts";
 import { listLibrary } from "../../api-client/dungeons.ts";
 import { signIn, signInAsGuest, upgradeToGoogle } from "../../api-client/auth.ts";
 import { BYPASS, LEVEL, OFFLINE, SEED, SIZE, seedForNewRun } from "./local-run.ts";
@@ -272,6 +273,8 @@ function Screens() {
     return (
       <CreateCharacter
         onCancel={() => setScreen("characters")}
+        // `?offline` has no server to draw or store one.
+        {...(OFFLINE ? {} : { portraits: portraitService })}
         onSave={(pc) =>
           void (async () => {
             await saveCharacter(pc);

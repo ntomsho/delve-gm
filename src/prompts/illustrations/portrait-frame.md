@@ -1,0 +1,3 @@
+Draw ONE adventurer about to go down into a dungeon, whole from head to feet, standing in three-quarter view toward the viewer. The face is clear and unobscured: this is the character's portrait. The figure is centred, with white paper all around it. Nothing else: no floor, no ground line, no cast shadow, no background, no scenery, no frame, no border, no lettering.
+
+Every feature listed below is part of who this person is. Draw the ones that can be seen exactly as they are written. Let the ones that cannot be seen (their virtue and vice, how they speak, their alignment, where they come from) show only in posture, bearing and expression, never as symbols, objects or words.

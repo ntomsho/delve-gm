@@ -77,8 +77,8 @@ export interface IllustrationWork {
   visual(p: RoomIllustration): Promise<IllustrationVisual>;
   /** the picture, from the prompt and the guide; the references are the worker's own */
   draw(prompt: string, guide: Buffer): Promise<Buffer>;
-  /** store the finished PNG at `path` in the bucket */
-  upload(path: string, png: Buffer): Promise<void>;
+  /** store the finished image at `path` in the bucket: a PNG unless `contentType` says otherwise */
+  upload(path: string, png: Buffer, contentType?: string): Promise<void>;
   /** the public URL of a stored path */
   urlOf(path: string): string;
   /** how many style references `draw` sends, which the prompt has to say */
@@ -298,13 +298,13 @@ export function liveIllustrationWork(): IllustrationWork | undefined {
       await recordImage("cover", COVER_MODEL);
       return fetchImage(res.data);
     },
-    async upload(path, png) {
+    async upload(path, png, contentType = "image/png") {
       const res = await fetch(`${supabaseUrl}/storage/v1/object/plates/${path}`, {
         method: "POST",
         headers: {
           authorization: `Bearer ${serviceKey}`,
           apikey: serviceKey,
-          "content-type": "image/png",
+          "content-type": contentType,
           // The key changes whenever the picture would, so a file never does.
           "cache-control": "max-age=31536000, immutable",
           "x-upsert": "true",

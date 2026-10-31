@@ -53,6 +53,10 @@ export interface CharacterView {
   equipped: EquippedView[];
   conditions: string[];
   traits: PlayerCharacter["traits"];
+  /** as the player chose it at creation; absent when they chose none */
+  gender?: PlayerCharacter["gender"];
+  /** for the sheet's header; the player's alone, like the sheet */
+  portrait?: PlayerCharacter["portrait"];
 }
 
 export function characterView(run: RunState): CharacterView {
@@ -62,6 +66,8 @@ export function characterView(run: RunState): CharacterView {
   return {
     name: pc.name,
     level: pc.level,
+    ...(pc.portrait ? { portrait: { ...pc.portrait } } : {}),
+    ...(pc.gender ? { gender: pc.gender } : {}),
     hp: { ...pc.hp },
     abilities: ABILITIES.map((key) => ({
       key,

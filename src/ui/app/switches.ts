@@ -31,6 +31,11 @@ export interface Switches {
    * front of the app, it replaces the app. `main.tsx` reads it.
    */
   endings: boolean;
+  /**
+   * The portraits preview — creation, run setup and the play sheet over
+   * portraits drawn by `cli-portraits.ts`. Replaces the app, like `endings`.
+   */
+  portraits: boolean;
 }
 
 const NAMES = ["seed", "size", "level", "offline"] as const;
@@ -46,5 +51,6 @@ export function readSwitches(search: string): Switches {
     size: Number(params.get("size") ?? 2) as Size,
     level: Number(params.get("level") ?? 1),
     endings: params.has("endings"),
+    portraits: params.has("portraits"),
   };
 }

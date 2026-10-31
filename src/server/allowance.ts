@@ -36,6 +36,11 @@
  * THE DAY IS UTC. One clock for everybody, the same one the budget ceiling will
  * uses, and the reset time is sent to the client rather than computed there.
  *
+ * PORTRAITS ARE A THIRD COUNT: drawings of a character, a day. Each is one
+ * paid image, and a player fishing for a face could ask for dozens. Read off
+ * `portraits` the same way (`db/portraits.ts`); an upload costs nothing and is
+ * not counted, and neither is a drawing that failed.
+ *
  * `unlimited` (the author, and whoever they choose) is exempt from all of it —
  * the count, the generation gate and the size cap. It is not exempt from the
  * spend ceiling (`spend.ts`), which `closed` carries.
@@ -51,6 +56,7 @@ import type postgres from "postgres";
 import { db } from "./db/connection.ts";
 import type { AuthUser } from "./auth.ts";
 import { gateFor, limitsFrom, spentToday } from "./spend.ts";
+import { portraitsDrawnToday } from "./db/portraits.ts";
 
 /** Runs a guest may start per UTC day. */
 export const GUEST_RUNS_PER_DAY = 1;
@@ -64,6 +70,10 @@ export const MEMBER_RUNS_PER_DAY = 3;
 export const GUEST_TURNS_PER_DAY = 30;
 /** Actions a signed-in account may type per UTC day, across all their runs. */
 export const MEMBER_TURNS_PER_DAY = 60;
+/** Character portraits a guest may have drawn per UTC day. */
+export const GUEST_PORTRAITS_PER_DAY = 1;
+/** Character portraits a signed-in account may have drawn per UTC day. */
+export const MEMBER_PORTRAITS_PER_DAY = 3;
 /** The largest dungeon anyone but an `unlimited` account may generate. */
 export const MAX_GENERATED_SIZE = 1;
 
@@ -89,6 +99,12 @@ export interface Allowance {
   turnsLimit: number | null;
   /** Actions still available today. `null` for unlimited. */
   turnsLeft: number | null;
+  /** Portraits drawn since midnight UTC. Uploads are not counted. */
+  portraitsUsed: number;
+  /** Portraits allowed per day. `null` for unlimited. */
+  portraitsLimit: number | null;
+  /** Portraits still available today. `null` for unlimited. */
+  portraitsLeft: number | null;
   /** The largest size this account may generate. */
   maxSize: number;
   /** ISO timestamp of the next midnight UTC, when `used` goes back to 0. */
@@ -117,11 +133,13 @@ export function allowanceFor(input: {
   tier: Tier;
   used: number;
   turnsUsed?: number;
+  portraitsUsed?: number;
   now: Date;
   unplayed?: string[];
   closed?: boolean;
 }): Allowance {
   const turnsUsed = input.turnsUsed ?? 0;
+  const portraitsUsed = input.portraitsUsed ?? 0;
   const resetsAt = nextUtcMidnight(input.now).toISOString();
   const unplayed = input.unplayed ?? [];
   const closed = input.closed ?? false;
@@ -135,6 +153,9 @@ export function allowanceFor(input: {
       turnsUsed,
       turnsLimit: null,
       turnsLeft: null,
+      portraitsUsed,
+      portraitsLimit: null,
+      portraitsLeft: null,
       maxSize: 5,
       resetsAt,
       unplayed,
@@ -143,6 +164,7 @@ export function allowanceFor(input: {
   }
   const limit = input.guest ? GUEST_RUNS_PER_DAY : MEMBER_RUNS_PER_DAY;
   const turnsLimit = input.guest ? GUEST_TURNS_PER_DAY : MEMBER_TURNS_PER_DAY;
+  const portraitsLimit = input.guest ? GUEST_PORTRAITS_PER_DAY : MEMBER_PORTRAITS_PER_DAY;
   return {
     guest: input.guest,
     unlimited: false,
@@ -152,6 +174,9 @@ export function allowanceFor(input: {
     turnsUsed,
     turnsLimit,
     turnsLeft: Math.max(0, turnsLimit - turnsUsed),
+    portraitsUsed,
+    portraitsLimit,
+    portraitsLeft: Math.max(0, portraitsLimit - portraitsUsed),
     maxSize: MAX_GENERATED_SIZE,
     resetsAt,
     unplayed,
@@ -185,6 +210,11 @@ export function hasTurnLeft(a: Allowance): boolean {
   return a.turnsLeft === null || a.turnsLeft > 0;
 }
 
+/** True when the account may have another portrait drawn today. */
+export function hasPortraitLeft(a: Allowance): boolean {
+  return a.portraitsLeft === null || a.portraitsLeft > 0;
+}
+
 /**
  * The sentence a refused player reads. Said by the server so that the copy is in
  * one place, and so a refusal the interface did not predict still reads well.
@@ -199,6 +229,13 @@ export function refusal(a: Allowance): string {
 export function turnRefusal(a: Allowance): string {
   const more = a.guest ? ` Sign in with Google for ${MEMBER_TURNS_PER_DAY} a day.` : "";
   return `That is your ${a.turnsLimit} turns for today. Your run is saved; carry on after midnight UTC.${more}`;
+}
+
+/** The sentence a player out of portraits reads. Uploading is still open to them. */
+export function portraitRefusal(a: Allowance): string {
+  const drawings = a.portraitsLimit === 1 ? "portrait" : "portraits";
+  const more = a.guest ? ` Sign in with Google for ${MEMBER_PORTRAITS_PER_DAY} a day.` : "";
+  return `That is your ${a.portraitsLimit} ${drawings} for today. More at midnight UTC, or upload your own.${more}`;
 }
 
 /**
@@ -228,7 +265,7 @@ export async function allowanceOf(
   sql: postgres.Sql = db(),
   now: Date = new Date()
 ): Promise<Allowance> {
-  const [[row], spent] = await Promise.all([sql<{ tier: Tier | null; used: number; turns_used: number; unplayed: string[] | null }[]>`
+  const [[row], spent, portraitsUsed] = await Promise.all([sql<{ tier: Tier | null; used: number; turns_used: number; unplayed: string[] | null }[]>`
     with day as (
       select date_trunc('day', now() at time zone 'utc') at time zone 'utc' as start
     ),
@@ -253,7 +290,7 @@ export async function allowanceOf(
       (select array_agg(d.id::text) from dungeons d
         where d.owner_id = ${user.id} and d.copied_from is null and d.status = 'complete'
           and not exists (select 1 from runs where runs.dungeon_id = d.id)) as unplayed
-  `, spentToday(sql)]);
+  `, spentToday(sql), portraitsDrawnToday(user.id, sql)]);
   const tier = row?.tier === "unlimited" ? "unlimited" : "member";
   const gate = gateFor({ spent, limits: limitsFrom(process.env), unlimited: tier === "unlimited" });
   return allowanceFor({
@@ -261,6 +298,7 @@ export async function allowanceOf(
     tier,
     used: row?.used ?? 0,
     turnsUsed: row?.turns_used ?? 0,
+    portraitsUsed,
     unplayed: row?.unplayed ?? [],
     now,
     closed: !gate.mayStart,

@@ -103,6 +103,13 @@ export interface PlayerCharacter {
   /** the eleven Knave traits */
   traits: CharacterTraits;
   /**
+   * Chosen, not rolled, on the traits step. Read by the portrait prompt, and
+   * by the game master with its pronouns (`renderCharacter`).
+   * Optional: a player may leave it unsaid, and characters made before it
+   * existed have none.
+   */
+  gender?: Gender;
+  /**
    * Everything carried, as full Item entities rather than names, because play
    * needs each item's quality, weapon or armour stats, amount and so on. Each
    * item's `parentId` is this character's id; `addItem` sets it.
@@ -116,6 +123,33 @@ export interface PlayerCharacter {
    * mean in the story.
    */
   conditions: string[];
+  /**
+   * A picture of the character, for the player only. Never shown to the model:
+   * the game master's sheet (`renderPc`) lists its fields by name, and this is
+   * not one of them. Optional: most characters have none.
+   */
+  portrait?: Portrait;
+}
+
+/** What the traits step offers. Not a Knave table: Knave rolls no gender. */
+export type Gender = "male" | "female" | "nonbinary";
+export const GENDERS: readonly Gender[] = ["male", "female", "nonbinary"];
+
+/**
+ * A stored portrait, as the server issued it. The server checks it on every
+ * save (`POST /api/characters`), so a sheet cannot point at someone else's.
+ */
+export interface Portrait {
+  id: string;
+  /** the whole figure */
+  url: string;
+  /** head and shoulders, square */
+  thumbUrl: string;
+  /**
+   * `drawn` is black ink on transparent, laid down in the page's ink like an
+   * illustration; `uploaded` is the player's own picture, shown as it is.
+   */
+  source: "drawn" | "uploaded";
 }
 
 // ===========================================================================

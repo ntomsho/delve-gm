@@ -462,6 +462,28 @@ for the player and never shown to the model.
 - Without `FAL_KEY` and the Supabase service key, every room simply has no
   illustration.
 
+### 10.4 Character portraits
+
+`src/server/illustrations/portraits.ts`, `POST /api/portraits` and `/api/portraits/upload`.
+
+- **Drawn on request, on the last step of creation,** from the sheet as it stands.
+  One paid call: the prompt is written in code from every rolled trait and what is
+  held and worn (`src/illustrations/portrait-prompt.ts`), with no model in between,
+  plus the gender the player chose on the traits step, if any. The name is left out. Drawn by the sprite worker, against the sprite references,
+  in the sprites' style.
+- **Stored as ink, like an illustration** (`inkPng`), with a head-and-shoulders
+  square cut from it in code: down from the top of the ink, centred on the head.
+- **An upload is shown as it is.** sharp checks it is a JPEG, PNG or WebP, turns
+  it upright, strips its metadata and writes it as WebP; the thumbnail is a square
+  crop by sharp's attention strategy.
+- **Owned, not shared.** One row per portrait in `portraits`, each under its own id;
+  nothing is cached by content, because drawing again is the point of the button.
+- **The sheet carries it** (`PlayerCharacter.portrait`), so every screen that has
+  the sheet has the picture: the Characters roster, run setup, and the sheet in
+  play. On the roster and the sheet the thumbnail opens the whole figure. `POST /api/characters` replaces whatever the sheet says
+  with the database's row for that id and owner, or drops it. The game master's
+  sheet (`renderPc`) never includes it.
+
 ---
 
 ## 11. The server
@@ -482,7 +504,9 @@ One Hono app (`src/server/app.ts`) deployed as a single Vercel function.
   and 30 and 60 turns a day across all their runs. A turn is a `player` event in the
   journal, so only a committed action counts; only a new action (`/turn`) is refused,
   never the roll or room entry finishing one, and the run waits, saved, for midnight
-  UTC. Generated dungeons are capped at size 1. An `unlimited` tier is set by hand.
+  UTC. Generated dungeons are capped at size 1. Portraits drawn are a third count:
+  one a day for guests and three for members; a failed drawing and an upload do
+  not count. An `unlimited` tier is set by hand.
 - **Spend** (`src/server/spend.ts`): every paid call is a row in the `spend` ledger,
   its cost worked out in code from the prices in `src/llm/models.ts` (`src/llm/cost.ts`).
   Text calls are recorded by the meter the server hands `configureTransport`; images by
