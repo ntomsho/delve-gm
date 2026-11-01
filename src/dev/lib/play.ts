@@ -67,7 +67,7 @@ function parseArgs(argv: string[]): Args {
   };
 
   const size = num("size", 1);
-  if (![1, 2, 3, 4, 5].includes(size)) die(`--size must be 1-5, got ${size}`);
+  if (![1, 2, 3].includes(size)) die(`--size must be 1 (small), 2 (medium) or 3 (large), got ${size}`);
 
   const offline = argv.includes("--offline");
   return {

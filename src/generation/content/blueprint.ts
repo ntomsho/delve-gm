@@ -81,7 +81,8 @@ import type { Complexity, MonsterSeed, NpcSeed, Silhouette } from "../../shared/
 // TYPES
 // ---------------------------------------------------------------------------
 
-export type Size = 1 | 2 | 3 | 4 | 5;
+/** 1 small (5-6 rooms), 2 medium (7-9), 3 large (10-12): `shapeFor` in `src/generation/seeds.ts`. */
+export type Size = 1 | 2 | 3;
 export type Tier = "Solo" | "Band" | "Horde";
 export type GoalBranch = "same" | "opposed" | "own";
 
@@ -342,8 +343,8 @@ export function genMonsterGroup(tier: Tier, rng: Rng, usedKeys?: Set<string>): M
 
 function groupCountForSize(size: Size, rng: Rng): number {
   if (size === 1) return 1;
-  if (size === 2 || size === 3) return rng.range(1, 2);
-  return rng.range(2, 3);
+  if (size === 2) return rng.range(1, 2);
+  return 2;
 }
 
 export function generateBlueprintSeed(size: Size, seed: number, level?: number): DungeonBlueprintSeed {

@@ -45,7 +45,7 @@ import type { StockedDungeon } from "../generation/content/types.ts";
 import type { AnyItem } from "../shared/world/entities.ts";
 import type { PlayerCharacter } from "../rules/knave/character.ts";
 import type { GeneratedDungeon } from "../generation/generate.ts";
-import { chunksFor, deriveSeeds } from "../generation/seeds.ts";
+import { deriveSeeds, shapeFor } from "../generation/seeds.ts";
 import {
   contentPassSchema,
   dungeonPassSchema,
@@ -300,7 +300,7 @@ export function generateOffline(seed: number, size: Size): GeneratedDungeon {
   let stocked!: StockedDungeon;
   for (let attempt = 0; attempt < 8; attempt++) {
     const graphSeed = attempt === 0 ? seeds.graphSeed : `${seeds.graphSeed}~${attempt}`;
-    dungeon = generateBlueprint(graphSeed, { chunks: chunksFor(size) }, true).dungeon;
+    dungeon = generateBlueprint(graphSeed, shapeFor(size, seeds.graphSeed), true).dungeon;
     // THE DRAWING RUNS INSIDE STOCKING, as it does in `generate.ts`. Computed
     // alongside, it would leave `RoomStock.sizeClass` unset offline and
     // so left `sizeAllows` — the condition that stops a four-cell closet rolling

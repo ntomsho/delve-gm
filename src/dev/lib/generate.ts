@@ -25,7 +25,7 @@ import { floorplanLayout, type PlacedThing } from "../../generation/floorplan/ma
 import { placedThings } from "../../gameplay/mechanics/occupancy.ts";
 import { layoutSvg } from "../../generation/floorplan/map-svg.ts";
 import { generateDungeon, validateWritten, type GenerationProgress } from "../../generation/generate.ts";
-import { chunksFor, deriveSeeds } from "../../generation/seeds.ts";
+import { deriveSeeds, shapeFor, SIZE_NAMES } from "../../generation/seeds.ts";
 
 // ---------------------------------------------------------------------------
 // ARGS
@@ -56,7 +56,7 @@ function parseArgs(argv: string[]): Args {
   };
 
   const size = num("size", 2);
-  if (![1, 2, 3, 4, 5].includes(size)) die(`--size must be 1-5, got ${size}`);
+  if (![1, 2, 3].includes(size)) die(`--size must be 1 (small), 2 (medium) or 3 (large), got ${size}`);
 
   return {
     seed: num("seed", 1005),
@@ -121,7 +121,7 @@ function dryRun(args: Args): void {
   console.log(RULE);
   console.log(renderDungeonPassPrompt(buildDungeonPassPayload(bp)));
 
-  const { dungeon } = generateBlueprint(seeds.graphSeed, { chunks: chunksFor(args.size) }, true);
+  const { dungeon } = generateBlueprint(seeds.graphSeed, shapeFor(args.size, seeds.graphSeed), true);
 
   // THE DRAWING RUNS INSIDE STOCKING, exactly as it does in `generate.ts`. A
   // dry run that skipped it would render prompts without the "as drawn" line
@@ -261,8 +261,8 @@ async function liveRun(args: Args): Promise<void> {
   };
 
   console.error(
-    `LIVE RUN — calling the model. seed ${args.seed}, size ${args.size}, ` +
-      `level ${args.level}, ${chunksFor(args.size)} region(s).`
+    `LIVE RUN — calling the model. seed ${args.seed}, size ${args.size} (${SIZE_NAMES[args.size]}), ` +
+      `level ${args.level}, ${shapeFor(args.size, String(args.seed)).rooms} rooms.`
   );
   const gd = await generateDungeon({
     seed: args.seed,

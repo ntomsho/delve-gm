@@ -16,11 +16,17 @@ dungeons, one per region. That is not part of this plan.
 
 ## Phase 1: cut chunks
 
+**Status.** Layout is built: sizes, the room graph, gates, layout and the bridge below.
+What is left of phase 1 is *Passes*, *Server and client* and the rest of *Rules and docs*.
+
 ### Sizes
 
-`Size` (`src/generation/content/blueprint.ts`) changes from `1 | 2 | 3 | 4 | 5` to
-`"small" | "medium" | "large"`. The room count is rolled in code from the generation
-seed, inside the size's range:
+`Size` (`src/generation/content/blueprint.ts`) narrows from `1 | 2 | 3 | 4 | 5` to
+`1 | 2 | 3`, named small, medium and large (`SIZE_NAMES` in `src/generation/seeds.ts`).
+It stays a number because `dungeons.size` is an integer column with a cache index on
+it, so words would need a migration and an API change for nothing a player sees: the
+run setup screen has no size control. Size 1 already meant about six rooms. The room
+count is rolled in code from the generation seed, inside the size's range:
 
 | Size | Rooms | Loops (circuit rank) | Max dead ends | Inhabitant groups |
 |---|---|---|---|---|
@@ -39,10 +45,11 @@ it has today:
 - **Treasure pot** (`rewards.ts`): `size × 250–400` copper was over six rooms per size
   step, so it becomes `rooms × 42–67`. The 10% game-master coin allowance is unchanged.
 - **Group count** (`groupCountForSize`): the table above.
-- **Allowance** (`src/server/allowance.ts`): `MAX_GENERATED_SIZE = 1` becomes
-  `"small"`, and `maxSize` compares sizes by order. Unlimited accounts get `"large"`.
-- **Dev and UI**: the size switch (`src/ui/app/switches.ts`), the run setup picker
-  (`RunSetup.tsx`), `Session.size`, `dev/lib/generate.ts` and `dev/lib/play.ts`.
+- **Corridors** (`designateCorridors`): a sixth of the rooms, rounded, ±1; six rooms or
+  fewer is a coin flip between none and one.
+- **Allowance** (`src/server/allowance.ts`): `MAX_GENERATED_SIZE` stays 1 (small).
+  Unlimited accounts' `maxSize` drops from 5 to 3.
+- **Dev**: `--size` accepts 1-3 (`dev/lib/generate.ts`, `dev/lib/play.ts`).
 
 ### The room graph
 
@@ -89,13 +96,16 @@ route.
 | A bypass: some room on the shortest route can be skipped by a detour of ≤ 2 extra rooms | – | yes | yes |
 | Balance: the two shortest distinct routes differ by ≤ 2 rooms | – | yes | yes |
 
-If a seed range at small fails the route check too often, small drops to accepting a
-single loop that the entrance and goal both sit on, which always gives two routes.
-Measure first.
+Measured over 200 seeds per size, a graph is accepted 85% of the time at small, 56% at
+medium and 82% at large, so a dungeon takes 1.2, 1.8 and 1.2 graphs on average (worst
+3, 12 and 4). Medium is dearest because two loops rarely make three distinct routes.
+Small did not need the single-loop fallback.
 
 **Data model.** `Room.chunk`, `onCycle`, `cycleIndex`, `EdgeKind`/`Edge.kind` and
 `Dungeon.chunkCount` go. `Stats` drops `interChunkEdges` and `cycleLengths` and gains
-`deadEnds` and `routes`. `batch()` takes a size.
+`deadEnds` and `routes`. `Edge.shortcut` marks an ear with no rooms. `batch()` had no
+callers and went. `generateValid` tries 500 graphs and then throws, where it used to
+return an invalid one.
 
 **Positions.** `initialPositions` becomes one scatter with radius `95·√(V/6)`, the
 single-chunk radius scaled up. `relax` uses one rest length, 72.
@@ -134,9 +144,9 @@ against these rules, and picks each gate's kind: blocked, hidden or hazardous.
 - **Map.** `map-layout.ts` drops `chunk` and `interChunk`. `DungeonMap.tsx:659` draws every
   connector at stroke width 1.4, and the `interChunk` assertion in `view.test.ts:118`
   goes.
-- **Failure rate.** Measure how often the block plan fails at large. It should be far
-  below the old size 5 rate. If it is, drop the roadmap item **Positions from the planar
-  embedding**.
+- **Failure rate.** Measured over 60 seeds per size: the block plan drew first time on
+  every one, at every size, with the single target. The roadmap item **Positions from
+  the planar embedding** is dropped.
 
 ### Landing layout before the passes
 
@@ -145,6 +155,13 @@ dungeon as one region: one content call, no seams, one region challenge. That is
 size 1 runs today. Layout can land and be checked on its own; the passes step then
 deletes `chunk` for good. Production is capped at small, so raise the content pass's
 `MAX_TOKENS` only if a medium or large dev run hits it.
+
+Six tests in `src/generation/generation.test.ts` are skipped for the bridge, because
+they need a chunk boundary and there is none. The passes step deletes them with the
+seams pass: *hands the chunk boundaries to the seams pass and nobody else*, *shows the
+seams pass both rooms, written*, *ignores a chunk that answers with a seam anyway*,
+*says nothing about a seam, which the chunk is told not to write*, *names a way through
+the seams pass left out*, and the *seams pass* prompt snapshot.
 
 ### Passes
 
@@ -189,17 +206,17 @@ routes become:
   parallel" no longer describes anything. Remove it, and remove the matching check in
   `architecture.test.ts` if there is one.
 - **ARCHITECTURE.md**:
-  - §1: the "size *n* is *n* chunks" line.
-  - §3: the diagram and the passes.
+  - §3: the diagram and the content and seams passes.
   - §3.3: "per chunk" for group bases.
-  - §8.1: "a size 5 dungeon has about 30" challenges.
-  - §8.2: the pot formula.
   - §11: the routes.
+  - Done with layout: §1's size line, the graph and gates in §3.1, §8.1's challenge
+    count, §8.2's pot, and the corridor and wall lines in the map section.
 - **ROADMAP.md**:
-  - **One leader, one entity** is fixed once there are no chunks; remove it.
   - **Connectors written with their room** is mostly answered; rewrite it to whatever is
     left.
-  - **The placed-key spread** quotes size 5 numbers; restate it for large.
+  - Done with layout: **One leader, one entity** removed (one region writes each leader
+    once), **The placed-key spread** restated with the new numbers, **Positions from the
+    planar embedding** removed.
 - **Comments**: `models.ts`'s per-chunk comments, and the `generate.ts` header.
 
 ### Done when
@@ -211,7 +228,8 @@ routes become:
   connectors go on shortcuts when there are any.
 - An offline run (`generateOffline` / `--dry`) on five seeds per size draws a block plan
   on every seed and prints graph attempts per size. Then look at the three maps.
-- One live generation per size finishes and plays its first room.
+- One live generation per size finishes and plays its first room. Not yet run: it
+  calls the model, so it waits for a go-ahead.
 
 ---
 

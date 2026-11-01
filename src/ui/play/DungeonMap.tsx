@@ -656,7 +656,7 @@ function Link({ c, fromKnown }: { c: MapConnectorView; fromKnown: boolean }) {
         x2={to.x}
         y2={to.y}
         stroke={c.blocked ? color.torch : color.graphite}
-        strokeWidth={c.interChunk ? 2.2 : 1.4}
+        strokeWidth={1.4}
         strokeDasharray={c.blocked ? "4 3" : undefined}
         opacity={c.toUnknown ? 0.5 : 1}
       />

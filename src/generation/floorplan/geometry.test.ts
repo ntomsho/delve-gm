@@ -14,6 +14,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { shapeFor } from "../seeds.ts";
 import { blockPlanValid, roomSizes, type BlockPlan } from "./blockplan.ts";
 import {
   boundingBox,
@@ -55,7 +56,7 @@ interface Drawn {
  * other way would test a pipeline the game does not have.
  */
 function draw(seed: number, size: Size): Drawn | null {
-  const { dungeon } = generateBlueprint(String(seed), { chunks: size }, true);
+  const { dungeon } = generateBlueprint(String(seed), shapeFor(size, String(seed)), true);
   const bp = generateBlueprintSeed(size, seed, 1);
   let plan: BlockPlan | null = null;
   const sd = stockDungeon(dungeon, bp, {
@@ -139,7 +140,7 @@ describe("roomDepths", () => {
   it("counts rooms from the way in", () => {
     const { graph } = corpus()[0];
     const depth = roomDepths(graph);
-    for (const e of graph.entrances) expect(depth[e]).toBe(0);
+    expect(depth[graph.entrance]).toBe(0);
     // Every room is reachable, so nothing is left at Infinity.
     expect(depth.every((d) => Number.isFinite(d))).toBe(true);
     // Adjacent rooms are never more than one band apart — the BFS invariant.
@@ -507,8 +508,25 @@ describe("placement", () => {
     }
   });
 
+  /** A room whose four walls each have floor that is not a doorway. */
+  function aFourWalledRoom(): ReturnType<typeof aRoom> {
+    for (const { plan, graph } of corpus()) {
+      const site = siteRooms(plan, graph);
+      for (const [i, g] of site.geometry.entries()) {
+        const doors = new Set(site.ground[i].doorCells.map((c) => `${c.x},${c.y}`));
+        const walls = wallCells(site.ground[i].cells);
+        const free = (side: "north" | "south" | "east" | "west") =>
+          walls[side].filter((c) => !doors.has(`${c.x},${c.y}`)).length;
+        if (g.area >= 12 && free("north") >= 3 && free("south") >= 3 && free("east") >= 3 && free("west") >= 3) {
+          return { ground: site.ground[i], geom: g };
+        }
+      }
+    }
+    throw new Error("no room with four usable walls — the corpus is wrong");
+  }
+
   it("honours a wall it was actually given", () => {
-    const { ground, geom } = aRoom();
+    const { ground, geom } = aFourWalledRoom();
     const rng = new Rng(15);
     for (const wall of ["north wall", "south wall", "east wall", "west wall"] as const) {
       const facing = new Set(
@@ -618,7 +636,7 @@ describe("placement", () => {
     const ground = { room: 0, cells: cells([0, 0]), doorCells: cells([0, 0]) };
     const geom = roomGeometry(
       { rooms: [cells([0, 0])], doors: [], surface: null } as never,
-      { rooms: [{ entityId: "r", chunk: 0 }], edges: [], entrances: [0] } as never
+      { rooms: [{ entityId: "r" }], edges: [], entrance: 0 } as never
     )[0];
     expect(placeFixture({ kind: "altar", position: "centre" }, ground, geom, new Rng(1))).toBeUndefined();
     expect(placeAt("centre", ground, geom, new Rng(1))).toBeUndefined();

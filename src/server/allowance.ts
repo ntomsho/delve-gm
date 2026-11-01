@@ -135,7 +135,7 @@ export function allowanceFor(input: {
       turnsUsed,
       turnsLimit: null,
       turnsLeft: null,
-      maxSize: 5,
+      maxSize: 3,
       resetsAt,
       unplayed,
       closed,

@@ -5,7 +5,7 @@
  */
 
 import { Rng } from "../../../shared/utils/rng.ts";
-import type { Dungeon, Edge, Room } from "../../floorplan/graph.ts";
+import { routesOf, type Dungeon, type Edge, type Room } from "../../floorplan/graph.ts";
 import type { MobileEntity, RoomStock, StockedConnector } from "../types.ts";
 
 // ---------------------------------------------------------------------------
@@ -56,14 +56,10 @@ export interface Structure {
 export function structuralPrePass(d: Dungeon, rng: Rng): Structure {
   const adj = buildAdjacency(d.rooms, d.edges);
 
-  // ONE entrance, and it is where the player starts.
-  //
-  // The graph currently emits 2-3 of these (see the REVISIT note on
-  // chooseEntrances). That was unintended, and honouring it would wreck the
-  // depth gradient that danger, reward weighting and headline placement all
-  // read from. We deliberately take entrances[0] and drop the rest; the extras
-  // are not marked, not described, and not treated as ways in.
-  const entrance = d.entrances.length ? d.entrances[0] : 0;
+  // The entrance and the goal are the graph's: its route checks are about
+  // these two rooms, so stocking must not pick different ones (`chooseGoal`).
+  const entrance = d.entrance;
+  const goal = d.goal;
 
   const depth = bfsDepth(adj, entrance);
   const maxDepth = Math.max(...depth);
@@ -71,19 +67,6 @@ export function structuralPrePass(d: Dungeon, rng: Rng): Structure {
   const deadEnds = new Set<number>();
   d.rooms.forEach((r, i) => {
     if (adj[i].length <= 1 && i !== entrance) deadEnds.add(i);
-  });
-
-  // Goal: eccentricity from the entrance -- the honest "opposite side of the
-  // map". Ties break toward the better-connected room so the climax has routes.
-  let goal = entrance;
-  let best = -1;
-  d.rooms.forEach((_r, i) => {
-    if (i === entrance) return;
-    const score = depth[i] * 10 + adj[i].length;
-    if (score > best) {
-      best = score;
-      goal = i;
-    }
   });
 
   // Secret: the deepest dead end that isn't the goal. May be null in small
@@ -113,14 +96,51 @@ export function structuralPrePass(d: Dungeon, rng: Rng): Structure {
  * that turns a gate into a wall -- with one deliberate exception: the secret
  * room, where being wholly behind a gate is the entire point. And the entrance
  * always keeps an open way in.
+ *
+ * And three about routes, because gates spread evenly can undo what the graph
+ * checked: one gate on each of two routes is two routes on paper and one in
+ * play.
+ *
+ *   - SHORTCUTS FIRST. A shortcut (`Edge.shortcut`, an ear with no rooms) is
+ *     where a secret passage belongs: it bypasses something, and hiding it
+ *     never cuts anything off, because its rooms already had a way round.
+ *   - NEVER HIDDEN-ONLY. The goal is reachable without passing a hidden
+ *     connector. Hidden is a reward for looking, never the price of finishing.
+ *   - ROUTES DIFFER. Some route to the goal stays open, or the two shortest
+ *     carry different kinds of gate. A draw that fails this is drawn again from
+ *     the same stream; the last draw stands if none passes.
  */
 export function gateConnectors(
   d: Dungeon,
   s: Structure,
   rng: Rng
 ): StockedConnector[] {
+  const routes = routesOf(d.rooms.length, d.edges, s.entrance, s.goal);
+  let drawn = drawGates(d, s, rng);
+  for (let i = 0; i < GATE_DRAWS && !routesDiffer(d, routes, drawn); i++) drawn = drawGates(d, s, rng);
+
+  return d.edges.map((e, i) => ({
+    id: e.entityId,
+    a: d.rooms[e.a].entityId,
+    b: d.rooms[e.b].entityId,
+    gated: drawn.gated[i],
+    hidden: drawn.hidden[i],
+  }));
+}
+
+/** How many times a gating that fails ROUTES DIFFER is drawn again. */
+const GATE_DRAWS = 20;
+
+interface Gates {
+  /** blocked: the way demands something before it can be used */
+  gated: boolean[];
+  /** concealed: the way has to be found. Both may be set. */
+  hidden: boolean[];
+}
+
+function drawGates(d: Dungeon, s: Structure, rng: Rng): Gates {
   const E = d.edges.length;
-  const gated: boolean[] = d.edges.map(() => false);
+  const chosen: boolean[] = d.edges.map(() => false);
 
   const lo = Math.ceil(E / 6);
   const hi = Math.max(lo, Math.floor(E / 4));
@@ -144,15 +164,30 @@ export function gateConnectors(
     }
     return true;
   };
+  const take = (ei: number) => {
+    const e = d.edges[ei];
+    chosen[ei] = true;
+    ungated[e.a]--;
+    ungated[e.b]--;
+    gatedTouching[e.a]++;
+    gatedTouching[e.b]++;
+  };
 
   let placed = 0;
+  // Shortcuts get first call on the budget, and most of them are taken.
+  for (let i = 0; i < E && placed < target; i++) {
+    if (!d.edges[i].shortcut || !canGate(i) || !rng.chance(0.6)) continue;
+    take(i);
+    placed++;
+  }
+
   while (placed < target) {
     // Spread: prefer edges whose endpoints are not already near a gate. The
     // secret room's edges get a pull so the hidden zone actually materialises.
     let bestIdx = -1;
     let bestScore = Infinity;
     for (let i = 0; i < E; i++) {
-      if (gated[i]) continue;
+      if (chosen[i]) continue;
       if (!canGate(i)) continue;
       const e = d.edges[i];
       const touchesSecret = s.secret !== null && (e.a === s.secret || e.b === s.secret);
@@ -164,14 +199,7 @@ export function gateConnectors(
       }
     }
     if (bestIdx === -1) break; // guards exhausted the candidates
-
-    const e = d.edges[bestIdx];
-    gated[bestIdx] = true;
-
-    ungated[e.a]--;
-    ungated[e.b]--;
-    gatedTouching[e.a]++;
-    gatedTouching[e.b]++;
+    take(bestIdx);
     placed++;
   }
 
@@ -184,34 +212,69 @@ export function gateConnectors(
   // and cannot drift, not a judgement made afresh each run.
   //
   // Drawn only from connectors that were already going to be special, so the
-  // count of ordinary open ways is untouched — a gated way becomes a concealed
-  // one 25% of the time, and is concealed AND blocked another 10%. Secret
-  // passages are meant to be an occasional pleasure; make them common and they
-  // stop being a discovery and start being a progression tax.
-  //
-  // Progression is safe by construction: `canGate` above keeps at least one
-  // ungated edge on every room bar the deliberate secret one, and concealment
-  // only ever draws from the gated set. No room can have all its ways hidden.
+  // count of ordinary open ways is untouched. A gated shortcut is concealed
+  // instead of blocked 60% of the time. Any other gated way becomes a
+  // concealed one 25% of the time, and is concealed AND blocked another 10%.
+  // Secret passages are meant to be an occasional pleasure; make them common
+  // and they stop being a discovery and start being a progression tax.
   const hidden: boolean[] = d.edges.map(() => false);
-  const stillGated = [...gated];
+  const gated = [...chosen];
   for (let i = 0; i < E; i++) {
-    if (!gated[i]) continue;
+    if (!chosen[i]) continue;
     const roll = rng.next();
-    if (roll < 0.25) {
+    if (d.edges[i].shortcut ? roll < 0.6 : roll < 0.25) {
       hidden[i] = true;
-      stillGated[i] = false; // concealed instead of blocked
-    } else if (roll < 0.35) {
+      gated[i] = false; // concealed instead of blocked
+    } else if (!d.edges[i].shortcut && roll < 0.35) {
       hidden[i] = true; // concealed AND blocked
     }
   }
 
-  return d.edges.map((e, i) => ({
-    id: e.entityId,
-    a: d.rooms[e.a].entityId,
-    b: d.rooms[e.b].entityId,
-    gated: stillGated[i],
-    hidden: hidden[i],
-  }));
+  // NEVER HIDDEN-ONLY. A concealment that leaves the goal reachable only
+  // through hidden ways is turned back into a blocked one.
+  for (let i = 0; i < E; i++) {
+    if (!hidden[i] || reachableWithoutHidden(d, hidden, s.entrance, s.goal)) continue;
+    hidden[i] = false;
+    gated[i] = true;
+  }
+
+  return { gated, hidden };
+}
+
+function reachableWithoutHidden(d: Dungeon, hidden: boolean[], from: number, to: number): boolean {
+  const seen = new Set([from]);
+  const q = [from];
+  for (let h = 0; h < q.length; h++) {
+    d.edges.forEach((e, i) => {
+      if (hidden[i]) return;
+      const next = e.a === q[h] ? e.b : e.b === q[h] ? e.a : -1;
+      if (next !== -1 && !seen.has(next)) {
+        seen.add(next);
+        q.push(next);
+      }
+    });
+  }
+  return seen.has(to);
+}
+
+/**
+ * ROUTES DIFFER: some route to the goal passes no gate, or the two shortest
+ * routes carry different kinds of gate. A route's connectors are the ones with
+ * both rooms on it; a distinct route (`routesOf`) is a path, so that is exact.
+ */
+function routesDiffer(d: Dungeon, routes: Array<Set<number>>, g: Gates): boolean {
+  const kindsOn = (route: Set<number>) => {
+    const kinds = new Set<string>();
+    d.edges.forEach((e, i) => {
+      if (!route.has(e.a) || !route.has(e.b)) return;
+      if (g.hidden[i]) kinds.add(g.gated[i] ? "hidden and blocked" : "hidden");
+      else if (g.gated[i]) kinds.add("blocked");
+    });
+    return [...kinds].sort().join(",");
+  };
+  const kinds = routes.map(kindsOn);
+  if (kinds.some((k) => k === "")) return true;
+  return kinds.length < 2 || kinds[0] !== kinds[1];
 }
 
 // ---------------------------------------------------------------------------

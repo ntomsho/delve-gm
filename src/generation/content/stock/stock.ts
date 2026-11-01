@@ -44,7 +44,7 @@
  *   ids.ts        the mobile-id counter both this file and creatures.ts use
  */
 
-import type { DungeonBlueprintSeed, InhabitantGroup, Size } from "../blueprint.ts";
+import type { DungeonBlueprintSeed, InhabitantGroup } from "../blueprint.ts";
 import {
   DUNGEON_ENTRANCES,
   DUNGEON_CORRIDORS,
@@ -82,24 +82,24 @@ import { resetMobileIds } from "./ids.ts";
 /**
  * Pick the rooms that are passages rather than places.
  *
- * Count is N-1 / N / N+1 at 25 / 50 / 25 where N is the size, which comes to
- * roughly a sixth of the rooms. Size 1 is a coin flip between 0 and 1.
+ * Count is N-1 / N / N+1 at 25 / 50 / 25 where N is a sixth of the rooms,
+ * rounded. Six rooms or fewer is a coin flip between 0 and 1.
  *
  * Eligibility is **degree >= 2** and nothing else. A corridor connects
  * somewhere, so dead ends are out; the goal room is never one. Dropping every
- * further degree preference removes the one degenerate case -- a size-1 chunk
- * whose 3-cycle carries three spurs has degrees 3,3,3,1,1,1 and therefore no
- * degree-2 rooms at all, which under "exactly 2" would yield none and under
- * ">= 2" yields three.
+ * further degree preference removes the degenerate case -- a graph whose
+ * rooms all have three ways has no degree-2 rooms at all, which under
+ * "exactly 2" would yield none and under ">= 2" yields all of them.
  *
  * Two corridors are never adjacent: that is one hallway with a pointless door
- * in it. Picks are spread across **depth** bands rather than chunks, because
- * `RoomStock.chunk` is a batching unit and never a content input, and because
- * corridors are about rhythm along the path inward.
+ * in it. Picks are spread across **depth** bands, because corridors are about
+ * rhythm along the path inward.
  */
-function designateCorridors(rooms: RoomStock[], s: Structure, size: Size, rng: Rng): void {
+function designateCorridors(rooms: RoomStock[], s: Structure, rng: Rng): void {
   const target =
-    size === 1 ? (rng.coin() ? 1 : 0) : Math.max(0, size + rng.pick([-1, 0, 0, 1]));
+    rooms.length <= 6
+      ? (rng.coin() ? 1 : 0)
+      : Math.max(0, Math.round(rooms.length / 6) + rng.pick([-1, 0, 0, 1]));
   if (target === 0) return;
 
   const BANDS = 3;
@@ -164,7 +164,9 @@ export function stockDungeon(
   const rooms: RoomStock[] = dungeon.rooms.map((r, i) => ({
     roomId: r.entityId,
     index: i,
-    chunk: r.chunk,
+    // ONE REGION until the passes stop reading chunks: the whole dungeon is
+    // written by one content call, as size 1 always was.
+    chunk: 0,
     role: i === s.entrance ? "entrance" : i === s.goal ? "goal" : "normal",
     headline: "quiet",
     claimed: false,
@@ -248,7 +250,7 @@ export function stockDungeon(
   // be in the graph because it needs degree and the goal room, and the goal
   // room is stocking's. Before identity, since a corridor rolls
   // on a different table.
-  designateCorridors(rooms, s, blueprint.size, rng);
+  designateCorridors(rooms, s, rng);
 
   // ---- 1e. layout ----
   // THE GEOMETRY RUNS HERE, between the corridors and the fiction.
@@ -364,7 +366,6 @@ export function stockDungeon(
     mobiles,
     entranceRoomId: entranceRoom.roomId,
     goalRoomId: goalRoom.roomId,
-    size: blueprint.size,
     challenges,
     maxDepth: s.maxDepth,
     rng,

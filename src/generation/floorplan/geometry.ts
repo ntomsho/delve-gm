@@ -255,7 +255,7 @@ export function roomDepths(graph: Dungeon): number[] {
     adj[e.a].push(e.b);
     adj[e.b].push(e.a);
   }
-  const queue = [...graph.entrances];
+  const queue = [graph.entrance];
   for (const r of queue) depth[r] = 0;
   for (let i = 0; i < queue.length; i++) {
     const at = queue[i];

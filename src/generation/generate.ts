@@ -69,7 +69,7 @@ import {
   keysPassSchema,
   seamsPassSchema,
 } from "./content/passes/schemas.ts";
-import { chunksFor, deriveSeeds, type RunSeeds } from "./seeds.ts";
+import { deriveSeeds, shapeFor, type RunSeeds } from "./seeds.ts";
 import { NO_LOG, type GenerationLog } from "./log.ts";
 
 // ---------------------------------------------------------------------------
@@ -127,9 +127,10 @@ export interface GeneratedDungeon {
    * to refer to it and a map that drifts between generations of the same seed
    * is worse than prose that drifts.
    *
-   * Null when no layout could be drawn for this graph — uncommon at sizes 1-3
-   * and still real at 5 — so everything downstream treats the plan as an
-   * enhancement over the point layout. A dungeon with no plan is playable.
+   * Null when no layout could be drawn for this graph — not seen at 5-12 rooms,
+   * where every measured seed drew first time, but possible — so everything
+   * downstream treats the plan as an enhancement over the point layout. A
+   * dungeon with no plan is playable.
    */
   blockplan: BlockPlan | null;
   usage: Usage;
@@ -312,14 +313,16 @@ export async function generateStructure(opts: GenerateOptions): Promise<Generate
     // re-spent. The seed still names one dungeon, because the retry is
     // derived rather than random.
     //
-    // TODO: the real fix is to derive the centres from the planar embedding
-    // the graph already computes, instead of hill-climbing toward it (ROADMAP,
-    // *Positions from the planar embedding*). Then this loop runs once, always.
+    // At 5-12 rooms every measured seed draws first time, so this loop is a
+    // guard rather than a cost.
+    // Rolled once from the dungeon's own seed, so a redrawn graph keeps the
+    // dungeon's room and loop counts.
+    const shape = shapeFor(size, seeds.graphSeed);
     for (let attempt = 0; ; attempt++) {
       // `generateValid` appends `#n` internally when a graph fails validation,
       // so a different separator keeps these seeds out of that space.
       const graphSeed = attempt === 0 ? seeds.graphSeed : `${seeds.graphSeed}~${attempt}`;
-      const { dungeon } = generateBlueprint(graphSeed, { chunks: chunksFor(size) }, true);
+      const { dungeon } = generateBlueprint(graphSeed, shape, true);
       report({ stage: "stocking" });
 
       // THE DRAWING RUNS INSIDE STOCKING, between the corridors and the fiction.

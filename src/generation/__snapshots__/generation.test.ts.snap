@@ -185,94 +185,91 @@ would read the same, change one.
 === ROOMS TO WRITE (6) ===
 
 --- room_0 ---
-identity: Storeroom
-role: goal
-depth: furthest   tension: lethal
-headline: special
-room keywords: Room=Storeroom
-as drawn: a small chamber, about 20 by 35 feet -- oblong, running north-south, irregular, its walls stepping in and out. Ways out: one off the north wall, one off the south wall
-entity [<id>] reward (Item): Treasure Item=Signet ring
-connector [<id>] in the north wall, toward the west end to room_1 (Gate house) CONCEALED -- write it as the thing a person would walk past -- a seam, a draught, a panel that rings hollow -- not as a door; no barrier
-connector [<id>] in the south wall, at the middle to room_4 (Stockyard) -- say what it physically is; no barrier
-GOAL HERE: reward "Jewels" + mission "Deface".
-  Create exactly one entity that embodies the objective. Read the fiction and decide what type it needs to be -- an Item, a RoomFeature, or a Creature -- so that a party acting on it plausibly satisfies the mission. Then name and write it.
-open exits: room_1, room_4
+identity: Chasm
+depth: deep   tension: lethal
+headline: creature
+room keywords: Room=Chasm  |  Room Detail=Fungus
+as drawn: a small chamber, about 40 by 20 feet -- long and narrow, running east-west, irregular, its walls stepping in and out. Ways out: two off the south wall, one off the west wall
+entity [<id>] reward (Item): Equipment=Spellbook: Beast Form
+promotable detail [Room Detail=Fungus] -- make it an entity only if a player would act on it
+connector [<id>] in the south wall, at the middle to room_1 (Stockyard) -- say what it physically is; no barrier
+connector [<id>] in the south wall, at the middle to room_5 (Pool) -- say what it physically is; no barrier
+connector [<id>] in the west wall, at the middle to room_2 (Cavern) GATED -- say what it physically is; and what blocks it, from here
+encounter [mob_6vw_1] Solo, base of group 1, currently Hunt, disposition hostile
+    mass: 1 x rank-and-file -> ONE consolidated entity, one stat block  [Complexity=major  |  Silhouette=humanoid  |  Trait=Ethereal  |  Ability=Camouflaging; Gaze weapon; Teleporting  |  Feature=Fur  |  Mutation=Extra eyes  |  Tactic=Demand duel  |  Personality=Bored  |  Weakness=Phylactery, Flowers]
+      MONSTER GROUP, tier Solo
+        base: major humanoid; trait: Ethereal; ability: Camouflaging; ability: Gaze weapon; ability: Teleporting; feature: Fur; mutation: Extra eyes; tactic: Demand duel; personality: Bored; weakness: Phylactery, Flowers
+gated exits: room_2
+open exits: room_1, room_5
 fixtures: up to 2, or none
 
 --- room_1 ---
-identity: Gate house
+identity: Stockyard
+role: goal
 depth: furthest   tension: lethal
-headline: creature
-room keywords: Room=Gate house  |  Room Detail=Recent repairs
-as drawn: a small chamber, about 20 by 35 feet -- oblong, running north-south, irregular, its walls stepping in and out. Ways out: one off the south wall, one off the west wall
-entity [<id>] reward (Item): Magical Ingredient=Ancient liquor
-promotable detail [Room Detail=Recent repairs] -- make it an entity only if a player would act on it
-connector [<id>] in the west wall, at the middle to room_2 (Oubliette) -- say what it physically is; no barrier
-encounter [mob_6vw_2] Band, unaffiliated, currently Loot, disposition hostile
-    distinct named [<id>] (leader) -> its own entity  [background=Kidnapper  |  Asset=Powerful spouse  |  Liability=Jealous  |  Method=Alchemy  |  Appearance=Sinewy  |  Personality=Serene  |  Goal=Revenge  |  Reputations=Entertainer  |  Misfortunes=Abandoned]
-    distinct named [<id>] -> its own entity  [background=Gravedigger  |  Asset=Faction-leader  |  Liability=Money trail  |  Method=Teamwork  |  Appearance=Hideous  |  Personality=Serene  |  Goal=Kidnap an NPC  |  Mannerisms=Robotic  |  Missions=Deliver  |  Misfortunes=Famished  |  Physical Details=One-eyed]
-    distinct named [<id>] -> its own entity  [background=Fortuneteller  |  Asset=Huge library  |  Liability=Addiction  |  Method=Bureaucracy  |  Appearance=Statuesque  |  Personality=Righteous  |  Goal=Serve evil  |  Physical Details=Shaved head]
-      PEOPLE GROUP, tier Band
-        faction: Theater troupe
-        traits: Efficient
-        - [LEADER] Jiles (male) [<id>]; background: Kidnapper; asset: Powerful spouse; liability: Jealous; method: Alchemy; appearance: Sinewy; personality: Serene; goal: Revenge; Reputations: Entertainer; Misfortunes: Abandoned
-        - Adelaide (female) [<id>]; background: Gravedigger; asset: Faction-leader; liability: Money trail; method: Teamwork; appearance: Hideous; personality: Serene; goal: Kidnap an NPC; Mannerisms: Robotic; Missions: Deliver; Misfortunes: Famished; Physical Details: One-eyed
-        - Fox (male) [<id>]; background: Fortuneteller; asset: Huge library; liability: Addiction; method: Bureaucracy; appearance: Statuesque; personality: Righteous; goal: Serve evil; Physical Details: Shaved head
+headline: special
+room keywords: Room=Stockyard
+as drawn: a small chamber, about 20 by 25 feet -- oblong, running north-south, irregular, its walls stepping in and out. Ways out: one off the north wall, one off the west wall
+entity [<id>] reward (Item): Potion=Telekinesis
+connector [<id>] in the west wall, at the middle to room_2 (Cavern) -- say what it physically is; no barrier
+GOAL HERE: reward "Jewels" + mission "Deface".
+  Create exactly one entity that embodies the objective. Read the fiction and decide what type it needs to be -- an Item, a RoomFeature, or a Creature -- so that a party acting on it plausibly satisfies the mission. Then name and write it.
 open exits: room_0, room_2
 fixtures: up to 2, or none
 
 --- room_2 ---
-identity: Oubliette
-depth: deep   tension: uneasy
-headline: quiet
-room keywords: Room=Oubliette
-as drawn: a small chamber, about 10 by 35 feet -- long and narrow, running north-south, close to a rectangle, give or take a corner. Ways out: one off the south wall, one off the east wall
-connector [<id>] in the south wall, at the middle to room_3 (Chasm) -- say what it physically is; no barrier
+identity: Cavern
+depth: deep   tension: lethal
+headline: creature + special
+room keywords: Room=Cavern  |  Room Detail=Unusual smell
+as drawn: a small chamber, about 15 by 35 feet -- long and narrow, running north-south, close to a rectangle, give or take a corner. Ways out: one off the south wall, two off the east wall
+entity [<id>] obstacle (RoomFeature): Obstacle=Mural  |  Cairn Feature=Ages
+entity [<id>] reward (Item): Equipment=Spellbook: Animate Object
+promotable detail [Room Detail=Unusual smell] -- make it an entity only if a player would act on it
+connector [<id>] in the south wall, at the middle to room_3 (Prison) -- say what it physically is; no barrier
+encounter [mob_6vw_2] Solo, detachment from group 1, currently Repair, disposition neutral
+    mass: 1 x rank-and-file -> ONE consolidated entity, one stat block  [Complexity=major  |  Silhouette=humanoid  |  Trait=Ethereal  |  Ability=Camouflaging; Gaze weapon; Teleporting  |  Feature=Fur  |  Mutation=Extra eyes  |  Tactic=Demand duel  |  Personality=Bored  |  Weakness=Phylactery, Flowers]
+      MONSTER GROUP, tier Solo
+        base: major humanoid; trait: Ethereal; ability: Camouflaging; ability: Gaze weapon; ability: Teleporting; feature: Fur; mutation: Extra eyes; tactic: Demand duel; personality: Bored; weakness: Phylactery, Flowers
+gated exits: room_0
 open exits: room_1, room_3
 fixtures: up to 2, or none
 
 --- room_3 ---
-identity: Chasm
-depth: middle   tension: dangerous
-headline: creature
-room keywords: Room=Chasm  |  Room Detail=Mosaics
-as drawn: a tiny chamber, about 25 by 15 feet -- oblong, running east-west, irregular, its walls stepping in and out. Ways out: one off the north wall, one off the south wall, one off the east wall
-promotable detail [Room Detail=Mosaics] -- make it an entity only if a player would act on it
-connector [<id>] in the east wall, at the middle to room_4 (Stockyard) -- say what it physically is; no barrier
-connector [<id>] in the south wall, toward the west end to room_5 (Cavern) -- say what it physically is; no barrier
-encounter [mob_6vw_1] Solo, base of group 1, currently Collect, disposition neutral
-    mass: 1 x rank-and-file -> ONE consolidated entity, one stat block  [Complexity=major  |  Silhouette=humanoid  |  Trait=Ethereal  |  Ability=Camouflaging; Gaze weapon; Teleporting  |  Feature=Fur  |  Mutation=Extra eyes  |  Tactic=Demand duel  |  Personality=Bored  |  Weakness=Phylactery, Flowers]
-      MONSTER GROUP, tier Solo
-        base: major humanoid; trait: Ethereal; ability: Camouflaging; ability: Gaze weapon; ability: Teleporting; feature: Fur; mutation: Extra eyes; tactic: Demand duel; personality: Bored; weakness: Phylactery, Flowers
-open exits: room_2, room_4, room_5
-fixtures: up to 1, or none
+identity: Prison
+depth: middle   tension: calm
+headline: quiet
+room keywords: Room=Prison  |  Room Detail=Furniture
+as drawn: a small chamber, about 30 by 15 feet -- long and narrow, running east-west, close to a rectangle, give or take a corner. Ways out: one off the north wall, one off the east wall
+entity [<id>] clue (RoomFeature): Clue=Smell -- points at creatures in an adjoining room (room_2)
+promotable detail [Room Detail=Furniture] -- make it an entity only if a player would act on it
+connector [<id>] in the east wall, at the middle to room_4 (Waterway) -- say what it physically is; no barrier
+open exits: room_2, room_4
+fixtures: up to 2, or none
 
 --- room_4 ---
-identity: Stockyard
-depth: deep   tension: uneasy
-headline: special
-room keywords: Room=Stockyard  |  Room Detail=Chains
-as drawn: a tiny chamber, about 30 by 10 feet -- long and narrow, running east-west, irregular, its walls stepping in and out. Ways out: one off the north wall, one off the west wall
-entity [<id>] obstacle (RoomFeature): Obstacle=Flames  |  Trick=Exchange
-entity [<id>] reward (Item): Equipment=Air bladder
-entity [<id>] reward (Item): Equipment=Metal file
-entity [<id>] reward (Item): Equipment=Lockpicks
-entity [<id>] reward (Item): Equipment=Spyglass
-promotable detail [Room Detail=Chains] -- make it an entity only if a player would act on it
-open exits: room_3, room_0
-fixtures: up to 1, or none
-
---- room_5 ---
-identity: Cavern
+identity: Waterway
 role: entrance
 depth: threshold   tension: calm
 headline: none
-room keywords: Room=Cavern  |  Room Detail=Bones
-as drawn: a small chamber, about 10 by 35 feet -- long and narrow, running north-south, close to a rectangle, give or take a corner. Ways out: one off the north wall, one off the east wall
-promotable detail [Room Detail=Bones] -- make it an entity only if a player would act on it
-connector [<id>] OUT OF THE DUNGEON in the east wall, toward the south end -- the way the party came in and the only way back to daylight; realise it from [Entrance=Tree roots] and say what it physically is. Name it as a thing, not as an exit.
+room keywords: Room=Waterway
+as drawn: a passage, about 30 by 10 feet -- long and narrow, running east-west, irregular, its walls stepping in and out. Ways out: one off the north wall, one off the south wall, one off the west wall
+connector [<id>] in the north wall, toward the east end to room_5 (Pool) GATED -- say what it physically is; and what blocks it, from here
+connector [<id>] OUT OF THE DUNGEON in the south wall, toward the west end -- the way the party came in and the only way back to daylight; realise it from [Entrance=Tidal cave] and say what it physically is. Name it as a thing, not as an exit.
+gated exits: room_5
 open exits: room_3
-fixtures: up to 2, or none
+fixtures: up to 1, or none -- A PASSAGE: starred kinds only
+
+--- room_5 ---
+identity: Pool
+depth: middle   tension: uneasy
+headline: special
+room keywords: Room=Pool
+as drawn: a tiny chamber, about 15 by 30 feet -- long and narrow, running north-south, ragged, nothing like a rectangle. Ways out: one off the north wall, one off the south wall
+entity [<id>] obstacle (RoomFeature): Obstacle=Writing  |  Trick=Scrying
+gated exits: room_4
+open exits: room_0
+fixtures: up to 1, or none
 
 === RESPONSE FORMAT ===
 Return JSON only, no prose outside it:
@@ -500,31 +497,19 @@ HARD RULES
 === DUNGEON FICTION (shared context) ===
 [dungeon context]
 
-=== KEYS TO WRITE (4) ===
+=== KEYS TO WRITE (2) ===
 
 --- <id> ---
-found in "Room room_1" -- A Pool, dangerous, at deep depth.
-IT ANSWERS WHERE THE OBJECTIVE IS: "Room room_8"
-  which is: A Stockyard, lethal, at furthest depth.
+found in "Room room_2" -- A Mess hall, uneasy, at deep depth.
+IT ANSWERS AN OBSTACLE: "Obstacle thing"
+  which is: A written obstacle.
+  THE FACT IT MUST CARRY, exactly: "Liquid, which rotation"
+
+--- <id> ---
+found in "Room room_5" -- A Laboratory, dangerous, at middle depth.
+IT ANSWERS WHERE THE OBJECTIVE IS: "Room room_1"
+  which is: A Armory, lethal, at furthest depth.
   THE FACT IT MUST CARRY, exactly: "where Enemy weakness lies"
-
---- <id> ---
-found in "Room room_1" -- A Pool, dangerous, at deep depth.
-IT ANSWERS A CREATURE'S WEAKNESS: "Rank and file"
-  which is: A standing description of group 1, true of every one of them.
-  THE FACT IT MUST CARRY, exactly: "Flattery"
-
---- <id> ---
-found in "Room room_4" -- A Stables, calm, at middle depth.
-IT ANSWERS A CREATURE'S ABILITY: "Rank and file"
-  which is: A standing description of group 1, true of every one of them.
-  THE FACT IT MUST CARRY, exactly: "Gaze weapon"
-
---- <id> ---
-found in "Room room_8" -- A Stockyard, lethal, at furthest depth.
-IT ANSWERS A PERSON'S ASSET: "A named person"
-  which is: A distinct named.
-  THE FACT IT MUST CARRY, exactly: "Faction-member"
 
 === THE OBJECTIVE ===
 "The master die" (Item) -- A steel coin die.

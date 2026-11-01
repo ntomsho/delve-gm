@@ -48,7 +48,7 @@ import {
   validateWritten,
   type GeneratedDungeon,
 } from "./generate.ts";
-import { chunksFor, deriveSeeds } from "./seeds.ts";
+import { deriveSeeds, shapeFor } from "./seeds.ts";
 import {
   contentPassSchema,
   dungeonPassSchema,
@@ -151,7 +151,7 @@ function fakeContentPass(p: ContentPassPayload): ContentPassResponse {
 function generateOffline(seed: number, size: Size): GeneratedDungeon {
   const seeds = deriveSeeds(seed);
   const blueprint = generateBlueprintSeed(size, seeds.blueprintSeed, 1);
-  const { dungeon } = generateBlueprint(seeds.graphSeed, { chunks: chunksFor(size) }, true);
+  const { dungeon } = generateBlueprint(seeds.graphSeed, shapeFor(size, seeds.graphSeed), true);
   const stocked = stockDungeon(dungeon, blueprint, { level: 1, seed: seeds.stockSeed });
   const entities = runEntitiesPass(stocked, blueprint, new Rng(stocked.seed));
 
@@ -248,8 +248,9 @@ describe("dungeonContext", () => {
   // that actually stocks wanderers, and whether a seed does is a roll like any
   // other. The assertions are otherwise seed-agnostic. It moved from 1007 when
   // corridor designation added a draw to stocking and shifted every roll after
-  // it — which is what that comment is here to make cheap to fix.
-  const gd = generateOffline(1008, 2);
+  // it, and back to 1007 when the graph stopped being chunks — which is what
+  // this comment is here to make cheap to fix.
+  const gd = generateOffline(1007, 2);
 
   it("names every inhabitant group", () => {
     for (const g of gd.blueprint.inhabitants) {
@@ -279,7 +280,7 @@ describe("dungeonContext", () => {
 // ===========================================================================
 
 describe("group bases", () => {
-  const gd = generateOffline(1008, 2);
+  const gd = generateOffline(1007, 2);
 
   it("inhabitant bases come from the dungeon pass and survive every chunk", () => {
     for (const g of gd.blueprint.inhabitants) {
@@ -328,7 +329,7 @@ describe("connector ownership", () => {
   const build = (seed: number, size: Size) => {
     const seeds = deriveSeeds(seed);
     const blueprint = generateBlueprintSeed(size, seeds.blueprintSeed, 1);
-    const { dungeon } = generateBlueprint(seeds.graphSeed, { chunks: chunksFor(size) }, true);
+    const { dungeon } = generateBlueprint(seeds.graphSeed, shapeFor(size, seeds.graphSeed), true);
     const stocked = stockDungeon(dungeon, blueprint, { level: 1, seed: seeds.stockSeed });
     const entities = runEntitiesPass(stocked, blueprint, new Rng(stocked.seed));
     const chunks = [...new Set(stocked.rooms.map((r) => r.chunk))].sort((a, b) => a - b);
@@ -338,7 +339,7 @@ describe("connector ownership", () => {
     return { stocked, entities, payloads };
   };
 
-  it.each([2, 3, 5] as Size[])("size %i: every connector is written exactly once", (size) => {
+  it.each([1, 2, 3] as Size[])("size %i: every connector is written exactly once", (size) => {
     const { stocked, entities, payloads } = build(1005, size);
 
     const writers = new Map<string, number>();
@@ -359,7 +360,10 @@ describe("connector ownership", () => {
     }
   });
 
-  it("hands the chunk boundaries to the seams pass and nobody else", () => {
+  // SKIPPED UNTIL THE PASSES STEP, which deletes the seams pass with them
+  // (docs/BUILD-PLAN.md, phase 1, Passes). Every room is region 0 until then, so
+  // there is no boundary to hand over and nothing for these to assert.
+  it.skip("hands the chunk boundaries to the seams pass and nobody else", () => {
     const { stocked, entities, payloads } = build(1005, 3);
     const chunkOf = new Map(stocked.rooms.map((r) => [r.roomId, r.chunk]));
     const crossing = entities.connectors.filter(
@@ -383,7 +387,7 @@ describe("connector ownership", () => {
     }
   });
 
-  it("shows the seams pass both rooms, written", () => {
+  it.skip("shows the seams pass both rooms, written", () => {
     const gd = generateOffline(1005, 3);
     const payload = buildSeamsPassPayload(gd.stocked, gd.entities, gd.dungeonContext);
     for (const s of payload.seams) {
@@ -397,10 +401,10 @@ describe("connector ownership", () => {
     expect(written.base).toContain(payload.seams[0].a.name);
   });
 
-  it("ignores a chunk that answers with a seam anyway", () => {
+  it.skip("ignores a chunk that answers with a seam anyway", () => {
     const seeds = deriveSeeds(1005);
     const blueprint = generateBlueprintSeed(2, seeds.blueprintSeed, 1);
-    const { dungeon } = generateBlueprint(seeds.graphSeed, { chunks: chunksFor(2) }, true);
+    const { dungeon } = generateBlueprint(seeds.graphSeed, shapeFor(2, seeds.graphSeed), true);
     const stocked = stockDungeon(dungeon, blueprint, { level: 1, seed: seeds.stockSeed });
     const entities = runEntitiesPass(stocked, blueprint, new Rng(stocked.seed));
 
@@ -424,7 +428,7 @@ describe("connector ownership", () => {
   it("capitalises every name it was handed, and touches nothing else", () => {
     const seeds = deriveSeeds(1005);
     const blueprint = generateBlueprintSeed(2, seeds.blueprintSeed, 1);
-    const { dungeon } = generateBlueprint(seeds.graphSeed, { chunks: chunksFor(2) }, true);
+    const { dungeon } = generateBlueprint(seeds.graphSeed, shapeFor(2, seeds.graphSeed), true);
     const stocked = stockDungeon(dungeon, blueprint, { level: 1, seed: seeds.stockSeed });
     const entities = runEntitiesPass(stocked, blueprint, new Rng(stocked.seed));
 
@@ -466,7 +470,7 @@ describe("chunk completeness", () => {
   const payloadsOf = (seed: number, size: Size) => {
     const seeds = deriveSeeds(seed);
     const blueprint = generateBlueprintSeed(size, seeds.blueprintSeed, 1);
-    const { dungeon } = generateBlueprint(seeds.graphSeed, { chunks: chunksFor(size) }, true);
+    const { dungeon } = generateBlueprint(seeds.graphSeed, shapeFor(size, seeds.graphSeed), true);
     const stocked = stockDungeon(dungeon, blueprint, { level: 1, seed: seeds.stockSeed });
     const entities = runEntitiesPass(stocked, blueprint, new Rng(stocked.seed));
     const chunks = [...new Set(stocked.rooms.map((r) => r.chunk))].sort((a, b) => a - b);
@@ -477,7 +481,9 @@ describe("chunk completeness", () => {
     };
   };
 
-  const { payloads } = payloadsOf(1005, 3);
+  // 1002, not 1005: the specimen cases need an encounter with named members,
+  // which is a roll, and 1005 at size 3 does not make one.
+  const { payloads } = payloadsOf(1002, 3);
 
   /** The first payload holding the thing this test is about to delete. */
   const holding = (has: (p: ContentPassPayload) => boolean): ContentPassPayload => {
@@ -530,7 +536,8 @@ describe("chunk completeness", () => {
     expect(out[0].path).toBe(`rooms.${room.ref}.connectors`);
   });
 
-  it("says nothing about a seam, which the chunk is told not to write", () => {
+  // Skipped until the passes step, with the seams pass: see connector ownership.
+  it.skip("says nothing about a seam, which the chunk is told not to write", () => {
     const p = holding((x) => x.rooms.some((r) => r.connectors.some((c) => c.seam)));
     // `fakeContentPass` already omits every seam, so a clean report here is the
     // whole assertion: the check agrees with HARD RULE 1 rather than demanding
@@ -802,7 +809,8 @@ describe("chunk completeness", () => {
     });
   });
 
-  it("names a way through the seams pass left out", () => {
+  // Skipped until the passes step, with the seams pass: see connector ownership.
+  it.skip("names a way through the seams pass left out", () => {
     const { stocked, entities } = payloadsOf(1005, 3);
     const payload = buildSeamsPassPayload(stocked, entities, "[fiction]");
     expect(payload.seams.length).toBeGreaterThan(0);
@@ -995,7 +1003,8 @@ describe("prompt snapshots", () => {
     expect(redactIds(renderDungeonPassPrompt(buildDungeonPassPayload(bp)))).toMatchSnapshot();
   });
 
-  it("seams pass", () => {
+  // Skipped until the passes step, with the seams pass: see connector ownership.
+  it.skip("seams pass", () => {
     const gd = generateOffline(1005, 2);
     const payload = buildSeamsPassPayload(gd.stocked, gd.entities, "[dungeon context]");
     expect(redactIds(renderSeamsPassPrompt(payload))).toMatchSnapshot();
@@ -1018,7 +1027,7 @@ describe("prompt snapshots", () => {
   // snapshot. A snapshot of the geometry-free payload would pass forever while
   // the prompt the game actually sends drifted underneath it.
   it("content pass, chunk 0", () => {
-    const { dungeon } = generateBlueprint(seeds.graphSeed, { chunks: 1 }, true);
+    const { dungeon } = generateBlueprint(seeds.graphSeed, shapeFor(1, seeds.graphSeed), true);
     let plan: BlockPlan | null = null;
     const sd = stockDungeon(dungeon, bp, {
       level: 1,
@@ -1209,8 +1218,9 @@ describe("generation split across requests", () => {
     const partial = await generateStructure({ seed: SEED, size: SIZE, level: 1 });
     answerTheRest(partial);
 
+    // One region until the passes step, so "some" is none of them.
     const chunks = chunksOf(partial);
-    expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks.length).toBeGreaterThan(0);
     const some = await Promise.all(chunks.slice(0, -1).map((c) => generateChunk(partial, c)));
 
     // Discovered here, where it can be retried, rather than as an unwritten

@@ -37,7 +37,6 @@
  * well under treasure money so that selling one never beats using it.
  */
 
-import type { Size } from "./blueprint.ts";
 import {
   MAGICAL_INGREDIENTS,
   POTIONS,
@@ -162,7 +161,6 @@ export interface PlacementInput {
   mobiles: MobileEntity[];
   entranceRoomId: string;
   goalRoomId: string;
-  size: Size;
   challenges: Challenge[];
   maxDepth: number;
   rng: Rng;
@@ -173,12 +171,14 @@ export interface PlacementInput {
 // ---------------------------------------------------------------------------
 
 /**
- * Size, and nothing else. A bigger dungeon holds more; a deeper one does not
- * hold richer, which is the whole correction — a level 8 run and a level 1 run
- * through the same floorplan find the same money.
+ * Room count, and nothing else. A bigger dungeon holds more; a deeper one does
+ * not hold richer, which is the whole correction — a level 8 run and a level 1
+ * run through the same floorplan find the same money.
+ *
+ * 42-67 a room is the old 250-400 for each six-room chunk, at the same density.
  */
-export function rollPot(size: Size, rng: Rng): number {
-  return size * rng.range(250, 400);
+export function rollPot(rooms: number, rng: Rng): number {
+  return rooms * rng.range(42, 67);
 }
 
 /**
@@ -447,12 +447,12 @@ export function generalBudget(roomCount: number): number {
  * the dungeon rather than to any room.
  */
 export function placeRewards(input: PlacementInput): RewardPlacement {
-  const { rooms, connectors, mobiles, entranceRoomId, goalRoomId, size, challenges, maxDepth, rng } =
+  const { rooms, connectors, mobiles, entranceRoomId, goalRoomId, challenges, maxDepth, rng } =
     input;
 
   for (const r of rooms) r.rewards = [];
 
-  const total = rollPot(size, rng);
+  const total = rollPot(rooms.length, rng);
   const distributable = total - Math.round(total * ALLOWANCE_SHARE);
 
   let counter = 0;

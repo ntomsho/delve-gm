@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { shapeFor } from "./seeds.ts";
 import { generateBlueprint } from "./floorplan/graph.ts";
 import { generateBlueprintSeed, type Size } from "./content/blueprint.ts";
 import { Rng } from "../shared/utils/rng.ts";
@@ -33,7 +34,7 @@ function canonical(value: unknown): unknown {
 
 function stockFor(seed: number, size: Size) {
   const bp = generateBlueprintSeed(size, seed);
-  const { dungeon } = generateBlueprint(String(seed), { chunks: size }, true);
+  const { dungeon } = generateBlueprint(String(seed), shapeFor(size, String(seed)), true);
   return { bp, sd: stockDungeon(dungeon, bp, { level: 1, seed: seed + 7919 }) };
 }
 

@@ -57,8 +57,10 @@ interface RunSeeds {
 - **Entity ids are deliberately unseeded** (`crypto.randomUUID`). Ids are identity, not
   content. So a determinism check compares an id-stripped form, snapshots redact UUIDs,
   and replaying a run means loading the stored dungeon rather than regenerating it.
-- **Size *n* is *n* chunks is *6n* rooms.** A chunk (a *region*) is the unit of parallel
-  writing.
+- **Size 1, 2, 3 is small, medium, large: 5-6, 7-9, 10-12 rooms.** The room and loop
+  counts are rolled once from the seed (`shapeFor`, `src/generation/seeds.ts`), so a
+  retried graph keeps them. A chunk (a *region*) is still the unit of writing, but
+  every room is region 0 until the passes stop reading it (`docs/BUILD-PLAN.md`).
 
 ---
 
@@ -77,10 +79,23 @@ A dungeon is completely written before the first turn. `src/generation/generate.
 
 ### 3.1 The passes
 
-- **Structure is code.** `generation/floorplan/` builds the room graph, makes it planar,
-  and draws a *block plan*: every room's cells on a grid, adjacency holding by
-  construction. `generation/content/stock/` stocks it from the Maze Rats tables: room
-  identities, creatures, hazards, obstacles, treasure and the goal.
+- **Structure is code.** `generation/floorplan/` builds the room graph and draws a
+  *block plan*: every room's cells on a grid, adjacency holding by construction.
+  `generation/content/stock/` stocks it from the Maze Rats tables: room identities,
+  creatures, hazards, obstacles, treasure and the goal.
+- **The graph is a loop core plus chains** (`graph.ts`): a cycle, then ears joining
+  core rooms (an ear with no rooms is a *shortcut*), then the leftover rooms in short
+  chains, which are the only dead ends. It is rejected and the seed advanced unless it
+  is planar, has no room of more than four ways, keeps under the dead-end cap, and has
+  enough *distinct routes* from the entrance to the goal: paths that each have a room
+  the other lacks. Medium and large also need a bypass on the shortest route and two
+  shortest routes within two rooms of each other. One entrance, the outermost room that
+  is not a dead end; the goal is the deepest room (`chooseGoal`), which stocking reads
+  rather than picks.
+- **Gates know about routes** (`gateConnectors`, `stock/steps.ts`). Shortcuts are gated
+  and concealed first, because hiding one cuts nothing off. The goal is always
+  reachable without passing a hidden way. Some route to the goal stays open, or the two
+  shortest carry different kinds of gate.
 - **The dungeon pass** writes the dungeon's premise, its inhabitants and the opening,
   from the rolled genome alone, so it runs alongside stocking.
 - **The content pass** writes each chunk's six rooms and everything in them, all chunks
@@ -307,7 +322,7 @@ The rules are Knave 1.0's (`src/rules/knave/`).
 A **challenge** is one keyable property of one entity: a creature's weakness or
 ability, an NPC's asset or liability, a blocked or concealed way, a hazard, an
 obstacle, a region of the map, the goal's location and the goal's own properties.
-`src/generation/content/challenges.ts` enumerates them; a size 5 dungeon has about 30.
+`src/generation/content/challenges.ts` enumerates them; a large dungeon has about 12.
 Everything else reads from that list: keys answer challenges, accomplishments resolve
 them, experience prices them.
 
@@ -318,9 +333,9 @@ them, experience prices them.
 - **Keys.** Any item placed to answer a challenge: a vial of acid, a censer, a chart.
   "Key" is the role, not the object. Priced low, so selling one never beats using it.
 - **General rewards,** half equipment (priced from the Knave catalogue) and half
-  treasure, which draws on **a conserved pot**: `size × 250–400` copper, partitioned
-  across the treasure before any model sees it. Money is bounded; a whole size 5 dungeon
-  holds about 1,500cp against a starting purse of 60–360. 10% of the pot is held back as
+  treasure, which draws on **a conserved pot**: `rooms × 42–67` copper, partitioned
+  across the treasure before any model sees it. Money is bounded; a whole large dungeon
+  holds about 600cp against a starting purse of 60–360. 10% of the pot is held back as
   the game master's coin allowance.
 
 **Placement**, in order: reward-guaranteed rooms (dead ends, obstacle rooms, rooms with
@@ -378,11 +393,11 @@ abandonment write nothing back to the character.
   thing that changed elsewhere stays where the player last saw it. The filter lives in
   `mapView` (`src/gameplay/view/map.ts`) and nowhere else.
 - **The map may know more than the fiction, but never something different.**
-- **Corridors are rooms**, drawn from each chunk's budget of six. So connected rooms
+- **Corridors are rooms**, about a sixth of the dungeon's. So connected rooms
   share a wall, and a connector *is* the gap in it.
 - The way out of the dungeon has no room on its far side; it draws as a dashed stub into
   blank paper.
-- Fixed cell scale, so a wall weighs the same at six rooms as at thirty. North is up and
+- Fixed cell scale, so a wall weighs the same at five rooms as at twelve. North is up and
   the map never rotates.
 - Only the current room's doors and things are clickable. A click sends the same text a
   typed action would, through the same turn.

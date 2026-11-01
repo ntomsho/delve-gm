@@ -85,8 +85,6 @@ export interface LayoutRoom {
    * in the rock outside it. This is a cell the room actually owns.
    */
   centre: Point;
-  /** which six-room chunk it came from; useful for tinting regions */
-  chunk: number;
   /** a passage rather than a chamber — drawn lighter */
   corridor?: boolean;
   label?: string;
@@ -103,8 +101,6 @@ export interface LayoutConnector {
    * same convention as `IRoomConnector.endpointB` and `ExitView.toRoomId`.
    */
   to: string | null;
-  /** inter-chunk links are the long ones between regions */
-  interChunk: boolean;
   /** where it cuts the wall. Absent from a layout that has no walls. */
   door?: LayoutDoor;
 }
@@ -206,7 +202,6 @@ export function pointLayout(graph: Dungeon, opts: PointLayoutOptions = {}): Layo
   return {
     rooms: graph.rooms.map((room) => ({
       id: room.entityId,
-      chunk: room.chunk,
       shape: { kind: "circle", at: at.get(room.id)!, r },
       centre: at.get(room.id)!,
     })),
@@ -219,7 +214,6 @@ export function pointLayout(graph: Dungeon, opts: PointLayoutOptions = {}): Layo
       id: edge.entityId,
       from: byIndex.get(edge.a)!.entityId,
       to: byIndex.get(edge.b)!.entityId,
-      interChunk: edge.kind === "inter-chunk",
       path: { kind: "line", from: at.get(edge.a)!, to: at.get(edge.b)! },
     })),
     bounds: {
@@ -440,7 +434,6 @@ export function floorplanLayout(
     const { outer, holes } = traceOutline(cells);
     return {
       id: graph.rooms[i].entityId,
-      chunk: graph.rooms[i].chunk,
       corridor: corridorAt(i),
       centre: middle(innermost(cells)),
       shape: {
@@ -463,7 +456,6 @@ export function floorplanLayout(
       id: edge.entityId,
       from: graph.rooms[edge.a].entityId,
       to: graph.rooms[edge.b].entityId,
-      interChunk: edge.kind === "inter-chunk",
       path: { kind: "line", from: middle(door.from), to: middle(door.to) },
       door: doorway(door.from, door.to, cell, at, middle),
     });
