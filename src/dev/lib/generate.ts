@@ -37,7 +37,6 @@ interface Args {
   level: number;
   out: string | null;
   dry: boolean;
-  chunk: number | null;
   /** where to write the floorplan as plain line art */
   map: string | null;
 }
@@ -64,7 +63,6 @@ function parseArgs(argv: string[]): Args {
     level: num("level", 1),
     out: get("out") ?? null,
     dry: argv.includes("--dry"),
-    chunk: argv.includes("--chunk") ? num("chunk", 0) : null,
     map: argv.includes("--map") ? (get("map") ?? "out/map.svg") : null,
   };
 }
@@ -154,21 +152,13 @@ function dryRun(args: Args): void {
   const placeholder =
     "[DUNGEON PASS OUTPUT — theme, history, who lives here, and the goal would be here]";
 
-  const chunks = [...new Set(sd.rooms.map((r) => r.chunk))].sort((a, b) => a - b);
-  const wanted = args.chunk === null ? chunks : chunks.filter((c) => c === args.chunk);
-  if (!wanted.length) die(`--chunk ${args.chunk} is out of range (have ${chunks.join(", ")})`);
-
-  for (const chunk of wanted) {
-    console.log("\n" + RULE);
-    console.log(`CONTENT PASS  —  chunk ${chunk} of ${chunks.length}`);
-    console.log(RULE);
-    console.log(
-      renderContentPassPrompt(buildContentPassPayload(sd, bp, ep, chunk, placeholder, site))
-    );
-  }
+  console.log("\n" + RULE);
+  console.log("CONTENT PASS");
+  console.log(RULE);
+  console.log(renderContentPassPrompt(buildContentPassPayload(sd, bp, ep, placeholder, site)));
 
   console.error(
-    `\n[dry] ${chunks.length} chunk(s), ${sd.rooms.length} rooms, ` +
+    `\n[dry] ${sd.rooms.length} rooms, ` +
       `${ep.creatures.length} creature anchors, ${bp.inhabitants.length} inhabitant group(s). No calls made.`
   );
 
@@ -238,7 +228,6 @@ const STAGE_LABEL: Record<GenerationProgress["stage"], string> = {
   history: "Writing its history",
   stocking: "Stocking the rooms",
   writing: "Writing the rooms",
-  joining: "Writing the ways between regions",
   keys: "Writing the keys",
 };
 
@@ -251,10 +240,7 @@ async function liveRun(args: Args): Promise<void> {
   const started = Date.now();
   let lastLine = "";
   const report = (p: GenerationProgress) => {
-    const line =
-      p.chunksTotal !== undefined
-        ? `${STAGE_LABEL[p.stage]} — ${p.chunksDone} of ${p.chunksTotal} regions`
-        : STAGE_LABEL[p.stage];
+    const line = STAGE_LABEL[p.stage];
     if (line === lastLine) return;
     lastLine = line;
     console.error(`  ${line}`);

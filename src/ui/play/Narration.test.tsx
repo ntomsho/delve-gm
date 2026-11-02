@@ -147,7 +147,6 @@ describe("an illustration's buttons", () => {
       id: `door-${r}`,
       from: r,
       to: "x",
-      interChunk: false,
       path: { kind: "line" as const, from: { x: 0, y: 0 }, to: { x: 1, y: 0 } },
       known: true,
       toUnknown: true,

@@ -12,7 +12,6 @@ import { z } from "zod";
 import type { DungeonPassResponse } from "./dungeon-pass.ts";
 import type { ContentPassResponse } from "./content-pass/response.ts";
 import type { Omission } from "../types.ts";
-import type { SeamsPassResponse } from "./seams-pass.ts";
 import type { KeysPassResponse } from "./keys-pass.ts";
 import type { ValidationIssue } from "../../../llm/validation.ts";
 import { nonEmpty, type Assignable } from "../../../shared/utils/schema.ts";
@@ -143,16 +142,6 @@ const roomResponse = z.object({
 export const contentPassSchema = z.object({ rooms: z.array(roomResponse).min(1) });
 
 // ---------------------------------------------------------------------------
-// SEAMS PASS
-// ---------------------------------------------------------------------------
-// The ways between chunks, written once both their rooms exist. Same connector
-// shape a chunk returns — one job, one schema.
-
-export const seamsPassSchema = z.object({
-  connectors: z.array(connectorResponse).min(1),
-});
-
-// ---------------------------------------------------------------------------
 // KEYS PASS
 // ---------------------------------------------------------------------------
 // The objects that answer the dungeon's questions, written once both the key
@@ -181,12 +170,10 @@ export const keysPassSchema = z.object({
 
 export type DungeonPassParsed = z.infer<typeof dungeonPassSchema>;
 export type ContentPassParsed = z.infer<typeof contentPassSchema>;
-export type SeamsPassParsed = z.infer<typeof seamsPassSchema>;
 export type KeysPassParsed = z.infer<typeof keysPassSchema>;
 
 export type DungeonPassMatchesEngine = Assignable<DungeonPassParsed, DungeonPassResponse>;
 export type ContentPassMatchesEngine = Assignable<ContentPassParsed, ContentPassResponse>;
-export type SeamsPassMatchesEngine = Assignable<SeamsPassParsed, SeamsPassResponse>;
 export type KeysPassMatchesEngine = Assignable<KeysPassParsed, KeysPassResponse>;
 
 // The engine reports what a response left out (`contentPassOmissions`) without

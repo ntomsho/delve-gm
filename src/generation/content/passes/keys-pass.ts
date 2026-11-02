@@ -1,20 +1,18 @@
 /**
- * KEYS PASS  (once, after the seams pass)
- * =======================================
+ * KEYS PASS  (once, after the content pass)
+ * =========================================
  *
  * The objects that answer the dungeon's questions.
  *
- * WHY IT IS NOT PART OF THE CONTENT PASS. A placed key and the challenge it
- * answers are usually in different chunks, and the content pass is per-chunk and
- * parallel: every chunk payload is built before any of them is applied, so at
- * the moment the chunk holding the key is written, the door it opens has no
- * name, no form, and no lock. A key written there can only be vague -- "a heavy
- * iron key" -- because the thing it fits does not exist yet.
- *
- * This is the same problem the seams pass was built for and it takes the same
- * answer: the chunks skip these (see `withheldKeyItems`) and they arrive here
- * instead, after the serial applies AND after the seams, with both the key and
- * its challenge's finished `base` in front of the model.
+ * WHY IT IS NOT PART OF THE CONTENT PASS. The content pass payload is built
+ * before anything is written, so at that moment the door a key opens has no
+ * name, no form, and no lock. A key written alongside it can only be vague --
+ * "a heavy iron key" -- because the thing it fits is being invented in the same
+ * breath. So the content pass skips these (see `withheldKeyItems`) and they
+ * arrive here instead, after the apply, with both the key and its challenge's
+ * finished `base` in front of the model. (Once the outline pass pairs keys with
+ * challenges up front, this may fold back into the content pass:
+ * docs/BUILD-PLAN.md, phase 2.)
  *
  * It does two jobs.
  *
@@ -60,9 +58,8 @@ import { KEYS_PASS_INSTRUCTIONS, KEYS_PASS_SCHEMA } from "../../../prompts/loade
  *
  * Read by `buildContentPassPayload` to keep them out of the entity list, and by
  * `applyContentPass` to refuse a write to one that came back anyway. Both ends,
- * for the same reason the seams pass guards both ends: a payload that omits it
- * and an applier that trusts the payload is one prompt edit away from silently
- * letting the earlier, blinder pass win.
+ * because a payload that omits it and an applier that trusts the payload is one
+ * prompt edit away from silently letting the earlier, blinder pass win.
  *
  * Computed from the bindings rather than from the items, because `rewardId` is
  * the only thing that says which item a reward produced.
@@ -280,8 +277,8 @@ export function buildKeysPassPayload(
  * The one entity the whole run is for.
  *
  * `goalEntityId` is written by `applyContentPass`, which is the pass that
- * decides what the objective physically is. A dungeon whose goal chunk failed
- * has none, and this pass simply does not ask for its properties.
+ * decides what the objective physically is. A dungeon whose goal room came back
+ * without one has none, and this pass simply does not ask for its properties.
  */
 function findGoalEntity(ep: EntityPassResult): IEntity | undefined {
   if (!ep.goalEntityId) return undefined;
@@ -448,9 +445,8 @@ export interface KeysApplyResult {
  * rooms loop enumerated. See `rewards.ts` on why the reserve holds facts
  * and not sentences.
  *
- * Anything not listed in the payload is ignored rather than applied, on the same
- * rule the seams pass follows: a key the content pass legitimately owns is not
- * this pass's to overwrite.
+ * Anything not listed in the payload is ignored rather than applied: a thing the
+ * content pass legitimately owns is not this pass's to overwrite.
  */
 export function applyKeysPass(
   res: KeysPassResponse,

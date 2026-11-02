@@ -12,7 +12,6 @@ import { join, relative } from "node:path";
 import * as prompts from "./loader.ts";
 import { fill } from "./loader.ts";
 import { CONTENT_PASS_INSTRUCTIONS } from "../generation/content/passes/content-pass/prompt.ts";
-import { SEAMS_PASS_INSTRUCTIONS } from "../generation/content/passes/seams-pass.ts";
 
 const texts = Object.entries(prompts).filter((e): e is [string, string] => typeof e[1] === "string");
 
@@ -32,7 +31,7 @@ describe("every prompt", () => {
   });
 
   it("leaves no slot unfilled", () => {
-    for (const filled of [CONTENT_PASS_INSTRUCTIONS, SEAMS_PASS_INSTRUCTIONS]) {
+    for (const filled of [CONTENT_PASS_INSTRUCTIONS]) {
       expect(filled).not.toMatch(/\{\{\w+\}\}/);
     }
   });

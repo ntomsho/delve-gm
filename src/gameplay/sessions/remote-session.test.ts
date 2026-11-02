@@ -57,10 +57,10 @@ const run = (version: number, stage = "awaiting_action", extra: Record<string, u
 });
 
 /** The happy path through generation, so `begin` can get to a playable run. */
-function wireGeneration(chunks = [0, 1]) {
-  routes.set("POST /api/dungeons", () => ({ json: { dungeonId: "dungeon_rx", chunks } }));
-  for (const n of chunks) {
-    routes.set(`POST /api/dungeons/dungeon_rx/chunks/${n}`, () => ({ json: { chunk: n, done: true } }));
+function wireGeneration(steps = ["content"]) {
+  routes.set("POST /api/dungeons", () => ({ json: { dungeonId: "dungeon_rx", steps } }));
+  for (const step of steps) {
+    routes.set(`POST /api/dungeons/dungeon_rx/steps/${step}`, () => ({ json: { step, done: true } }));
   }
   routes.set("POST /api/dungeons/dungeon_rx/finish", () => ({ json: { dungeonId: "dungeon_rx" } }));
   routes.set("POST /api/runs", () => ({ json: { run: run(1), dungeon: { id: "dungeon_rx" } } }));
@@ -71,16 +71,14 @@ const begin = (s: ReturnType<typeof createRemoteSession>) =>
   s.begin({ seed: 1005, size: 2, level: 1, character: testCharacter() });
 
 describe("generating through the API", () => {
-  it("is three requests, with the regions in parallel", async () => {
-    wireGeneration([0, 1, 2]);
+  it("is one request per step, in order, between the structure and the finish", async () => {
+    wireGeneration();
     const progress: GenerationProgress[] = [];
     await begin(createRemoteSession({ onProgress: (p) => progress.push(p) }));
 
     expect(sent.map((s) => `${s.method} ${s.path}`)).toEqual([
       "POST /api/dungeons",
-      "POST /api/dungeons/dungeon_rx/chunks/0",
-      "POST /api/dungeons/dungeon_rx/chunks/1",
-      "POST /api/dungeons/dungeon_rx/chunks/2",
+      "POST /api/dungeons/dungeon_rx/steps/content",
       "POST /api/dungeons/dungeon_rx/finish",
       "POST /api/runs",
       // The cover, asked for as the run starts and not waited on.
@@ -88,14 +86,12 @@ describe("generating through the API", () => {
       "POST /api/runs/run-1/enter",
     ]);
 
-    // Each region reports as it lands, which is a real thing finishing rather
-    // than a step inside a function nobody can see.
-    const writing = progress.filter((p) => p.stage === "writing");
-    expect(writing.map((p) => p.chunksDone)).toEqual([0, 1, 2, 3]);
+    // Each step names its stage before it runs, and the finish writes the keys.
+    expect(progress.map((p) => p.stage)).toEqual(["layout", "writing", "keys"]);
   });
 
   it("does not build a second dungeon on a second begin", async () => {
-    wireGeneration([0]);
+    wireGeneration();
     const session = createRemoteSession();
     await begin(session);
     const after = sent.length;
@@ -174,7 +170,7 @@ describe("going down a world that is already written", () => {
 
 describe("a turn", () => {
   it("sends what the player typed and the version, and nothing else", async () => {
-    wireGeneration([0]);
+    wireGeneration();
     const session = createRemoteSession();
     await begin(session);
 
@@ -188,7 +184,7 @@ describe("a turn", () => {
   });
 
   it("carries the new version into the next turn", async () => {
-    wireGeneration([0]);
+    wireGeneration();
     const session = createRemoteSession();
     await begin(session);
 
@@ -216,7 +212,7 @@ describe("a turn", () => {
  */
 describe("while the request is in flight", () => {
   it("closes the input and puts the player's line up the moment they submit", async () => {
-    wireGeneration([0]);
+    wireGeneration();
     const session = createRemoteSession();
     await begin(session);
 
@@ -236,7 +232,7 @@ describe("while the request is in flight", () => {
   });
 
   it("refuses a second action while the first is still out", async () => {
-    wireGeneration([0]);
+    wireGeneration();
     const session = createRemoteSession();
     await begin(session);
 
@@ -260,7 +256,7 @@ describe("while the request is in flight", () => {
    * `/roll` answers at once with the die in the log, and `/resolve` is the wait.
    */
   it("throws the dice, shows them, and only then asks for the outcome", async () => {
-    wireGeneration([0]);
+    wireGeneration();
     const session = createRemoteSession();
     await begin(session);
 
@@ -295,7 +291,7 @@ describe("while the request is in flight", () => {
   });
 
   it("does not ask for an outcome when the throw did not land", async () => {
-    wireGeneration([0]);
+    wireGeneration();
     const session = createRemoteSession();
     await begin(session);
 
@@ -311,7 +307,7 @@ describe("while the request is in flight", () => {
   });
 
   it("does not act at all once the run is over", async () => {
-    wireGeneration([0]);
+    wireGeneration();
     const session = createRemoteSession();
     await begin(session);
 
@@ -345,7 +341,7 @@ describe("the injected fetch", () => {
   }
 
   it("is used for every request generation and a turn make", async () => {
-    wireGeneration([0, 1]);
+    wireGeneration();
     const { seen, fn } = spyFetch();
     const session = createRemoteSession({ fetch: fn });
     await begin(session);
@@ -364,7 +360,7 @@ describe("the injected fetch", () => {
    * hardest kind to see.
    */
   it("is used by the 409 resync path too", async () => {
-    wireGeneration([0]);
+    wireGeneration();
     const { seen, fn } = spyFetch();
     const session = createRemoteSession({ fetch: fn });
     await begin(session);
@@ -385,7 +381,7 @@ describe("the injected fetch", () => {
 
 describe("a refusal", () => {
   it("resyncs instead of surfacing an error", async () => {
-    wireGeneration([0]);
+    wireGeneration();
     const session = createRemoteSession();
     await begin(session);
 
@@ -414,7 +410,7 @@ describe("a refusal", () => {
    * button for it, and this reports it the same way.
    */
   it("lands on the error stage when the request itself fails", async () => {
-    wireGeneration([0]);
+    wireGeneration();
     const session = createRemoteSession();
     await begin(session);
 
@@ -426,7 +422,7 @@ describe("a refusal", () => {
   });
 
   it("keeps the server's sentence when it refuses on purpose, and clears it when a turn lands", async () => {
-    wireGeneration([0]);
+    wireGeneration();
     const session = createRemoteSession();
     await begin(session);
 
@@ -452,7 +448,7 @@ describe("a refusal", () => {
  */
 describe("trying again", () => {
   it("re-sends the request that never landed", async () => {
-    wireGeneration([0]);
+    wireGeneration();
     const session = createRemoteSession();
     await begin(session);
 
@@ -473,7 +469,7 @@ describe("trying again", () => {
   });
 
   it("asks the server to repeat an ask that failed on its side", async () => {
-    wireGeneration([0]);
+    wireGeneration();
     const session = createRemoteSession();
     await begin(session);
 
@@ -497,7 +493,7 @@ describe("trying again", () => {
   });
 
   it("shows a failed room entry as one, not as a turn", async () => {
-    wireGeneration([0]);
+    wireGeneration();
     const session = createRemoteSession();
     await begin(session);
 
@@ -515,7 +511,7 @@ describe("trying again", () => {
   });
 
   it("does nothing when there is nothing to repeat", async () => {
-    wireGeneration([0]);
+    wireGeneration();
     const session = createRemoteSession();
     await begin(session);
 
@@ -623,7 +619,7 @@ describe("picking a run back up", () => {
 
 describe("abandoning", () => {
   it("posts the version and nothing else", async () => {
-    wireGeneration([0]);
+    wireGeneration();
     const session = createRemoteSession();
     await begin(session);
 
@@ -648,7 +644,7 @@ describe("abandoning", () => {
    * land.
    */
   it("does not show the ending before the server has agreed to it", async () => {
-    wireGeneration([0]);
+    wireGeneration();
     const session = createRemoteSession();
     await begin(session);
 
@@ -663,7 +659,7 @@ describe("abandoning", () => {
   });
 
   it("refuses to end a run that is already over", async () => {
-    wireGeneration([0]);
+    wireGeneration();
     const session = createRemoteSession();
     await begin(session);
 

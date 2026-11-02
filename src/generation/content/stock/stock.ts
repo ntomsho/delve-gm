@@ -164,9 +164,6 @@ export function stockDungeon(
   const rooms: RoomStock[] = dungeon.rooms.map((r, i) => ({
     roomId: r.entityId,
     index: i,
-    // ONE REGION until the passes stop reading chunks: the whole dungeon is
-    // written by one content call, as size 1 always was.
-    chunk: 0,
     role: i === s.entrance ? "entrance" : i === s.goal ? "goal" : "normal",
     headline: "quiet",
     claimed: false,

@@ -29,7 +29,7 @@
  * connections through `db()` and know nothing about a transaction this file is
  * holding. So the cleanup is the schema's instead: every table
  * cascades from `auth.users`, so deleting the one test account at the end takes
- * its characters, dungeons, runs, chunks and events with it.
+ * its characters, dungeons, runs, generation steps and events with it.
  *
  *   npm run test:db
  */
@@ -138,7 +138,7 @@ beforeAll(async () => {
 beforeEach(() => stubJwks(jwks));
 
 afterAll(async () => {
-  // One statement, and it takes everything: characters, dungeons, runs, chunks
+  // One statement, and it takes everything: characters, dungeons, runs, steps
   // and both event tables all cascade from the account that owns them.
   if (sql && owner) await sql`delete from auth.users where id = ${owner}`;
   vi.unstubAllGlobals();

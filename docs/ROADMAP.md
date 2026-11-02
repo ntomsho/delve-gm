@@ -51,9 +51,11 @@ version of `docs/BUILD-PLAN.md` in git history
   match their descriptions. Mostly playbook changes.
 - **Room plans.** Hand the model an ASCII plan of a room's cells beside the geometry
   sentence. Measure on a dozen rooms before adopting.
-- **Connectors written with their room.** Write a room's ways out with the room that
-  first claims them, so the room's own description and its doors agree. Decide what
-  is left of the seams pass.
+- **Doors that agree with both rooms.** One content call now writes every room and
+  every connector, each connector under its lower-index room, and the seams pass is
+  gone. Read a few live dungeons for a room whose description disagrees with a door
+  written under its neighbour; if it happens, list each connector under both rooms as
+  context.
 - **The entrance in the fiction.** The entrance is rolled in stocking, which the
   dungeon pass runs alongside and cannot see. Roll it before the split, and replace the
   fairy-tale entries in the Maze Rats table.

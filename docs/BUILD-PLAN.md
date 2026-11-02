@@ -16,8 +16,14 @@ dungeons, one per region. That is not part of this plan.
 
 ## Phase 1: cut chunks
 
-**Status.** Layout is built: sizes, the room graph, gates, layout and the bridge below.
-What is left of phase 1 is *Passes*, *Server and client* and the rest of *Rules and docs*.
+**Status.** Built, except the live check: one generation per size, which calls the
+model and waits for a go-ahead. One content call writes the whole dungeon, the seams
+pass and `RoomStock.chunk` are gone, region challenges are not produced (the engine
+still charts one), and the server runs `STEPS` (`generate.ts`) as
+`POST /api/dungeons/:id/steps/:step`, saved in `generation_steps`
+(`supabase/migrations/20261102120000_generation_steps.sql`). The content pass's
+`MAX_TOKENS` stays at 16384: a 12-room answer used about 9,000. Offline, five seeds
+per size (1005, 2024, 4242, 77, 1007) all draw a plan and leave nothing unwritten.
 
 ### Sizes
 

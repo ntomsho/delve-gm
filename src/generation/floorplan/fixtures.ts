@@ -95,9 +95,9 @@ export function fixtureCap(g: RoomGeometry): number {
 /**
  * The menu, rendered ONCE for a prompt.
  *
- * Once, and not per room: a chunk is six rooms and the list is five hundred
- * characters, so repeating it costs three kilobytes a call to say the same
- * fourteen things six times. The narrower passage menu is expressed as a star
+ * Once, and not per room: a call writes up to twelve rooms and the list is five
+ * hundred characters, so repeating it costs six kilobytes a call to say the
+ * same fourteen things twelve times. The narrower passage menu is expressed as a star
  * on the kinds that fit rather than as a second copy of most of the list.
  */
 export function fixtureMenu(): string {

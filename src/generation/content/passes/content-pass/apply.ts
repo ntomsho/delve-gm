@@ -1,7 +1,6 @@
 /**
- * THE CONTENT PASS, APPLIED: a chunk's written answer turned into entities, with
- * counts and stats settled in code around it. Runs serially in chunk order even
- * when generation is parallel (CLAUDE.md).
+ * THE CONTENT PASS, APPLIED: the written answer turned into entities, with
+ * counts and stats settled in code around it.
  */
 
 import type { DungeonBlueprintSeed, InhabitantGroup } from "../../blueprint.ts";
@@ -127,7 +126,7 @@ export function applyContentPass(
    *
    * The roster this pass writes REPLACES the placeholder creatures the entities
    * pass emitted, with new ids — so the `mobileId` bindings written back there
-   * point at entities that no longer exist the moment a chunk lands. Anything
+   * point at entities that no longer exist the moment the answer lands. Anything
    * downstream that has to get from a stocking-level mobile to the creature
    * standing in the room needs the mapping rebuilt, and this is the only place
    * that knows it. See the binding rewrite at the foot of this function.
@@ -175,9 +174,9 @@ export function applyContentPass(
       const it = itemById.get(w.ref);
       if (it) {
         // A placed key was withheld from the payload and must stay nameless
-        // until the keys pass. Guarded here as well as there, on the rule the
-        // seams pass follows: an applier that trusts the payload to have left
-        // something out is one prompt edit away from silently overwriting it.
+        // until the keys pass. Guarded here as well as there: an applier that
+        // trusts the payload to have left something out is one prompt edit
+        // away from silently overwriting it.
         if (withheld.has(w.ref)) continue;
         it.name = w.name;
         (it as { base?: string }).base = w.base;
@@ -245,10 +244,6 @@ export function applyContentPass(
     for (const cr of rr.connectors ?? []) {
       const conn = connectorById.get(cr.ref);
       if (!conn) continue;
-      // A seam was listed as context and asked for back. Dropped rather than
-      // applied: it was written without the far room, and the seams pass is
-      // about to write it with both.
-      if (brief?.connectors.find((c) => c.ref === cr.ref)?.seam) continue;
       conn.name = cr.name;
       (conn as { base?: string }).base = cr.form;
       conn.keywords = {};
@@ -288,10 +283,9 @@ export function applyContentPass(
         c.keywords = en.group.keywords;
         if (er.group.stats) mergeStats(c.stats, er.group.stats);
         // A group's base is written exactly ONCE. Inhabitant groups already
-        // have theirs from the Dungeon Pass, so this guard is what stops a
-        // chunk overwriting the dungeon's own fiction; the live path here is
-        // wanderer groups, which are minted per-mobile during stocking and so
-        // only ever appear in the one chunk that holds them.
+        // have theirs from the Dungeon Pass, so this guard is what stops the
+        // content pass overwriting the dungeon's own fiction; the live path
+        // here is wanderer groups, which are minted per-mobile during stocking.
         if (group) {
           const tpl = (ep.registry.groups[group.id] ??= { id: group.id });
           tpl.base ??= er.group.base;

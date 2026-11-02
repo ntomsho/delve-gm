@@ -1,7 +1,7 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`prompt snapshots > content pass, chunk 0 1`] = `
-"You are writing one region of a dungeon: six rooms and everything in them.
+exports[`prompt snapshots > content pass 1`] = `
+"You are writing a whole dungeon: every room in it and everything in them.
 
 WHAT YOU ARE GIVEN
 Every room, entity, connector, and creature has already been decided by procgen.
@@ -18,7 +18,8 @@ PER ROOM
   to this fiction.
 - Each connector: name + what it physically IS -- a door, a stair, a corridor, a
   crawl, a short drop, a collapsed arch, whatever separates the two rooms, even if
-  mundane. Its NAME is what the thing physically is and
+  mundane. It is listed once, under one of its two rooms, and the room on its
+  other side is in this same list: make the form suit both. Its NAME is what the thing physically is and
   NOTHING else -- "Iron door", "Low archway", "Spiral stair", "Flooded crawl",
   "Rope bridge". Name NEITHER room it joins: no "to the", no "from the", no room
   name, no direction. One connector is walked both ways and read from both ends,
@@ -164,10 +165,9 @@ THE GOAL
 One room is marked GOAL. Create exactly one entity that embodies the objective. Read the fiction and decide what type it needs to be -- an Item, a RoomFeature, or a Creature -- so that a party acting on it plausibly satisfies the mission. Then name and write it.
 
 HARD RULES
-1. Every listed entity, encounter, and connector must appear exactly once -- except
-   a way out marked WRITTEN ELSEWHERE, which you must NOT return. That one leaves
-   this region and is written by a pass that can see the room on the other side.
-   Do not add a creature, hazard, or connector that was not listed.
+1. Every listed entity, encounter, and connector must appear exactly once, under
+   the room it is listed in. Do not add a creature, hazard, or connector that was
+   not listed.
 2. Keywords are seeds, not labels. Realise them into the place; do not gloss.
 3. Do not contradict the fiction. Material, history, and the state of the ruin are
    settled.
@@ -501,9 +501,11 @@ HARD RULES
 
 --- <id> ---
 found in "Room room_2" -- A Mess hall, uneasy, at deep depth.
-IT ANSWERS AN OBSTACLE: "Obstacle thing"
-  which is: A written obstacle.
-  THE FACT IT MUST CARRY, exactly: "Liquid, which rotation"
+IT ANSWERS A BLOCKED WAY: "Barred door"
+  which is: a plank door, barred from the far side
+  THE FACT IT MUST CARRY, exactly: "the way is blocked"
+  the lock as it currently reads: silted up; the daybook says where the sluice is
+  you may return "lockRequirement" for this one to rewrite that lock so it and the key name each other.
 
 --- <id> ---
 found in "Room room_5" -- A Laboratory, dangerous, at middle depth.
@@ -535,68 +537,5 @@ Return JSON only, no prose outside it:
     }
   ],
   "goalProperties": ["<a thing that must be learned about the objective>"]
-}"
-`;
-
-exports[`prompt snapshots > seams pass 1`] = `
-"You are writing the ways through between regions of a dungeon whose rooms are
-already written. Each one below is a single way through joining two rooms, and
-both of those rooms are quoted with the description that has already been
-committed to. Nothing else about the dungeon is yours to change.
-
-FOR EACH WAY THROUGH
-- name: what the thing physically is. Its NAME is what the thing physically is and
-  NOTHING else -- "Iron door", "Low archway", "Spiral stair", "Flooded crawl",
-  "Rope bridge". Name NEITHER room it joins: no "to the", no "from the", no room
-  name, no direction. One connector is walked both ways and read from both ends,
-  so a name that points is wrong from one of them. Where it leads is appended
-  when it is read, and is not yours to write.
-- form: what it IS, in a sentence or two -- a door, a stair, a crawl, a flooded
-  culvert, a rent in the floor. Make it suit BOTH rooms it joins: you can see
-  both, which is the whole reason these were held back until now. A vault wants a
-  door; a kennel wants a gate; two rooms at different depths in the water want
-  something that explains the difference.
-  Where it changes level -- a stair, a ladder, a
-  shaft, a ramp, a hole in the floor, a drop -- the FORM must say which of the two
-  rooms is above and which below, BY NAME: "a stair, the Counting Room at its head
-  and the Sump at its foot". Not "leads down", which is true from only one end.
-- requirement: GATED ways only -- what stands in the way. Phrase it so it reads
-  correctly from either side, since a player can meet it from either. Do not
-  invent the key.
-
-HARD RULES
-1. Return exactly the ways listed, each once, with its ref exactly as given. Do
-   not add one, and do not leave one out: a way with no form is a way the game
-   cannot describe when a player walks up to it.
-2. Do not contradict either room's description. They are written and committed.
-3. Do not describe the rooms. You are writing what is BETWEEN them.
-4. Write prose, not notes.
-
-=== DUNGEON FICTION (shared context) ===
-[dungeon context]
-
-=== WAYS TO WRITE (2) ===
-
---- <id> ---
-joins "Room room_0" -- A Armory, lethal, at deep depth.
-  to   "Room room_8" -- A Stockyard, lethal, at furthest depth.
-
---- <id> ---
-joins "Room room_3" -- A Waterway, dangerous, at shallow depth.
-  to   "Room room_11" -- A Laboratory, calm, at middle depth.
-GATED -- also write what blocks it, true from both sides.
-
-=== RESPONSE FORMAT ===
-Return JSON only, no prose outside it:
-
-{
-  "connectors": [
-    {
-      "ref": "<exactly as given>",
-      "name": "<what it is, naming neither room>",
-      "form": "<what it physically is; which room is above, where it changes level>",
-      "requirement": "<gated only: what blocks it>"
-    }
-  ]
 }"
 `;

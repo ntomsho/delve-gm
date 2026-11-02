@@ -1,5 +1,5 @@
 /**
- * WHAT THE CONTENT PASS ANSWERS: the response's shape, and everything a chunk
+ * WHAT THE CONTENT PASS ANSWERS: the response's shape, and everything it
  * was asked about and did not write.
  */
 
@@ -113,23 +113,21 @@ export interface ContentPassResponse {
 // ===========================================================================
 
 /**
- * EVERYTHING THIS CHUNK WAS ASKED ABOUT AND DID NOT WRITE.
+ * EVERYTHING THE PASS WAS ASKED ABOUT AND DID NOT WRITE.
  *
  * A response answering five of six connectors is valid JSON against a valid
  * schema. Zod checks shape, and nothing about the shape says how many connectors
- * there should be -- so the omission passes, the chunk applies, and the gap
+ * there should be -- so the omission passes, the answer applies, and the gap
  * surfaces only when `validateWritten` sweeps at the end, by which point the pass
  * is over and the one retry has gone unspent. That is how a live run finished
- * with three of ~90 written things unwritten, one of them a connector between two
- * rooms in the same chunk, which no seam could explain.
+ * with three of ~90 written things unwritten.
  *
  * This turns an omission into exactly the zod-shaped failure the retry already
  * knows how to take. It lives here rather than in the schema because only the
  * PAYLOAD knows what was asked for, and the schema never sees the payload.
  *
  * WHAT IS DELIBERATELY NOT CHECKED, all for one reason -- the model chose, so
- * there is nothing it can have left out: fixtures, promoted details, and the
- * seam connectors carried as context, which HARD RULE 1 tells it not to return.
+ * there is nothing it can have left out: fixtures and promoted details.
  */
 export function contentPassOmissions(
   payload: ContentPassPayload,
@@ -165,7 +163,7 @@ export function contentPassOmissions(
     }
 
     for (const ref of absent(
-      brief.connectors.filter((c) => !c.seam).map((c) => c.ref),
+      brief.connectors.map((c) => c.ref),
       (rr.connectors ?? []).map((c) => c.ref)
     )) {
       out.push({

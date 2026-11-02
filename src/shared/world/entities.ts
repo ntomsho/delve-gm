@@ -162,7 +162,7 @@ export interface CreatureTemplate {
  * Inhabitant groups are written by the Dungeon Pass, before any room exists:
  * who lives here is part of the dungeon's fiction, not a per-room detail.
  * Wanderer groups are rolled during stocking as filler and are written by the
- * content pass, in the single chunk each of them appears in.
+ * content pass.
  */
 export interface GroupTemplate {
   /** the InhabitantGroup id: `<dungeonId>:g<i>` */

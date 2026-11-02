@@ -1,6 +1,6 @@
 /**
- * THE CONTENT PASS'S PROMPT: a chunk's payload rendered into the call, and the
- * standing instructions the model writes the region against.
+ * THE CONTENT PASS'S PROMPT: the dungeon's payload rendered into the call, and
+ * the standing instructions the model writes every room against.
  */
 
 import { fixtureMenu } from "../../../floorplan/fixtures.ts";
@@ -49,15 +49,6 @@ export function renderContentPassPrompt(p: ContentPassPayload): string {
         );
         continue;
       }
-      if (c.seam) {
-        L.push(
-          `way out [${c.ref}]${where} to ${c.toRef} (${c.toIdentity})${c.gated ? " GATED" : ""}` +
-            ` -- WRITTEN ELSEWHERE. It leaves this region, so it is written by a later ` +
-            `pass that can see both rooms. Count it among this room's ways out; do not ` +
-            `name it, describe it, or return it.`
-        );
-        continue;
-      }
       const flags = `${c.gated ? " GATED" : ""}${c.hidden ? " CONCEALED" : ""}`;
       const asks = [
         c.hidden
@@ -90,12 +81,6 @@ export function renderContentPassPrompt(p: ContentPassPayload): string {
           (r.fixtures.corridor ? " -- A PASSAGE: starred kinds only" : "")
       );
     }
-    L.push("");
-  }
-
-  if (p.borders.length) {
-    L.push(`=== BORDER ROOMS -- context only, do NOT write ===`, "");
-    for (const b of p.borders) L.push(`${b.ref}: ${b.identity} (${b.headline}) -- ${b.summary}; connects to ${b.connectsTo.join(", ")}`);
     L.push("");
   }
 

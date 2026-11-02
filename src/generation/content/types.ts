@@ -164,8 +164,6 @@ export interface RoomStock {
   roomId: string;
   /** graph index, for adjacency work and human-readable reports */
   index: number;
-  /** the graph's chunk -- purely a batching unit, never a content input */
-  chunk: number;
   role: RoomRole;
   headline: Headline;
   /** true when load-bearing placement claimed this room */

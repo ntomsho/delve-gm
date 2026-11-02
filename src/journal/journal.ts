@@ -12,7 +12,7 @@
  * It records, in order:
  *
  *   the seed and the sheet          what this run was
- *   every generation call           prompt and response, per pass and per chunk
+ *   every generation call           prompt and response, per pass
  *   the whole generated dungeon     the baseline every later diff applies to
  *   every game master call              what it was sent, what it said, what it cost
  *   every player input              verbatim

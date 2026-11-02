@@ -47,8 +47,6 @@ import GENERATION_CONNECTOR_HEIGHT_MD from "./generation/connector-height.md?raw
 import GENERATION_GOAL_MD from "./generation/goal.md?raw";
 import GENERATION_CONTENT_PASS_MD from "./generation/content-pass.md?raw";
 import GENERATION_CONTENT_PASS_SCHEMA_MD from "./generation/content-pass.schema.md?raw";
-import GENERATION_SEAMS_PASS_MD from "./generation/seams-pass.md?raw";
-import GENERATION_SEAMS_PASS_SCHEMA_MD from "./generation/seams-pass.schema.md?raw";
 import GENERATION_KEYS_PASS_MD from "./generation/keys-pass.md?raw";
 import GENERATION_KEYS_PASS_SCHEMA_MD from "./generation/keys-pass.schema.md?raw";
 import TALLY_TALLY_MD from "./tally/tally.md?raw";
@@ -162,9 +160,8 @@ export const CONNECTOR_NAMING = text(GENERATION_CONNECTOR_NAMING_MD);
  * stair could be described as going down from both rooms, which a player
  * walking back the way they came would notice.
  *
- * The writer always knows both rooms' names: a content-pass chunk only writes
- * connectors whose two rooms it is also naming, and the seams pass is given
- * the room names the chunks chose.
+ * The writer always knows both rooms' names: the content pass names every
+ * room in the same call that writes the connectors between them.
  */
 export const CONNECTOR_HEIGHT = text(GENERATION_CONNECTOR_HEIGHT_MD);
 
@@ -179,15 +176,6 @@ export const GOAL_INSTRUCTION = text(GENERATION_GOAL_MD);
 export const CONTENT_PASS_TEMPLATE = text(GENERATION_CONTENT_PASS_MD);
 
 export const CONTENT_PASS_SCHEMA = text(GENERATION_CONTENT_PASS_SCHEMA_MD);
-
-/**
- * The seams pass's instructions, with `{{placeholders}}` for the connector
- * rules it shares with the content pass. Filled in
- * `src/generation/content/passes/seams-pass.ts`.
- */
-export const SEAMS_PASS_TEMPLATE = text(GENERATION_SEAMS_PASS_MD);
-
-export const SEAMS_PASS_SCHEMA = text(GENERATION_SEAMS_PASS_SCHEMA_MD);
 
 export const KEYS_PASS_INSTRUCTIONS = text(GENERATION_KEYS_PASS_MD);
 

@@ -8,8 +8,8 @@
  *
  * THE TOKEN IS VERIFIED LOCALLY, NOT ASKED ABOUT. Supabase offers
  * `GET /auth/v1/user` for this, which is a network round trip on every single
- * request — on a turn that is fine and on the twelve parallel chunk requests of
- * a size-5 generation it is twelve. The project signs with ASYMMETRIC ES256
+ * request — on a turn that is fine and on every request of a generation it
+ * would add up. The project signs with ASYMMETRIC ES256
  * keys, so verification is a signature check against the public JWKS and needs
  * no secret at all: there is no `SUPABASE_JWT_SECRET` to leak, rotate, or
  * forget to set in an environment.

@@ -71,8 +71,6 @@ the fact.
 
 - [ch:blocked-way:«id-6»] a blocked way, HERE, in this room — as an object they can carry
   the fact: "the way is blocked"
-- [ch:region:c0] a region of the map, HERE, in this room — as something they are told
-  the fact: "the layout beyond Waterway"
 - [ch:creature-weakness:mob_6vw_1:0] a creature's weakness, elsewhere in the dungeon — as something they are told
   the fact: "Phylactery"
 - [ch:creature-weakness:mob_6vw_1:1] a creature's weakness, elsewhere in the dungeon — as something they are told
@@ -85,6 +83,8 @@ the fact.
   the fact: "Teleporting"
 - [ch:blocked-way:«id-12»] a blocked way, elsewhere in the dungeon — as an object they can carry
   the fact: "the way is blocked"
+- [ch:obstacle:«id-7»] an obstacle, elsewhere in the dungeon — as an object they can carry
+  the fact: "Writing, which scrying"
 
 ",
     "role": "user",
@@ -175,8 +175,6 @@ the fact.
 
 - [ch:blocked-way:«id-6»] a blocked way, HERE, in this room — as an object they can carry
   the fact: "the way is blocked"
-- [ch:region:c0] a region of the map, HERE, in this room — as something they are told
-  the fact: "the layout beyond Waterway"
 - [ch:creature-weakness:mob_6vw_1:0] a creature's weakness, elsewhere in the dungeon — as something they are told
   the fact: "Phylactery"
 - [ch:creature-weakness:mob_6vw_1:1] a creature's weakness, elsewhere in the dungeon — as something they are told
@@ -189,6 +187,8 @@ the fact.
   the fact: "Teleporting"
 - [ch:blocked-way:«id-12»] a blocked way, elsewhere in the dungeon — as an object they can carry
   the fact: "the way is blocked"
+- [ch:obstacle:«id-7»] an obstacle, elsewhere in the dungeon — as an object they can carry
+  the fact: "Writing, which scrying"
 
 ",
     "role": "user",
@@ -282,8 +282,6 @@ the fact.
 
 - [ch:blocked-way:«id-6»] a blocked way, HERE, in this room — as an object they can carry
   the fact: "the way is blocked"
-- [ch:region:c0] a region of the map, HERE, in this room — as something they are told
-  the fact: "the layout beyond Waterway"
 - [ch:creature-weakness:mob_6vw_1:0] a creature's weakness, elsewhere in the dungeon — as something they are told
   the fact: "Phylactery"
 - [ch:creature-weakness:mob_6vw_1:1] a creature's weakness, elsewhere in the dungeon — as something they are told
@@ -296,6 +294,8 @@ the fact.
   the fact: "Teleporting"
 - [ch:blocked-way:«id-12»] a blocked way, elsewhere in the dungeon — as an object they can carry
   the fact: "the way is blocked"
+- [ch:obstacle:«id-7»] an obstacle, elsewhere in the dungeon — as an object they can carry
+  the fact: "Writing, which scrying"
 
 ",
     "role": "user",
@@ -399,8 +399,6 @@ the fact.
 
 - [ch:blocked-way:«id-6»] a blocked way, HERE, in this room — as an object they can carry
   the fact: "the way is blocked"
-- [ch:region:c0] a region of the map, HERE, in this room — as something they are told
-  the fact: "the layout beyond Waterway"
 - [ch:creature-weakness:mob_6vw_1:0] a creature's weakness, elsewhere in the dungeon — as something they are told
   the fact: "Phylactery"
 - [ch:creature-weakness:mob_6vw_1:1] a creature's weakness, elsewhere in the dungeon — as something they are told
@@ -413,6 +411,8 @@ the fact.
   the fact: "Teleporting"
 - [ch:blocked-way:«id-12»] a blocked way, elsewhere in the dungeon — as an object they can carry
   the fact: "the way is blocked"
+- [ch:obstacle:«id-7»] an obstacle, elsewhere in the dungeon — as an object they can carry
+  the fact: "Writing, which scrying"
 
 ",
     "role": "user",
@@ -510,8 +510,6 @@ the fact.
 
 - [ch:blocked-way:«id-6»] a blocked way, HERE, in this room — as an object they can carry
   the fact: "the way is blocked"
-- [ch:region:c0] a region of the map, HERE, in this room — as something they are told
-  the fact: "the layout beyond Waterway"
 - [ch:creature-weakness:mob_6vw_1:0] a creature's weakness, elsewhere in the dungeon — as something they are told
   the fact: "Phylactery"
 - [ch:creature-weakness:mob_6vw_1:1] a creature's weakness, elsewhere in the dungeon — as something they are told
@@ -524,6 +522,8 @@ the fact.
   the fact: "Teleporting"
 - [ch:blocked-way:«id-12»] a blocked way, elsewhere in the dungeon — as an object they can carry
   the fact: "the way is blocked"
+- [ch:obstacle:«id-7»] an obstacle, elsewhere in the dungeon — as an object they can carry
+  the fact: "Writing, which scrying"
 
 ",
     "role": "user",

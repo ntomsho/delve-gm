@@ -488,7 +488,7 @@ describe("taking a copy of a world", () => {
     });
   });
 
-  /** Half a world is not worth copying, and the copy would have no chunks to
+  /** Half a world is not worth copying, and the copy would have no steps to
    *  finish from. "Not there" and "not finished" are one answer. */
   it("refuses a dungeon that is still being written", async () => {
     await inRollback(async (tx) => {

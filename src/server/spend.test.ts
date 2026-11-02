@@ -56,7 +56,7 @@ describe("subjectOf", () => {
   });
 
   it("names the dungeon of a dungeon's paths", () => {
-    expect(subjectOf(`/api/dungeons/${id}/chunks/2`)).toEqual({ dungeonId: id });
+    expect(subjectOf(`/api/dungeons/${id}/steps/content`)).toEqual({ dungeonId: id });
   });
 
   it("names nothing for a path that is about no one thing", () => {

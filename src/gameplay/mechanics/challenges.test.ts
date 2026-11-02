@@ -66,6 +66,34 @@ const commit = (over: Partial<Commit> = {}): Commit => ({
   ...over,
 });
 
+/**
+ * A region, as the outline pass's areas will produce one. Nothing generates
+ * them until then (docs/BUILD-PLAN.md, phase 2), but the key that charts one is
+ * still in the engine, so it is tested against a hand-made one.
+ */
+function aRegion(world: World): Challenge {
+  const roomIds = world.entities.rooms.slice(1, 4).map((r) => r.id);
+  const c: Challenge = {
+    id: "ch:region:area_1",
+    kind: "region",
+    target: "area",
+    targetId: "area_1",
+    roomId: roomIds[0]!,
+    roomIds,
+    property: "the layout beyond the first door",
+  };
+  world.challenges = [...world.challenges, c];
+  world.reserve = [...world.reserve, { challengeId: c.id, kind: "information", fact: c.property }];
+  return c;
+}
+
+/** Put the player in front of the first challenge, which is in a room with others or alone. */
+function atAChallenge(world: World): Challenge {
+  const c = world.challenges[0]!;
+  world.currentRoomId = c.roomId;
+  return c;
+}
+
 /** The first challenge of a kind, for tests that need a specific one. */
 function pick(world: World, kind: Challenge["kind"]): Challenge {
   const c = world.challenges.find((x) => x.kind === kind);
@@ -328,7 +356,7 @@ describe("what a commit resolved", () => {
 describe("a region key", () => {
   it("puts the whole region on the map without letting the player walk it", () => {
     const world = aWorld();
-    const c = pick(world, "region");
+    const c = aRegion(world);
     expect(c.roomIds!.length).toBeGreaterThan(1);
 
     const out = applyDraw(world.challengeState, world.challenges, world.reserve, { challengeId: c.id }, 2);
@@ -345,7 +373,7 @@ describe("a region key", () => {
 
   it("counts as answered the moment it is drawn", () => {
     const world = aWorld();
-    const c = pick(world, "region");
+    const c = aRegion(world);
     applyDraw(world.challengeState, world.challenges, world.reserve, { challengeId: c.id }, 2);
     const e = world.challengeState.ledger.find((x) => x.challengeId === c.id)!;
     expect(e.resolvedTurn).toBe(2);
@@ -604,7 +632,7 @@ describe("coin out of the dungeon's allowance", () => {
 describe("damage against the room's challenges", () => {
   it("charges hit points lost to what the player was standing in front of", () => {
     const world = aWorld();
-    const c = world.challenges.find((x) => x.roomId === world.currentRoomId)!;
+    const c = atAChallenge(world);
     noteArrival(world.challengeState, world.challenges, world.currentRoomId, 2);
 
     noteDamage(world.challengeState, world.challenges, world.currentRoomId, 2, 5);
@@ -614,7 +642,7 @@ describe("damage against the room's challenges", () => {
 
   it("folds a second hit on the same turn into the same line", () => {
     const world = aWorld();
-    const c = world.challenges.find((x) => x.roomId === world.currentRoomId)!;
+    const c = atAChallenge(world);
     noteArrival(world.challengeState, world.challenges, world.currentRoomId, 2);
     noteDamage(world.challengeState, world.challenges, world.currentRoomId, 2, 5);
     noteDamage(world.challengeState, world.challenges, world.currentRoomId, 2, 3);
@@ -632,7 +660,7 @@ describe("damage against the room's challenges", () => {
 
   it("charges nothing to a thing that is already settled", () => {
     const world = aWorld();
-    const c = world.challenges.find((x) => x.roomId === world.currentRoomId)!;
+    const c = atAChallenge(world);
     noteArrival(world.challengeState, world.challenges, world.currentRoomId, 1);
     noteResolutions(world.challengeState, world.challenges, [{ challengeId: c.id, resolution: "slain" }], 2);
     noteDamage(world.challengeState, world.challenges, world.currentRoomId, 3, 5);

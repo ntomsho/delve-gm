@@ -16,7 +16,7 @@
 import type { GenerationProgress, GenerationStage } from "../../generation/generate.ts";
 
 const ORDER: GenerationStage[] = [
-  "layout", "inhabitants", "history", "stocking", "writing", "joining", "keys",
+  "layout", "inhabitants", "history", "stocking", "writing", "keys",
 ];
 
 const SAYS: Record<GenerationStage, string> = {
@@ -25,7 +25,6 @@ const SAYS: Record<GenerationStage, string> = {
   history: "Working out what happened",
   stocking: "Putting things in the rooms",
   writing: "Writing it all down",
-  joining: "Hanging the doors between them",
   keys: "Hiding the answers where they can be found",
 };
 
@@ -60,11 +59,6 @@ export function LoadingScreen({ progress }: { progress?: GenerationProgress }) {
                   }}
                 >
                   {SAYS[stage]}
-                  {now && stage === "writing" && progress?.chunksTotal !== undefined && (
-                    <span className="ml-2 font-mono text-[11px] text-graphite">
-                      {progress.chunksDone ?? 0}/{progress.chunksTotal}
-                    </span>
-                  )}
                 </span>
               </li>
             );

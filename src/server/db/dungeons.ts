@@ -1,11 +1,11 @@
 /**
  * DUNGEONS: a world as it is written — partial, then complete — the player's
- * own, the library of everybody else's, a copy taken from it, and the chunks a
+ * own, the library of everybody else's, a copy taken from it, and the steps a
  * generation writes along the way.
  */
 
 import type postgres from "postgres";
-import type { GeneratedDungeon, ChunkResult } from "../../generation/generate.ts";
+import type { GeneratedDungeon, StepResult } from "../../generation/generate.ts";
 import { db, doc } from "./connection.ts";
 
 // ---------------------------------------------------------------------------
@@ -340,13 +340,13 @@ export async function listLibrary(
  *     (`readJournal`) and a copy without them yields a transcript that starts
  *     mid-air. It is also where the `kind: "dungeon"` baseline lives, which is
  *     what `journal/render.ts` prints when someone wants to judge the writing.
- *   - NOT `generation_chunks`. Only `finish` reads those, a complete dungeon
+ *   - NOT `generation_steps`. Only `finish` reads those, a complete dungeon
  *     never finishes again, and they are the unapplied raw responses — the
  *     largest thing in the schema and the least use to anybody holding the
  *     applied world.
  *
  * COMPLETE ONLY. Half a world is not worth copying, and `finish` on the copy
- * would have no chunks to finish from.
+ * would have no steps to finish from.
  *
  * `undefined` means no such complete dungeon — one answer for "not there" and
  * "still being written", because a caller who may not have it either way should
@@ -394,38 +394,36 @@ export async function duplicateDungeon(
 }
 
 // ---------------------------------------------------------------------------
-// GENERATION CHUNKS
+// GENERATION STEPS
 // ---------------------------------------------------------------------------
 
 /**
- * One region's answer, unapplied.
+ * One step's answer, unapplied.
  *
- * `on conflict do nothing` rather than `do update`: the regions are called in
- * parallel from separate requests, and a chunk that arrives twice is a retry of
- * a call whose answer already landed. Keeping the first is what makes the
- * request idempotent — and it has to be, because the client fires N of these
- * and any one of them can be retried by anything between here and the browser.
+ * `on conflict do nothing` rather than `do update`: a step that arrives twice
+ * is a retry of a call whose answer already landed. Keeping the first is what
+ * makes the request idempotent, and it has to be, because anything between
+ * here and the browser can retry it.
  */
-export async function saveChunk(
+export async function saveStep(
   dungeonId: string,
-  result: ChunkResult,
+  result: StepResult,
   sql: postgres.Sql = db()
 ): Promise<void> {
   await sql`
-    insert into generation_chunks (dungeon_id, chunk, response)
-    values (${dungeonId}, ${result.chunk}, ${doc(sql, result)})
-    on conflict (dungeon_id, chunk) do nothing
+    insert into generation_steps (dungeon_id, step, response)
+    values (${dungeonId}, ${result.step}, ${doc(sql, result)})
+    on conflict (dungeon_id, step) do nothing
   `;
 }
 
-export async function listChunks(
+export async function listSteps(
   dungeonId: string,
   sql: postgres.Sql = db()
-): Promise<ChunkResult[]> {
-  const rows = await sql<{ response: ChunkResult }[]>`
-    select response from generation_chunks
+): Promise<StepResult[]> {
+  const rows = await sql<{ response: StepResult }[]>`
+    select response from generation_steps
      where dungeon_id = ${dungeonId}
-     order by chunk asc
   `;
   return rows.map((r) => r.response);
 }

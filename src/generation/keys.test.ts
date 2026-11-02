@@ -4,7 +4,7 @@
  *
  * What `rewards.test.ts` cannot test, because none of it exists until a dungeon has been
  * WRITTEN: a key needs its lock to have a name before there is anything to write
- * about, and the objective has no keyable properties until a chunk has decided
+ * about, and the objective has no keyable properties until the content pass has decided
  * what the objective physically is.
  *
  * So these run against `generateOffline`, which is the whole pipeline with the
@@ -55,7 +55,7 @@ function itemOfReward(gd: ReturnType<typeof generateOffline>, rewardId: string) 
 // ===========================================================================
 
 describe("the content pass withholds placed keys", () => {
-  it.each(SEEDS)("seed %i names no placed key in any chunk payload", (seed) => {
+  it.each(SEEDS)("seed %i names no placed key in the content payload", (seed) => {
     // Deliberately BEFORE the content pass: this is the state the payloads are
     // built in, and the point is that the keys are absent from them.
     const gd = generateOffline(seed, 2);
@@ -63,12 +63,9 @@ describe("the content pass withholds placed keys", () => {
     const withheld = withheldKeyItems(gd.stocked, fresh);
     expect(withheld.size).toBeGreaterThan(0);
 
-    const chunks = [...new Set(gd.stocked.rooms.map((r) => r.chunk))];
     const named = new Set<string>();
-    for (const chunk of chunks) {
-      const p = buildContentPassPayload(gd.stocked, gd.blueprint, fresh, chunk, "[fiction]");
-      for (const r of p.rooms) for (const e of r.entities) named.add(e.ref);
-    }
+    const p = buildContentPassPayload(gd.stocked, gd.blueprint, fresh, "[fiction]");
+    for (const r of p.rooms) for (const e of r.entities) named.add(e.ref);
     for (const id of withheld) expect(named.has(id)).toBe(false);
   });
 
@@ -78,10 +75,7 @@ describe("the content pass withholds placed keys", () => {
     const withheld = [...withheldKeyItems(gd.stocked, ep)];
     expect(withheld.length).toBeGreaterThan(0);
     const victim = withheld[0]!;
-    const roomOf = ep.bindings.find((b) => b.entityId === victim)!.roomId;
-    const room = gd.stocked.rooms.find((r) => r.roomId === roomOf)!;
-
-    const payload = buildContentPassPayload(gd.stocked, gd.blueprint, ep, room.chunk, "[fiction]");
+    const payload = buildContentPassPayload(gd.stocked, gd.blueprint, ep, "[fiction]");
     // A response that names the withheld key regardless — the failure mode the
     // applier guard exists for, and the one a payload-only fix would miss.
     applyContentPass(
@@ -164,7 +158,7 @@ describe("the keys payload", () => {
     for (const k of carried) expect(k.carriedBy).not.toBe("");
   });
 
-  it("carries the objective once a chunk has decided what it is", () => {
+  it("carries the objective once the content pass has decided what it is", () => {
     const gd = generateOffline(1005, 2);
     const payload = buildKeysPassPayload(gd.stocked, gd.entities, "[fiction]");
     expect(payload.goal).toBeDefined();
@@ -233,8 +227,8 @@ describe("applying the keys pass", () => {
   });
 
   it("ignores a key it was not asked to write", () => {
-    // Same rule the seams pass follows: a thing the content pass legitimately
-    // owns is not this pass's to overwrite.
+    // A thing the content pass legitimately owns is not this pass's to
+    // overwrite.
     const gd = generateOffline(77, 2);
     const payload: KeysPassPayload = { ...buildKeysPassPayload(gd.stocked, gd.entities, "[f]"), keys: [] };
     const victim = gd.entities.items.find((i) => i.name !== "")!;

@@ -391,12 +391,11 @@ export interface JsonCallOptions<T> extends CallOptions {
    * This keeps a record of a pass that never succeeds. Generation events are
    * only written when a pass succeeds, so without this hook the only trace of
    * a failed pass would be the exception's message. (Before this existed, a
-   * content-pass chunk that failed validation twice ended a generation, and
+   * content-pass call that failed validation twice ended a generation, and
    * the journal's last entry was just the word "shape".)
    *
    * It is a hook rather than a journal parameter because this module shouldn't
-   * know about the journal, and only the caller knows which pass and chunk
-   * failed.
+   * know about the journal, and only the caller knows which pass failed.
    *
    * It must not throw. If it does, the error is logged and ignored, so that
    * the original error isn't lost.
