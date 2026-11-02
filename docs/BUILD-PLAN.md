@@ -173,7 +173,18 @@ the seams pass left out*, and the *seams pass* prompt snapshot.
   `seams-pass.schema.md`, its `Task` and token entries, `seamsPassOmissions`, and its
   journal and stage entries. `connector-naming.md` and `connector-height.md` stay, because
   the content pass uses them.
-- **Keys pass: unchanged** in this phase.
+- **Content pass repair: built, ahead of the rest of this step.** The first live large
+  dungeon (seed 1005, 12 rooms, one content call) left one entity out of `room_8` on
+  both the first answer and the whole retry, and the generation failed. Now an answer
+  that is well-formed but incomplete is kept: the model is told what is missing and
+  asked for only the rooms that hold it, which are merged in, up to two times, then the
+  generation fails. A malformed answer still gets the one whole retry, since there is
+  nothing to keep. It is the `repair` option on `callForJson` (`src/llm/client.ts`),
+  with `askForRooms` and `mergeRooms` in `content-pass/response.ts`. Live, four more
+  large dungeons (seeds 1005, 2024, 4242, 77) all finished; 4242 left a connector out
+  of `room_9`, and the repair rewrote that one room for about 700 output tokens instead
+  of about 9,000 for all twelve.
+- **Keys pass: unchanged** in this phase. It could take the same repair, keyed by key.
 - **Region challenges** (`challenges.ts`: one per chunk, answered by a region key that
   charts rooms) go with the chunks. Phase 2's outline names areas, and region challenges
   can come back as areas then. Until then nothing produces a region key.
@@ -306,9 +317,9 @@ replacement values for the rooms and connections they name. Code merges the repl
 and validates again. **At most two repair calls, then the generation fails.** A pass
 still never produces partial content.
 
-The repair call is generic over a pass's schema and check, so the dungeon pass and the
-content pass can use it too. It replaces `callForJson`'s current re-ask with the errors
-appended.
+The mechanism exists: the `repair` option on `callForJson`, built for the content pass
+in phase 1 (see *Passes*). The outline pass supplies its own `ask` and `merge`, keyed
+by room and connection.
 
 ### Polish
 

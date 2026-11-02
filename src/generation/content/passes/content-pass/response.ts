@@ -220,3 +220,33 @@ export function contentPassOmissions(
 
   return out;
 }
+
+/**
+ * REPAIR, ROOM BY ROOM. The unit the model is asked to send again is the room:
+ * every omission `contentPassOmissions` reports sits under `rooms.<ref>`, and a
+ * room is small enough to rewrite whole and complete. The rooms that came back
+ * whole are kept as written (see `Repair` in `src/llm/client.ts`).
+ */
+export function roomsToRepair(missing: readonly { path: string }[]): string[] {
+  const refs = missing.map((m) => /^rooms\.([^.]+)/.exec(m.path)?.[1]).filter((r): r is string => !!r);
+  return [...new Set(refs)];
+}
+
+/** What a repair asks for: the rooms that lost something, each complete. */
+export function askForRooms(toolName: string, missing: readonly { path: string }[]): string {
+  const refs = roomsToRepair(missing);
+  return (
+    `Call \`${toolName}\` again with ONLY these rooms: ${refs.join(", ")}. Write each of ` +
+    `them complete, with every entity, connector, encounter and goal it was listed with ` +
+    `in the first message. Leave every other room out.`
+  );
+}
+
+/** The kept answer with the rooms that came back put in place of their first versions. */
+export function mergeRooms(whole: ContentPassResponse, patch: ContentPassResponse): ContentPassResponse {
+  const fresh = new Map(patch.rooms.map((r) => [r.ref, r]));
+  const rooms = whole.rooms.map((r) => fresh.get(r.ref) ?? r);
+  // A room the first answer left out entirely comes back as a new one.
+  for (const r of patch.rooms) if (!whole.rooms.some((w) => w.ref === r.ref)) rooms.push(r);
+  return { ...whole, rooms };
+}

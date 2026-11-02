@@ -25,7 +25,9 @@
 import { applyContentPass } from "./content/passes/content-pass/apply.ts";
 import { renderContentPassPrompt } from "./content/passes/content-pass/prompt.ts";
 import {
+  askForRooms,
   contentPassOmissions,
+  mergeRooms,
   type ContentPassResponse,
 } from "./content/passes/content-pass/response.ts";
 import { buildContentPassPayload } from "./content/passes/content-pass/build.ts";
@@ -411,6 +413,9 @@ export async function generateChunk(
     // Asked here, the omission is a retryable failure; noticed after the
     // pass, it is an unwritten entity nobody can fix.
     check: (v) => contentPassOmissions(payload, v),
+    // And an omission is repaired rather than redone: the rooms that lost
+    // something are asked for again, alone, and the rest of the answer kept.
+    repair: { ask: (missing) => askForRooms("write_region", missing), merge: mergeRooms },
     onAttemptFailed: reportFailure(journal, "content-pass", chunk),
   });
 

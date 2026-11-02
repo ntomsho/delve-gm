@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { applyContentPass } from "./content/passes/content-pass/apply.ts";
 import { renderContentPassPrompt } from "./content/passes/content-pass/prompt.ts";
 import {
+  askForRooms,
   contentPassOmissions,
+  mergeRooms,
   type ContentPassResponse,
 } from "./content/passes/content-pass/response.ts";
 import {
@@ -784,6 +786,61 @@ describe("chunk completeness", () => {
       expect(JSON.stringify(reports[0].issues)).toContain(dropped.ref);
       // The response itself, so the failure can be read rather than guessed at.
       expect(reports[0].raw).toBeTruthy();
+    });
+
+    // REPAIR INSTEAD OF REDO. Seen live at twelve rooms: the whole retry left
+    // something out again. With `repair`, only the room that lost something is
+    // asked for, and the rest of the first answer is kept.
+    const repairing = () =>
+      callForJson({
+        task: "content-pass",
+        schema: contentPassSchema,
+        toolName: "write_region",
+        toolDescription: "…",
+        messages: [{ role: "user", content: "[the chunk payload]" }],
+        check: (v) => contentPassOmissions(p, v),
+        repair: { ask: (missing) => askForRooms("write_region", missing), merge: mergeRooms },
+      });
+
+    /** The ref of the room whose connector `short` dropped. */
+    const roomOf = (connectorRef: string) =>
+      p.rooms.find((r) => r.connectors.some((c) => c.ref === connectorRef))!.ref;
+
+    it("asks for only the room that lost something, and keeps the rest", async () => {
+      const { res, dropped } = short();
+      const ref = roomOf(dropped.ref);
+      const complete = fakeContentPass(p).rooms.find((r) => r.ref === ref)!;
+      queue.push(answered(res), answered({ rooms: [complete] }));
+
+      const { value, attempts } = await repairing();
+
+      expect(attempts).toBe(2);
+      expect(contentPassOmissions(p, value)).toEqual([]);
+      expect(value.rooms.map((r) => r.ref)).toEqual(res.rooms.map((r) => r.ref));
+      // Every other room is the first answer's, untouched.
+      for (const r of value.rooms) {
+        if (r.ref !== ref) expect(r).toEqual(res.rooms.find((x) => x.ref === r.ref));
+      }
+
+      const objection = JSON.stringify(sent[1].messages.at(-1));
+      expect(objection).toContain(dropped.ref);
+      expect(objection).toContain(`ONLY these rooms: ${ref}`);
+    });
+
+    it("gives up after two repairs that still leave it out", async () => {
+      const { res, dropped } = short();
+      const same = res.rooms.find((r) => r.ref === roomOf(dropped.ref))!;
+      queue.push(answered(res), answered({ rooms: [same] }), answered({ rooms: [same] }));
+
+      await expect(repairing()).rejects.toThrow(ResponseFormatError);
+      expect(sent).toHaveLength(3);
+    });
+
+    it("still redoes a malformed answer whole, because there is nothing to keep", async () => {
+      queue.push(answered({ rooms: "not an array" } as never), answered(fakeContentPass(p)));
+      const { attempts } = await repairing();
+      expect(attempts).toBe(2);
+      expect(JSON.stringify(sent[1].messages.at(-1))).toContain("again with the whole input");
     });
 
     it("does not lose the error when the reporter throws", async () => {

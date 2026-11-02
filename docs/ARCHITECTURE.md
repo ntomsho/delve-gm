@@ -115,6 +115,10 @@ A dungeon is completely written before the first turn. `src/generation/generate.
 - **Well-formed but incomplete is a failure too.** Every ref a payload asks about must
   come back (`contentPassOmissions`, `seamsPassOmissions`, `keysPassOmissions`, run as
   `callForJson`'s `check` after zod), so an omission takes the same retry.
+- **The content pass repairs an omission instead of redoing it** (`callForJson`'s
+  `repair`). The answer is kept, the rooms that lost something are asked for again
+  alone and merged in, up to twice, then the pass throws. A malformed answer still
+  takes the whole retry: there is nothing to keep.
 - `validateWritten` asserts a non-empty, resolvable `base` on every room, connector,
   creature, feature, item and hazard of a finished dungeon.
 - **`state` and `composed` are not written during generation.** Every entity stays

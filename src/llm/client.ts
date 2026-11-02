@@ -28,7 +28,7 @@
 import { z } from "zod";
 import { MAX_TOKENS, modelFor, type Task } from "./models.ts";
 import { ResponseFormatError, validate } from "./json.ts";
-import type { ValidationIssue } from "./validation.ts";
+import { formatIssues, type ValidationIssue } from "./validation.ts";
 import { canBeStrict, fitStrict, toolSchema, type ToolSchema } from "./tool-schema.ts";
 
 const PATH = "/v1/messages";
@@ -402,6 +402,29 @@ export interface JsonCallOptions<T> extends CallOptions {
    * the original error isn't lost.
    */
   onAttemptFailed?: (report: FailedAttempt) => void;
+  /**
+   * Repair instead of redo, for an answer that is well-formed and incomplete.
+   *
+   * Without this, an answer `check` objects to is asked for again whole, once.
+   * With it, the answer is KEPT, the model is told exactly what is missing and
+   * asked for only the parts that hold it, and those parts are merged in. Up to
+   * `tries` times (default 2), then the error is thrown. A shape failure still
+   * takes the ordinary whole retry: there is no answer to keep.
+   *
+   * Seen live on 2026-11-02: a twelve-room content pass left out one entity in
+   * one room, and the whole retry left one out again. Asking for twelve rooms
+   * to fix one is asking the model to make the same kind of slip twice.
+   */
+  repair?: Repair<T>;
+}
+
+export interface Repair<T> {
+  /** What to send again, given what `check` found missing: names the parts, never the whole. */
+  ask: (missing: ValidationIssue[]) => string;
+  /** The answer so far with the parts that came back put in. */
+  merge: (whole: T, patch: T) => T;
+  /** repair calls before giving up; default 2 */
+  tries?: number;
 }
 
 export interface FailedAttempt {
@@ -419,13 +442,14 @@ export interface FailedAttempt {
 export interface JsonResult<T> {
   value: T;
   usage: Usage;
-  /** how many calls it took: 1, or 2 if it needed the retry */
+  /** how many calls it took: 1, 2 if it needed the retry, more if it was repaired */
   attempts: number;
 }
 
 /**
  * Forces the model to call one tool and returns its input, validated against
- * `schema` and `check`, with one retry on failure. See the file header.
+ * `schema` and `check`, with one retry on failure, or repairs when `repair` is
+ * given. See the file header.
  */
 export async function callForJson<T>(opts: JsonCallOptions<T>): Promise<JsonResult<T>> {
   const retry = opts.retryOnInvalid ?? true;
@@ -433,6 +457,15 @@ export async function callForJson<T>(opts: JsonCallOptions<T>): Promise<JsonResu
   const schema = toolSchema(opts.schema);
   const strict = canBeStrict(schema);
   let usage: Usage = NO_USAGE;
+
+  // REPAIR STATE. `kept` is the last answer that passed the schema, with every
+  // repair merged in; once it exists, what comes back is a patch to it.
+  // `missing` is what `check` last said it lacked, which is what the next
+  // repair asks for — even when a patch comes back malformed.
+  const tries = opts.repair?.tries ?? 2;
+  let kept: T | undefined;
+  let missing: ValidationIssue[] = [];
+  let repairs = 0;
 
   for (let attempt = 1; ; attempt++) {
     const json = await post(
@@ -477,19 +510,25 @@ export async function callForJson<T>(opts: JsonCallOptions<T>): Promise<JsonResu
           "the response was cut off at max_tokens; the object is incomplete"
         );
       }
-      const value = validate(opts.schema, call.input);
-      const missing = opts.check?.(value) ?? [];
-      if (missing.length > 0) {
+      const received = validate(opts.schema, call.input);
+      const value = kept !== undefined && opts.repair ? opts.repair.merge(kept, received) : received;
+      const lacking = opts.check?.(value) ?? [];
+      if (lacking.length > 0) {
+        if (opts.repair) {
+          kept = value;
+          missing = lacking;
+        }
         throw new ResponseFormatError(
           "the response is well-formed but does not answer everything it was asked",
-          missing,
+          lacking,
           JSON.stringify(call.input).slice(0, 2000)
         );
       }
       return { value, usage, attempts: attempt };
     } catch (e) {
       const isFormat = e instanceof ResponseFormatError;
-      const willRetry = isFormat && retry && attempt <= 1;
+      const repairing = isFormat && kept !== undefined && repairs < tries;
+      const willRetry = repairing || (isFormat && retry && attempt <= 1 && kept === undefined);
 
       if (isFormat && opts.onAttemptFailed) {
         // If the report itself fails, log that and keep the original error.
@@ -531,10 +570,15 @@ export async function callForJson<T>(opts: JsonCallOptions<T>): Promise<JsonResu
       //
       // So repeating the call as text turned one missing field, which the
       // retry should have fixed, into a failure it couldn't recover from.
-      const objection =
-        `${e.feedback}\n\nCall \`${opts.toolName}\` again with the whole input, ` +
-        `corrected. Every field must be a real JSON value — an array field is an ` +
-        `array, not a string containing one.`;
+      const objection = repairing
+        ? `Your answer is kept, but it left things out:\n${formatIssues(e.issues)}\n\n` +
+          `${opts.repair!.ask(missing)} ` +
+          `Every field must be a real JSON value — an array field is an array, not a ` +
+          `string containing one.`
+        : `${e.feedback}\n\nCall \`${opts.toolName}\` again with the whole input, ` +
+          `corrected. Every field must be a real JSON value — an array field is an ` +
+          `array, not a string containing one.`;
+      if (repairing) repairs++;
 
       if (call?.id) {
         messages.push(
