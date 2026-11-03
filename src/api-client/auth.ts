@@ -28,6 +28,7 @@
  */
 
 import { GoTrueClient, type Session } from "@supabase/auth-js";
+import { apiConfig, apiUrl } from "./config.ts";
 
 let cached: GoTrueClient | undefined;
 
@@ -51,15 +52,16 @@ let cached: GoTrueClient | undefined;
 function client(): GoTrueClient {
   if (cached) return cached;
 
-  const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-  const key = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+  const config = apiConfig();
+  const url = config.supabaseUrl;
+  const key = config.supabaseAnonKey;
   if (!url || !key) {
     // Loud and specific. A missing key otherwise produces a sign-in button that
     // silently does nothing, which is among the worst things to debug from a
     // screenshot.
     throw new Error(
-      "VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY are not set. " +
-        "Copy .env.local.example to .env.local and fill them in."
+      "The Supabase URL and anon key are not set. On the web, copy .env.local.example " +
+        "to .env.local and fill them in; in the app, see mobile/.env.example."
     );
   }
 
@@ -69,13 +71,13 @@ function client(): GoTrueClient {
     headers: { Authorization: `Bearer ${key}`, apikey: key },
     // `createClient`'s own key: `sb-<project ref>-auth-token`.
     storageKey: `sb-${project.hostname.split(".")[0]}-auth-token`,
+    storage: config.storage,
     // The session survives a reload, and the library refreshes it before it
     // expires — which is what stops a long session dying mid-run.
     persistSession: true,
     autoRefreshToken: true,
-    // The OAuth redirect comes back with the session in the URL fragment.
-    detectSessionInUrl: true,
-    flowType: "implicit",
+    detectSessionInUrl: config.detectSessionInUrl,
+    flowType: config.flowType,
   }));
 }
 
@@ -104,16 +106,55 @@ export function accountOf(session: Session | null): Account | undefined {
 /**
  * Send the player to Google.
  *
- * `redirectTo` is this page, so they come back where they were rather than at
- * whatever the project's Site URL happens to be — which matters in development,
- * where the Site URL is production.
+ * `redirectTo` is where they come back to. On the web that is this page, so
+ * they return where they were rather than at whatever the project's Site URL
+ * happens to be — which matters in development, where the Site URL is
+ * production.
  */
 export async function signIn(): Promise<void> {
-  const { error } = await client().signInWithOAuth({
-    provider: "google",
-    options: { redirectTo: window.location.origin },
-  });
+  await viaGoogle((options) => client().signInWithOAuth({ provider: "google", options }));
+}
+
+/**
+ * Sign-in and linking both go to Google the same way, and the two shells get
+ * there differently.
+ *
+ * ON THE WEB the library navigates the page to Google and the page loads again
+ * with the session in its URL; nothing after `start` runs.
+ *
+ * IN THE APP there is no page to navigate. `skipBrowserRedirect` makes the
+ * library hand back Google's URL instead of going there, the shell opens it in
+ * a browser sheet, and the sheet closes when Google redirects to the app's own
+ * scheme. That redirect carries a one-time `code` (the PKCE flow), which is
+ * traded here for the session.
+ */
+async function viaGoogle(
+  start: (options: { redirectTo: string; skipBrowserRedirect?: boolean }) => Promise<{
+    data: { url: string | null } | { url: string };
+    error: Error | null;
+  }>
+): Promise<void> {
+  const { redirectTo, openAuthUrl } = apiConfig();
+  const to = redirectTo();
+
+  if (!openAuthUrl) {
+    const { error } = await start({ redirectTo: to });
+    if (error) throw error;
+    return;
+  }
+
+  const { data, error } = await start({ redirectTo: to, skipBrowserRedirect: true });
   if (error) throw error;
+  if (!data.url) throw new Error("Supabase did not return a sign-in page");
+
+  const back = await openAuthUrl(data.url, to);
+  if (!back) return; // the player closed the sheet
+
+  const params = new URL(back).searchParams;
+  const code = params.get("code");
+  if (!code) throw new Error(params.get("error_description") ?? "Google sign-in did not finish");
+  const exchanged = await client().exchangeCodeForSession(code);
+  if (exchanged.error) throw exchanged.error;
 }
 
 /**
@@ -138,15 +179,11 @@ export async function signInAsGuest(captchaToken?: string): Promise<void> {
  * `identity_already_exists` in the URL — see `linkWasRefused`.
  */
 export async function upgradeToGoogle(): Promise<void> {
-  const { error } = await client().linkIdentity({
-    provider: "google",
-    options: { redirectTo: window.location.origin },
-  });
-  if (error) throw error;
+  await viaGoogle((options) => client().linkIdentity({ provider: "google", options }));
 }
 
 /**
- * True when the page has just come back from a link that Google could not make
+ * True when `url` (the page's, on the web) has just come back from a link that Google could not make
  * because the Google account is already somebody's — usually the player's own,
  * from before they played as a guest.
  *
@@ -154,8 +191,9 @@ export async function upgradeToGoogle(): Promise<void> {
  * guest's characters stay with the guest account, which is cheaper to explain
  * than a merge would be to build.
  */
-export function linkWasRefused(): boolean {
-  const where = `${window.location.search}&${window.location.hash.replace(/^#/, "")}`;
+export function linkWasRefused(url: string): boolean {
+  const { search, hash } = new URL(url);
+  const where = `${search}&${hash.replace(/^#/, "")}`;
   return new URLSearchParams(where.replace(/^\?/, "")).get("error_code") === "identity_already_exists";
 }
 
@@ -213,7 +251,9 @@ export async function authedFetch(
   const headers = new Headers(init.headers);
   headers.set("authorization", `Bearer ${token}`);
 
-  const res = await fetch(input, { ...init, headers });
+  // Our own paths are written `/api/...`; the app has no origin to resolve them against.
+  const target = typeof input === "string" && input.startsWith("/") ? apiUrl(input) : input;
+  const res = await fetch(target, { ...init, headers });
 
   if (res.status === 401) {
     await client().signOut();

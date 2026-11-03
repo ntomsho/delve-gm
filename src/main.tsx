@@ -1,3 +1,4 @@
+import "./ui/app/api-config.ts";
 import { lazy, StrictMode, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./ui/app/App.tsx";

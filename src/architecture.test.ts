@@ -59,11 +59,14 @@ describe("React stays in the UI", () => {
 
 /**
  * The shells are the only places allowed to know where they are running: the
- * UI (a browser), the server (Node on Vercel), the dev CLIs (Node), and the API
- * client (a browser, reading its build-time config). Everything else is the
- * game, and must run anywhere.
+ * UI (a browser), the server (Node on Vercel) and the dev CLIs (Node).
+ * Everything else is the game, and must run anywhere.
+ *
+ * The API client is NOT a shell. It runs in the web page and in the Android
+ * app (`mobile/`), so it is told where it is (`api-client/config.ts`) by
+ * whichever one loads it, and reads no environment of its own.
  */
-const SHELLS = ["ui/", "server/", "dev/", "api-client/"];
+const SHELLS = ["ui/", "server/", "dev/"];
 
 describe("the domain is environment-free", () => {
   const domain = sources.filter((f) => f.endsWith(".ts") && !SHELLS.some((s) => f.startsWith(s)));
@@ -251,4 +254,56 @@ describe("game master skill", () => {
       expect(present, `missing ${f}`).toContain(f);
     }
   });
+});
+
+// ===========================================================================
+// THE APP  (mobile/ reaches the game only through the layers a client may use)
+// ===========================================================================
+
+/**
+ * `mobile/` is a second client beside `ui/`, so it may use what `ui/` uses to
+ * talk to the server and show the game, and nothing that only the server or
+ * the dev tools may load: no generation, no model, no prompts. Those would be
+ * dead weight in the app at best and an Anthropic call from a phone at worst.
+ *
+ * It reaches the game through the `@delve/*` alias (mobile/tsconfig.json), never
+ * through a `../` path out of its own folder, so this scan sees every import.
+ */
+describe("the app", () => {
+  const APP = join(ROOT, "mobile", "src");
+  const ALLOWED = ["api-client", "gameplay", "illustrations", "rules", "shared"];
+
+  const appFiles = (function walkApp(dir: string): string[] {
+    return readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+      const p = join(dir, e.name);
+      if (e.isDirectory()) return walkApp(p);
+      return /\.(ts|tsx)$/.test(e.name) ? [p] : [];
+    });
+  })(APP);
+
+  const specs = (file: string) => {
+    const src = readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+    return [
+      ...[...src.matchAll(/^\s*(?:import|export)\s[^;]*?\sfrom\s+"([^"]+)"/gm)].map((m) => m[1]),
+      ...[...src.matchAll(/^\s*import\s+"([^"]+)"/gm)].map((m) => m[1]),
+      ...[...src.matchAll(/\bimport\(\s*"([^"]+)"\s*\)/g)].map((m) => m[1]),
+    ];
+  };
+
+  it("has files to check", () => {
+    expect(appFiles.length).toBeGreaterThan(5);
+  });
+
+  it.each(appFiles.map((f) => [relative(ROOT, f).replace(/\\/g, "/"), f]))(
+    "%s imports the game only from the client layers",
+    (_name, file) => {
+      const bad = specs(file).filter((spec) => {
+        if (spec.startsWith("@delve/")) return !ALLOWED.includes(spec.split("/")[1]);
+        // `../` may move around inside mobile/src, never out of it.
+        if (spec.startsWith(".")) return !join(file, "..", spec).startsWith(APP);
+        return false;
+      });
+      expect(bad).toEqual([]);
+    }
+  );
 });

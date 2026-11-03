@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "Delve GM",
+    "slug": "delve-gm",
+    "version": "0.1.0",
+    "scheme": "delve",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "android": {
+      "package": "com.ntomsho.delvegm",
+      "adaptiveIcon": {
+        "backgroundColor": "#f6f2e8",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "plugins": [
+      "expo-router",
+      "expo-web-browser"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

@@ -78,3 +78,12 @@ if ((Element.prototype as { scrollIntoView?: unknown }).scrollIntoView === undef
     configurable: true,
   });
 }
+
+/**
+ * THE WEB SHELL'S API CONFIGURATION. Not a browser API, but the same kind of
+ * missing entry point: `main.tsx` imports it before the first render, and a
+ * test renders components without `main.tsx`. Without it the API client throws
+ * on its first fetch, and the landing page's gallery, which treats any failure
+ * as "no pictures", silently goes empty.
+ */
+import "../app/api-config.ts";
