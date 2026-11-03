@@ -532,9 +532,15 @@ One Hono app (`src/server/app.ts`) deployed as a single Vercel function.
 - **The folders are layers** (`src/README.md`): each imports only from those below it,
   type imports included, and no import cycle that loads code is allowed.
   `src/architecture.test.ts` checks every import.
-- **Only `src/ui/` imports React.** Outside the shells (`ui/`, `server/`, `dev/`,
-  `api-client/`) nothing touches an environment global, so the whole game runs under
-  vitest with no browser and no server.
+- **Only `src/ui/` imports React** (and `mobile/`, which is outside `src/`).
+  Outside the shells (`ui/`, `server/`, `dev/`) nothing touches an environment
+  global, so the whole game runs under vitest with no browser and no server.
+  `api-client/` is no exception: it serves the web page and the Android app, so
+  each tells it where it is running (`api-client/config.ts`).
+- **The Android app (`mobile/`) is a second client.** It imports `../src` through
+  the `@delve/*` alias, and only the client layers (`api-client`, `gameplay`,
+  `illustrations`, `rules`, `shared`); the architecture test checks that.
+  See `mobile/README.md`.
 - **Model names live only in `src/llm/models.ts`.** The architecture test greps for
   them elsewhere.
 - **Every prompt is markdown in `src/prompts/`**, imported raw by `loader.ts` and
