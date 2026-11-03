@@ -6,7 +6,7 @@ below it; folders on one line may not import each other.
 ```
   dev                 developer CLIs: may reach into anything
   ui · server         the browser and the API (neither can load the other)
-  api-client          the browser's calls to our API
+  api-client          the clients' calls to our API
   fixtures            stand-ins for the model
   gameplay            a run being played
   illustrations       pictures of rooms and creatures
@@ -27,7 +27,7 @@ cycle of imports that load code.
 | `dev/` | Developer CLIs and the local API server (`api-server.ts`). Each `cli-*.ts` teaches Node `?raw` and then imports its script from `lib/`. Nothing imports it. |
 | `ui/` | React. The only folder that imports it. One subfolder per screen (`sign-in/`, `characters/`, `create/`, `shop/`, `run-setup/`, `play/`), plus `app/` (the screen router, the URL switches, and one hook each for the account, the roster, run setup and the run in hand), `shared/` (theme, media queries, the store hook) and `test-utils/` (jsdom setup). |
 | `server/` | The API. `app.ts` is the shell (CORS, the sign-in gate, errors); `routes/` holds the Hono routes, one file per area; `db/` is Postgres, one file per table behind the `repo.ts` facade; `illustrations/` draws and stores illustrations and sprites; plus auth and allowances. `vercel.ts` is the deployed entry point. |
-| `api-client/` | The browser's calls to our own API: auth, characters, dungeons, allowance. |
+| `api-client/` | Calls to our own API from the web page and the Android app (`mobile/`): auth, characters, dungeons, allowance. Each client says where it is running through `config.ts`. |
 | `fixtures/` | Stand-ins for the model: the offline dungeon and the stub game master, used by tests, the dev CLIs and `?offline`. Loaded by the browser only on `?offline`. |
 | `gameplay/` | A run being played. `turn.ts` is the turn state machine; `game-master/` is the model that runs each turn, the code that builds its prompt and the schema of what it commits; `diffs/` is the applier, the one place game state changes (dispatch in `apply.ts`, one handler per entity kind in `handlers.ts`); `state/` is the store; `mechanics/` holds play-time rules (movement, occupancy, challenges, loot); `tally/` scores a finished run; `view/` derives what the screen and the game master both see, one file per view (room, entities, census, character panel, map); `sessions/` wraps one run, played in the browser or through the server. |
 | `illustrations/` | Room illustrations, creature sprites and the prompt for character portraits: the camera search, button hotspots, where figures stand, the guide image and the prompts for the image model. |

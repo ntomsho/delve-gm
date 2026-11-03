@@ -6,6 +6,7 @@
  */
 
 import type { ShowcaseIllustration } from "../illustrations/showcase.ts";
+import { apiUrl } from "./config.ts";
 
 export type { ShowcaseFigure, ShowcaseIllustration } from "../illustrations/showcase.ts";
 
@@ -14,7 +15,7 @@ const SHOWCASE_TIMEOUT_MS = 8000;
 
 export async function recentIllustrations(): Promise<ShowcaseIllustration[]> {
   try {
-    const res = await fetch("/api/illustrations/recent", { signal: AbortSignal.timeout(SHOWCASE_TIMEOUT_MS) });
+    const res = await fetch(apiUrl("/api/illustrations/recent"), { signal: AbortSignal.timeout(SHOWCASE_TIMEOUT_MS) });
     if (!res.ok) return [];
     const body: unknown = await res.json();
     return Array.isArray(body) ? (body as ShowcaseIllustration[]) : [];

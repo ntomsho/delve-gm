@@ -31,7 +31,7 @@ export function useAccount(): { account: Account | undefined; ready: boolean; si
     // A guest tried to link a Google account that already has an account of its
     // own. Sign them in to that one: it is theirs, and it is what they asked for
     // by pressing a Google button. See `linkWasRefused`.
-    if (linkWasRefused()) void signIn();
+    if (linkWasRefused(window.location.href)) void signIn();
     return onAuthChange((who) => {
       setAccount(who);
       setReady(true);
