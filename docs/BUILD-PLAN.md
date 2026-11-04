@@ -252,8 +252,9 @@ routes become:
 
 ## Phase 2: the outline pass
 
-**Status.** Detailed plan, under review. Nothing is built. It runs as two builds, with a
-stop between them to read the outlines. Marked *proposed* where a decision is still open.
+**Status.** Build 1 is built, except its live measurement, which calls the model and waits for a
+go-ahead. Build 2 waits for the outlines to be read. Content cards, model-placed group bases and
+story features are decided.
 
 **Watch the cost of Haiku 5.5.** Every task moved to it from Haiku 4.5. It is a tenth of the
 price per token, but it thinks by default and thinking bills as output. Compare the first live
@@ -297,7 +298,8 @@ the fiction*).
 - Split `stockDungeon` around the outline, and run the entities pass after it. Entity ids
   are random, so the settled dungeon is saved once and not rebuilt.
 - Add the outline steps to `STEPS`, and a stage to the loading screen. Repair runs inside the
-  outline step, as it does in the content pass; split it out only if timing requires it.
+  outline step, as it does in the content pass, and shares its `Task`; split it out only if timing
+  requires it.
 - Give the content pass the outline, and set the models from the results.
 - Update ARCHITECTURE.md §3.
 
@@ -317,7 +319,7 @@ fixtures that fit a passage. Neither the entrance nor the goal room is ever a pa
   model does not choose which are mandatory. They must all fit at once: there is an
   assignment of mandatory fictions to distinct rooms that `sizeAllows`. If not, reroll the
   mandatory set.
-- **Content cards** (*proposed*). A card is a headline with its contents already rolled, so
+- **Content cards.** A card is a headline with its contents already rolled, so
   the model places a concrete thing and not the word "creature". There is one for every room
   except the entrance and the goal room. Placing a card does not write it: the dungeon pass has
   already written each inhabitant group's name and base, which go on its cards, and the content
@@ -370,12 +372,12 @@ it. What changes:
 - **The goal room holds the objective and at most one card.** Code no longer overwrites its
   headline. A card placed there leaves one other room empty, which is a breather.
 - **A goal-location key states the goal, not the raw roll.** Today its fact is "where {reward}
-  lies" from the rolled reward, even when the dungeon pass discarded that reward: "where Marital
-  ally lies". Build 2 words it from the goal the dungeon pass wrote.
+  lies" from the rolled reward, even when the dungeon pass discarded that reward. Build 2 words it from the goal the dungeon pass wrote.
 - **The goal's summary and spec are locked after the dungeon pass**, so they have to be solid when
-  they are written. Social goals are the weak spot: about a third of the rolls are about a person
-  or a relationship (Blackmail, Convince, Threaten; Faction ally, Marital ally), and many roll
-  alongside only monsters, like seed 2024's Marital ally + Threaten. Build 1 adds the goal
+  they are written. Social goals are the weak spot: many rolls are about a person or a relationship
+  (Blackmail, Convince; Faction ally), and many roll alongside only monsters, like seed 1007's
+  Prophecy + Blackmail. Marital ally and Threaten are gone from the tables as too strange to work
+  in a dungeon, and the user will review the rest. Build 1 adds the goal
   instruction below to `dungeon-pass.md`, and lets that call think (`auto`, not a forced tool),
   since a forced call skips thinking on Haiku 5.5.
 
@@ -391,16 +393,17 @@ marked), the cards, and the challenges a key could answer.
 **Response**, references and short prose only, never a number:
 
 - per room: a fiction ref, a card ref, a story note, a journey note, and at most one story
-  feature (*proposed*);
+  feature;
 - what the objective is: its type and a phrase;
 - what each clue card points at, by reference;
 - any changes to the dungeon's fiction, each with one line on why;
 - per connection: what it is (a door, a stair, a collapsed tunnel, which side is higher), in
   a phrase;
 - key↔challenge pairs by reference: which challenge each planned key answers, and what the
-  key is.
+  key is. One to three at small and two to four above it (`KEY_RANGE`), for now: today's
+  placement averages 1.6 at small, and the roadmap's *placed-key spread* still has to decide this.
 
-**Story features** (*proposed*) let the model tie a room in better: tally marks on a wall, a
+**Story features** let the model tie a room in better: tally marks on a wall, a
 half-burned order, claw marks at shoulder height. A feature is scenery with no mechanics. It
 is written by the content pass like any other feature, and it is not a way through, a
 creature, a hazard, treasure or a key. So the rolled budget of danger and reward holds.
@@ -457,7 +460,7 @@ run shows what polish changed and whether it was kept.
 
 ```
 A GOAL ABOUT A PERSON OR A RELATIONSHIP (winning an ally, convincing, blackmailing,
-threatening, framing, impressing) needs more than a thing to find. Its spec must say:
+framing, impressing) needs more than a thing to find. Its spec must say:
   WHO:        one particular person or being who is in this dungeon. They need not
               be one of the rolled groups.
   WHAT CHANGES: what is true when it is done, in words the game master can check.
@@ -598,9 +601,9 @@ wins.
 
 ### Models
 
-The outline, repair and polish calls each get their own `Task` in `src/llm/models.ts`, so
-their models switch independently. The writer/reviewer combination is a dev flag. Four
-combinations are compared:
+The outline and polish calls each get their own `Task` in `src/llm/models.ts`, so their models
+switch independently. The CLI passes the writer and reviewer per call. Four combinations are
+compared:
 
 | Outline + repair | Polish |
 |---|---|
@@ -616,10 +619,11 @@ at all shows in each run's draft against its polished version.
 
 A dev CLI (`src/dev/cli-outline.ts`) runs the outline, repair and polish steps alone, with no
 content pass. It covers three seeds at small size × the four combinations above, which is 12
-outlines: 1005 (Jewels + Deface, a plain goal), 2024 (Marital ally + Threaten, with only monsters)
-and 1004 (Faction ally + Blackmail, with people). The two social ones test the goal instruction;
-read each goal's spec along with its outline. It calls the model, so it waits for a go-ahead. For
-each outline it records:
+outlines: 1005 (Jewels + Deface, a plain goal), 1007 (Prophecy + Blackmail, with only monsters)
+and 1025 (Lost formula + Convince, with an opposed people group). The two social ones test the
+goal instruction; read each goal's spec along with its outline. Each seed's dungeon pass runs once,
+so all four combinations outline the same dungeon. It calls the model, so it waits for a go-ahead.
+For each outline it records:
 
 - whether it passed validation on the first try, and which rules failed;
 - the number of repairs, and any refusals;

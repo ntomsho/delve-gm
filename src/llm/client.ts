@@ -26,7 +26,15 @@
  */
 
 import { z } from "zod";
-import { MAX_TOKENS, modelFor, type Task } from "./models.ts";
+import {
+  allowsForcedTool,
+  MAX_TOKENS,
+  modelFor,
+  refusalFallbackBeta,
+  THINKING_EFFORT,
+  THINKING_TASKS,
+  type Task,
+} from "./models.ts";
 import { ResponseFormatError, validate } from "./json.ts";
 import { formatIssues, type ValidationIssue } from "./validation.ts";
 import { canBeStrict, fitStrict, toolSchema, type ToolSchema } from "./tool-schema.ts";
@@ -192,7 +200,12 @@ const BASE_DELAY_MS = 1000;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-async function post(task: Task, body: { model: string; [field: string]: unknown }, signal?: AbortSignal): Promise<ApiResponse> {
+async function post(
+  task: Task,
+  body: { model: string; [field: string]: unknown },
+  signal?: AbortSignal,
+  headers?: Record<string, string>
+): Promise<ApiResponse> {
   if (baseUrl === undefined) {
     throw new Error("LLM transport not configured: call configureTransport before calling the model.");
   }
@@ -207,7 +220,7 @@ async function post(task: Task, body: { model: string; [field: string]: unknown 
     try {
       res = await fetch(`${baseUrl}${PATH}`, {
         method: "POST",
-        headers: { "content-type": "application/json", ...extraHeaders },
+        headers: { "content-type": "application/json", ...extraHeaders, ...headers },
         body: JSON.stringify(body),
         signal,
       });
@@ -360,8 +373,13 @@ export function toolResults(results: { id: string; content: string; isError?: bo
 
 export interface JsonCallOptions<T> extends CallOptions {
   schema: z.ZodType<T>;
-  /** the tool the model is forced to call */
+  /**
+   * The tool the model answers with. It is forced to call it, except on a task
+   * in `THINKING_TASKS` or a model that refuses a forced call, where it is asked.
+   */
   toolName: string;
+  /** Overrides `modelFor(task)`. For `src/dev/cli-outline.ts`, which compares models. */
+  model?: string;
   toolDescription: string;
   /**
    * Whether to retry once, telling the model what was wrong (docs/ARCHITECTURE.md
@@ -457,6 +475,20 @@ export async function callForJson<T>(opts: JsonCallOptions<T>): Promise<JsonResu
   const strict = canBeStrict(schema);
   let usage: Usage = NO_USAGE;
 
+  const model = opts.model ?? modelFor(opts.task);
+  const thinks = THINKING_TASKS.has(opts.task);
+  const forced = !thinks && allowsForcedTool(model);
+  const beta = refusalFallbackBeta(model);
+  // Nothing forces the call any more, so the prompt has to ask for it.
+  const steer = `Give your answer by calling the ${opts.toolName} tool, once.`;
+  const system: CallOptions["system"] = forced
+    ? opts.system
+    : typeof opts.system === "string"
+      ? `${opts.system}\n\n${steer}`
+      : opts.system
+        ? [...opts.system, { type: "text", text: steer }]
+        : steer;
+
   // REPAIR STATE. `kept` is the last answer that passed the schema, with every
   // repair merged in; once it exists, what comes back is a patch to it.
   // `missing` is what `check` last said it lacked, which is what the next
@@ -470,10 +502,12 @@ export async function callForJson<T>(opts: JsonCallOptions<T>): Promise<JsonResu
     const json = await post(
       opts.task,
       {
-        model: modelFor(opts.task),
+        model,
         max_tokens: opts.maxTokens ?? MAX_TOKENS[opts.task],
-        ...(opts.system ? { system: opts.system } : {}),
+        ...(system ? { system } : {}),
         messages,
+        ...(thinks ? { output_config: { effort: THINKING_EFFORT } } : {}),
+        ...(beta ? { fallbacks: "default" } : {}),
         tools: [
           {
             name: opts.toolName,
@@ -489,9 +523,10 @@ export async function callForJson<T>(opts: JsonCallOptions<T>): Promise<JsonResu
             ...(strict ? { strict: true } : {}),
           },
         ],
-        tool_choice: { type: "tool", name: opts.toolName },
+        tool_choice: forced ? { type: "tool", name: opts.toolName } : { type: "auto" },
       },
-      opts.signal
+      opts.signal,
+      beta ? { "anthropic-beta": beta } : undefined
     );
 
     usage = addUsage(usage, usageOf(json.usage));

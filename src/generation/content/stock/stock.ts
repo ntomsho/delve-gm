@@ -97,7 +97,7 @@ import { resetMobileIds } from "./ids.ts";
  * in it. Picks are spread across **depth** bands, because corridors are about
  * rhythm along the path inward.
  */
-function designateCorridors(rooms: RoomStock[], s: Structure, rng: Rng): void {
+export function designateCorridors(rooms: RoomStock[], s: Structure, rng: Rng): void {
   const target =
     rooms.length <= 6
       ? (rng.coin() ? 1 : 0)

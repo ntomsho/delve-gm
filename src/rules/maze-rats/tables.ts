@@ -30,7 +30,7 @@ export const DUNGEON_FORMS = t(
 );
 
 export const DUNGEON_REWARDS = t(
-  "Ancient lore|Animal ally|Army|Blessing|Blueprints|Cultural artifact|Enemy weakness|Faction ally|Forewarning|Guide|Holy relic|Influential ally|Instructions|Jewels|Key|Lost formula|Machine|Magic item|Magical ally|Map|Marital ally|Masterpiece|{Monster} ally|Oracle|Piles of loot|Planar portal|Prophecy|Renown|Spell|Transformation|Transport|{Treasure Item}|Uncovered plot|{Val. Material}|Vision|Weapon"
+  "Ancient lore|Animal ally|Army|Blessing|Blueprints|Cultural artifact|Enemy weakness|Faction ally|Forewarning|Guide|Holy relic|Influential ally|Instructions|Jewels|Key|Lost formula|Machine|Magic item|Magical ally|Map|Masterpiece|{Monster} ally|Oracle|Piles of loot|Planar portal|Prophecy|Renown|Spell|Transformation|Transport|{Treasure Item}|Uncovered plot|{Val. Material}|Vision|Weapon"
 );
 
 export const BUILDING_ROOMS = t(
@@ -245,7 +245,7 @@ export const RELATIONSHIPS = t(
 );
 
 export const MISSIONS = t(
-  "Apprehend|Assassinate|Blackmail|Burgle|Chart|Convince|Deface|Defraud|Deliver|Destroy|Discredit|Escort|Exfiltrate|Extort|Follow|Frame|Impersonate|Impress|Infiltrate|Interrogate|Investigate|Kidnap|Locate|Plant|Protect|Raid|Replace|Retrieve|Rob|Ruin|Sabotage|Smuggle|Surveil|Take Over|Terrorize|Threaten"
+  "Apprehend|Assassinate|Blackmail|Burgle|Chart|Convince|Deface|Defraud|Deliver|Destroy|Discredit|Escort|Exfiltrate|Extort|Follow|Frame|Impersonate|Impress|Infiltrate|Interrogate|Investigate|Kidnap|Locate|Plant|Protect|Raid|Replace|Retrieve|Rob|Ruin|Sabotage|Smuggle|Surveil|Take Over|Terrorize"
 );
 
 // --- Maze Rats: MAGIC / TREASURE (cascade targets) --------------------------
