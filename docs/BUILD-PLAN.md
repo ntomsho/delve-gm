@@ -303,21 +303,26 @@ the fiction*).
 
 ### What code rolls
 
-`V` is the room count. A *chamber* is an ordinary room and a *passage* is a room stocking
-marked `isCorridor`, which rolls its identity from `DUNGEON_CORRIDORS` instead of
-`DUNGEON_ROOMS` and can only hold the fixtures that fit a passage.
+`V` is the room count. A *chamber* is an ordinary room. A *passage* is a room stocking marked
+`isCorridor`: it is drawn long, takes its identity from `DUNGEON_CORRIDORS` and can only hold the
+fixtures that fit a passage. Neither the entrance nor the goal room is ever a passage.
 
-- **Room fictions.** `ceil(1.5 × chambers)` chamber candidates and `ceil(1.5 × passages)`
-  passage candidates, so a chamber fiction can't land in a corridor. Each is an identity
-  plus a room detail if it rolled one, along with the size classes it fits (`sizeAllows`).
-  Rolled with the layout's size classes in hand, so every candidate fits at least one room.
+- **Room fictions.** `ceil(1.5 × chambers)` chamber candidates. Each is an identity plus a room
+  detail if it rolled one, along with the size classes it fits (`sizeAllows`). Rolled with the
+  layout's size classes in hand, so every candidate fits at least one room.
+- **A passage's identity is rolled, not chosen.** Each passage gets one from `DUNGEON_CORRIDORS`,
+  pre-assigned, and the model explains it and ties it to its neighbours. In every other way a
+  passage is a room: it holds a card, a detail and a story feature.
 - **Mandatory fictions: the first `ceil(V / 3)` chamber candidates.** Code marks them; the
   model does not choose which are mandatory. They must all fit at once: there is an
   assignment of mandatory fictions to distinct rooms that `sizeAllows`. If not, reroll the
   mandatory set.
 - **Content cards** (*proposed*). A card is a headline with its contents already rolled, so
   the model places a concrete thing and not the word "creature". There is one for every room
-  except the entrance and the goal room. Generated in this order:
+  except the entrance and the goal room. Placing a card does not write it: the dungeon pass has
+  already written each inhabitant group's name and base, which go on its cards, and the content
+  pass still writes the encounter (the mass, any named person or elite, and any wanderer). Generated
+  in this order:
   1. the quota, from stocking's existing mix (`computeQuota`), which says how many of each
      kind, so the distribution holds with nothing to enforce;
   2. one *group base* card per inhabitant group (`makeGroupMobile`);
@@ -330,8 +335,9 @@ marked `isCorridor`, which rolls its identity from `DUNGEON_CORRIDORS` instead o
   Rolled on seed 1005, a card reads like this:
 
   ```
-  C1 creature, BASE of G1 (solo humanoid monster): ethereal, furred, extra eyes;
-     camouflaging, gaze weapon, teleporting; demands duels; bored; hunting; hostile.
+  C1 creature, BASE of G1 "{name from the dungeon pass}": {base from the dungeon pass}
+     Rolled: ethereal, furred, extra eyes; camouflaging, gaze weapon, teleporting; demands
+     duels; bored; hunting; hostile.
      Raises: weak to phylactery, weak to flowers, its three abilities.
   C2 creature, thralls of G1: elephant-like, antlered, regenerating; repairing; neutral.
   C3 special, obstacle: writing, which scries. Raises: the obstacle.
@@ -356,15 +362,22 @@ assigned.
 The goal room stays the deepest room (`chooseGoal`), because the graph's route checks are about
 it. What changes:
 
-- **The outline decides what the objective physically is** (*proposed*): its type (item,
-  feature or creature) and a phrase. The content pass writes it from that, where today the
-  content pass decides alone. Otherwise the outline can't place a guardian around a thing nobody
-  has decided on.
+- **The outline decides what the objective physically is**: its type (item, feature or creature)
+  and a phrase. The content pass writes it from that, where today the content pass decides alone.
+  Otherwise the outline can't place a guardian around a thing nobody has decided on. If the
+  objective is a person, that person is in the goal room, which answers the roadmap's *The goal
+  names what is in the goal room*.
 - **The goal room holds the objective and at most one card.** Code no longer overwrites its
   headline. A card placed there leaves one other room empty, which is a breather.
 - **A goal-location key states the goal, not the raw roll.** Today its fact is "where {reward}
   lies" from the rolled reward, even when the dungeon pass discarded that reward: "where Marital
   ally lies". Build 2 words it from the goal the dungeon pass wrote.
+- **The goal's summary and spec are locked after the dungeon pass**, so they have to be solid when
+  they are written. Social goals are the weak spot: about a third of the rolls are about a person
+  or a relationship (Blackmail, Convince, Threaten; Faction ally, Marital ally), and many roll
+  alongside only monsters, like seed 2024's Marital ally + Threaten. Build 1 adds the goal
+  instruction below to `dungeon-pass.md`, and lets that call think (`auto`, not a forced tool),
+  since a forced call skips thinking on Haiku 5.5.
 
 ### The outline call
 
@@ -395,8 +408,7 @@ creature, a hazard, treasure or a key. So the rolled budget of danger and reward
 **Changes to the fiction.** The outline, repair and polish calls may each propose changes to
 the theme, history, opening and group names and bases, to work rooms into the dungeon and make
 its story more engaging. A change returns the field's whole new text. The goal's summary and spec
-stay as written (*proposed*), and the rolled facts stand: what the place is, what lives here and
-the goal seed. Each version is journalled. Build 1 shows them beside the outline to read; Build 2
+stay as written, and the rolled facts stand: what the place is, what lives here and the goal seed. Each version is journalled. Build 1 shows them beside the outline to read; Build 2
 rebuilds `dungeonContext` from the result once, before the content pass, after which it never
 changes (§3.3's rule, moved later).
 
@@ -441,6 +453,24 @@ run shows what polish changed and whether it was kept.
 
 ### The instructions (draft, under review)
 
+**Addition to `dungeon-pass.md`, under `goal`**
+
+```
+A GOAL ABOUT A PERSON OR A RELATIONSHIP (winning an ally, convincing, blackmailing,
+threatening, framing, impressing) needs more than a thing to find. Its spec must say:
+  WHO:        one particular person or being who is in this dungeon. They need not
+              be one of the rolled groups.
+  WHAT CHANGES: what is true when it is done, in words the game master can check.
+              "Agrees to walk out with the player", not "is won over".
+  HOW:        at least two ways to do it, at least one of them not force, each possible
+              with what can be found or done inside this dungeon on one visit. If it
+              needs leverage, evidence or a witness, that exists here.
+  IF IT GOES WRONG: what happens if they die, refuse or flee. Whether another way
+              remains, or the goal is lost.
+If the mission cannot be done that way, read it differently or set it aside. A player
+should never need the outside world to finish what they came for.
+```
+
 **Outline**
 
 ```
@@ -460,9 +490,9 @@ This is why the player is here, and everything leads to it. Whatever you place
 or change, the goal must stay intuitive: a player who has read the opening should
 understand what they are after and why it is here, and everything around it
 should make sense. The goal room is {{room}}. Decide what the objective physically
-is: an item, a feature or a creature. If a creature or group belongs with it,
-because it guards, wants or is the objective, put its card there. If nothing does,
-leave that room to the objective alone.
+is: an item, a feature or a creature. If it is a person, they are in that room. If
+a creature or group belongs with it, because it guards or wants the objective, put
+its card there. If nothing does, leave that room to the objective alone.
 
 YOU MAY CHANGE THE FICTION
 If changing the theme, history, opening or a group would work a room in better
@@ -478,7 +508,9 @@ FOR EACH ROOM, choose
   Prison), work it into the story by adding lore explaining its presence (the
   warden was fixated on making prisoners perform plays he wrote), or by making
   the room a slight variation on the concept (the "theater" was actually for
-  viewing executions). You will leave some optional fictions unused.
+  viewing executions). You will leave some optional fictions unused. A room
+  marked PASSAGE already has its identity: explain it and tie it to the rooms it
+  joins. It can still hold a card and a story feature.
 - a card: what is in the room now. Every card is used exactly once. A group's BASE
   card is where that group lives: choose somewhere that fits who they are, what
   they want and the layout. A clue card needs you to say what it points at.
@@ -583,9 +615,11 @@ at all shows in each run's draft against its polished version.
 ### Measuring
 
 A dev CLI (`src/dev/cli-outline.ts`) runs the outline, repair and polish steps alone, with no
-content pass. It covers seeds 1005, 2024 and 4242 at small size × the four combinations above,
-which is 12 outlines. It calls the model, so it waits for a go-ahead. For each outline it
-records:
+content pass. It covers three seeds at small size × the four combinations above, which is 12
+outlines: 1005 (Jewels + Deface, a plain goal), 2024 (Marital ally + Threaten, with only monsters)
+and 1004 (Faction ally + Blackmail, with people). The two social ones test the goal instruction;
+read each goal's spec along with its outline. It calls the model, so it waits for a go-ahead. For
+each outline it records:
 
 - whether it passed validation on the first try, and which rules failed;
 - the number of repairs, and any refusals;
