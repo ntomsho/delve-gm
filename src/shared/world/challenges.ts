@@ -35,7 +35,7 @@ export type ChallengeKind =
   | "goal-property";
 
 /** Which kind of stocking-level thing `targetId` names. */
-export type ChallengeTarget = "mobile" | "connector" | "room" | "chunk";
+export type ChallengeTarget = "mobile" | "connector" | "room" | "area";
 
 export interface Challenge {
   /** built from the target and the property's position, so regenerating from the same seed gives the same id */
@@ -44,25 +44,22 @@ export interface Challenge {
   target: ChallengeTarget;
   /**
    * The id from stocking (the generation step that fills rooms): a
-   * `MobileEntity.id`, a `StockedConnector.id` or a `RoomStock.roomId`. For a
-   * chunk target it is the chunk number as a string, and `chunk` holds the
-   * number too.
+   * `MobileEntity.id`, a `StockedConnector.id` or a `RoomStock.roomId`. For an
+   * area target it is the area's id (areas come with the outline pass).
    */
   targetId: string;
   /**
    * The room where the player meets it. For a way between rooms, this is the
    * end nearer the entrance, the side the player arrives from. For a region,
-   * it is the room in the chunk nearest the entrance.
+   * it is the room in the region nearest the entrance.
    */
   roomId: string;
-  /** set on region challenges only */
-  chunk?: number;
   /**
    * Region challenges only: every room the region's chart covers.
    *
-   * Stored here because nothing at play time can work it out. The chunk map
-   * (`RoomStock`) only exists during generation, and runtime entities don't
-   * record which chunk they came from. When the region key is drawn,
+   * Stored here because nothing at play time can work it out: which rooms make
+   * up a region is decided during generation, and runtime entities don't
+   * record it. When the region key is drawn,
    * `ChallengeState.mapped` is filled from this list.
    */
   roomIds?: string[];

@@ -17,6 +17,7 @@
  */
 
 import type { Size } from "./content/blueprint.ts";
+import { makeRng, type Params as GraphParams } from "./floorplan/graph.ts";
 
 export interface RunSeeds {
   /** the user-facing number: URL, save file, "seed 1005" */
@@ -53,10 +54,30 @@ export function randomSeed(): number {
 }
 
 /**
- * A size-n dungeon is n chunks of six rooms: size 1 is 6 rooms, size 5 is 30.
- * Identity, so there is no table -- but the two types are declared
- * independently, so assert rather than assume.
+ * A dungeon's shape, from its size: how many rooms and loops, and how strict
+ * the graph's checks are. Rolled once per dungeon from its own stream, before
+ * any graph attempt, so a retried graph keeps the room and loop counts.
+ *
+ * Small dungeons get slack: five or six rooms can't carry a bypass and a
+ * balance check as well as two routes.
+ *
+ *   size        rooms   loops           dead ends   routes   bypass, balance
+ *   1 small     5-6     1-2, mostly 2   <= 1        >= 2     no
+ *   2 medium    7-9     2-3             <= 1        >= 3     yes
+ *   3 large     10-12   3-4             <= 2        >= 3     yes
  */
-export function chunksFor(size: Size): number {
-  return size;
+export function shapeFor(size: Size, graphSeed: string): GraphParams {
+  const rng = makeRng(`${graphSeed}:shape`);
+  const between = (lo: number, hi: number) => lo + Math.floor(rng() * (hi - lo + 1));
+  switch (size) {
+    case 1:
+      return { rooms: between(5, 6), loops: rng() < 2 / 3 ? 2 : 1, maxDeadEnds: 1, minRoutes: 2, bypass: false, balance: false };
+    case 2:
+      return { rooms: between(7, 9), loops: between(2, 3), maxDeadEnds: 1, minRoutes: 3, bypass: true, balance: true };
+    case 3:
+      return { rooms: between(10, 12), loops: between(3, 4), maxDeadEnds: 2, minRoutes: 3, bypass: true, balance: true };
+  }
 }
+
+/** What a size is called wherever a player reads it. */
+export const SIZE_NAMES: Record<Size, string> = { 1: "small", 2: "medium", 3: "large" };

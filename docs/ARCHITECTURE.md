@@ -57,8 +57,10 @@ interface RunSeeds {
 - **Entity ids are deliberately unseeded** (`crypto.randomUUID`). Ids are identity, not
   content. So a determinism check compares an id-stripped form, snapshots redact UUIDs,
   and replaying a run means loading the stored dungeon rather than regenerating it.
-- **Size *n* is *n* chunks is *6n* rooms.** A chunk (a *region*) is the unit of parallel
-  writing.
+- **Size 1, 2, 3 is small, medium, large: 5-6, 7-9, 10-12 rooms.** The room and loop
+  counts are rolled once from the seed (`shapeFor`, `src/generation/seeds.ts`), so a
+  retried graph keeps them. At 12 rooms or fewer, one content call writes the whole
+  dungeon.
 
 ---
 
@@ -69,27 +71,38 @@ A dungeon is completely written before the first turn. `src/generation/generate.
 ```
   A: generateBlueprintSeed -> dungeon pass (LLM)                         ┐ concurrent
   B: generateBlueprint -> stockDungeon (+ block plan) -> entities pass   ┘
-  join, then per chunk:
-     buildContentPassPayload -> LLM -> zod     [parallel, all chunks at once]
-     applyContentPass                          [serial, ascending chunk order]
-  then: seams pass (LLM, 1 call) -> keys pass (LLM, 1 call)
+  join, then one step at a time (STEPS):
+     content: buildContentPassPayload -> LLM -> zod      [1 call, every room]
+  then finish: applyContentPass -> keys pass (LLM, 1 call)
 ```
 
 ### 3.1 The passes
 
-- **Structure is code.** `generation/floorplan/` builds the room graph, makes it planar,
-  and draws a *block plan*: every room's cells on a grid, adjacency holding by
-  construction. `generation/content/stock/` stocks it from the Maze Rats tables: room
-  identities, creatures, hazards, obstacles, treasure and the goal.
+- **Structure is code.** `generation/floorplan/` builds the room graph and draws a
+  *block plan*: every room's cells on a grid, adjacency holding by construction.
+  `generation/content/stock/` stocks it from the Maze Rats tables: room identities,
+  creatures, hazards, obstacles, treasure and the goal.
+- **The graph is a loop core plus chains** (`graph.ts`): a cycle, then ears joining
+  core rooms (an ear with no rooms is a *shortcut*), then the leftover rooms in short
+  chains, which are the only dead ends. It is rejected and the seed advanced unless it
+  is planar, has no room of more than four ways, keeps under the dead-end cap, and has
+  enough *distinct routes* from the entrance to the goal: paths that each have a room
+  the other lacks. Medium and large also need a bypass on the shortest route and two
+  shortest routes within two rooms of each other. One entrance, the outermost room that
+  is not a dead end; the goal is the deepest room (`chooseGoal`), which stocking reads
+  rather than picks.
+- **Gates know about routes** (`gateConnectors`, `stock/steps.ts`). Shortcuts are gated
+  and concealed first, because hiding one cuts nothing off. The goal is always
+  reachable without passing a hidden way. Some route to the goal stays open, or the two
+  shortest carry different kinds of gate.
 - **The dungeon pass** writes the dungeon's premise, its inhabitants and the opening,
   from the rolled genome alone, so it runs alongside stocking.
-- **The content pass** writes each chunk's six rooms and everything in them, all chunks
-  at once. Its applies run **serially in ascending chunk order**, because applying
-  mutates shared state (`ep.items`, `ep.features`, `ep.bindings`,
-  `ep.registry.creatures`).
-- **A connector is written by whoever can see both its rooms.** Inside a chunk the room
-  with the lower graph index owns it. A connector *leaving* a chunk is a **seam**,
-  written by the seams pass at the end with both rooms in front of it.
+- **The content pass** writes every room and everything in them in one call. Its
+  answer is applied in `finishGeneration`, which builds the payload from the unwritten
+  entities first and then applies, because applying mutates shared state (`ep.items`,
+  `ep.features`, `ep.bindings`, `ep.registry.creatures`).
+- **A connector is written once, by the room with the lower graph index.** The call
+  sees both its rooms, so the form can suit both ends.
 - **The keys pass** writes the keys placed to answer challenges, with the key and the
   challenge's finished text both in front of it (§8).
 
@@ -98,8 +111,12 @@ A dungeon is completely written before the first turn. `src/generation/generate.
 - On a schema failure a pass is retried **once**, with the validation errors appended.
   A second failure throws. There is no partial content.
 - **Well-formed but incomplete is a failure too.** Every ref a payload asks about must
-  come back (`contentPassOmissions`, `seamsPassOmissions`, `keysPassOmissions`, run as
+  come back (`contentPassOmissions`, `keysPassOmissions`, run as
   `callForJson`'s `check` after zod), so an omission takes the same retry.
+- **The content pass repairs an omission instead of redoing it** (`callForJson`'s
+  `repair`). The answer is kept, the rooms that lost something are asked for again
+  alone and merged in, up to twice, then the pass throws. A malformed answer still
+  takes the whole retry: there is nothing to keep.
 - `validateWritten` asserts a non-empty, resolvable `base` on every room, connector,
   creature, feature, item and hazard of a finished dungeon.
 - **`state` and `composed` are not written during generation.** Every entity stays
@@ -307,7 +324,9 @@ The rules are Knave 1.0's (`src/rules/knave/`).
 A **challenge** is one keyable property of one entity: a creature's weakness or
 ability, an NPC's asset or liability, a blocked or concealed way, a hazard, an
 obstacle, a region of the map, the goal's location and the goal's own properties.
-`src/generation/content/challenges.ts` enumerates them; a size 5 dungeon has about 30.
+Nothing produces a region challenge yet: they come back with the outline pass's areas
+(`docs/BUILD-PLAN.md`, phase 2), and the engine still charts one when its key is drawn.
+`src/generation/content/challenges.ts` enumerates them; a large dungeon has about 12.
 Everything else reads from that list: keys answer challenges, accomplishments resolve
 them, experience prices them.
 
@@ -318,9 +337,9 @@ them, experience prices them.
 - **Keys.** Any item placed to answer a challenge: a vial of acid, a censer, a chart.
   "Key" is the role, not the object. Priced low, so selling one never beats using it.
 - **General rewards,** half equipment (priced from the Knave catalogue) and half
-  treasure, which draws on **a conserved pot**: `size × 250–400` copper, partitioned
-  across the treasure before any model sees it. Money is bounded; a whole size 5 dungeon
-  holds about 1,500cp against a starting purse of 60–360. 10% of the pot is held back as
+  treasure, which draws on **a conserved pot**: `rooms × 42–67` copper, partitioned
+  across the treasure before any model sees it. Money is bounded; a whole large dungeon
+  holds about 600cp against a starting purse of 60–360. 10% of the pot is held back as
   the game master's coin allowance.
 
 **Placement**, in order: reward-guaranteed rooms (dead ends, obstacle rooms, rooms with
@@ -378,11 +397,11 @@ abandonment write nothing back to the character.
   thing that changed elsewhere stays where the player last saw it. The filter lives in
   `mapView` (`src/gameplay/view/map.ts`) and nowhere else.
 - **The map may know more than the fiction, but never something different.**
-- **Corridors are rooms**, drawn from each chunk's budget of six. So connected rooms
+- **Corridors are rooms**, about a sixth of the dungeon's. So connected rooms
   share a wall, and a connector *is* the gap in it.
 - The way out of the dungeon has no room on its far side; it draws as a dashed stub into
   blank paper.
-- Fixed cell scale, so a wall weighs the same at six rooms as at thirty. North is up and
+- Fixed cell scale, so a wall weighs the same at five rooms as at twelve. North is up and
   the map never rotates.
 - Only the current room's doors and things are clickable. A click sends the same text a
   typed action would, through the same turn.
@@ -490,9 +509,12 @@ for the player and never shown to the model.
 
 One Hono app (`src/server/app.ts`) deployed as a single Vercel function.
 
-- **One model call per request.** A Vercel invocation may run 300 seconds and
-  generation is N+2 calls, so building a dungeon is three routes: structure, then each
-  region (fired in parallel by the client), then finish. A turn is one request.
+- **One model call per request.** A Vercel invocation may run 300 seconds, so building a
+  dungeon is three routes: `POST /api/dungeons` (structure and the dungeon pass), then
+  `POST /api/dungeons/:id/steps/:step` once per entry in `STEPS` (`generate.ts`), run in
+  order by the client, then `POST /api/dungeons/:id/finish` (apply, then the keys pass).
+  Each step's answer is kept unapplied in `generation_steps` and is idempotent: a
+  repeated step keeps the first answer. A turn is one request.
 - **The client never asserts a rule.** It sends what the player typed and the run
   version it last saw. The turn machine, the game master, the applier and the dice all
   run on the server, and the client's store is replaced with what comes back.

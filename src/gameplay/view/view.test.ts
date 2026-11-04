@@ -113,10 +113,6 @@ describe("pointLayout", () => {
     const to = shapeCenter(layout.rooms.find((r) => r.id === c.to)!.shape);
     expect(mid.x).toBeCloseTo((from.x + to.x) / 2, 5);
   });
-
-  it("marks the long links between regions", () => {
-    expect(layout.connectors.some((c) => c.interChunk)).toBe(true);
-  });
 });
 
 // ===========================================================================

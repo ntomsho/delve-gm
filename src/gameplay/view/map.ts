@@ -260,7 +260,6 @@ export function mapView(
               id: exit.id,
               from: surface.roomId,
               to: null,
-              interChunk: false,
               door: surface.door,
               path: { kind: "line" as const, from: surface.door.at, to: surface.door.through },
             },

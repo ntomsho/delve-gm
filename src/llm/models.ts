@@ -13,10 +13,8 @@
 export type Task =
   /** one call, first: the dungeon's theme, history, goal and inhabitant groups */
   | "dungeon-pass"
-  /** one call per chunk: rooms and everything in them */
+  /** one call for the whole dungeon: every room and everything in it */
   | "content-pass"
-  /** one call after the content passes: the connections between chunks, once the rooms on both sides exist */
-  | "seams-pass"
   /** one call after that: the keys, once the things they answer have been written */
   | "keys-pass"
   /** one call at the end of a run: how much XP each accomplishment is worth */
@@ -44,9 +42,8 @@ export type Task =
  * running the same seed many times.
  *
  * Haiku 4.5 has two limits the larger models don't. Neither matters today:
- *   - a 200K-token context, not 1M. A chunk's prompt is a few thousand
- *     tokens, so there is plenty of room, though a very large dungeon could
- *     eventually fill it.
+ *   - a 200K-token context, not 1M. A 12-room content-pass prompt is
+ *     tens of thousands of tokens at most, so there is plenty of room.
  *   - 64K maximum output tokens, not 128K. That is above every `MAX_TOKENS`
  *     value below.
  *
@@ -56,12 +53,11 @@ export type Task =
  *
  * The first task worth moving to a better model is probably the dungeon pass.
  * It runs once, sets the background every other call builds on, and costs
- * very little next to the many content-pass calls.
+ * very little next to the content pass.
  */
 export const MODELS: Record<Task, string> = {
   "dungeon-pass": "claude-haiku-4-5",
   "content-pass": "claude-haiku-4-5",
-  "seams-pass": "claude-haiku-4-5",
   "keys-pass": "claude-haiku-4-5",
   "tally-pass": "claude-haiku-4-5",
   "room-entry": "claude-haiku-4-5",
@@ -72,17 +68,14 @@ export const MODELS: Record<Task, string> = {
 
 /**
  * The maximum output tokens for each task. The content pass gets four times
- * the others because it writes six rooms and everything in them in one
- * response.
+ * the others because it writes every room and everything in them in one
+ * response: a 12-room dungeon used about 9,000 output tokens (seed 1005).
  */
 export const MAX_TOKENS: Record<Task, number> = {
   "dungeon-pass": 4096,
   "content-pass": 16384,
-  // A few connections, two sentences each. Each boundary between chunks has
-  // about two, so even a large dungeon has fewer than a dozen.
-  "seams-pass": 4096,
-  // Four or five objects at size 5, two sentences each, plus a short list of
-  // the goal's properties. A small output, like the seams pass.
+  // A few objects, two sentences each, plus a short list of the goal's
+  // properties. A small output.
   "keys-pass": 4096,
   // One line per accomplishment; a long run has about thirty.
   "tally-pass": 4096,

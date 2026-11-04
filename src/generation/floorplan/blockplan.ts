@@ -54,9 +54,8 @@ export interface BlockSeed {
 /** How far apart connected rooms should sit, measured round one corner. */
 const SPAN_MIN = 5;
 const SPAN_MAX = 9;
-/** Rooms in different chunks sit at the far end of that: a chunk boundary is a journey. */
-const TARGET_SAME = 6;
-const TARGET_ACROSS = 9;
+/** Where a connection aims inside that. */
+const TARGET = 6;
 /** No two centres closer than this, connected or not. */
 const CLEAR = 3;
 
@@ -80,12 +79,12 @@ const manhattan = (p: Point, q: Point) => Math.abs(p.x - q.x) + Math.abs(p.y - q
  * a short relaxation of its own against the actual targets, because scaling
  * alone leaves the short edges too short and the long ones too long.
  */
-function spaceOut(graph: Dungeon, chunkOf: Map<number, number>, rng: Rng): Point[] {
+function spaceOut(graph: Dungeon, rng: Rng): Point[] {
   const n = graph.rooms.length;
   const edges = graph.edges.map((e) => ({
     a: e.a,
     b: e.b,
-    target: chunkOf.get(e.a) === chunkOf.get(e.b) ? TARGET_SAME : TARGET_ACROSS,
+    target: TARGET,
   }));
 
   // Scale so the middling connection lands mid-range. Manhattan runs about a
@@ -98,7 +97,7 @@ function spaceOut(graph: Dungeon, chunkOf: Map<number, number>, rng: Rng): Point
     ))
     .sort((p, q) => p - q);
   const median = raw[Math.floor(raw.length / 2)] || 1;
-  const scale = ((TARGET_SAME + TARGET_ACROSS) / 2 / 1.27) / median;
+  const scale = (TARGET / 1.27) / median;
 
   // Jitter of a couple of cells, not a fraction of one. The relaxation below is
   // a convergent process: nudge it by a tenth of a cell and it settles into the
@@ -480,8 +479,7 @@ function shift(blocks: Point[][], i: number, graph: Dungeon, rng: Rng): boolean 
  */
 export function seedBlockPlan(graph: Dungeon, seed: number): BlockSeed | null {
   const rng = new Rng(seed);
-  const chunkOf = new Map(graph.rooms.map((r, i) => [i, r.chunk]));
-  const centres = spaceOut(graph, chunkOf, rng);
+  const centres = spaceOut(graph, rng);
   const blocks = makeBlocks(centres, rng);
   if (!blocks) return null;
 
@@ -898,7 +896,7 @@ function surfaceDoor(
  * That is the entire dependency, and it is what lets the layout run before any
  * of the fiction: identity, headlines, danger and rewards all come after, and
  * the identity roll can then be conditioned on the size each room turned out to
- * be. Chunk membership rides on the graph rooms already.
+ * be.
  */
 export function blockPlan(
   graph: Dungeon,
@@ -919,9 +917,8 @@ export function blockPlan(
   const wanted = zones.map(() => rng.pick([6, 9, 14, 20, 28, 40, 56]));
   const rooms = buildRooms(base, zones, graph, proportionOf ?? ((i) => rolled[i]), (i) => wanted[i], rng);
   if (!rooms) return null;
-  // The same entrance stocking uses — `stock.ts` takes entrances[0]
-  // and drops the rest, so the map must not pick a different one.
-  const entrance = graph.entrances.length ? graph.entrances[0] : 0;
+  // The graph's entrance, which stocking uses too.
+  const entrance = graph.entrance;
   return {
     ...base,
     zones,

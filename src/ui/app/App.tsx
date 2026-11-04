@@ -13,7 +13,7 @@
  *   ?offline=1   the fixture dungeon AND the stub game master, played in the
  *                browser. No model, no server, no account. Spends nothing.
  *   ?seed=       which dungeon. Same seed, same dungeon.
- *   ?size=1..5   how big. Each region is one content-pass call.
+ *   ?size=1..3   how big: small (5-6 rooms), medium (7-9) or large (10-12).
  *   ?level=      how dangerous.
  *   ?endings     not a run: the end-of-run screen over fixture data, every
  *                ending a click apart. Read in `main.tsx`, so none of this

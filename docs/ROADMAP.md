@@ -51,24 +51,21 @@ version of `docs/BUILD-PLAN.md` in git history
   match their descriptions. Mostly playbook changes.
 - **Room plans.** Hand the model an ASCII plan of a room's cells beside the geometry
   sentence. Measure on a dozen rooms before adopting.
-- **Connectors written with their room.** Write a room's ways out with the room that
-  first claims them, so the room's own description and its doors agree. Decide what
-  is left of the seams pass.
+- **Doors that agree with both rooms.** One content call now writes every room and
+  every connector, each connector under its lower-index room, and the seams pass is
+  gone. Read a few live dungeons for a room whose description disagrees with a door
+  written under its neighbour; if it happens, list each connector under both rooms as
+  context.
 - **The entrance in the fiction.** The entrance is rolled in stocking, which the
   dungeon pass runs alongside and cannot see. Roll it before the split, and replace the
   fairy-tale entries in the Maze Rats table.
 - **First impressions.** A stranger's name should not be on the room card before the
   player has learned it. A `properNamed` flag that the game master may flip once.
-- **One leader, one entity.** A group's leader is written once per chunk that holds a
-  member, so one named NPC can be two entities. Fix in stocking, and add a validation
-  check.
 - **The goal names what is in the goal room.** R2's goal named an NPC met in the third
   room, so meeting her read as arriving at the goal.
-- **The placed-key spread.** Placed keys vary from 1 to 9 at size 5, against an
-  intended four. Narrowing it means changing the placement order.
-- **Positions from the planar embedding.** About one size 5 layout attempt in eight
-  fails and is retried. Deriving positions from the embedding would make it succeed
-  first time.
+- **The placed-key spread.** Since dungeons became 5-12 rooms, placed keys average 1.6
+  at small and 2.2 at medium and large (40 seeds each). Decide what each size should
+  hold; changing it means changing the placement order.
 - **Prose for the equipment catalogue.** The 122 entries in `equipment.ts` have none
   yet. Written by hand, a few at a time.
 

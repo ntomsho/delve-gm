@@ -25,7 +25,7 @@ import { floorplanLayout, type PlacedThing } from "../../generation/floorplan/ma
 import { placedThings } from "../../gameplay/mechanics/occupancy.ts";
 import { layoutSvg } from "../../generation/floorplan/map-svg.ts";
 import { generateDungeon, validateWritten, type GenerationProgress } from "../../generation/generate.ts";
-import { chunksFor, deriveSeeds } from "../../generation/seeds.ts";
+import { deriveSeeds, shapeFor, SIZE_NAMES } from "../../generation/seeds.ts";
 
 // ---------------------------------------------------------------------------
 // ARGS
@@ -37,7 +37,6 @@ interface Args {
   level: number;
   out: string | null;
   dry: boolean;
-  chunk: number | null;
   /** where to write the floorplan as plain line art */
   map: string | null;
 }
@@ -56,7 +55,7 @@ function parseArgs(argv: string[]): Args {
   };
 
   const size = num("size", 2);
-  if (![1, 2, 3, 4, 5].includes(size)) die(`--size must be 1-5, got ${size}`);
+  if (![1, 2, 3].includes(size)) die(`--size must be 1 (small), 2 (medium) or 3 (large), got ${size}`);
 
   return {
     seed: num("seed", 1005),
@@ -64,7 +63,6 @@ function parseArgs(argv: string[]): Args {
     level: num("level", 1),
     out: get("out") ?? null,
     dry: argv.includes("--dry"),
-    chunk: argv.includes("--chunk") ? num("chunk", 0) : null,
     map: argv.includes("--map") ? (get("map") ?? "out/map.svg") : null,
   };
 }
@@ -121,7 +119,7 @@ function dryRun(args: Args): void {
   console.log(RULE);
   console.log(renderDungeonPassPrompt(buildDungeonPassPayload(bp)));
 
-  const { dungeon } = generateBlueprint(seeds.graphSeed, { chunks: chunksFor(args.size) }, true);
+  const { dungeon } = generateBlueprint(seeds.graphSeed, shapeFor(args.size, seeds.graphSeed), true);
 
   // THE DRAWING RUNS INSIDE STOCKING, exactly as it does in `generate.ts`. A
   // dry run that skipped it would render prompts without the "as drawn" line
@@ -154,21 +152,13 @@ function dryRun(args: Args): void {
   const placeholder =
     "[DUNGEON PASS OUTPUT — theme, history, who lives here, and the goal would be here]";
 
-  const chunks = [...new Set(sd.rooms.map((r) => r.chunk))].sort((a, b) => a - b);
-  const wanted = args.chunk === null ? chunks : chunks.filter((c) => c === args.chunk);
-  if (!wanted.length) die(`--chunk ${args.chunk} is out of range (have ${chunks.join(", ")})`);
-
-  for (const chunk of wanted) {
-    console.log("\n" + RULE);
-    console.log(`CONTENT PASS  —  chunk ${chunk} of ${chunks.length}`);
-    console.log(RULE);
-    console.log(
-      renderContentPassPrompt(buildContentPassPayload(sd, bp, ep, chunk, placeholder, site))
-    );
-  }
+  console.log("\n" + RULE);
+  console.log("CONTENT PASS");
+  console.log(RULE);
+  console.log(renderContentPassPrompt(buildContentPassPayload(sd, bp, ep, placeholder, site)));
 
   console.error(
-    `\n[dry] ${chunks.length} chunk(s), ${sd.rooms.length} rooms, ` +
+    `\n[dry] ${sd.rooms.length} rooms, ` +
       `${ep.creatures.length} creature anchors, ${bp.inhabitants.length} inhabitant group(s). No calls made.`
   );
 
@@ -238,7 +228,6 @@ const STAGE_LABEL: Record<GenerationProgress["stage"], string> = {
   history: "Writing its history",
   stocking: "Stocking the rooms",
   writing: "Writing the rooms",
-  joining: "Writing the ways between regions",
   keys: "Writing the keys",
 };
 
@@ -251,18 +240,15 @@ async function liveRun(args: Args): Promise<void> {
   const started = Date.now();
   let lastLine = "";
   const report = (p: GenerationProgress) => {
-    const line =
-      p.chunksTotal !== undefined
-        ? `${STAGE_LABEL[p.stage]} — ${p.chunksDone} of ${p.chunksTotal} regions`
-        : STAGE_LABEL[p.stage];
+    const line = STAGE_LABEL[p.stage];
     if (line === lastLine) return;
     lastLine = line;
     console.error(`  ${line}`);
   };
 
   console.error(
-    `LIVE RUN — calling the model. seed ${args.seed}, size ${args.size}, ` +
-      `level ${args.level}, ${chunksFor(args.size)} region(s).`
+    `LIVE RUN — calling the model. seed ${args.seed}, size ${args.size} (${SIZE_NAMES[args.size]}), ` +
+      `level ${args.level}, ${shapeFor(args.size, String(args.seed)).rooms} rooms.`
   );
   const gd = await generateDungeon({
     seed: args.seed,

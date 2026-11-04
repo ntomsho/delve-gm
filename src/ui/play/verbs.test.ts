@@ -20,7 +20,6 @@ const room = (over: Partial<MapRoomView> = {}): MapRoomView => ({
   id: "r1",
   shape: { kind: "circle", at: { x: 0, y: 0 }, r: 4 },
   centre: { x: 0, y: 0 },
-  chunk: 0,
   known: true,
   mapped: false,
   current: false,

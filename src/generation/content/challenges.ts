@@ -78,7 +78,7 @@ const idOf = (kind: ChallengeKind, targetId: string, index?: number): string =>
 /**
  * Every challenge in a stocked dungeon, in a stable order: creatures by mobile
  * order, then ways by connector order, then room content by room order, then
- * regions by chunk, then the goal.
+ * the goal.
  *
  * The order is part of the determinism guarantee -- the reserve is drawn from
  * this list and a run replays only if the list is the same list.
@@ -162,29 +162,8 @@ export function enumerateChallenges(sd: ChallengeSource): Challenge[] {
   }
 
   // --- regions -------------------------------------------------------------
-  // A chunk is a batching unit everywhere else in the pipeline and a REGION
-  // here, which is the one place it means something to a player: a stretch of
-  // the dungeon a map could have covered. Keyed by its shallowest room, the way
-  // in.
-  const chunks = new Map<number, RoomStock>();
-  for (const r of sd.rooms) {
-    const held = chunks.get(r.chunk);
-    if (!held || r.depth < held.depth) chunks.set(r.chunk, r);
-  }
-  for (const chunk of [...chunks.keys()].sort((a, b) => a - b)) {
-    const head = chunks.get(chunk)!;
-    out.push({
-      id: idOf("region", `c${chunk}`),
-      kind: "region",
-      target: "chunk",
-      targetId: `c${chunk}`,
-      roomId: head.roomId,
-      chunk,
-      // In room order, which is stocking order, which is stable for a seed.
-      roomIds: sd.rooms.filter((r) => r.chunk === chunk).map((r) => r.roomId),
-      property: `the layout beyond ${head.identity}`,
-    });
-  }
+  // None until the outline pass names areas. The kind and its key (which charts
+  // the region's rooms) stay in the engine for them.
 
   // --- the goal ------------------------------------------------------------
   // Where it is. What it IS cannot be enumerated yet -- see `goal-property`.

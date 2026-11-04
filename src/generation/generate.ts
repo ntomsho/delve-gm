@@ -9,14 +9,13 @@
  *      -> Dungeon Pass                                          [1 call]   ─┐
  *   B: generateBlueprint -> stockDungeon -> runEntitiesPass     [pure]     ─┘ concurrent
  *   join
- *   per chunk: buildContentPassPayload -> LLM                   [N calls, parallel]
- *              applyContentPass                                 [SERIAL, ascending chunk]
+ *   buildContentPassPayload -> LLM -> applyContentPass          [1 call, the whole dungeon]
+ *   buildKeysPassPayload -> LLM -> applyKeysPass                [1 call]
  *
  * The Dungeon Pass needs only the rolled genome, so it overlaps the pure
- * stocking branch. Chunk generations all fire at once; their APPLIES are
- * serialised in ascending chunk order, which is a CLAUDE.md rule and also
- * plainly necessary — apply mutates shared state throughout (ep.items,
- * ep.features, ep.bindings, ep.registry, and it rebuilds ep.creatures).
+ * stocking branch. Everything after the join is one call at a time: the server
+ * runs each as its own request (`/steps/:step`, then `/finish`), because no one
+ * Vercel invocation may hold more than one model call.
  *
  * `state` and `composed` are NOT written here. Every entity stays unencountered
  * until the player walks in on it; room entry is a runtime pass.
@@ -25,7 +24,9 @@
 import { applyContentPass } from "./content/passes/content-pass/apply.ts";
 import { renderContentPassPrompt } from "./content/passes/content-pass/prompt.ts";
 import {
+  askForRooms,
   contentPassOmissions,
+  mergeRooms,
   type ContentPassResponse,
 } from "./content/passes/content-pass/response.ts";
 import { buildContentPassPayload } from "./content/passes/content-pass/build.ts";
@@ -42,12 +43,6 @@ import {
   unwritableKeys,
   renderKeysPassPrompt,
 } from "./content/passes/keys-pass.ts";
-import {
-  applySeamsPass,
-  buildSeamsPassPayload,
-  seamsPassOmissions,
-  renderSeamsPassPrompt,
-} from "./content/passes/seams-pass.ts";
 import { generateBlueprint, type Dungeon } from "./floorplan/graph.ts";
 import {
   generateBlueprintSeed,
@@ -67,9 +62,8 @@ import {
   contentPassSchema,
   dungeonPassSchema,
   keysPassSchema,
-  seamsPassSchema,
 } from "./content/passes/schemas.ts";
-import { chunksFor, deriveSeeds, type RunSeeds } from "./seeds.ts";
+import { deriveSeeds, shapeFor, type RunSeeds } from "./seeds.ts";
 import { NO_LOG, type GenerationLog } from "./log.ts";
 
 // ---------------------------------------------------------------------------
@@ -79,9 +73,8 @@ import { NO_LOG, type GenerationLog } from "./log.ts";
 /**
  * The stages the loading screen reports, named here rather than in the UI so
  * there is nothing for the UI to invent. "writing" is the long one and is the
- * only one that carries a count; "joining" is the short call after it that
- * writes the ways between regions, and "keys" the shorter one after THAT which
- * writes the objects answering the dungeon's questions.
+ * one the player waits on; "keys" is the shorter call after it which writes
+ * the objects answering the dungeon's questions.
  */
 export type GenerationStage =
   | "layout"
@@ -89,13 +82,10 @@ export type GenerationStage =
   | "history"
   | "stocking"
   | "writing"
-  | "joining"
   | "keys";
 
 export interface GenerationProgress {
   stage: GenerationStage;
-  chunksDone?: number;
-  chunksTotal?: number;
 }
 
 export type ProgressFn = (p: GenerationProgress) => void;
@@ -127,9 +117,10 @@ export interface GeneratedDungeon {
    * to refer to it and a map that drifts between generations of the same seed
    * is worse than prose that drifts.
    *
-   * Null when no layout could be drawn for this graph — uncommon at sizes 1-3
-   * and still real at 5 — so everything downstream treats the plan as an
-   * enhancement over the point layout. A dungeon with no plan is playable.
+   * Null when no layout could be drawn for this graph — not seen at 5-12 rooms,
+   * where every measured seed drew first time, but possible — so everything
+   * downstream treats the plan as an enhancement over the point layout. A
+   * dungeon with no plan is playable.
    */
   blockplan: BlockPlan | null;
   usage: Usage;
@@ -167,21 +158,17 @@ const GRAPH_ATTEMPTS = 8;
 /**
  * What a failed generation call writes down.
  *
- * Curried on the pass — and, for the content pass, the chunk — because that is
- * exactly what `callForJson` does not know and what a reader of the journal
- * most needs. The chunks run in parallel, so "a content-pass call failed" is
- * not an answer.
+ * Curried on the pass, because that is exactly what `callForJson` does not
+ * know and what a reader of the journal most needs.
  */
 function reportFailure(
   journal: GenerationLog,
-  pass: "dungeon-pass" | "content-pass" | "seams-pass" | "keys-pass",
-  chunk?: number
+  pass: "dungeon-pass" | "content-pass" | "keys-pass"
 ) {
   return (r: FailedAttempt): void => {
     journal.log({
       kind: "generation-error",
       pass,
-      ...(chunk !== undefined ? { chunk } : {}),
       attempt: r.attempt,
       willRetry: r.willRetry,
       message: r.message,
@@ -191,7 +178,7 @@ function reportFailure(
     // And to the console, because the person who hits this in a browser has
     // devtools open and no journal file within reach.
     console.warn(
-      `[generate] ${pass}${chunk === undefined ? "" : ` chunk ${chunk}`} ` +
+      `[generate] ${pass} ` +
         `attempt ${r.attempt} failed: ${r.message}` +
         (r.willRetry ? " — retrying" : " — giving up"),
       { issues: r.issues, raw: r.raw }
@@ -205,16 +192,26 @@ function reportFailure(
  */
 export type PassOptions = Pick<GenerateOptions, "signal" | "journal" | "onProgress">;
 
-/** One content-pass response, as it came back and before it is applied. */
-export interface ChunkResult {
-  chunk: number;
+/** The content-pass response, as it came back and before it is applied. */
+export interface ContentResult {
   value: ContentPassResponse;
   usage: Usage;
 }
 
-/** The regions of a dungeon, ascending. One content-pass call each. */
-export function chunksOf(partial: GeneratedDungeon): number[] {
-  return [...new Set(partial.stocked.rooms.map((r) => r.chunk))].sort((a, b) => a - b);
+/**
+ * The model calls between the structure and `finishGeneration`, in the order
+ * they run. Each is its own server request, saved unapplied on arrival.
+ */
+export const STEPS = ["content"] as const;
+export type Step = (typeof STEPS)[number];
+
+/** One step's answer, as the server keeps it between requests. */
+export interface StepResult extends ContentResult {
+  step: Step;
+}
+
+export function isStep(s: string): s is Step {
+  return (STEPS as readonly string[]).includes(s);
 }
 
 /**
@@ -234,19 +231,17 @@ function siteOf(partial: GeneratedDungeon) {
 }
 
 /**
- * A region's payload, built from the partial.
+ * The content pass's payload, built from the partial.
  *
  * Rebuilt rather than persisted, and it must be built from UNAPPLIED entities:
- * a payload says what a region needs written, and entities that have been
- * written no longer need writing. So `finishGeneration` builds every payload
- * before it applies anything.
+ * a payload says what needs writing, and entities that have been written no
+ * longer need writing. So `finishGeneration` builds it before it applies.
  */
-function contentPayload(partial: GeneratedDungeon, chunk: number) {
+function contentPayload(partial: GeneratedDungeon) {
   return buildContentPassPayload(
     partial.stocked,
     partial.blueprint,
     partial.entities,
-    chunk,
     partial.dungeonContext,
     siteOf(partial)
   );
@@ -312,14 +307,16 @@ export async function generateStructure(opts: GenerateOptions): Promise<Generate
     // re-spent. The seed still names one dungeon, because the retry is
     // derived rather than random.
     //
-    // TODO: the real fix is to derive the centres from the planar embedding
-    // the graph already computes, instead of hill-climbing toward it (ROADMAP,
-    // *Positions from the planar embedding*). Then this loop runs once, always.
+    // At 5-12 rooms every measured seed draws first time, so this loop is a
+    // guard rather than a cost.
+    // Rolled once from the dungeon's own seed, so a redrawn graph keeps the
+    // dungeon's room and loop counts.
+    const shape = shapeFor(size, seeds.graphSeed);
     for (let attempt = 0; ; attempt++) {
       // `generateValid` appends `#n` internally when a graph fails validation,
       // so a different separator keeps these seeds out of that space.
       const graphSeed = attempt === 0 ? seeds.graphSeed : `${seeds.graphSeed}~${attempt}`;
-      const { dungeon } = generateBlueprint(graphSeed, { chunks: chunksFor(size) }, true);
+      const { dungeon } = generateBlueprint(graphSeed, shape, true);
       report({ stage: "stocking" });
 
       // THE DRAWING RUNS INSIDE STOCKING, between the corridors and the fiction.
@@ -377,54 +374,77 @@ export async function generateStructure(opts: GenerateOptions): Promise<Generate
 }
 
 // ---------------------------------------------------------------------------
-// STEP 2: ONE REGION  (one model call, and nothing mutated)
+// STEP 2: THE ROOMS  (one model call, and nothing mutated)
 // ---------------------------------------------------------------------------
 
 /**
- * Write one region of the dungeon.
+ * Write every room of the dungeon.
  *
  * PURE WITH RESPECT TO THE PARTIAL. It reads it to build the payload and hands
- * back what came in; it applies nothing. That is what lets the regions be
- * called in parallel — from separate requests, on separate machines — and
- * applied serially afterwards, which is the rule in CLAUDE.md.
+ * back what came in; it applies nothing. That is what lets the server save the
+ * answer from one request and apply it in another.
  */
-export async function generateChunk(
+export async function generateContent(
   partial: GeneratedDungeon,
-  chunk: number,
   opts: PassOptions = {}
-): Promise<ChunkResult> {
+): Promise<ContentResult> {
   const journal = opts.journal ?? NO_LOG;
-  const payload = contentPayload(partial, chunk);
+  const payload = contentPayload(partial);
   const prompt = renderContentPassPrompt(payload);
 
   const { value, usage } = await callForJson({
     task: "content-pass",
     schema: contentPassSchema,
-    toolName: "write_region",
-    toolDescription: "Name and write every room, entity, connector, and creature group in this region.",
+    toolName: "write_rooms",
+    toolDescription: "Name and write every room, entity, connector, and creature group in this dungeon.",
     messages: [{ role: "user", content: prompt }],
     ...(opts.signal ? { signal: opts.signal } : {}),
-    // A chunk that answers five of six connectors is well-formed and wrong.
+    // An answer that writes five of six connectors is well-formed and wrong.
     // Asked here, the omission is a retryable failure; noticed after the
     // pass, it is an unwritten entity nobody can fix.
     check: (v) => contentPassOmissions(payload, v),
-    onAttemptFailed: reportFailure(journal, "content-pass", chunk),
+    // And an omission is repaired rather than redone: the rooms that lost
+    // something are asked for again, alone, and the rest of the answer kept.
+    repair: { ask: (missing) => askForRooms("write_rooms", missing), merge: mergeRooms },
+    onAttemptFailed: reportFailure(journal, "content-pass"),
   });
 
-  journal.log({ kind: "generation", pass: "content-pass", chunk, prompt, response: value, usage });
-  return { chunk, value, usage };
+  journal.log({ kind: "generation", pass: "content-pass", prompt, response: value, usage });
+  return { value, usage };
+}
+
+/** Run one named step: what `POST /api/dungeons/:id/steps/:step` calls. */
+export async function generateStep(
+  partial: GeneratedDungeon,
+  step: Step,
+  opts: PassOptions = {}
+): Promise<StepResult> {
+  switch (step) {
+    case "content":
+      return { step, ...(await generateContent(partial, opts)) };
+  }
+}
+
+/**
+ * The saved steps, checked and unpacked for `finishGeneration`. Throws when one
+ * is missing, which turns a lost step into a retryable request rather than an
+ * unwritten entity discovered at the end of a pass nobody can rerun.
+ */
+export function contentFrom(results: readonly StepResult[]): ContentResult {
+  const missing = STEPS.filter((s) => !results.some((r) => r.step === s));
+  if (missing.length > 0) {
+    throw new Error(`cannot finish generation: step ${missing.join(", ")} was never run`);
+  }
+  const { value, usage } = results.find((r) => r.step === "content")!;
+  return { value, usage };
 }
 
 // ---------------------------------------------------------------------------
-// STEP 3: APPLY, AND JOIN  (one model call)
+// STEP 3: APPLY, AND THE KEYS  (one model call)
 // ---------------------------------------------------------------------------
 
 /**
- * Apply what the regions wrote, then write the ways between them.
- *
- * The applies are SERIAL and ASCENDING — see CLAUDE.md. Apply is pure and
- * cheap, so ordering it costs nothing and is what keeps concurrent mutation of
- * `entities` out of the picture.
+ * Apply what the content pass wrote, then write the keys.
  *
  * `entities` is mutated in place, which is why the result spreads `partial`:
  * the object handed in IS the object written to, and a caller that reloaded the
@@ -432,65 +452,24 @@ export async function generateChunk(
  */
 export async function finishGeneration(
   partial: GeneratedDungeon,
-  results: readonly ChunkResult[],
+  content: ContentResult,
   opts: PassOptions = {}
 ): Promise<GeneratedDungeon> {
   const report = opts.onProgress ?? (() => {});
   const journal = opts.journal ?? NO_LOG;
   const { blueprint, stocked, entities } = partial;
 
-  // A region that was never written would otherwise be discovered as an
-  // unwritten entity at the end of a pass nobody can rerun.
-  const missing = chunksOf(partial).filter((c) => !results.some((r) => r.chunk === c));
-  if (missing.length > 0) {
-    throw new Error(`cannot finish generation: region ${missing.join(", ")} was never written`);
-  }
-
-  // EVERY PAYLOAD FIRST, THEN EVERY APPLY. A payload built after an earlier
-  // region had been applied would describe a different job from the one its
-  // response was answering.
-  const ordered = [...results].sort((a, b) => a.chunk - b.chunk);
-  const withPayloads = ordered.map((r) => ({ ...r, payload: contentPayload(partial, r.chunk) }));
-
-  let usage = partial.usage;
-  for (const g of withPayloads) {
-    applyContentPass(g.value, g.payload, entities, blueprint, stocked, new Rng(stocked.seed + g.chunk));
-    usage = addUsage(usage, g.usage);
-  }
-
-  // --- the seams: the ways between chunks ----------------------------------
-  //
-  // LAST, and alone, because it is the only pass that needs the others finished.
-  // A connector joining two chunks cannot be written by either of them — see the
-  // header in seams-pass.ts — so it waits here until both its rooms have
-  // names and descriptions, and is written once with both in front of it.
-  const seamsPayload = buildSeamsPassPayload(stocked, entities, partial.dungeonContext);
-  if (seamsPayload.seams.length > 0) {
-    report({ stage: "joining" });
-    const prompt = renderSeamsPassPrompt(seamsPayload);
-    const { value, usage: seamsUsage } = await callForJson({
-      task: "seams-pass",
-      schema: seamsPassSchema,
-      toolName: "write_ways_through",
-      toolDescription: "Name and write every way through between the regions of the dungeon.",
-      messages: [{ role: "user", content: prompt }],
-      ...(opts.signal ? { signal: opts.signal } : {}),
-      check: (v) => seamsPassOmissions(seamsPayload, v),
-      onAttemptFailed: reportFailure(journal, "seams-pass"),
-    });
-    journal.log({ kind: "generation", pass: "seams-pass", prompt, response: value, usage: seamsUsage });
-    applySeamsPass(value, seamsPayload, entities);
-    usage = addUsage(usage, seamsUsage);
-  }
+  // Built before the apply, from unwritten entities; see `contentPayload`.
+  const payload = contentPayload(partial);
+  applyContentPass(content.value, payload, entities, blueprint, stocked, new Rng(stocked.seed));
+  let usage = addUsage(partial.usage, content.usage);
 
   // --- the keys: the objects that answer the dungeon's questions ------------
   //
-  // AFTER the seams, and last of all, because it needs more finished than any
-  // other pass does. A key and the thing it answers are usually in different
-  // chunks — that is what makes it a pass rather than part of one — and where
-  // the answer is a blocked way, the lock it rewrites may be a seam that only
-  // the call above just wrote. It also mints the objective's own keyable
-  // properties, which do not exist until a chunk has decided what the objective
+  // Last of all, because it needs more finished than any other pass does: a
+  // key is written with its lock in front of it, and the lock is written by
+  // the content pass. It also mints the objective's own keyable properties,
+  // which do not exist until the content pass has decided what the objective
   // physically is. See the header in keys-pass.ts.
   const keysPayload = buildKeysPassPayload(stocked, entities, partial.dungeonContext);
   const orphaned = unwritableKeys(stocked, entities, keysPayload);
@@ -548,20 +527,10 @@ export async function generateDungeon(opts: GenerateOptions): Promise<GeneratedD
 
   const partial = await generateStructure(opts);
 
-  // --- the content pass: generate in parallel, apply in order --------------
-  const chunks = chunksOf(partial);
-  let done = 0;
-  report({ stage: "writing", chunksDone: 0, chunksTotal: chunks.length });
+  report({ stage: "writing" });
+  const content = await generateContent(partial, pass);
 
-  const results = await Promise.all(
-    chunks.map(async (chunk) => {
-      const result = await generateChunk(partial, chunk, pass);
-      report({ stage: "writing", chunksDone: ++done, chunksTotal: chunks.length });
-      return result;
-    })
-  );
-
-  return finishGeneration(partial, results, pass);
+  return finishGeneration(partial, content, pass);
 }
 
 // ---------------------------------------------------------------------------

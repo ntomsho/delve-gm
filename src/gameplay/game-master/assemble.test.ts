@@ -425,7 +425,12 @@ describe("what the game master is told that the player is not", () => {
   // marked a door. The game master then counted it among the ways out and described
   // it, which is the one thing a secret door must not survive.
   it("marks a concealed way out, and does not count it in the drawing", () => {
-    const run = fresh();
+    // Its own dungeon: whether a seed conceals a way between rooms is a roll,
+    // and 1005 at size 1 does not. 1002 does.
+    const dungeon = generateOffline(1002, 1);
+    useGame.getState().reset();
+    useGame.getState().start(dungeon, testCharacter());
+    const run = useGame.getState().run!;
     const secret = run.entities.connectors.find((c) => c.isHidden === true && c.endpointB !== null);
     // No guard-and-return: a fixture with no secret way makes this test a lie,
     // and the right answer is to hear about it rather than pass.

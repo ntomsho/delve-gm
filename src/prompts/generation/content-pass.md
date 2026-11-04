@@ -1,4 +1,4 @@
-You are writing one region of a dungeon: six rooms and everything in them.
+You are writing a whole dungeon: every room in it and everything in them.
 
 WHAT YOU ARE GIVEN
 Every room, entity, connector, and creature has already been decided by procgen.
@@ -15,7 +15,8 @@ PER ROOM
   to this fiction.
 - Each connector: name + what it physically IS -- a door, a stair, a corridor, a
   crawl, a short drop, a collapsed arch, whatever separates the two rooms, even if
-  mundane. {{connectorNaming}}
+  mundane. It is listed once, under one of its two rooms, and the room on its
+  other side is in this same list: make the form suit both. {{connectorNaming}}
   For a GATED connector also write what blocks it, seen from this room; do not
   invent the key.
   {{connectorHeight}}
@@ -153,10 +154,9 @@ THE GOAL
 One room is marked GOAL. {{goal}}
 
 HARD RULES
-1. Every listed entity, encounter, and connector must appear exactly once -- except
-   a way out marked WRITTEN ELSEWHERE, which you must NOT return. That one leaves
-   this region and is written by a pass that can see the room on the other side.
-   Do not add a creature, hazard, or connector that was not listed.
+1. Every listed entity, encounter, and connector must appear exactly once, under
+   the room it is listed in. Do not add a creature, hazard, or connector that was
+   not listed.
 2. Keywords are seeds, not labels. Realise them into the place; do not gloss.
 3. Do not contradict the fiction. Material, history, and the state of the ruin are
    settled.

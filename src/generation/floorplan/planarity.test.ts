@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { checkPlanarity, type Pair, type PlanarityResult } from "./planarity.ts";
 import { generate as generateGraph, generateValid, type Dungeon } from "./graph.ts";
+import { shapeFor } from "../seeds.ts";
+import type { Size } from "../content/blueprint.ts";
 
 // ===========================================================================
 // HARNESS
@@ -224,12 +226,12 @@ const asGraph = (d: Dungeon): G => ({
 });
 
 describe("planarity: generated dungeons", () => {
-  const sizes = [1, 2, 3, 4, 5];
+  const sizes: Size[] = [1, 2, 3];
   const seeds = ["1001", "1002", "1003", "1004", "1005", "7919", "42"];
 
-  it.each(sizes)("every valid dungeon at size %i carries a traceable embedding", (chunks) => {
+  it.each(sizes)("every valid dungeon at size %i carries a traceable embedding", (size) => {
     for (const seed of seeds) {
-      const { dungeon } = generateValid(seed, { chunks });
+      const { dungeon } = generateValid(seed, shapeFor(size, seed));
       expect(dungeon.valid, `seed ${seed}: ${dungeon.failures.join("; ")}`).toBe(true);
       expect(dungeon.embedding, `seed ${seed} has no embedding`).toBeDefined();
       expectEuler(asGraph(dungeon), { planar: true, rotation: dungeon.embedding! });
@@ -237,7 +239,7 @@ describe("planarity: generated dungeons", () => {
   });
 
   it("a room's embedding lists exactly its own connectors", () => {
-    const { dungeon } = generateValid("1005", { chunks: 4 });
+    const { dungeon } = generateValid("1005", shapeFor(3, "1005"));
     dungeon.rooms.forEach((r, v) => {
       const incident = dungeon.edges.flatMap((e, i) => (e.a === v || e.b === v ? [i] : []));
       expect([...dungeon.embedding![v]].sort()).toEqual([...incident].sort());
@@ -253,36 +255,37 @@ describe("planarity: generated dungeons", () => {
 describe("planarity: rejection rate", () => {
   const TRIALS = 200;
 
-  const rate = (chunks: number) => {
+  const rate = (size: Size) => {
     let nonPlanar = 0;
     for (let i = 0; i < TRIALS; i++) {
-      if (!generateGraph(`rate-${i}`, { chunks }).embedding) nonPlanar++;
+      const seed = `rate-${i}`;
+      if (!generateGraph(seed, shapeFor(size, seed)).embedding) nonPlanar++;
     }
     return nonPlanar / TRIALS;
   };
 
-  it("is zero at sizes 1-3, where the graph is too sparse to tangle", () => {
-    for (const chunks of [1, 2, 3]) expect(rate(chunks), `size ${chunks}`).toBe(0);
+  it("is rare at every size, because twelve rooms and four loops seldom tangle", () => {
+    // Under 1% measured at large and none below it. Seeds are deterministic, so
+    // these are fixed numbers rather than samples; the band exists so a change
+    // to graph generation surfaces as a rate move rather than silently.
+    for (const size of [1, 2, 3] as Size[]) expect(rate(size), `size ${size}`).toBeLessThan(0.03);
   });
 
-  it("stays in single figures at sizes 4-5", () => {
-    // 3.5% and 10.0% measured over 1000 seeds per size with this checker. Seeds
-    // are deterministic, so these are fixed numbers rather than samples; the
-    // band exists so a change to graph generation surfaces as a rate move
-    // rather than silently.
-    expect(rate(4), "size 4").toBeLessThan(0.08);
-    expect(rate(5), "size 5").toBeLessThan(0.16);
-  });
-
-  it("costs about a fifth of a generation to retry past", () => {
-    let total = 0;
-    let worst = 0;
-    for (let i = 0; i < TRIALS; i++) {
-      const { attempts } = generateValid(`attempts-${i}`, { chunks: 5 });
-      total += attempts;
-      worst = Math.max(worst, attempts);
+  it("costs a couple of graphs at most to retry past, every check included", () => {
+    // Rejection is how the shape's checks are met, so this is the cost of all
+    // of them, not just planarity. Measured: medium is the dearest, at under two
+    // graphs on average, because two loops rarely make three distinct routes.
+    for (const size of [1, 2, 3] as Size[]) {
+      let total = 0;
+      let worst = 0;
+      for (let i = 0; i < TRIALS; i++) {
+        const seed = `attempts-${i}`;
+        const { attempts } = generateValid(seed, shapeFor(size, seed));
+        total += attempts;
+        worst = Math.max(worst, attempts);
+      }
+      expect(total / TRIALS, `mean attempts at size ${size}`).toBeLessThan(2.5);
+      expect(worst, `worst attempts at size ${size}`).toBeLessThan(25);
     }
-    expect(total / TRIALS, "mean attempts at size 5").toBeLessThan(1.5);
-    expect(worst, "worst attempts at size 5").toBeLessThan(6);
   });
 });

@@ -8,10 +8,12 @@ import type { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { currentUser, type AuthEnv } from "../auth.ts";
 import {
-  chunksOf,
+  contentFrom,
   finishGeneration,
-  generateChunk,
+  generateStep,
   generateStructure,
+  isStep,
+  STEPS,
 } from "../../generation/generate.ts";
 import { createJournal } from "../../journal/journal.ts";
 import type { Size } from "../../generation/content/blueprint.ts";
@@ -43,11 +45,11 @@ export function dungeonRoutes(app: Hono<AuthEnv>): void {
     // day failed to write must be able to try again.
     const unfinished = await repo.findUnfinishedDungeon(currentUser(c).id, { seed, size, level });
     if (unfinished) {
-      return c.json({ dungeonId: unfinished.id, chunks: chunksOf(unfinished.doc) });
+      return c.json({ dungeonId: unfinished.id, steps: STEPS });
     }
 
     // THE ONLY GATE ON GENERATION, and it sits on the first of the three
-    // requests: once a structure exists, its chunks and its join are the same
+    // requests: once a structure exists, its steps and its finish are the same
     // dungeon being finished, not a new one being started. See `allowance.ts`.
     // A closed day (`spend.ts`) is asked first: it is nobody's allowance.
     const allowance = await allowanceOf(currentUser(c));
@@ -74,7 +76,7 @@ export function dungeonRoutes(app: Hono<AuthEnv>): void {
     const dungeonId = await repo.insertPartialDungeon(partial, currentUser(c).id);
     await repo.appendDungeonEvents(dungeonId, events);
 
-    return c.json({ dungeonId, chunks: chunksOf(partial) });
+    return c.json({ dungeonId, steps: STEPS });
   });
 
   /**
@@ -107,48 +109,47 @@ export function dungeonRoutes(app: Hono<AuthEnv>): void {
   }
 
   /**
-   * One region. The client fires these in parallel, which is the parallelism
-   * the single-process pipeline always had — it has just moved up a layer.
+   * One step: one model call. The client runs them in the order `STEPS` lists,
+   * one at a time, because a later step may read an earlier one's answer.
    *
-   * Idempotent: `saveChunk` keeps the first answer, so a retry of a call whose
+   * Idempotent: `saveStep` keeps the first answer, so a retry of a call whose
    * response already landed costs a model call and changes nothing.
    */
-  app.post("/api/dungeons/:id/chunks/:n", async (c) => {
+  app.post("/api/dungeons/:id/steps/:step", async (c) => {
     const stored = await mustGetDungeon(c.req.param("id"), currentUser(c).id);
-    const partial = stored.doc;
-    const chunk = Number(c.req.param("n"));
-    if (!chunksOf(partial).includes(chunk)) {
-      throw new HTTPException(404, { message: `no region ${chunk} in that dungeon` });
+    const step = c.req.param("step");
+    if (!isStep(step)) {
+      throw new HTTPException(404, { message: `no step "${step}" in generation` });
     }
 
-    // Already written — a retry of a dungeon that failed somewhere else. The
+    // Already run — a retry of a dungeon that failed somewhere else. The
     // answer is kept, so asking the model again would buy nothing.
-    if ((await repo.listChunks(stored.id)).some((r) => r.chunk === chunk)) {
-      return c.json({ chunk, done: true });
+    if ((await repo.listSteps(stored.id)).some((r) => r.step === step)) {
+      return c.json({ step, done: true });
     }
 
     const result = await journalled(stored.id, (journal) =>
-      generateChunk(partial, chunk, { journal })
+      generateStep(stored.doc, step, { journal })
     );
-    await repo.saveChunk(stored.id, result);
+    await repo.saveStep(stored.id, result);
 
-    return c.json({ chunk, done: true });
+    return c.json({ step, done: true });
   });
 
   /**
-   * Apply every region in ascending order, then write the ways between them.
+   * Apply the saved steps, then write the keys.
    *
-   * `finishGeneration` refuses if a region is missing, which is the check that
-   * turns a lost chunk into a retryable request rather than an unwritten entity
+   * `contentFrom` refuses if a step is missing, which is the check that turns a
+   * lost step into a retryable request rather than an unwritten entity
    * discovered at the end of a pass nobody can rerun.
    */
   app.post("/api/dungeons/:id/finish", async (c) => {
     const stored = await mustGetDungeon(c.req.param("id"), currentUser(c).id);
     if (stored.status === "complete") return c.json({ dungeonId: stored.id, already: true });
 
-    const results = await repo.listChunks(stored.id);
+    const results = await repo.listSteps(stored.id);
     const complete = await journalled(stored.id, async (journal) => {
-      const done = await finishGeneration(stored.doc, results, { journal });
+      const done = await finishGeneration(stored.doc, contentFrom(results), { journal });
       // The baseline every later diff is a delta from. Written here, once per
       // dungeon rather than once per run: it carries the whole world, and a
       // copy per run is what would fill a 500MB tier.

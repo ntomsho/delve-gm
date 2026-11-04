@@ -1,9 +1,9 @@
 /**
- * CONTENT PASS  (per chunk)
- * =========================
+ * CONTENT PASS  (the whole dungeon)
+ * ==================================
  *
- * The fourth pass, and the first that writes prose. ONE batch call per chunk
- * (six rooms). In a single call the model names and writes the standing `base`
+ * The fourth pass, and the first that writes prose. ONE batch call for the
+ * whole dungeon (5-12 rooms). In a single call the model names and writes the standing `base`
  * for every room, entity, connector, and creature-group local to those rooms,
  * and the deterministic layer settles counts and stats around it.
  *
@@ -17,7 +17,7 @@
  * procgen rolls behind it, keyed by the table each was rolled from. These ride
  * along into the context of any later pass that revisits the entity.
  *
- * THE PASS IN FOUR FILES, in the order a chunk goes through them:
+ * THE PASS IN FOUR FILES, in the order an answer goes through them:
  *
  *   build.ts     what the model is told about each room (this file)
  *   prompt.ts    that payload rendered into the call, with the instructions
@@ -79,12 +79,6 @@ export interface ConnectorBrief {
   ref: string;
   /** null on a way out of the dungeon: there is no room on the other side */
   toRef: string | null;
-  /**
-   * A way through to a room in ANOTHER chunk. Listed so the room knows how many
-   * ways out it has, and NOT written here -- see SeamBrief. Never set on a
-   * connector this chunk owns.
-   */
-  seam?: boolean;
   /**
    * What is on the other side, as context only. A connector's NAME must not
    * mention either room -- it is named for what it physically is, and the room
@@ -184,19 +178,9 @@ export interface ContentRoomBrief {
   fixtures?: { cap: number; corridor: boolean };
 }
 
-export interface ContentBorderBrief {
-  ref: string;
-  identity: string;
-  headline: RoomStock["headline"];
-  summary: string;
-  connectsTo: string[];
-}
-
 export interface ContentPassPayload {
-  chunk: number;
   dungeonContext: string;
   rooms: ContentRoomBrief[];
-  borders: ContentBorderBrief[];
   instructions: string;
   responseSchema: string;
   /**
@@ -375,7 +359,6 @@ export function buildContentPassPayload(
   sd: StockedDungeon,
   bp: DungeonBlueprintSeed,
   ep: EntityPassResult,
-  chunk: number,
   dungeonContext: string,
   /**
    * The drawn rooms, by graph index. Optional throughout: a dungeon with no
@@ -384,7 +367,9 @@ export function buildContentPassPayload(
    */
   site?: Siting
 ): ContentPassPayload {
-  const rng = new Rng((sd.seed ?? 0) + 131 * (chunk + 1));
+  // `+ 131` is what the pipeline used when it wrote regions, kept so a
+  // seed rolls the same numbers appearing it did then.
+  const rng = new Rng((sd.seed ?? 0) + 131);
   const roomById = new Map(sd.rooms.map((r) => [r.roomId, r]));
   const mobById = new Map(sd.mobiles.map((m) => [m.id, m]));
   const ref = (r: RoomStock) => `room_${r.index}`;
@@ -400,32 +385,19 @@ export function buildContentPassPayload(
   const groupById = new Map<string, InhabitantGroup>();
   for (const g of [...bp.inhabitants, ...sd.wandererGroups]) groupById.set(g.id, g);
 
-  const inChunk = sd.rooms.filter((r) => r.chunk === chunk);
-  const inChunkIds = new Set(inChunk.map((r) => r.roomId));
-
   const linksOf = (roomId: string) =>
     sd.connectors
       .filter((c) => c.a === roomId || c.b === roomId)
       .map((c) => ({ conn: c, other: roomById.get(c.a === roomId ? c.b : c.a)! }));
 
   /**
-   * A connector is written by the pass that can see BOTH rooms it joins.
-   *
-   * That is this one only when both endpoints are in this chunk -- and then the
-   * lower graph index owns it, so it is written once rather than by each of its
-   * two rooms.
-   *
-   * A connector leaving the chunk is a SEAM and is not written here. Every chunk
-   * payload is built before any of them is applied, so at this moment the room on
-   * the far side has no name and no base: whatever this chunk wrote would be
-   * written blind, and then silently overwritten by the other chunk writing it
-   * equally blind from its own side. Seams go to `buildSeamsPassPayload`, which
-   * runs after every chunk has landed and has both rooms in front of it.
+   * A connector is written once, by the room with the lower graph index. The
+   * call sees every room, so both ends are in front of it either way; owning it
+   * from one side is what stops it being written twice.
    */
   const ownsConnector = (c: StockedConnector, r: RoomStock): boolean => {
     const mine = c.a === r.roomId || c.b === r.roomId;
     if (!mine) return false;
-    if (!inChunkIds.has(c.a) || !inChunkIds.has(c.b)) return false;
     const owner = roomById.get(c.a)!.index <= roomById.get(c.b)!.index ? c.a : c.b;
     return r.roomId === owner;
   };
@@ -439,7 +411,7 @@ export function buildContentPassPayload(
     return exit ? exitPhrase(exit) : undefined;
   };
 
-  const rooms: ContentRoomBrief[] = inChunk.map((r) => {
+  const rooms: ContentRoomBrief[] = sd.rooms.map((r) => {
     const links = linksOf(r.roomId);
     const geom = site?.geometry[r.index];
 
@@ -448,10 +420,9 @@ export function buildContentPassPayload(
     for (const b of ep.bindings) {
       if (b.roomId !== r.roomId) continue;
       if (b.element === "creature" || b.element === "connector" || b.element === "detail") continue;
-      // A PLACED KEY IS LEFT NAMELESS HERE, the way a seam is left formless.
-      // Its lock is usually in another chunk and has not been written at the
-      // moment this payload is built, so anything written now could only invent
-      // one. `keys-pass.ts` writes it afterwards with both in front of
+      // A PLACED KEY IS LEFT NAMELESS HERE. Its lock has not been written at
+      // the moment this payload is built, so anything written now could only
+      // invent one. `keys-pass.ts` writes it afterwards with both in front of
       // it. The key still gets a position -- see `placeWithheld` in the applier.
       if (withheld.has(b.entityId)) continue;
       const entity = itemIds.has(b.entityId) ? "Item" : hazardIds.has(b.entityId) ? "Hazard" : "RoomFeature";
@@ -505,25 +476,6 @@ export function buildContentPassPayload(
         hidden: l.conn.hidden,
         wall: wallOf(r.index, l.conn.id),
       }));
-
-    // --- and the ways out of the chunk, as context only ---
-    // The room has to know how many ways out it has, or it writes itself as
-    // having fewer and the writing pass starts inventing replacements. It just
-    // does not get to write these ones.
-    for (const l of links) {
-      if (inChunkIds.has(l.other.roomId)) continue;
-      connectors.push({
-        ref: l.conn.id,
-        toRef: ref(l.other),
-        toIdentity: l.other.identity,
-        gated: l.conn.gated,
-        hidden: l.conn.hidden,
-        seam: true,
-        // A seam is not written here, but the room still stands in front of it
-        // and the prose has to be able to say which way it faces.
-        wall: wallOf(r.index, l.conn.id),
-      });
-    }
 
     // The way out of the dungeon belongs to the entrance room. It is not in
     // `sd.connectors` -- the topology pass only knows about ways between rooms
@@ -615,41 +567,18 @@ export function buildContentPassPayload(
     };
   });
 
-  // --- borders ---
-  const borderIds = new Set<string>();
-  for (const r of inChunk) for (const l of linksOf(r.roomId)) if (!inChunkIds.has(l.other.roomId)) borderIds.add(l.other.roomId);
-  const borders: ContentBorderBrief[] = [...borderIds].map((id) => {
-    const b = roomById.get(id)!;
-    const parts: string[] = [];
-    if (b.occupants.length) parts.push(`holds ${b.occupants.length} creature group(s)`);
-    if (b.special) parts.push(b.special.kind === "hazard" ? "hazardous" : "has an obstacle");
-    if (b.role === "goal") parts.push("the objective is here");
-    if (b.role === "entrance") parts.push("the way in");
-    return {
-      ref: ref(b),
-      identity: b.identity,
-      headline: b.headline,
-      summary: parts.length ? parts.join("; ") : "quiet",
-      connectsTo: linksOf(b.roomId).filter((l) => inChunkIds.has(l.other.roomId)).map((l) => ref(l.other)),
-    };
-  });
-
-  // Only the rooms this chunk writes. A border room's cells are of no use here
-  // — apply never touches it — and carrying them would put the whole dungeon's
-  // grid in every one of N payloads.
+  // Apply places fixtures and positions from these cells; the model never sees them.
   let ground: ContentPassPayload["ground"];
   if (site) {
     ground = {};
-    for (const r of inChunk) {
+    for (const r of sd.rooms) {
       ground[ref(r)] = { geometry: site.geometry[r.index], ground: site.ground[r.index] };
     }
   }
 
   return {
-    chunk,
     dungeonContext,
     rooms,
-    borders,
     instructions: CONTENT_PASS_INSTRUCTIONS,
     responseSchema: CONTENT_PASS_SCHEMA,
     ground,

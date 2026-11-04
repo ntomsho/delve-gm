@@ -8,6 +8,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { shapeFor } from "../seeds.ts";
 import { generateBlueprintSeed, type Size } from "./blueprint.ts";
 import {
   MAGICAL_INGREDIENTS,
@@ -30,16 +31,22 @@ import type { StockedDungeon } from "./types.ts";
 
 function stockFor(seed: number, size: Size): StockedDungeon {
   const bp = generateBlueprintSeed(size, seed);
-  const { dungeon } = generateBlueprint(String(seed), { chunks: size }, true);
+  const { dungeon } = generateBlueprint(String(seed), shapeFor(size, String(seed)), true);
   return stockDungeon(dungeon, bp, { level: 1, seed: seed + 7919 });
 }
 
 /** A spread wide enough that a rule holding across it is a rule, not a seed. */
 const SEEDS = [1005, 4242, 77, 90210, 31337];
+/**
+ * For rows rare enough that five dungeons of a dozen rooms may not roll one:
+ * a potion is one treasure row of several, and treasure is half of what a
+ * room's reward rolls.
+ */
+const MANY_SEEDS = [...SEEDS, 2024, 555, 8086, 12345, 999, 4040, 31415, 27182, 1618, 6022];
 const CASES: Array<[number, Size]> = SEEDS.flatMap(
   (seed): Array<[number, Size]> => [
     [seed, 2],
-    [seed, 4],
+    [seed, 3],
   ]
 );
 
@@ -76,7 +83,7 @@ describe("challenges", () => {
   });
 
   it("counts one challenge per keyable property, not one per entity", () => {
-    const sd = stockFor(4242, 4);
+    const sd = stockFor(4242, 3);
     const byMobile = new Map<string, Challenge[]>();
     for (const c of sd.challenges) {
       if (c.target !== "mobile") continue;
@@ -96,7 +103,7 @@ describe("challenges", () => {
   });
 
   it("keys a way twice when it is both blocked and concealed", () => {
-    const sd = stockFor(90210, 4);
+    const sd = stockFor(90210, 3);
     for (const c of sd.connectors) {
       const found = sd.challenges.filter((ch) => ch.targetId === c.id).map((ch) => ch.kind);
       expect(found.includes("blocked-way")).toBe(c.gated);
@@ -108,7 +115,7 @@ describe("challenges", () => {
     // The keys pass and the runtime ledger both call this outside `stockDungeon`, so
     // it has to be a pure reading of the stocked dungeon rather than a step in
     // building one.
-    const sd = stockFor(31337, 4);
+    const sd = stockFor(31337, 3);
     expect(enumerateChallenges(sd)).toEqual(sd.challenges);
   });
 
@@ -138,11 +145,11 @@ describe("the pot", () => {
 
   it("scales with size and not with level", () => {
     const small = stockFor(1005, 2).pot.total;
-    const large = stockFor(1005, 5).pot.total;
+    const large = stockFor(1005, 3).pot.total;
     expect(large).toBeGreaterThan(small);
 
     const bp = generateBlueprintSeed(3, 4242);
-    const { dungeon } = generateBlueprint("4242", { chunks: 3 }, true);
+    const { dungeon } = generateBlueprint("4242", shapeFor(3, "4242"), true);
     const l1 = stockDungeon(dungeon, bp, { level: 1, seed: 999 });
     const l8 = stockDungeon(dungeon, bp, { level: 8, seed: 999 });
     expect(l8.pot.total).toBe(l1.pot.total);
@@ -153,7 +160,7 @@ describe("the pot", () => {
     // significant parcels was 3,600-36,000cp against a purse of 60-360.
     for (const [seed, size] of CASES) {
       const sd = stockFor(seed, size);
-      expect(sd.pot.total).toBeLessThanOrEqual(size * 400);
+      expect(sd.pot.total).toBeLessThanOrEqual(sd.rooms.length * 67);
     }
   });
 
@@ -169,7 +176,7 @@ describe("the pot", () => {
   });
 
   it("keeps keys and equipment out of the pot", () => {
-    const sd = stockFor(31337, 4);
+    const sd = stockFor(31337, 3);
     // Nothing but treasure draws on it, which is what lets `placed` be an
     // equality rather than a bound.
     const treasure = rewardsOf(sd).filter((r) => r.kind === "treasure");
@@ -247,7 +254,7 @@ describe("placement", () => {
   it("allows more than one reward in a room and more than one on an entity", () => {
     // No cap is the rule, not an accident, so this asserts the rule is not
     // being quietly enforced somewhere. Stacking is uncommon, not forbidden.
-    const rooms = SEEDS.flatMap((s) => stockFor(s, 5).rooms);
+    const rooms = SEEDS.flatMap((s) => stockFor(s, 3).rooms);
     expect(rooms.some((r) => r.rewards.length > 1)).toBe(true);
   });
 });
@@ -284,9 +291,9 @@ describe("the reserve", () => {
   });
 
   it("shrinks the placed set to something a single pass can write", () => {
-    // The keys pass covers the PLACED keys only -- roughly a handful at size 5
+    // The keys pass covers the PLACED keys only -- roughly a handful at large
     // rather than the thirty-odd the enumeration turns up.
-    const sd = stockFor(4242, 5);
+    const sd = stockFor(4242, 3);
     expect(sd.challenges.length).toBeGreaterThan(15);
     expect(keysOf(sd).length).toBeLessThan(sd.challenges.length / 2);
   });
@@ -338,8 +345,8 @@ describe("determinism", () => {
   });
 
   it("gives a reward an id that does not move between runs of a seed", () => {
-    const a = rewardsOf(stockFor(4242, 4)).map((r) => r.id);
-    const b = rewardsOf(stockFor(4242, 4)).map((r) => r.id);
+    const a = rewardsOf(stockFor(4242, 3)).map((r) => r.id);
+    const b = rewardsOf(stockFor(4242, 3)).map((r) => r.id);
     expect(a).toEqual(b);
     expect(new Set(a).size).toBe(a.length);
   });
@@ -405,7 +412,7 @@ describe("the reward tables", () => {
     // It was an equipment row while POTIONS was a stub and then while it was
     // filled; it is a treasure row now, so it is priced from the pot like
     // everything else the dungeon puts a number on.
-    const rewards = SEEDS.flatMap((s) => rewardsOf(stockFor(s, 5)));
+    const rewards = MANY_SEEDS.flatMap((s) => rewardsOf(stockFor(s, 3)));
     const equipment = rewards.flatMap((r) => (r.kind === "equipment" ? [r.row] : []));
     const treasure = rewards.flatMap((r) => (r.kind === "treasure" ? [r.row] : []));
 
@@ -417,8 +424,8 @@ describe("the reward tables", () => {
   it("names the potion by what it does, and leaves the flask to the writing pass", () => {
     // `POTIONS` holds effects — the row is the noun. A content string that had
     // already said "Potion" would reach the pass as `Potion: Potion of Flight`.
-    const potions = SEEDS.flatMap((s) =>
-      rewardsOf(stockFor(s, 5)).filter((r) => r.kind === "treasure" && r.row === "potion")
+    const potions = MANY_SEEDS.flatMap((s) =>
+      rewardsOf(stockFor(s, 3)).filter((r) => r.kind === "treasure" && r.row === "potion")
     );
     expect(potions.length).toBeGreaterThan(0);
     for (const p of potions) {
@@ -431,8 +438,8 @@ describe("the reward tables", () => {
   it("pays a potion out of the pot rather than out of the key band", () => {
     // The old row priced itself at KEY_VALUE_BAND, 5-60cp, which is what a key
     // is worth and not what a flask of flight is worth. A share is a share.
-    const potions = SEEDS.flatMap((s) =>
-      rewardsOf(stockFor(s, 5)).filter((r) => r.kind === "treasure" && r.row === "potion")
+    const potions = MANY_SEEDS.flatMap((s) =>
+      rewardsOf(stockFor(s, 3)).filter((r) => r.kind === "treasure" && r.row === "potion")
     );
     for (const p of potions) {
       if (p.kind !== "treasure") continue;
@@ -450,7 +457,7 @@ describe("the reward tables", () => {
 describe("the entities pass", () => {
   it.each(CASES)("seed %i size %i emits one item per reward draw", (seed, size) => {
     const bp = generateBlueprintSeed(size, seed);
-    const { dungeon } = generateBlueprint(String(seed), { chunks: size }, true);
+    const { dungeon } = generateBlueprint(String(seed), shapeFor(size, String(seed)), true);
     const sd = stockDungeon(dungeon, bp, { level: 1, seed: seed + 7919 });
     const ep = runEntitiesPass(sd, bp, new Rng(sd.seed));
 
@@ -473,8 +480,8 @@ describe("the entities pass", () => {
 
   it("parents a carried reward to the creature carrying it", () => {
     const seed = 4242;
-    const bp = generateBlueprintSeed(5, seed);
-    const { dungeon } = generateBlueprint(String(seed), { chunks: 5 }, true);
+    const bp = generateBlueprintSeed(3, seed);
+    const { dungeon } = generateBlueprint(String(seed), shapeFor(3, String(seed)), true);
     const sd = stockDungeon(dungeon, bp, { level: 1, seed: seed + 7919 });
     const ep = runEntitiesPass(sd, bp, new Rng(sd.seed));
 
@@ -497,8 +504,8 @@ describe("the entities pass", () => {
 
   it("marks the obstacle so the runtime can recognise one", () => {
     const seed = 90210;
-    const bp = generateBlueprintSeed(5, seed);
-    const { dungeon } = generateBlueprint(String(seed), { chunks: 5 }, true);
+    const bp = generateBlueprintSeed(3, seed);
+    const { dungeon } = generateBlueprint(String(seed), shapeFor(3, String(seed)), true);
     const sd = stockDungeon(dungeon, bp, { level: 1, seed: seed + 7919 });
     const ep = runEntitiesPass(sd, bp, new Rng(sd.seed));
 
@@ -513,8 +520,8 @@ describe("the entities pass", () => {
 
   it("gives an equipment reward the catalog's price, not the pot's", () => {
     const seed = 1005;
-    const bp = generateBlueprintSeed(5, seed);
-    const { dungeon } = generateBlueprint(String(seed), { chunks: 5 }, true);
+    const bp = generateBlueprintSeed(3, seed);
+    const { dungeon } = generateBlueprint(String(seed), shapeFor(3, String(seed)), true);
     const sd = stockDungeon(dungeon, bp, { level: 1, seed: seed + 7919 });
     const ep = runEntitiesPass(sd, bp, new Rng(sd.seed));
 
@@ -539,23 +546,24 @@ describe("the entities pass", () => {
     // parcel drew from the pot and nothing decides that twice — which is what
     // "a potion is priced from the treasure budget" actually means once the
     // reward has become a thing in a room.
-    const seed = 1005;
-    const bp = generateBlueprintSeed(5, seed);
-    const { dungeon } = generateBlueprint(String(seed), { chunks: 5 }, true);
-    const sd = stockDungeon(dungeon, bp, { level: 1, seed: seed + 7919 });
-    const ep = runEntitiesPass(sd, bp, new Rng(sd.seed));
-
-    const itemById = new Map(ep.items.map((i) => [i.id, i]));
-    const rewardById = new Map(rewardsOf(sd).map((r) => [r.id, r]));
     let potions = 0;
     let checked = 0;
-    for (const b of ep.bindings) {
-      if (b.element !== "reward" || !b.rewardId) continue;
-      const rw = rewardById.get(b.rewardId)!;
-      if (rw.kind !== "treasure") continue;
-      expect(itemById.get(b.entityId)!.value).toBe(rw.value);
-      if (rw.row === "potion") potions++;
-      checked++;
+    for (const seed of MANY_SEEDS) {
+      const bp = generateBlueprintSeed(3, seed);
+      const { dungeon } = generateBlueprint(String(seed), shapeFor(3, String(seed)), true);
+      const sd = stockDungeon(dungeon, bp, { level: 1, seed: seed + 7919 });
+      const ep = runEntitiesPass(sd, bp, new Rng(sd.seed));
+
+      const itemById = new Map(ep.items.map((i) => [i.id, i]));
+      const rewardById = new Map(rewardsOf(sd).map((r) => [r.id, r]));
+      for (const b of ep.bindings) {
+        if (b.element !== "reward" || !b.rewardId) continue;
+        const rw = rewardById.get(b.rewardId)!;
+        if (rw.kind !== "treasure") continue;
+        expect(itemById.get(b.entityId)!.value).toBe(rw.value);
+        if (rw.row === "potion") potions++;
+        checked++;
+      }
     }
     expect(checked).toBeGreaterThan(0);
     expect(potions).toBeGreaterThan(0);

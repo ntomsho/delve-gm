@@ -67,7 +67,7 @@ function parseArgs(argv: string[]): Args {
   };
 
   const size = num("size", 1);
-  if (![1, 2, 3, 4, 5].includes(size)) die(`--size must be 1-5, got ${size}`);
+  if (![1, 2, 3].includes(size)) die(`--size must be 1 (small), 2 (medium) or 3 (large), got ${size}`);
 
   const offline = argv.includes("--offline");
   return {
@@ -123,7 +123,6 @@ const STAGE_LABEL: Record<GenerationProgress["stage"], string> = {
   history: "Writing its history",
   stocking: "Stocking the rooms",
   writing: "Writing the rooms",
-  joining: "Writing the ways between regions",
   keys: "Writing the keys",
 };
 
@@ -206,10 +205,7 @@ async function main(): Promise<void> {
       ? { offline: true, generate: async ({ seed, size }) => generateOffline(seed, size) }
       : {}),
     onProgress: (p: GenerationProgress) => {
-      const line =
-        p.chunksTotal !== undefined
-          ? `${STAGE_LABEL[p.stage]} — ${p.chunksDone} of ${p.chunksTotal} regions`
-          : STAGE_LABEL[p.stage];
+      const line = STAGE_LABEL[p.stage];
       if (line === lastStage) return;
       lastStage = line;
       console.error(`  ${line}`);

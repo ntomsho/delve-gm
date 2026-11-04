@@ -37,7 +37,6 @@
  * well under treasure money so that selling one never beats using it.
  */
 
-import type { Size } from "./blueprint.ts";
 import {
   MAGICAL_INGREDIENTS,
   POTIONS,
@@ -162,7 +161,6 @@ export interface PlacementInput {
   mobiles: MobileEntity[];
   entranceRoomId: string;
   goalRoomId: string;
-  size: Size;
   challenges: Challenge[];
   maxDepth: number;
   rng: Rng;
@@ -173,12 +171,14 @@ export interface PlacementInput {
 // ---------------------------------------------------------------------------
 
 /**
- * Size, and nothing else. A bigger dungeon holds more; a deeper one does not
- * hold richer, which is the whole correction — a level 8 run and a level 1 run
- * through the same floorplan find the same money.
+ * Room count, and nothing else. A bigger dungeon holds more; a deeper one does
+ * not hold richer, which is the whole correction — a level 8 run and a level 1
+ * run through the same floorplan find the same money.
+ *
+ * 42-67 a room is the old 250-400 for every six rooms, at the same density.
  */
-export function rollPot(size: Size, rng: Rng): number {
-  return size * rng.range(250, 400);
+export function rollPot(rooms: number, rng: Rng): number {
+  return rooms * rng.range(42, 67);
 }
 
 /**
@@ -447,12 +447,12 @@ export function generalBudget(roomCount: number): number {
  * the dungeon rather than to any room.
  */
 export function placeRewards(input: PlacementInput): RewardPlacement {
-  const { rooms, connectors, mobiles, entranceRoomId, goalRoomId, size, challenges, maxDepth, rng } =
+  const { rooms, connectors, mobiles, entranceRoomId, goalRoomId, challenges, maxDepth, rng } =
     input;
 
   for (const r of rooms) r.rewards = [];
 
-  const total = rollPot(size, rng);
+  const total = rollPot(rooms.length, rng);
   const distributable = total - Math.round(total * ALLOWANCE_SHARE);
 
   let counter = 0;
@@ -529,10 +529,9 @@ export function placeRewards(input: PlacementInput): RewardPlacement {
   /**
    * A challenge for a key that is going to sit in `room`.
    *
-   * Weighted toward the same region, because a key and its lock in the same
-   * stretch of the dungeon is a puzzle and one at opposite ends is a fetch. The
-   * blocked-way check is not a weight: a key behind its own door is refused
-   * outright.
+   * Uniform over what is left. A key behind its own door is refused outright.
+   * (Weighting toward the same stretch of the dungeon went with the chunks; the
+   * outline pass will choose key pairs itself.)
    */
   const pickChallenge = (room: RoomStock): Challenge | undefined => {
     const pool = challenges.filter((c) => {
@@ -543,14 +542,7 @@ export function placeRewards(input: PlacementInput): RewardPlacement {
     });
     if (!pool.length) return undefined;
 
-    const weights = pool.map((c) => (byId.get(c.roomId)?.chunk === room.chunk ? 3 : 1));
-    const sum = weights.reduce((a, b) => a + b, 0);
-    let x = rng.next() * sum;
-    for (let i = 0; i < pool.length; i++) {
-      x -= weights[i];
-      if (x <= 0) return pool[i];
-    }
-    return pool[pool.length - 1];
+    return pool[Math.min(pool.length - 1, Math.floor(rng.next() * pool.length))];
   };
 
   // --- 1. general rewards ---------------------------------------------------

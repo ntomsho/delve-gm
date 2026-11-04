@@ -10,6 +10,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { shapeFor } from "../seeds.ts";
 import { blockPlanValid, type BlockPlan } from "./blockplan.ts";
 import { generateBlueprint, type Dungeon } from "./graph.ts";
 import { generateBlueprintSeed, type Size } from "../content/blueprint.ts";
@@ -95,7 +96,7 @@ describe("traceOutline", () => {
 // ===========================================================================
 
 function build(seed: number, size: Size): { graph: Dungeon; sd: StockedDungeon } {
-  const { dungeon } = generateBlueprint(String(seed), { chunks: size }, true);
+  const { dungeon } = generateBlueprint(String(seed), shapeFor(size, String(seed)), true);
   const bp = generateBlueprintSeed(size, seed, 1);
   return { graph: dungeon, sd: stockDungeon(dungeon, bp, { level: 1, seed: seed + 7919 }) };
 }

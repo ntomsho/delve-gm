@@ -40,8 +40,8 @@ export {
   listLibrary,
   getCompleteDungeons,
   duplicateDungeon,
-  saveChunk,
-  listChunks,
+  saveStep,
+  listSteps,
 } from "./dungeons.ts";
 export {
   appendDungeonEvents,

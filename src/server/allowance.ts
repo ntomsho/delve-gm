@@ -156,7 +156,7 @@ export function allowanceFor(input: {
       portraitsUsed,
       portraitsLimit: null,
       portraitsLeft: null,
-      maxSize: 5,
+      maxSize: 3,
       resetsAt,
       unplayed,
       closed,

@@ -16,7 +16,7 @@ import type { Usage } from "../llm/client.ts";
 import type { ValidationIssue } from "../llm/validation.ts";
 
 /** Every pass that calls a model. The tally runs at the end of play, but it is the same kind of call. */
-export type GenerationPass = "dungeon-pass" | "content-pass" | "seams-pass" | "keys-pass" | "tally-pass";
+export type GenerationPass = "dungeon-pass" | "content-pass" | "keys-pass" | "tally-pass";
 
 export type GenerationRecord =
   /**
@@ -27,7 +27,6 @@ export type GenerationRecord =
   | {
       kind: "generation";
       pass: GenerationPass;
-      chunk?: number;
       prompt: string;
       response: unknown;
       usage: Usage;
@@ -36,9 +35,8 @@ export type GenerationRecord =
    * A generation call that came back unusable.
    *
    * The `generation` event above is written on SUCCESS, which meant a pass that
-   * never succeeded left no trace but the message on the exception — and since
-   * the chunks run in parallel, not even which one it was. So a failure writes
-   * its own event: which pass, which chunk, which attempt, and what was
+   * never succeeded left no trace but the message on the exception. So a
+   * failure writes its own event: which pass, which attempt, and what was
    * actually objected to.
    *
    * Both attempts are recorded, not just the last. The first failure and the
@@ -49,7 +47,6 @@ export type GenerationRecord =
   | {
       kind: "generation-error";
       pass: GenerationPass;
-      chunk?: number;
       attempt: number;
       willRetry: boolean;
       message: string;

@@ -42,11 +42,24 @@
 
 import { createGameStore, type RunState } from "../state/store.ts";
 import { acceptsInput, isTerminal, type Stage, type Step } from "../../shared/types/turn.ts";
-import type { GeneratedDungeon, GenerationProgress } from "../../generation/generate.ts";
+import type {
+  GeneratedDungeon,
+  GenerationProgress,
+  GenerationStage,
+  Step as GenerationStep,
+} from "../../generation/generate.ts";
 import type { IllustrationAnswer } from "../../illustrations/room-illustration.ts";
 import type { SpriteAnswer } from "../../illustrations/sprites.ts";
 import type { PlayableSession, RunRequest } from "./session.ts";
 import type { PlayerCharacter } from "../../rules/knave/character.ts";
+
+/**
+ * What the loading screen says while each generation step runs. A Record, so a
+ * step added to `STEPS` does not compile until it has a stage here.
+ */
+const STAGE_OF_STEP: Record<GenerationStep, GenerationStage> = {
+  content: "writing",
+};
 
 export interface RemoteOptions {
   /** where the API lives. Same origin in dev, because Vite proxies `/api`. */
@@ -294,25 +307,19 @@ export function createRemoteSession(opts: RemoteOptions = {}): PlayableSession {
       begun = true;
 
       report({ stage: "layout" });
-      const made = await call<{ dungeonId: string; chunks: number[] }>("POST", "/api/dungeons", {
+      const made = await call<{ dungeonId: string; steps: GenerationStep[] }>("POST", "/api/dungeons", {
         seed,
         size,
         level,
       });
 
-      // In parallel, and progress reported as each lands — which is honest for
-      // the first time, because each one really is a region finished rather
-      // than a step in a function nobody can see.
-      let done = 0;
-      report({ stage: "writing", chunksDone: 0, chunksTotal: made.chunks.length });
-      await Promise.all(
-        made.chunks.map(async (n) => {
-          await call("POST", `/api/dungeons/${made.dungeonId}/chunks/${n}`);
-          report({ stage: "writing", chunksDone: ++done, chunksTotal: made.chunks.length });
-        })
-      );
+      // IN ORDER, one at a time: a later step may read an earlier one's answer.
+      for (const step of made.steps) {
+        report({ stage: STAGE_OF_STEP[step] });
+        await call("POST", `/api/dungeons/${made.dungeonId}/steps/${step}`);
+      }
 
-      report({ stage: "joining" });
+      report({ stage: "keys" });
       await call("POST", `/api/dungeons/${made.dungeonId}/finish`);
 
       await startRun(made.dungeonId, character);
@@ -321,7 +328,7 @@ export function createRemoteSession(opts: RemoteOptions = {}): PlayableSession {
     /**
      * GO BACK DOWN A WORLD THAT IS ALREADY WRITTEN.
      *
-     * One request instead of N+3, and none of them a model call. The dungeon is
+     * One request instead of one per step and three more, and none of them a model call. The dungeon is
      * named rather than rolled, so there is no seed, no size and no level in
      * this — those are facts about the world already, and a client that restated
      * them could state them wrongly.

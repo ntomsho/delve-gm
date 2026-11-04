@@ -13,15 +13,15 @@
  *   groups     the shared base for each rolled inhabitant group
  *
  * INHABITANT BASES ARE WRITTEN HERE. A group is a dungeon-level thing: it can
- * be placed in several rooms across several chunks, and every instance shares
- * one identity. Writing it once, here, is what keeps chunks from each inventing
- * their own version of the same population -- and who lives here belongs in the
- * dungeon's fiction anyway, not in whichever room happens to hold them.
+ * be placed in several rooms, and every instance shares one identity. Writing
+ * it once, here, is what keeps rooms from each inventing their own version of
+ * the same population -- and who lives here belongs in the dungeon's fiction
+ * anyway, not in whichever room happens to hold them.
  *
  * Wanderer groups are NOT written here. They do not exist yet (stocking rolls
  * them), they are filler drawn when the rolled inhabitants are already placed,
  * and they are explicitly not part of the resident population. The content pass
- * writes theirs, in the one chunk each appears in.
+ * writes theirs.
  */
 
 import {
@@ -120,8 +120,8 @@ export interface DungeonPassResult {
    * runtime, as the cached static prefix on every game master call.
    *
    * Built ONCE, here, from bp.inhabitants alone. Nothing appends to it and no
-   * later pass regenerates it -- wanderer bases land in registry.groups as
-   * chunks complete, and anything that re-derived this string from the registry
+   * later pass regenerates it -- wanderer bases land in registry.groups when
+   * the content pass applies, and anything that re-derived this string from the registry
    * would start presenting corridor filler as the dungeon's population.
    */
   dungeonContext: string;

@@ -28,12 +28,6 @@ import {
   type KeysPassPayload,
   type KeysPassResponse,
 } from "../generation/content/passes/keys-pass.ts";
-import {
-  applySeamsPass,
-  buildSeamsPassPayload,
-  type SeamsPassPayload,
-  type SeamsPassResponse,
-} from "../generation/content/passes/seams-pass.ts";
 import { generateBlueprint, type Dungeon } from "../generation/floorplan/graph.ts";
 import { generateBlueprintSeed, type Size } from "../generation/content/blueprint.ts";
 import { Rng } from "../shared/utils/rng.ts";
@@ -45,12 +39,11 @@ import type { StockedDungeon } from "../generation/content/types.ts";
 import type { AnyItem } from "../shared/world/entities.ts";
 import type { PlayerCharacter } from "../rules/knave/character.ts";
 import type { GeneratedDungeon } from "../generation/generate.ts";
-import { chunksFor, deriveSeeds } from "../generation/seeds.ts";
+import { deriveSeeds, shapeFor } from "../generation/seeds.ts";
 import {
   contentPassSchema,
   dungeonPassSchema,
   keysPassSchema,
-  seamsPassSchema,
 } from "../generation/content/passes/schemas.ts";
 import { validate } from "../llm/json.ts";
 
@@ -187,9 +180,7 @@ export function fakeContentPass(p: ContentPassPayload): ContentPassResponse {
             }),
           }
         : {}),
-      // Seams are listed for the count and written by the seams pass — a chunk
-      // answering with one would be writing a room it cannot see.
-      connectors: r.connectors.filter((c) => !c.seam).map((c) => {
+      connectors: r.connectors.map((c) => {
         // The way out of the dungeon: one end is a room and the other is
         // daylight. Named as a thing, like every other connector.
         if (c.surface) {
@@ -249,26 +240,6 @@ export function fakeContentPass(p: ContentPassPayload): ContentPassResponse {
 }
 
 /**
- * Answer a seams payload point for point.
- *
- * It names both rooms in the form, which is what the real instruction asks for
- * and what the pass exists to make possible — a fake that ignored it would hide
- * the one thing worth checking offline.
- */
-export function fakeSeamsPass(p: SeamsPassPayload): SeamsPassResponse {
-  return {
-    connectors: p.seams.map((s) => ({
-      ref: s.ref,
-      name: s.hidden ? "a hollow-sounding panel" : "a flooded stair",
-      form:
-        `A short flight of steps between the regions, ${s.a.name} at its head and ` +
-        `${s.b.name} at its foot, standing in water for the lower half.`,
-      ...(s.gated ? { requirement: "the way is silted up and must be dug clear" } : {}),
-    })),
-  };
-}
-
-/**
  * Answer a keys payload point for point.
  *
  * The fact is quoted VERBATIM in the base, which is exactly what the real
@@ -300,7 +271,7 @@ export function generateOffline(seed: number, size: Size): GeneratedDungeon {
   let stocked!: StockedDungeon;
   for (let attempt = 0; attempt < 8; attempt++) {
     const graphSeed = attempt === 0 ? seeds.graphSeed : `${seeds.graphSeed}~${attempt}`;
-    dungeon = generateBlueprint(graphSeed, { chunks: chunksFor(size) }, true).dungeon;
+    dungeon = generateBlueprint(graphSeed, shapeFor(size, seeds.graphSeed), true).dungeon;
     // THE DRAWING RUNS INSIDE STOCKING, as it does in `generate.ts`. Computed
     // alongside, it would leave `RoomStock.sizeClass` unset offline and
     // so left `sizeAllows` — the condition that stops a four-cell closet rolling
@@ -329,20 +300,11 @@ export function generateOffline(seed: number, size: Size): GeneratedDungeon {
   const dp = applyDungeonPass(validate(dungeonPassSchema, fakeDungeonPass(dpPayload.groupIds)), dpPayload);
   Object.assign(entities.registry.groups, dp.groups);
 
-  const chunks = [...new Set(stocked.rooms.map((r) => r.chunk))].sort((a, b) => a - b);
-  for (const chunk of chunks) {
-    const payload = buildContentPassPayload(stocked, blueprint, entities, chunk, dp.dungeonContext, site);
-    applyContentPass(
-      validate(contentPassSchema, fakeContentPass(payload)),
-      payload, entities, blueprint, stocked, new Rng(stocked.seed + chunk)
-    );
-  }
-
-  // Last but one, with every room written — the ways between the chunks.
-  const seams = buildSeamsPassPayload(stocked, entities, dp.dungeonContext);
-  if (seams.seams.length > 0) {
-    applySeamsPass(validate(seamsPassSchema, fakeSeamsPass(seams)), seams, entities);
-  }
+  const payload = buildContentPassPayload(stocked, blueprint, entities, dp.dungeonContext, site);
+  applyContentPass(
+    validate(contentPassSchema, fakeContentPass(payload)),
+    payload, entities, blueprint, stocked, new Rng(stocked.seed)
+  );
 
   // Last of all — the keys. Offline as online: the content pass left every
   // placed key nameless, and nothing else will ever name it. Skipping it here
