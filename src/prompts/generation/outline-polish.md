@@ -30,5 +30,10 @@ Ask:
    one room?
 8. Is the goal still intuitive, and does everything around it make sense?
 
-Say in one line why each edit helps. You cannot remove a mandatory fiction or
-change anything pre-assigned.
+You cannot remove a mandatory fiction or change anything pre-assigned.
+
+HOW TO ANSWER
+Call the tool once. Every edit fills in every field: op, roomA, roomB, fiction, way,
+field, group, text and why, with "none" for any that does not apply to that op. Rooms,
+fictions, ways and groups go by ref, like room_3, F2, W1 or G1. New wording goes in
+text, and only there. why is one real sentence on why the edit helps.

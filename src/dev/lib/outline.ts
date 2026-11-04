@@ -27,9 +27,9 @@ import { dungeonPassSchema } from "../../generation/content/passes/schemas.ts";
 import { blockPlanValid, roomSizes } from "../../generation/floorplan/blockplan.ts";
 import { generateBlueprint } from "../../generation/floorplan/graph.ts";
 import { deriveSeeds, shapeFor } from "../../generation/seeds.ts";
-import { addUsage, callForJson, configureTransport, type FailedAttempt, type Usage } from "../../llm/client.ts";
+import { callForJson, configureTransport, type FailedAttempt } from "../../llm/client.ts";
 import { textCost } from "../../llm/cost.ts";
-import { HAIKU, modelFor, SONNET } from "../../llm/models.ts";
+import { HAIKU, SONNET } from "../../llm/models.ts";
 
 const SIZE = 1;
 /** A plain goal, a social goal with only monsters here, and one with people. */
@@ -94,13 +94,13 @@ interface Result {
   refused: boolean;
   /** set when the pass never produced an outline */
   error?: string;
-  writerCost: number;
-  reviewerCost: number;
-  usage: Usage;
+  /** everything spent on this run, failed calls included */
+  cost: number;
   seconds: number;
 }
 
-const NO_USAGE: Usage = { inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheReadTokens: 0 };
+/** Every paid call, success or failure, counted as it lands. */
+let spent = 0;
 
 async function runCombination(
   seed: number,
@@ -110,6 +110,7 @@ async function runCombination(
   reviewer: string
 ): Promise<Result> {
   const started = Date.now();
+  const spentBefore = spent;
   const failures: string[] = [];
   let refused = false;
   const onAttemptFailed = (r: FailedAttempt) => {
@@ -126,9 +127,7 @@ async function runCombination(
     proposed: [],
     kept: false,
     refused: false,
-    writerCost: 0,
-    reviewerCost: 0,
-    usage: NO_USAGE,
+    cost: 0,
     seconds: 0,
   };
   try {
@@ -137,20 +136,17 @@ async function runCombination(
     result.repairs = written.attempts - 1;
     result.outlineDraft = written.outline;
     result.outlineFinal = written.outline;
-    result.writerCost = textCost(writer, written.usage);
-    result.usage = written.usage;
 
     const polished = await polishOutline(draft, pass, written.outline, { model: reviewer, onAttemptFailed });
     result.proposed = polished.proposed;
     result.kept = polished.kept;
     if (polished.rolledBack) result.rolledBack = polished.rolledBack;
     result.outlineFinal = polished.outline;
-    result.reviewerCost = textCost(reviewer, polished.usage);
-    result.usage = addUsage(written.usage, polished.usage);
   } catch (e) {
     result.error = e instanceof Error ? e.message : String(e);
   }
   result.refused = refused;
+  result.cost = spent - spentBefore;
   result.seconds = (Date.now() - started) / 1000;
   return result;
 }
@@ -184,7 +180,7 @@ function renderSeed(seed: number, draft: OutlineDraft, pass: DungeonPassResponse
     L.push(
       `${r.firstTry ? "Passed first try" : `${r.repairs} repair(s)`}. ${r.proposed.length} edit(s) proposed, ` +
         `${r.kept ? "kept" : r.rolledBack ? "rolled back" : "none kept"}. ` +
-        `${money(r.writerCost + r.reviewerCost)}, ${r.seconds.toFixed(0)}s.`
+        `${money(r.cost)}, ${r.seconds.toFixed(0)}s.`
     );
     if (r.error) L.push("", `**FAILED:** ${r.error}`);
     if (r.refused) L.push("", "**A call was refused.**");
@@ -194,7 +190,8 @@ function renderSeed(seed: number, draft: OutlineDraft, pass: DungeonPassResponse
     if (r.proposed.length) {
       L.push("", "### Edits proposed", "");
       for (const e of r.proposed) {
-        L.push(`- ${e.op} ${[e.roomA, e.roomB, e.fiction, e.way, e.field, e.group].filter(Boolean).join(" ")}: ${e.why}${e.text ? `\n  > ${e.text}` : ""}`);
+        const named = [e.roomA, e.roomB, e.fiction, e.way, e.field, e.group].filter((v) => v !== "none");
+        L.push(`- ${e.op} ${named.join(" ")}: ${e.why}${e.text !== "none" ? `\n  > ${e.text}` : ""}`);
       }
     }
     if (r.kept && r.outlineFinal) L.push("", "### After polish", "", "```", renderOutlineForReview(r.outlineFinal), "```");
@@ -218,11 +215,10 @@ function renderSummary(results: readonly Result[], dungeonPassCost: number): str
     L.push(
       `| ${r.seed} | ${SHORT[r.writer]} | ${SHORT[r.reviewer]} | ${r.error ? "FAILED" : r.firstTry ? "yes" : "no"} | ${r.repairs} | ` +
         `${r.proposed.length} | ${r.kept ? "yes" : r.rolledBack ? "rolled back" : "-"} | ${r.refused ? "yes" : "-"} | ` +
-        `${money(r.writerCost + r.reviewerCost)} | ${r.seconds.toFixed(0)} |`
+        `${money(r.cost)} | ${r.seconds.toFixed(0)} |`
     );
   }
-  const total = results.reduce((n, r) => n + r.writerCost + r.reviewerCost, 0) + dungeonPassCost;
-  L.push("", `Dungeon passes: ${money(dungeonPassCost)}. Total: ${money(total)}.`);
+  L.push("", `Dungeon passes: ${money(dungeonPassCost)}. Total: ${money(spent)}.`);
   return L.join("\n");
 }
 
@@ -250,6 +246,12 @@ async function main(): Promise<void> {
   configureTransport({
     baseUrl: "https://api.anthropic.com",
     headers: { "x-api-key": loadApiKey(), "anthropic-version": "2023-06-01" },
+    meter: {
+      before: async () => {},
+      after: async ({ model, usage }) => {
+        spent += textCost(model, usage);
+      },
+    },
   });
   mkdirSync(outDir, { recursive: true });
 
@@ -259,14 +261,22 @@ async function main(): Promise<void> {
     const draft = draftFor(seed);
     console.error(`seed ${seed}: dungeon pass`);
     const payload = buildDungeonPassPayload(draft.blueprint);
-    const { value: pass, usage } = await callForJson({
-      task: "dungeon-pass",
-      schema: dungeonPassSchema,
-      toolName: "establish_dungeon",
-      toolDescription: "Record the dungeon's name, theme, history, goal, opening prose, and the standing identity of each inhabitant group.",
-      messages: [{ role: "user", content: renderDungeonPassPrompt(payload) }],
-    });
-    dungeonPassCost += textCost(modelFor("dungeon-pass"), usage);
+    const spentBefore = spent;
+    let pass: DungeonPassResponse;
+    try {
+      ({ value: pass } = await callForJson({
+        task: "dungeon-pass",
+        schema: dungeonPassSchema,
+        toolName: "establish_dungeon",
+        toolDescription: "Record the dungeon's name, theme, history, goal, opening prose, and the standing identity of each inhabitant group.",
+        messages: [{ role: "user", content: renderDungeonPassPrompt(payload) }],
+      }));
+    } catch (e) {
+      console.error(`  dungeon pass FAILED, skipping this seed: ${e instanceof Error ? e.message : String(e)}`);
+      dungeonPassCost += spent - spentBefore;
+      continue;
+    }
+    dungeonPassCost += spent - spentBefore;
 
     const results: Result[] = [];
     for (const { writer, reviewer } of COMBINATIONS) {
@@ -274,9 +284,10 @@ async function main(): Promise<void> {
       const r = await runCombination(seed, draft, pass, writer, reviewer);
       results.push(r);
       all.push(r);
-      console.error(`  ${r.error ? `FAILED: ${r.error}` : `${r.firstTry ? "first try" : `${r.repairs} repair(s)`}, ${money(r.writerCost + r.reviewerCost)}, ${r.seconds.toFixed(0)}s`}`);
+      console.error(`  ${r.error ? `FAILED: ${r.error}` : `${r.firstTry ? "first try" : `${r.repairs} repair(s)`}, ${money(r.cost)}, ${r.seconds.toFixed(0)}s`}`);
     }
     writeFileSync(join(outDir, `seed-${seed}.md`), renderSeed(seed, draft, pass, results));
+    writeFileSync(join(outDir, "summary.md"), renderSummary(all, dungeonPassCost));
   }
   writeFileSync(join(outDir, "summary.md"), renderSummary(all, dungeonPassCost));
   console.error(`\nWrote ${outDir}`);

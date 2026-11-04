@@ -477,11 +477,14 @@ export async function callForJson<T>(opts: JsonCallOptions<T>): Promise<JsonResu
 
   const model = opts.model ?? modelFor(opts.task);
   const thinks = THINKING_TASKS.has(opts.task);
-  const forced = !thinks && allowsForcedTool(model);
+  // A thinking task's first answer is asked for, so the model can think. A retry
+  // or a repair is forced where the model allows it: it has the answer's problems
+  // in front of it, and a forced call is the one that has never come back malformed.
+  const forcedOn = (attempt: number) => (!thinks || attempt > 1) && allowsForcedTool(model);
   const beta = refusalFallbackBeta(model);
   // Nothing forces the call any more, so the prompt has to ask for it.
   const steer = `Give your answer by calling the ${opts.toolName} tool, once.`;
-  const system: CallOptions["system"] = forced
+  const system: CallOptions["system"] = !thinks && allowsForcedTool(model)
     ? opts.system
     : typeof opts.system === "string"
       ? `${opts.system}\n\n${steer}`
@@ -523,7 +526,10 @@ export async function callForJson<T>(opts: JsonCallOptions<T>): Promise<JsonResu
             ...(strict ? { strict: true } : {}),
           },
         ],
-        tool_choice: forced ? { type: "tool", name: opts.toolName } : { type: "auto" },
+        // One call, or the model may split its answer across several.
+        tool_choice: forcedOn(attempt)
+          ? { type: "tool", name: opts.toolName }
+          : { type: "auto", disable_parallel_tool_use: true },
       },
       opts.signal,
       beta ? { "anthropic-beta": beta } : undefined
@@ -615,9 +621,19 @@ export async function callForJson<T>(opts: JsonCallOptions<T>): Promise<JsonResu
       if (repairing) repairs++;
 
       if (call?.id) {
+        // Every tool call in the reply needs a result, or the API refuses the next
+        // request outright.
+        const others = json.content.filter((b) => b.type === "tool_use" && b.id !== call.id);
         messages.push(
           { role: "assistant", content: json.content },
-          toolResults([{ id: call.id, content: objection, isError: true }])
+          toolResults([
+            { id: call.id, content: objection, isError: true },
+            ...others.map((b) => ({
+              id: b.id ?? "",
+              content: "Ignored: answer with one call, as above.",
+              isError: true,
+            })),
+          ])
         );
       } else {
         // There is no tool call to reply to. The API rejects an empty

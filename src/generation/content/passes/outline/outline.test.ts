@@ -16,6 +16,7 @@ import {
   outlineViolations,
   polishSchema,
   type Outline,
+  type PolishEdit,
 } from "./response.ts";
 import { mandatoryFit, rollOutline, type OutlineDraft } from "./roll.ts";
 import { polishOutline, writeOutline } from "./run.ts";
@@ -85,10 +86,11 @@ function validOutline(d: OutlineDraft): Outline {
       const fiction = held.get(r.ref);
       return {
         ref: r.ref,
-        ...(fiction ? { fiction } : {}),
-        ...(card ? { card } : {}),
+        fiction: fiction ?? "none",
+        card: card ?? "none",
         story: "How it came to be.",
         journey: "What it does for the player.",
+        storyFeature: "none",
       };
     }),
     ways: d.ways.map((w) => ({ ref: w.ref, form: "a low arch" })),
@@ -100,6 +102,19 @@ function validOutline(d: OutlineDraft): Outline {
 }
 
 const SEEDS = [1005, 2024, 1004, 77, 4242];
+
+/** An edit as the model sends one: every field present, "none" where it does not apply. */
+const edit = (e: Partial<PolishEdit> & Pick<PolishEdit, "op">): PolishEdit => ({
+  roomA: "none",
+  roomB: "none",
+  fiction: "none",
+  way: "none",
+  field: "none",
+  group: "none",
+  text: "none",
+  why: "It helps.",
+  ...e,
+});
 
 describe("what code rolls for the outline", () => {
   it.each(SEEDS)("seed %i: one and a half chamber fictions per chamber, the first third of the rooms mandatory", (seed) => {
@@ -180,8 +195,8 @@ describe("the rules an outline answers to", () => {
 
   it("names a fiction used twice, by the rooms using it", () => {
     const o = clean();
-    const [a, b] = o.rooms.filter((r) => r.fiction);
-    b!.fiction = a!.fiction!;
+    const [a, b] = o.rooms.filter((r) => r.fiction !== "none");
+    b!.fiction = a!.fiction;
     const text = outlineViolations(d, o).map((v) => v.message).join();
     expect(text).toContain(`fiction ${a!.fiction} is used twice: rooms ${a!.ref} and ${b!.ref}`);
   });
@@ -198,8 +213,8 @@ describe("the rules an outline answers to", () => {
   it("refuses a card in the entrance, and names a card left over", () => {
     const o = clean();
     const from = room(o, normal[0]!);
-    room(o, d.entrance).card = from.card!;
-    delete from.card;
+    room(o, d.entrance).card = from.card;
+    from.card = "none";
     const text = outlineViolations(d, o).map((v) => v.message).join();
     expect(text).toContain("the entrance");
   });
@@ -207,15 +222,15 @@ describe("the rules an outline answers to", () => {
   it("lets a card go in the goal room, leaving one other room empty", () => {
     const o = clean();
     const from = room(o, normal[0]!);
-    room(o, d.goalRoom).card = from.card!;
-    delete from.card;
+    room(o, d.goalRoom).card = from.card;
+    from.card = "none";
     expect(outlineViolations(d, o)).toEqual([]);
   });
 
   it("does not let two rooms stand empty", () => {
     const o = clean();
-    delete room(o, normal[0]!).card;
-    delete room(o, normal[1]!).card;
+    room(o, normal[0]!).card = "none";
+    room(o, normal[1]!).card = "none";
     const text = outlineViolations(d, o).map((v) => v.message).join();
     expect(text).toContain("hold no card");
   });
@@ -224,12 +239,6 @@ describe("the rules an outline answers to", () => {
     const o = clean();
     const dropped = o.ways.pop()!;
     expect(outlineViolations(d, o).map((v) => v.message).join()).toContain(`way ${dropped.ref} is not described`);
-  });
-
-  it("asks what the objective is", () => {
-    const o = clean();
-    delete o.objective;
-    expect(outlineViolations(d, o).map((v) => v.path)).toContain("objective");
   });
 
   it("insists a key answers where the objective is", () => {
@@ -259,6 +268,7 @@ describe("a repair", () => {
     const o = validOutline(d);
     const patched = mergeOutline(o, {
       rooms: [{ ...o.rooms[0]!, story: "Rewritten." }],
+      objective: o.objective,
       ways: [],
       clues: [],
       keys: [],
@@ -273,7 +283,7 @@ describe("a repair", () => {
   it("can take a key away, because its list replaces the old one whole", () => {
     const o = validOutline(d);
     o.keys = [...o.keys, { challenge: "K1", key: "extra" }];
-    const patched = mergeOutline(o, { rooms: [], ways: [], clues: [], keys: o.keys.slice(0, 1), fictionChanges: [] });
+    const patched = mergeOutline(o, { rooms: [], objective: o.objective, ways: [], clues: [], keys: o.keys.slice(0, 1), fictionChanges: [] });
     expect(patched.keys).toHaveLength(1);
   });
 
@@ -291,8 +301,8 @@ describe("polish edits", () => {
 
   it("swaps two rooms' cards", () => {
     const o = validOutline(d);
-    const [a, b] = o.rooms.filter((r) => r.card);
-    const out = applyPolish(o, [{ op: "swap_cards", roomA: a!.ref, roomB: b!.ref, why: "Pacing." }])!;
+    const [a, b] = o.rooms.filter((r) => r.card !== "none");
+    const out = applyPolish(o, [edit({ op: "swap_cards", roomA: a!.ref, roomB: b!.ref, why: "Pacing." })])!;
     expect(out.rooms.find((r) => r.ref === a!.ref)!.card).toBe(b!.card);
     expect(outlineViolations(d, out)).toEqual([]);
   });
@@ -300,19 +310,24 @@ describe("polish edits", () => {
   it("does not touch the outline it was given", () => {
     const o = validOutline(d);
     const before = structuredClone(o);
-    applyPolish(o, [{ op: "rewrite_story", roomA: o.rooms[0]!.ref, text: "New.", why: "Better." }]);
+    applyPolish(o, [edit({ op: "rewrite_story", roomA: o.rooms[0]!.ref, text: "New.", why: "Better." })]);
     expect(o).toEqual(before);
   });
 
   it("carries a change to the fiction with the rest of them", () => {
     const o = validOutline(d);
-    const out = applyPolish(o, [{ op: "change_fiction", field: "history", text: "New.", why: "Better." }])!;
-    expect(out.fictionChanges).toEqual([{ field: "history", text: "New.", why: "Better." }]);
+    const out = applyPolish(o, [edit({ op: "change_fiction", field: "history", text: "New.", why: "Better." })])!;
+    expect(out.fictionChanges).toEqual([{ field: "history", group: "none", text: "New.", why: "Better." }]);
+  });
+
+  it("gives up on an edit with no new text, rather than writing the word none", () => {
+    const o = validOutline(d);
+    expect(applyPolish(o, [edit({ op: "rewrite_story", roomA: o.rooms[0]!.ref })])).toBeUndefined();
   });
 
   it("gives up on an edit that names nothing real", () => {
     const o = validOutline(d);
-    expect(applyPolish(o, [{ op: "swap_cards", roomA: "room_99", roomB: "room_0", why: "?" }])).toBeUndefined();
+    expect(applyPolish(o, [edit({ op: "swap_cards", roomA: "room_99", roomB: "room_0", why: "?" })])).toBeUndefined();
   });
 });
 
@@ -322,8 +337,8 @@ describe("changes to the fiction", () => {
 
   it("applies them, later ones winning", () => {
     const next = changedFiction(passOf(d), ids, [
-      { field: "history", text: "First.", why: "a" },
-      { field: "history", text: "Second.", why: "b" },
+      { field: "history", group: "none", text: "First.", why: "a" },
+      { field: "history", group: "none", text: "Second.", why: "b" },
       { field: "groupName", group: "G1", text: "The Choir", why: "c" },
     ]);
     expect(next.history).toBe("Second.");
@@ -331,9 +346,9 @@ describe("changes to the fiction", () => {
   });
 
   it("has no way to change the goal", () => {
-    expect(outlineSchema.safeParse({ ...validOutline(d), fictionChanges: [{ field: "goal", text: "x", why: "y" }] }).success).toBe(false);
+    expect(outlineSchema.safeParse({ ...validOutline(d), fictionChanges: [{ field: "goal", group: "none", text: "x", why: "y" }] }).success).toBe(false);
     const pass = passOf(d);
-    expect(changedFiction(pass, ids, [{ field: "theme", text: "New.", why: "a" }]).goal).toEqual(pass.goal);
+    expect(changedFiction(pass, ids, [{ field: "theme", group: "none", text: "New.", why: "a" }]).goal).toEqual(pass.goal);
   });
 });
 
@@ -396,9 +411,9 @@ describe("the calls", () => {
   it("asks with auto, so the model can think, and steers it to the tool", async () => {
     const sent = stub(reply("write_outline", validOutline(d)));
     await writeOutline(d, pass, { model: HAIKU });
-    expect(sent[0]!.body.tool_choice).toEqual({ type: "auto" });
+    expect(sent[0]!.body.tool_choice).toEqual({ type: "auto", disable_parallel_tool_use: true });
     expect(sent[0]!.body.system).toContain("write_outline");
-    expect(sent[0]!.body.output_config).toEqual({ effort: "medium" });
+    expect(sent[0]!.body.output_config).toEqual({ effort: "high" });
     expect(sent[0]!.body.fallbacks).toBeUndefined();
   });
 
@@ -416,17 +431,52 @@ describe("the calls", () => {
     const lost = good.ways.at(-1)!;
     const sent = stub(
       reply("write_outline", broken),
-      reply("write_outline", { rooms: [], ways: [lost], clues: [], keys: [], fictionChanges: [] })
+      reply("write_outline", { rooms: [], objective: good.objective, ways: [lost], clues: [], keys: [], fictionChanges: [] })
     );
     const out = await writeOutline(d, pass);
     expect(out.attempts).toBe(2);
+    // The first answer may think; the repair is forced, on a model that allows it.
+    expect(sent[1]!.body.tool_choice).toEqual({ type: "tool", name: "write_outline" });
     expect(outlineViolations(d, out.outline)).toEqual([]);
     expect(JSON.stringify(sent[1]!.body.messages)).toContain(`way ${lost.ref} is not described`);
   });
 
+  it("stays on auto for a repair on Sonnet 5.5, which refuses a forced call", async () => {
+    const good = validOutline(d);
+    const sent = stub(
+      reply("write_outline", { ...good, ways: good.ways.slice(0, -1) }),
+      reply("write_outline", { rooms: [], objective: good.objective, ways: [good.ways.at(-1)], clues: [], keys: [], fictionChanges: [] })
+    );
+    await writeOutline(d, pass, { model: SONNET });
+    expect(sent[1]!.body.tool_choice).toEqual({ type: "auto", disable_parallel_tool_use: true });
+  });
+
+  it("answers every tool call in a reply, or the next request is refused", async () => {
+    const good = validOutline(d);
+    const broken = { ...good, ways: good.ways.slice(0, -1) };
+    const doubled = {
+      ok: true,
+      json: async () => ({
+        content: [
+          { type: "tool_use", id: "a", name: "write_outline", input: broken },
+          { type: "tool_use", id: "b", name: "write_outline", input: broken },
+        ],
+        stop_reason: "tool_use",
+        usage: { input_tokens: 100, output_tokens: 40 },
+      }),
+    };
+    const sent = stub(
+      doubled,
+      reply("write_outline", { rooms: [], objective: good.objective, ways: [good.ways.at(-1)], clues: [], keys: [], fictionChanges: [] })
+    );
+    await writeOutline(d, pass);
+    const results = (sent[1]!.body.messages as Array<{ content: unknown }>).at(-1)!.content as Array<{ tool_use_id: string }>;
+    expect(results.map((r) => r.tool_use_id).sort()).toEqual(["a", "b"]);
+  });
+
   it("keeps a polish that holds up", async () => {
     const o = validOutline(d);
-    stub(reply("propose_edits", { edits: [{ op: "rewrite_story", roomA: o.rooms[0]!.ref, text: "Better.", why: "It is." }] }));
+    stub(reply("propose_edits", { edits: [edit({ op: "rewrite_story", roomA: o.rooms[0]!.ref, text: "Better.", why: "It is." })] }));
     const out = await polishOutline(d, pass, o);
     expect(out.kept).toBe(true);
     expect(out.outline.rooms[0]!.story).toBe("Better.");
@@ -434,8 +484,8 @@ describe("the calls", () => {
 
   it("keeps the draft when a polish breaks a rule", async () => {
     const o = validOutline(d);
-    const [a, b] = o.rooms.filter((r) => r.fiction);
-    stub(reply("propose_edits", { edits: [{ op: "replace_fiction", roomA: a!.ref, fiction: b!.fiction, why: "Hm." }] }));
+    const [a, b] = o.rooms.filter((r) => r.fiction !== "none");
+    stub(reply("propose_edits", { edits: [edit({ op: "replace_fiction", roomA: a!.ref, fiction: b!.fiction, why: "Hm." })] }));
     const out = await polishOutline(d, pass, o);
     expect(out.kept).toBe(false);
     expect(out.rolledBack).toContain("used twice");
@@ -445,7 +495,7 @@ describe("the calls", () => {
 
   it("keeps the draft when an edit names nothing real", async () => {
     const o = validOutline(d);
-    stub(reply("propose_edits", { edits: [{ op: "rewrite_way", way: "W99", text: "A door.", why: "Hm." }] }));
+    stub(reply("propose_edits", { edits: [edit({ op: "rewrite_way", way: "W99", text: "A door.", why: "Hm." })] }));
     const out = await polishOutline(d, pass, o);
     expect(out.kept).toBe(false);
     expect(out.outline).toEqual(o);

@@ -63,6 +63,22 @@ A FUN PLAY EXPERIENCE IS YOUR MAIN JOB. Read the routes first, then plan so that
   pieces it together from what they see, not from being told.
 Different routes to the goal should ask different things of the player.
 
+HOW TO ANSWER
+Call the tool once, with everything in that one call:
+- rooms: one entry per room.
+    ref: the room's ref, like room_3.
+    fiction: the fiction's ref alone, like F2. "none" on a PASSAGE.
+    card: the card's ref alone, like C1. "none" on the entrance.
+    story, journey: your two notes.
+    storyFeature: the scenery, or "none".
+- ways: one entry per way. ref, like W1, and form, your phrase.
+- objective: type (Item, RoomFeature or Creature) and form, a phrase for what it is.
+- clues: one entry per clue card. card, like C4, and pointsAt: a room's ref, a card's
+  ref or "objective".
+- keys: challenge, the ref like K3, and key, what the object is.
+- fictionChanges: usually empty. field (theme, history, opening, groupName or
+  groupBase), group (like G1 for the last two, otherwise "none"), text, why.
+
 RULES
 1. Use refs exactly as given. Anything marked pre-assigned stays as it is.
 2. A fiction marked "fits only" can only go in a room of those sizes.

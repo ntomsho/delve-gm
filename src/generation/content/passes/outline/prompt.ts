@@ -169,16 +169,15 @@ export function renderOutlineRepair(draft: OutlineDraft, outline: Outline, missi
 export function renderOutlineForReview(o: Outline): string {
   const L: string[] = ["=== THE OUTLINE ==="];
   for (const r of o.rooms) {
-    L.push(`${r.ref}: fiction ${r.fiction ?? "(passage)"} | card ${r.card ?? "none"}`);
-    L.push(`  story: ${r.story}`, `  journey: ${r.journey}`);
-    if (r.storyFeature) L.push(`  story feature: ${r.storyFeature}`);
+    L.push(`${r.ref}: fiction ${r.fiction} | card ${r.card}`);
+    L.push(`  story: ${r.story}`, `  journey: ${r.journey}`, `  story feature: ${r.storyFeature}`);
   }
   L.push("Ways:", ...o.ways.map((w) => `  ${w.ref}: ${w.form}`));
-  if (o.objective) L.push(`Objective: ${o.objective.type}, ${o.objective.form}`);
+  L.push(`Objective: ${o.objective.type}, ${o.objective.form}`);
   if (o.clues.length) L.push("Clues:", ...o.clues.map((c) => `  ${c.card} points at ${c.pointsAt}`));
   L.push("Keys:", ...o.keys.map((k) => `  ${k.challenge}: ${k.key}`));
   if (o.fictionChanges.length) {
-    L.push("Changes to the fiction:", ...o.fictionChanges.map((c) => `  ${c.field}${c.group ? ` ${c.group}` : ""}: ${c.text} (${c.why})`));
+    L.push("Changes to the fiction:", ...o.fictionChanges.map((c) => `  ${c.field}${c.group !== "none" ? ` ${c.group}` : ""}: ${c.text} (${c.why})`));
   }
   return L.join("\n");
 }

@@ -20,14 +20,22 @@ const fictionFields = ["theme", "history", "opening", "groupName", "groupBase"] 
 
 const fictionChange = z.object({
   field: z.enum(fictionFields),
-  /** which group, for `groupName` and `groupBase` */
-  group: z.string().optional(),
+  /** which group, for `groupName` and `groupBase`; otherwise "none" */
+  group: nonEmpty,
   text: nonEmpty,
   why: nonEmpty,
 });
 
+/** What the model writes where a room has no fiction, card or story feature. */
+export const NONE = "none";
+const has = (v: string | undefined): v is string => !!v && v !== NONE;
+
 /**
- * Most of it may be empty because a repair comes back through this same schema,
+ * NOTHING HERE IS OPTIONAL, because models leave optional fields out: Sonnet 5.5
+ * omitted every fiction and card from its first outline. "none" says a room has
+ * none, and saying so is the model's decision rather than an oversight.
+ *
+ * The lists may be empty because a repair comes back through this same schema,
  * carrying only what it replaces. `outlineViolations` is what says a whole outline
  * has everything.
  */
@@ -35,17 +43,18 @@ export const outlineSchema = z.object({
   rooms: z.array(
     z.object({
       ref: nonEmpty,
-      /** absent on a passage, which has its identity already */
-      fiction: z.string().optional(),
-      /** absent on the entrance, and on a room left empty */
-      card: z.string().optional(),
+      /** a fiction's ref, or "none" on a passage, which has its identity already */
+      fiction: nonEmpty,
+      /** a card's ref, or "none" on the entrance and on a room left empty */
+      card: nonEmpty,
       story: nonEmpty,
       journey: nonEmpty,
-      storyFeature: z.string().optional(),
+      /** one piece of scenery, or "none" */
+      storyFeature: nonEmpty,
     })
   ),
   ways: z.array(z.object({ ref: nonEmpty, form: nonEmpty })),
-  objective: z.object({ type: z.enum(["Item", "RoomFeature", "Creature"]), form: nonEmpty }).optional(),
+  objective: z.object({ type: z.enum(["Item", "RoomFeature", "Creature"]), form: nonEmpty }),
   clues: z.array(z.object({ card: nonEmpty, pointsAt: nonEmpty })),
   keys: z.array(z.object({ challenge: nonEmpty, key: nonEmpty })),
   fictionChanges: z.array(fictionChange),
@@ -69,13 +78,15 @@ export const polishSchema = z.object({
         "rewrite_way",
         "change_fiction",
       ]),
-      roomA: z.string().optional(),
-      roomB: z.string().optional(),
-      fiction: z.string().optional(),
-      way: z.string().optional(),
-      field: z.enum(fictionFields).optional(),
-      group: z.string().optional(),
-      text: z.string().optional(),
+      // Every edit fills in all of these, with "none" where one does not apply.
+      // Optional fields get left out: Haiku 5.5 put an edit's new text in `why`.
+      roomA: nonEmpty,
+      roomB: nonEmpty,
+      fiction: nonEmpty,
+      way: nonEmpty,
+      field: z.enum([...fictionFields, NONE]),
+      group: nonEmpty,
+      text: nonEmpty,
       why: nonEmpty,
     })
   ),
@@ -117,7 +128,7 @@ export function outlineViolations(draft: OutlineDraft, o: Outline): ValidationIs
   for (const r of o.rooms) {
     const room = roomOf.get(r.ref);
     if (!room || room.passage) continue;
-    if (!r.fiction) {
+    if (!has(r.fiction)) {
       bad(`rooms.${r.ref}.fiction`, `room ${r.ref} has no fiction`);
       continue;
     }
@@ -150,10 +161,10 @@ export function outlineViolations(draft: OutlineDraft, o: Outline): ValidationIs
     const room = roomOf.get(r.ref);
     if (!room) continue;
     if (room.role === "entrance") {
-      if (r.card) bad(`rooms.${r.ref}.card`, `the entrance ${r.ref} holds no card; move ${r.card}`);
+      if (has(r.card)) bad(`rooms.${r.ref}.card`, `the entrance ${r.ref} holds no card; move ${r.card}`);
       continue;
     }
-    if (!r.card) {
+    if (!has(r.card)) {
       if (room.role !== "goal") empty = [...empty, r.ref];
       continue;
     }
@@ -170,7 +181,7 @@ export function outlineViolations(draft: OutlineDraft, o: Outline): ValidationIs
     if (!usedCard.has(c.ref)) bad(`cards.${c.ref}`, `card ${c.ref} is not used`);
   }
   // A card in the goal room leaves one other room empty, and only then.
-  const goalHolds = !!answered.get(draft.goalRoom)?.card;
+  const goalHolds = has(answered.get(draft.goalRoom)?.card);
   if (empty.length > (goalHolds ? 1 : 0)) {
     bad(`rooms.${empty[0]}.card`, `rooms ${empty.join(", ")} hold no card; only one room may, and only if the goal room holds one`);
   }
@@ -184,9 +195,6 @@ export function outlineViolations(draft: OutlineDraft, o: Outline): ValidationIs
   for (const w of o.ways) {
     if (!wayRefs.has(w.ref)) bad(`ways.${w.ref}`, `${w.ref} is not a way in this dungeon`);
   }
-
-  // --- the objective ---
-  if (!o.objective) bad("objective", "the outline does not say what the objective physically is");
 
   // --- clues ---
   const clueCards = draft.cards.filter((c) => c.clue);
@@ -220,8 +228,8 @@ export function outlineViolations(draft: OutlineDraft, o: Outline): ValidationIs
   // --- changes to the fiction ---
   const groupRefs = new Set(draft.blueprint.inhabitants.map((_, i) => `G${i + 1}`));
   for (const c of o.fictionChanges) {
-    if ((c.field === "groupName" || c.field === "groupBase") && (!c.group || !groupRefs.has(c.group))) {
-      bad("fictionChanges", `a change to ${c.field} names no real group: ${c.group ?? "none"}`);
+    if ((c.field === "groupName" || c.field === "groupBase") && !groupRefs.has(c.group)) {
+      bad("fictionChanges", `a change to ${c.field} names no real group: ${c.group}`);
     }
   }
 
@@ -254,7 +262,7 @@ export function mergeOutline(whole: Outline, patch: Outline): Outline {
   return {
     rooms: mergeBy(whole.rooms, patch.rooms, (r) => r.ref),
     ways: mergeBy(whole.ways, patch.ways, (w) => w.ref),
-    ...(patch.objective ?? whole.objective ? { objective: (patch.objective ?? whole.objective)! } : {}),
+    objective: patch.objective,
     clues: mergeBy(whole.clues, patch.clues, (c) => c.card),
     // Whole, or a repair could never take a key away.
     keys: patch.keys.length > 0 ? patch.keys : whole.keys,
@@ -283,52 +291,39 @@ export function applyPolish(o: Outline, edits: readonly PolishEdit[]): Outline |
     switch (e.op) {
       case "swap_fictions": {
         if (!a || !b) return undefined;
-        const held = a.fiction;
-        if (b.fiction) a.fiction = b.fiction;
-        else delete a.fiction;
-        if (held) b.fiction = held;
-        else delete b.fiction;
+        [a.fiction, b.fiction] = [b.fiction, a.fiction];
         break;
       }
       case "swap_cards": {
         if (!a || !b) return undefined;
-        const held = a.card;
-        if (b.card) a.card = b.card;
-        else delete a.card;
-        if (held) b.card = held;
-        else delete b.card;
+        [a.card, b.card] = [b.card, a.card];
         break;
       }
       case "replace_fiction":
-        if (!a || !e.fiction) return undefined;
+        if (!a || !has(e.fiction)) return undefined;
         a.fiction = e.fiction;
         break;
       case "rewrite_story":
-        if (!a || !e.text) return undefined;
+        if (!a || !has(e.text)) return undefined;
         a.story = e.text;
         break;
       case "rewrite_journey":
-        if (!a || !e.text) return undefined;
+        if (!a || !has(e.text)) return undefined;
         a.journey = e.text;
         break;
       case "set_story_feature":
-        if (!a || !e.text) return undefined;
+        if (!a || !has(e.text)) return undefined;
         a.storyFeature = e.text;
         break;
       case "rewrite_way": {
         const w = ways.find((x) => x.ref === e.way);
-        if (!w || !e.text) return undefined;
+        if (!w || !has(e.text)) return undefined;
         w.form = e.text;
         break;
       }
       case "change_fiction":
-        if (!e.field || !e.text) return undefined;
-        fictionChanges.push({
-          field: e.field,
-          ...(e.group ? { group: e.group } : {}),
-          text: e.text,
-          why: e.why,
-        });
+        if (e.field === NONE || !has(e.text)) return undefined;
+        fictionChanges.push({ field: e.field, group: e.group, text: e.text, why: e.why });
         break;
     }
   }
@@ -350,7 +345,7 @@ export function changedFiction(
 ): DungeonPassResponse {
   const next: DungeonPassResponse = { ...pass, groups: pass.groups.map((g) => ({ ...g })) };
   for (const c of changes) {
-    const id = c.group ? groupIds[Number(c.group.slice(1)) - 1] : undefined;
+    const id = has(c.group) ? groupIds[Number(c.group.slice(1)) - 1] : undefined;
     const group = next.groups.find((g) => g.id === id);
     if (c.field === "theme") next.theme = c.text;
     else if (c.field === "history") next.history = c.text;
