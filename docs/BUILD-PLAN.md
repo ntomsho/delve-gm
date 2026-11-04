@@ -255,6 +255,11 @@ routes become:
 **Status.** Detailed plan, under review. Nothing is built. It runs as two builds, with a
 stop between them to read the outlines. Marked *proposed* where a decision is still open.
 
+**Watch the cost of Haiku 5.5.** Every task moved to it from Haiku 4.5. It is a tenth of the
+price per token, but it thinks by default and thinking bills as output. Compare the first live
+runs against the $0.04 a turn measured on Haiku 4.5 (`src/server/allowance.ts`). If it costs a
+lot more, go back to Haiku 4.5.
+
 The pipeline after this phase:
 
 ```
@@ -267,7 +272,9 @@ graph + block plan ─┘   seed advances until the layout exists; every room ha
 ```
 
 The dungeon pass stays its own call and writes the theme, history, goal and inhabitants
-first. The outline reads that output and places rooms and contents; it does not rewrite it.
+first. That is the dungeon the outline is building, and the outline's instructions present it
+that way. The outline, repair and polish calls may propose changes back to it (see *Changes to
+the fiction*).
 
 ### The two builds
 
@@ -308,37 +315,73 @@ marked `isCorridor`, which rolls its identity from `DUNGEON_CORRIDORS` instead o
   model does not choose which are mandatory. They must all fit at once: there is an
   assignment of mandatory fictions to distinct rooms that `sizeAllows`. If not, reroll the
   mandatory set.
-- **Content cards: exactly `V`** (*proposed*). A card is a headline with its contents already
-  rolled, so the model places a concrete thing and not the word "creature". The headline mix
-  still comes from stocking's quota (step 3), so the distribution holds with nothing to
-  enforce. Rolled the way steps 5a to 5c roll them today:
-  - `creature`: a *group base* card for each inhabitant group (`makeGroupMobile`), then the
-    rest from `makeMinionOrWanderer`, with activity and disposition;
-  - `special`: `rollSpecial`, a hazard, a trap or an obstacle;
-  - `quiet`: empty half the time, a clue the other half;
-  - `none` for the entrance, and the goal's `special`, both pre-assigned.
-- **Challenges** are enumerated from the cards before the call, so key pairs can answer any
-  of them. Today most challenges don't exist until step 5, after headlines are placed.
+- **Content cards** (*proposed*). A card is a headline with its contents already rolled, so
+  the model places a concrete thing and not the word "creature". There is one for every room
+  except the entrance and the goal room. Generated in this order:
+  1. the quota, from stocking's existing mix (`computeQuota`), which says how many of each
+     kind, so the distribution holds with nothing to enforce;
+  2. one *group base* card per inhabitant group (`makeGroupMobile`);
+  3. the rest of the creature budget (`makeMinionOrWanderer`), with activity and disposition;
+  4. `special` cards (`rollSpecial`): a hazard, a trap or an obstacle;
+  5. `quiet` cards: a clue half the time, otherwise a breather;
+  6. the challenges each card raises (`enumerateChallenges`), listed by card, so key pairs can
+     answer any of them. Today most challenges don't exist until step 5.
+
+  Rolled on seed 1005, a card reads like this:
+
+  ```
+  C1 creature, BASE of G1 (solo humanoid monster): ethereal, furred, extra eyes;
+     camouflaging, gaze weapon, teleporting; demands duels; bored; hunting; hostile.
+     Raises: weak to phylactery, weak to flowers, its three abilities.
+  C2 creature, thralls of G1: elephant-like, antlered, regenerating; repairing; neutral.
+  C3 special, obstacle: writing, which scries. Raises: the obstacle.
+  C4 quiet, clue: a smell. You say what it points at.
+  ```
+
+  Counts, hit dice and stats are not on a card. They are rolled afterwards, and the model never
+  writes a number.
+- **Corridors stay in code.** `designateCorridors` runs before the drawing, because the layout
+  needs to know which rooms are passages, and the outline reads the size classes that come out.
 - **Pre-assigned.** Whatever code already places is written into the payload, not left to the
-  model: the entrance's and goal's cards, the goal entity, and the group base of a
-  goal-implicated group, which stays in the goal room. Every other group base is placed by
-  the model (*proposed*); today it is a random room.
+  model: the entrance and its feature, and which room is the goal room. **Every group base is
+  placed by the model**, including a goal-implicated group, which code forces into the goal
+  room today. The payload gives each group's relationship to the goal.
 
 Stocking step 4 (headline placement by depth fit plus local swaps) is replaced by the
-outline. Stacking, danger, rewards and clue targets run afterwards on the rooms as assigned.
+outline, and so is a clue's target. Stacking, danger and rewards run afterwards on the rooms as
+assigned.
+
+### The goal
+
+The goal room stays the deepest room (`chooseGoal`), because the graph's route checks are about
+it. What changes:
+
+- **The outline decides what the objective physically is** (*proposed*): its type (item,
+  feature or creature) and a phrase. The content pass writes it from that, where today the
+  content pass decides alone. Otherwise the outline can't place a guardian around a thing nobody
+  has decided on.
+- **The goal room holds the objective and at most one card.** Code no longer overwrites its
+  headline. A card placed there leaves one other room empty, which is a breather.
+- **A goal-location key states the goal, not the raw roll.** Today its fact is "where {reward}
+  lies" from the rolled reward, even when the dungeon pass discarded that reward: "where Marital
+  ally lies". Build 2 words it from the goal the dungeon pass wrote.
 
 ### The outline call
 
 **Payload**, one entry per room in graph order, each complete on its own line so nothing
 needs looking up elsewhere: id, size class, chamber or passage, depth from the entrance, dead
-end or on a loop, its neighbours, and anything pre-assigned. Then the routes from the entrance
-to the goal (`routesOf`), the dungeon pass's theme, history, goal and groups, the candidate
-fictions (mandatory ones marked), the cards, and the challenges a key could answer.
+end or on a loop, its neighbours, and anything pre-assigned. Then, first in the prompt, the
+dungeon pass's theme, history, opening, goal and groups as the dungeon being built. Then the
+routes from the entrance to the goal (`routesOf`), the candidate fictions (mandatory ones
+marked), the cards, and the challenges a key could answer.
 
 **Response**, references and short prose only, never a number:
 
 - per room: a fiction ref, a card ref, a story note, a journey note, and at most one story
   feature (*proposed*);
+- what the objective is: its type and a phrase;
+- what each clue card points at, by reference;
+- any changes to the dungeon's fiction, each with one line on why;
 - per connection: what it is (a door, a stair, a collapsed tunnel, which side is higher), in
   a phrase;
 - key↔challenge pairs by reference: which challenge each planned key answers, and what the
@@ -349,10 +392,21 @@ half-burned order, claw marks at shoulder height. A feature is scenery with no m
 is written by the content pass like any other feature, and it is not a way through, a
 creature, a hazard, treasure or a key. So the rolled budget of danger and reward holds.
 
+**Changes to the fiction.** The outline, repair and polish calls may each propose changes to
+the theme, history, opening and group names and bases, to work rooms into the dungeon and make
+its story more engaging. A change returns the field's whole new text. The goal's summary and spec
+stay as written (*proposed*), and the rolled facts stand: what the place is, what lives here and
+the goal seed. Each version is journalled. Build 1 shows them beside the outline to read; Build 2
+rebuilds `dungeonContext` from the result once, before the content pass, after which it never
+changes (§3.3's rule, moved later).
+
 **Validation** (zod, then a `check`):
 
 - every room assigned exactly once;
-- no fiction or card used twice, and every card used;
+- no fiction or card used twice; the goal room holds at most one card and the entrance none;
+- every card used;
+- every clue points at something real;
+- a fiction change names a real field or group, with non-empty text;
 - every mandatory fiction present;
 - every fiction fits its room's size class and kind;
 - every connection described;
@@ -390,9 +444,33 @@ run shows what polish changed and whether it was kept.
 **Outline**
 
 ```
-You are outlining a dungeon before any of it is written. The map is drawn and
-its contents are rolled. You decide what goes where, so that it reads as one
+You are outlining a dungeon before any of its rooms are written.
+
+THE DUNGEON YOU ARE BUILDING
+{{theme, history, opening and groups}}
+
+This is the place. Everything you decide has to serve it. The map is drawn and
+its contents are rolled, and you decide what goes where, so that it reads as one
 place and is fun to play through.
+
+THE PLAYER'S GOAL
+{{goal summary and spec}}
+
+This is why the player is here, and everything leads to it. Whatever you place
+or change, the goal must stay intuitive: a player who has read the opening should
+understand what they are after and why it is here, and everything around it
+should make sense. The goal room is {{room}}. Decide what the objective physically
+is: an item, a feature or a creature. If a creature or group belongs with it,
+because it guards, wants or is the objective, put its card there. If nothing does,
+leave that room to the objective alone.
+
+YOU MAY CHANGE THE FICTION
+If changing the theme, history, opening or a group would work a room in better
+and make the dungeon more dynamic and its story more engaging, propose it. Return
+the field's whole new text and one line on why. If you change something the
+opening mentions, change the opening too. Do not change what the place is, what
+lives here or the goal, and make no change that would make the goal seem strange
+or leave things around it not making sense.
 
 FOR EACH ROOM, choose
 - a fiction: what the place was built as. Fictions marked MANDATORY must all be
@@ -401,7 +479,9 @@ FOR EACH ROOM, choose
   warden was fixated on making prisoners perform plays he wrote), or by making
   the room a slight variation on the concept (the "theater" was actually for
   viewing executions). You will leave some optional fictions unused.
-- a card: what is in the room now. Every card is used exactly once.
+- a card: what is in the room now. Every card is used exactly once. A group's BASE
+  card is where that group lives: choose somewhere that fits who they are, what
+  they want and the layout. A clue card needs you to say what it points at.
 - story: how this room came to be as it is, tied to the dungeon's history.
 - journey: what this room does for a player coming through it.
 - a story feature, if it helps: one piece of scenery that ties this room to the
@@ -438,7 +518,8 @@ These parts of your outline broke a rule:
 Still unused: fictions F2, F5; cards H3.
 
 Return replacements for only the rooms and connections named above. Everything
-else stands.
+else stands. If a change to the dungeon's fiction is the best way to fix one of
+these, you may propose it, under the same rules as before.
 ```
 
 **Polish**
@@ -447,8 +528,10 @@ else stands.
 You are reviewing a finished outline. Change only what clearly makes the
 dungeon better. If it is already good, return no edits. At most 6 edits: swap
 two rooms' fictions, swap two rooms' cards, swap in an unused optional fiction,
-rewrite a room's story or journey note, add or rewrite a story feature, or
-rewrite a connection.
+rewrite a room's story or journey note, add or rewrite a story feature, rewrite
+a connection, or change the dungeon's fiction. Change the fiction only to work
+rooms in better or make the story more engaging. Never change the goal, and never
+make it seem strange or leave things around it not making sense.
 
 Ask:
 1. Does each room fit the concept of the dungeon, including mandatory rooms?
@@ -463,6 +546,7 @@ Ask:
    find here?
 7. Are all the important aspects of the dungeon's history represented in at least
    one room?
+8. Is the goal still intuitive, and does everything around it make sense?
 
 Say in one line why each edit helps. You cannot remove a mandatory fiction or
 change anything pre-assigned.
@@ -506,6 +590,7 @@ records:
 - whether it passed validation on the first try, and which rules failed;
 - the number of repairs, and any refusals;
 - how many polish edits were proposed, accepted and rolled back;
+- every proposed change to the fiction;
 - tokens, cost and seconds.
 
 It writes each seed's outlines side by side to read. The models table in `models.ts` is set
