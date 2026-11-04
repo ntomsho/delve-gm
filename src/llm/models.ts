@@ -36,34 +36,35 @@ export type Task =
   | "sprite-look";
 
 /**
- * Which model each task uses. All tasks use Haiku 4.5 while the game is in
- * development: it is the cheapest current model ($1 / $5 per million input /
- * output tokens, against Sonnet 5's $3 / $15), and working on prompts means
+ * Which model each task uses. All tasks use Haiku 5.5 while the game is in
+ * development: it is the cheapest current model ($0.10 / $0.50 per million input
+ * / output tokens, against Sonnet 5.5's $2 / $10), and working on prompts means
  * running the same seed many times.
  *
- * Haiku 4.5 has two limits the larger models don't. Neither matters today:
- *   - a 200K-token context, not 1M. A 12-room content-pass prompt is
- *     tens of thousands of tokens at most, so there is plenty of room.
- *   - 64K maximum output tokens, not 128K. That is above every `MAX_TOKENS`
- *     value below.
+ * Haiku 5.5 thinks by default, and thinking counts toward `max_tokens`. Two
+ * things follow:
+ *   - `callForJson` forces its tool call, which skips thinking on this model, so
+ *     the small caps below on those tasks are safe.
+ *   - `callWithTools` (the game master) uses `auto`, so it can think; its caps
+ *     have to leave room for that.
  *
- * Haiku 4.5 is also older than adaptive thinking and the `effort` parameter:
- * it only accepts the older `budget_tokens` form and rejects `effort`. Nothing
- * here uses either, but check this before turning them on.
+ * It rejects `budget_tokens` and non-default sampling parameters. Nothing here
+ * sends either. Set depth with `output_config.effort` (default `medium`) rather
+ * than a budget. It also has no server-side refusal fallback.
  *
  * The first task worth moving to a better model is probably the dungeon pass.
  * It runs once, sets the background every other call builds on, and costs
  * very little next to the content pass.
  */
 export const MODELS: Record<Task, string> = {
-  "dungeon-pass": "claude-haiku-4-5",
-  "content-pass": "claude-haiku-4-5",
-  "keys-pass": "claude-haiku-4-5",
-  "tally-pass": "claude-haiku-4-5",
-  "room-entry": "claude-haiku-4-5",
-  "turn-loop": "claude-haiku-4-5",
-  "illustration-visual": "claude-haiku-4-5",
-  "sprite-look": "claude-haiku-4-5",
+  "dungeon-pass": "claude-haiku-5-5",
+  "content-pass": "claude-haiku-5-5",
+  "keys-pass": "claude-haiku-5-5",
+  "tally-pass": "claude-haiku-5-5",
+  "room-entry": "claude-haiku-5-5",
+  "turn-loop": "claude-haiku-5-5",
+  "illustration-visual": "claude-haiku-5-5",
+  "sprite-look": "claude-haiku-5-5",
 };
 
 /**
@@ -79,8 +80,10 @@ export const MAX_TOKENS: Record<Task, number> = {
   "keys-pass": 4096,
   // One line per accomplishment; a long run has about thirty.
   "tally-pass": 4096,
-  "room-entry": 4096,
-  "turn-loop": 4096,
+  // Doubled for Haiku 5.5: the game master can think, and a turn cut off by the
+  // cap reads as a turn that ended without a commit.
+  "room-entry": 8192,
+  "turn-loop": 8192,
   // A sentence for the room and a short phrase for each thing in the picture.
   "illustration-visual": 1024,
   // About thirty words, plus one size word.
@@ -111,7 +114,7 @@ export interface TextPrice {
 }
 
 export const TEXT_PRICES: Record<string, TextPrice> = {
-  "claude-haiku-4-5": { input: 1, output: 5, cacheWrite: 1.25, cacheRead: 0.1 },
+  "claude-haiku-5-5": { input: 0.1, output: 0.5, cacheWrite: 0.125, cacheRead: 0.01 },
 };
 
 // ---------------------------------------------------------------------------
