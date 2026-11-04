@@ -31,19 +31,19 @@ Traits: physique Wiry, face Bony, skin Ashen, hair Cropped, clothing Patched, vi
 
 ## The room the player is standing in
 
-[«id-1»] **The Waterway** (NEVER ENCOUNTERED)
-base: A waterway of the drowned mint, its walls pale limestone crusted with mineral scale. Water lies ankle-deep across the floor, still and cold. Nothing has disturbed it in a long time.
+[«id-1»] **The Workshop** (NEVER ENCOUNTERED)
+base: A workshop of the drowned mint, its walls pale limestone crusted with mineral scale. Water lies ankle-deep across the floor, still and cold. Nothing has disturbed it in a long time.
 
 ### As drawn on the map
-a passage, about 30 by 10 feet -- long and narrow, running east-west, irregular, its walls stepping in and out. Ways out: one off the north wall, one off the south wall, one off the west wall
+a tiny chamber, about 20 by 15 feet -- oblong, running east-west, irregular, its walls stepping in and out. Ways out: one off the north wall, two off the west wall
 The compass here is the MAP's, not the party's: north is north wherever they are facing. Say "the north wall"; never "on your left", which you have no way to know.
 
 ### In it
-- [«id-2»] The rubble — RoomFeature · in a corner (NEVER ENCOUNTERED)
-    base: The rubble of the drowned mint, scaled with mineral crust.
+- [«id-2»] The hearth — RoomFeature · in a corner (NEVER ENCOUNTERED)
+    base: The hearth of the drowned mint, scaled with mineral crust.
 
 ### Ways out
-- [«id-3»] "The mint's stair — out of the dungeon" — A broad flight of worn limestone steps rising out of the water toward the surface. · in the south wall, toward the west end · LEADS OUT OF THE DUNGEON — the way they came in, and the way home. Walking through it ENDS THE RUN: commit nextStage "departed"
+- [«id-3»] "The mint's stair — out of the dungeon" — A broad flight of worn limestone steps rising out of the water toward the surface. · in the west wall, at the middle · LEADS OUT OF THE DUNGEON — the way they came in, and the way home. Walking through it ENDS THE RUN: commit nextStage "departed"
 - [«id-4»] "A low arch" — a low arch of fitted stone, its keystone dropped an inch · in the west wall, at the middle · leads to [«id-5»], somewhere they have not been
 - [«id-6»] "A barred door" — a plank door swollen with water, barred from the far side · in the north wall, toward the east end · BLOCKED: the bar must be lifted from the other side · leads to [«id-7»], somewhere they have not been
 
@@ -135,19 +135,19 @@ Traits: physique Wiry, face Bony, skin Ashen, hair Cropped, clothing Patched, vi
 
 ## The room the player is standing in
 
-[«id-1»] **The Waterway** (NEVER ENCOUNTERED)
-base: A waterway of the drowned mint, its walls pale limestone crusted with mineral scale. Water lies ankle-deep across the floor, still and cold. Nothing has disturbed it in a long time.
+[«id-1»] **The Workshop** (NEVER ENCOUNTERED)
+base: A workshop of the drowned mint, its walls pale limestone crusted with mineral scale. Water lies ankle-deep across the floor, still and cold. Nothing has disturbed it in a long time.
 
 ### As drawn on the map
-a passage, about 30 by 10 feet -- long and narrow, running east-west, irregular, its walls stepping in and out. Ways out: one off the north wall, one off the south wall, one off the west wall
+a tiny chamber, about 20 by 15 feet -- oblong, running east-west, irregular, its walls stepping in and out. Ways out: one off the north wall, two off the west wall
 The compass here is the MAP's, not the party's: north is north wherever they are facing. Say "the north wall"; never "on your left", which you have no way to know.
 
 ### In it
-- [«id-2»] The rubble — RoomFeature · in a corner (NEVER ENCOUNTERED)
-    base: The rubble of the drowned mint, scaled with mineral crust.
+- [«id-2»] The hearth — RoomFeature · in a corner (NEVER ENCOUNTERED)
+    base: The hearth of the drowned mint, scaled with mineral crust.
 
 ### Ways out
-- [«id-3»] "The mint's stair — out of the dungeon" — A broad flight of worn limestone steps rising out of the water toward the surface. · in the south wall, toward the west end · LEADS OUT OF THE DUNGEON — the way they came in, and the way home. Walking through it ENDS THE RUN: commit nextStage "departed"
+- [«id-3»] "The mint's stair — out of the dungeon" — A broad flight of worn limestone steps rising out of the water toward the surface. · in the west wall, at the middle · LEADS OUT OF THE DUNGEON — the way they came in, and the way home. Walking through it ENDS THE RUN: commit nextStage "departed"
 - [«id-4»] "A low arch" — a low arch of fitted stone, its keystone dropped an inch · in the west wall, at the middle · leads to [«id-5»], somewhere they have not been
 - [«id-6»] "A barred door" — a plank door swollen with water, barred from the far side · in the north wall, toward the east end · BLOCKED: the bar must be lifted from the other side · leads to [«id-7»], somewhere they have not been
 
@@ -242,19 +242,19 @@ Traits: physique Wiry, face Bony, skin Ashen, hair Cropped, clothing Patched, vi
 
 ## The room the player is standing in
 
-[«id-1»] **The Waterway** (NEVER ENCOUNTERED)
-base: A waterway of the drowned mint, its walls pale limestone crusted with mineral scale. Water lies ankle-deep across the floor, still and cold. Nothing has disturbed it in a long time.
+[«id-1»] **The Workshop** (NEVER ENCOUNTERED)
+base: A workshop of the drowned mint, its walls pale limestone crusted with mineral scale. Water lies ankle-deep across the floor, still and cold. Nothing has disturbed it in a long time.
 
 ### As drawn on the map
-a passage, about 30 by 10 feet -- long and narrow, running east-west, irregular, its walls stepping in and out. Ways out: one off the north wall, one off the south wall, one off the west wall
+a tiny chamber, about 20 by 15 feet -- oblong, running east-west, irregular, its walls stepping in and out. Ways out: one off the north wall, two off the west wall
 The compass here is the MAP's, not the party's: north is north wherever they are facing. Say "the north wall"; never "on your left", which you have no way to know.
 
 ### In it
-- [«id-2»] The rubble — RoomFeature · in a corner (NEVER ENCOUNTERED)
-    base: The rubble of the drowned mint, scaled with mineral crust.
+- [«id-2»] The hearth — RoomFeature · in a corner (NEVER ENCOUNTERED)
+    base: The hearth of the drowned mint, scaled with mineral crust.
 
 ### Ways out
-- [«id-3»] "The mint's stair — out of the dungeon" — A broad flight of worn limestone steps rising out of the water toward the surface. · in the south wall, toward the west end · LEADS OUT OF THE DUNGEON — the way they came in, and the way home. Walking through it ENDS THE RUN: commit nextStage "departed"
+- [«id-3»] "The mint's stair — out of the dungeon" — A broad flight of worn limestone steps rising out of the water toward the surface. · in the west wall, at the middle · LEADS OUT OF THE DUNGEON — the way they came in, and the way home. Walking through it ENDS THE RUN: commit nextStage "departed"
 - [«id-4»] "A low arch" — a low arch of fitted stone, its keystone dropped an inch · in the west wall, at the middle · leads to [«id-5»], somewhere they have not been
 - [«id-6»] "A barred door" — a plank door swollen with water, barred from the far side · in the north wall, toward the east end · BLOCKED: the bar must be lifted from the other side · leads to [«id-7»], somewhere they have not been
 
@@ -359,19 +359,19 @@ Traits: physique Wiry, face Bony, skin Ashen, hair Cropped, clothing Patched, vi
 
 ## The room the player is standing in
 
-[«id-1»] **The Waterway** (NEVER ENCOUNTERED)
-base: A waterway of the drowned mint, its walls pale limestone crusted with mineral scale. Water lies ankle-deep across the floor, still and cold. Nothing has disturbed it in a long time.
+[«id-1»] **The Workshop** (NEVER ENCOUNTERED)
+base: A workshop of the drowned mint, its walls pale limestone crusted with mineral scale. Water lies ankle-deep across the floor, still and cold. Nothing has disturbed it in a long time.
 
 ### As drawn on the map
-a passage, about 30 by 10 feet -- long and narrow, running east-west, irregular, its walls stepping in and out. Ways out: one off the north wall, one off the south wall, one off the west wall
+a tiny chamber, about 20 by 15 feet -- oblong, running east-west, irregular, its walls stepping in and out. Ways out: one off the north wall, two off the west wall
 The compass here is the MAP's, not the party's: north is north wherever they are facing. Say "the north wall"; never "on your left", which you have no way to know.
 
 ### In it
-- [«id-2»] The rubble — RoomFeature · in a corner (NEVER ENCOUNTERED)
-    base: The rubble of the drowned mint, scaled with mineral crust.
+- [«id-2»] The hearth — RoomFeature · in a corner (NEVER ENCOUNTERED)
+    base: The hearth of the drowned mint, scaled with mineral crust.
 
 ### Ways out
-- [«id-3»] "The mint's stair — out of the dungeon" — A broad flight of worn limestone steps rising out of the water toward the surface. · in the south wall, toward the west end · LEADS OUT OF THE DUNGEON — the way they came in, and the way home. Walking through it ENDS THE RUN: commit nextStage "departed"
+- [«id-3»] "The mint's stair — out of the dungeon" — A broad flight of worn limestone steps rising out of the water toward the surface. · in the west wall, at the middle · LEADS OUT OF THE DUNGEON — the way they came in, and the way home. Walking through it ENDS THE RUN: commit nextStage "departed"
 - [«id-4»] "A low arch" — a low arch of fitted stone, its keystone dropped an inch · in the west wall, at the middle · leads to [«id-5»], somewhere they have not been
 - [«id-6»] "A barred door" — a plank door swollen with water, barred from the far side · in the north wall, toward the east end · BLOCKED: the bar must be lifted from the other side · leads to [«id-7»], somewhere they have not been
 
@@ -470,19 +470,19 @@ Traits: physique Wiry, face Bony, skin Ashen, hair Cropped, clothing Patched, vi
 
 ## The room the player is standing in
 
-[«id-1»] **The Waterway** (NEVER ENCOUNTERED)
-base: A waterway of the drowned mint, its walls pale limestone crusted with mineral scale. Water lies ankle-deep across the floor, still and cold. Nothing has disturbed it in a long time.
+[«id-1»] **The Workshop** (NEVER ENCOUNTERED)
+base: A workshop of the drowned mint, its walls pale limestone crusted with mineral scale. Water lies ankle-deep across the floor, still and cold. Nothing has disturbed it in a long time.
 
 ### As drawn on the map
-a passage, about 30 by 10 feet -- long and narrow, running east-west, irregular, its walls stepping in and out. Ways out: one off the north wall, one off the south wall, one off the west wall
+a tiny chamber, about 20 by 15 feet -- oblong, running east-west, irregular, its walls stepping in and out. Ways out: one off the north wall, two off the west wall
 The compass here is the MAP's, not the party's: north is north wherever they are facing. Say "the north wall"; never "on your left", which you have no way to know.
 
 ### In it
-- [«id-2»] The rubble — RoomFeature · in a corner (NEVER ENCOUNTERED)
-    base: The rubble of the drowned mint, scaled with mineral crust.
+- [«id-2»] The hearth — RoomFeature · in a corner (NEVER ENCOUNTERED)
+    base: The hearth of the drowned mint, scaled with mineral crust.
 
 ### Ways out
-- [«id-3»] "The mint's stair — out of the dungeon" — A broad flight of worn limestone steps rising out of the water toward the surface. · in the south wall, toward the west end · LEADS OUT OF THE DUNGEON — the way they came in, and the way home. Walking through it ENDS THE RUN: commit nextStage "departed"
+- [«id-3»] "The mint's stair — out of the dungeon" — A broad flight of worn limestone steps rising out of the water toward the surface. · in the west wall, at the middle · LEADS OUT OF THE DUNGEON — the way they came in, and the way home. Walking through it ENDS THE RUN: commit nextStage "departed"
 - [«id-4»] "A low arch" — a low arch of fitted stone, its keystone dropped an inch · in the west wall, at the middle · leads to [«id-5»], somewhere they have not been
 - [«id-6»] "A barred door" — a plank door swollen with water, barred from the far side · in the north wall, toward the east end · BLOCKED: the bar must be lifted from the other side · leads to [«id-7»], somewhere they have not been
 
@@ -533,8 +533,8 @@ the fact.
 
 These need writing — nothing else does:
 
-- [«id-1»] The Waterway (Room)
-- [«id-2»] The rubble (RoomFeature)
+- [«id-1»] The Workshop (Room)
+- [«id-2»] The hearth (RoomFeature)
 
 Describe the arrival. Change nothing but \`state\` and \`composed\`.
 

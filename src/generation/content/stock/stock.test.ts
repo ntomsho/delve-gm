@@ -57,14 +57,14 @@ describe("corridor designation", () => {
     expect(counts.get(1)! / N).toBeGreaterThan(0.1);
   });
 
-  it("never picks a dead end, the goal room, or a room beside another corridor", () => {
+  it("never picks a dead end, the entrance, the goal room, or a room beside another corridor", () => {
     for (const size of sizes) {
       for (let i = 0; i < 6; i++) {
         const { graph, sd } = build(4000 + i, size);
         const corridors = sd.rooms.filter((r) => r.isCorridor);
         for (const r of corridors) {
           expect(r.degree, "a corridor connects somewhere").toBeGreaterThanOrEqual(2);
-          expect(r.role, "the goal is never a passage").not.toBe("goal");
+          expect(r.role, "the way in and the objective are places, not passages").toBe("normal");
         }
         const ids = new Set(corridors.map((r) => r.index));
         for (const e of graph.edges) {

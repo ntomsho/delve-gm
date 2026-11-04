@@ -193,7 +193,7 @@ as drawn: a small chamber, about 40 by 20 feet -- long and narrow, running east-
 entity [<id>] reward (Item): Equipment=Spellbook: Beast Form
 promotable detail [Room Detail=Fungus] -- make it an entity only if a player would act on it
 connector [<id>] in the south wall, at the middle to room_1 (Stockyard) -- say what it physically is; no barrier
-connector [<id>] in the south wall, at the middle to room_5 (Pool) -- say what it physically is; no barrier
+connector [<id>] in the south wall, at the middle to room_5 (Ramp) -- say what it physically is; no barrier
 connector [<id>] in the west wall, at the middle to room_2 (Cavern) GATED -- say what it physically is; and what blocks it, from here
 encounter [mob_6vw_1] Solo, base of group 1, currently Hunt, disposition hostile
     mass: 1 x rank-and-file -> ONE consolidated entity, one stat block  [Complexity=major  |  Silhouette=humanoid  |  Trait=Ethereal  |  Ability=Camouflaging; Gaze weapon; Teleporting  |  Feature=Fur  |  Mutation=Extra eyes  |  Tactic=Demand duel  |  Personality=Bored  |  Weakness=Phylactery, Flowers]
@@ -243,33 +243,33 @@ room keywords: Room=Prison  |  Room Detail=Furniture
 as drawn: a small chamber, about 30 by 15 feet -- long and narrow, running east-west, close to a rectangle, give or take a corner. Ways out: one off the north wall, one off the east wall
 entity [<id>] clue (RoomFeature): Clue=Smell -- points at creatures in an adjoining room (room_2)
 promotable detail [Room Detail=Furniture] -- make it an entity only if a player would act on it
-connector [<id>] in the east wall, at the middle to room_4 (Waterway) -- say what it physically is; no barrier
+connector [<id>] in the east wall, at the middle to room_4 (Workshop) -- say what it physically is; no barrier
 open exits: room_2, room_4
 fixtures: up to 2, or none
 
 --- room_4 ---
-identity: Waterway
+identity: Workshop
 role: entrance
 depth: threshold   tension: calm
 headline: none
-room keywords: Room=Waterway
-as drawn: a passage, about 30 by 10 feet -- long and narrow, running east-west, irregular, its walls stepping in and out. Ways out: one off the north wall, one off the south wall, one off the west wall
-connector [<id>] in the north wall, toward the east end to room_5 (Pool) GATED -- say what it physically is; and what blocks it, from here
-connector [<id>] OUT OF THE DUNGEON in the south wall, toward the west end -- the way the party came in and the only way back to daylight; realise it from [Entrance=Tidal cave] and say what it physically is. Name it as a thing, not as an exit.
+room keywords: Room=Workshop
+as drawn: a tiny chamber, about 20 by 15 feet -- oblong, running east-west, irregular, its walls stepping in and out. Ways out: one off the north wall, two off the west wall
+connector [<id>] in the north wall, toward the east end to room_5 (Ramp) GATED -- say what it physically is; and what blocks it, from here
+connector [<id>] OUT OF THE DUNGEON in the west wall, at the middle -- the way the party came in and the only way back to daylight; realise it from [Entrance=Tidal cave] and say what it physically is. Name it as a thing, not as an exit.
 gated exits: room_5
 open exits: room_3
-fixtures: up to 1, or none -- A PASSAGE: starred kinds only
+fixtures: up to 1, or none
 
 --- room_5 ---
-identity: Pool
+identity: Ramp
 depth: middle   tension: uneasy
 headline: special
-room keywords: Room=Pool
-as drawn: a tiny chamber, about 15 by 30 feet -- long and narrow, running north-south, ragged, nothing like a rectangle. Ways out: one off the north wall, one off the south wall
+room keywords: Room=Ramp
+as drawn: a passage, about 15 by 25 feet -- oblong, running north-south, ragged, nothing like a rectangle. Ways out: one off the north wall, one off the south wall
 entity [<id>] obstacle (RoomFeature): Obstacle=Writing  |  Trick=Scrying
 gated exits: room_4
 open exits: room_0
-fixtures: up to 1, or none
+fixtures: up to 1, or none -- A PASSAGE: starred kinds only
 
 === RESPONSE FORMAT ===
 Return JSON only, no prose outside it:
