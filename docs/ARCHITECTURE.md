@@ -324,8 +324,8 @@ The rules are Knave 1.0's (`src/rules/knave/`).
 A **challenge** is one keyable property of one entity: a creature's weakness or
 ability, an NPC's asset or liability, a blocked or concealed way, a hazard, an
 obstacle, a region of the map, the goal's location and the goal's own properties.
-Nothing produces a region challenge yet: they come back with the outline pass's areas
-(`docs/BUILD-PLAN.md`, phase 2), and the engine still charts one when its key is drawn.
+Nothing produces a region challenge at the moment (*Named areas* in `docs/ROADMAP.md`),
+and the engine still charts one when its key is drawn.
 `src/generation/content/challenges.ts` enumerates them; a large dungeon has about 12.
 Everything else reads from that list: keys answer challenges, accomplishments resolve
 them, experience prices them.

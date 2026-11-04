@@ -192,8 +192,8 @@ the seams pass left out*, and the *seams pass* prompt snapshot.
   of about 9,000 for all twelve.
 - **Keys pass: unchanged** in this phase. It could take the same repair, keyed by key.
 - **Region challenges** (`challenges.ts`: one per chunk, answered by a region key that
-  charts rooms) go with the chunks. Phase 2's outline names areas, and region challenges
-  can come back as areas then. Until then nothing produces a region key.
+  charts rooms) go with the chunks. Nothing produces a region key now. The idea that
+  would bring them back is *Named areas* in `ROADMAP.md`, cut from phase 2 for now.
 
 ### Server and client
 
@@ -270,9 +270,10 @@ graph + block plan ─┘   seed advances until the layout exists; every room ha
 - **Room fictions: `ceil(1.5 × V)` candidates.** Each is an identity plus its features
   if it has any, along with the size classes it fits (`sizeAllows`). Rolled with the
   layout's size classes in hand, so every candidate fits at least one room.
-- **Mandatory fictions: `ceil(V / 3)`** of the candidates, marked as such. They must all
-  fit at once: there is an assignment of mandatory fictions to distinct rooms that
-  `sizeAllows`. If not, reroll the mandatory set.
+- **Mandatory fictions: the first `ceil(V / 3)` candidates.** Code marks them; the model
+  does not choose which are mandatory. They must all fit at once: there is an assignment
+  of mandatory fictions to distinct rooms that `sizeAllows`. If not, reroll the mandatory
+  set.
 - **Headlines: exactly `V`.** The required ones go first: the entrance's `none`, the
   goal's `special`, and a `creature` headline for each inhabitant group's base room. The
   rest follow stocking's existing quota (step 3) for the target mix. Code rolls the mix
@@ -293,12 +294,12 @@ and the challenges a key could answer.
 
 **Response**, references and short prose only, never a number:
 
-- per room: a fiction ref, a headline ref, and one line on the room's part in the
-  dungeon's story;
+- per room: a fiction ref, a headline ref, and a short note on the room's part in two
+  stories: the dungeon's (how it got to its current state) and the player's (what this
+  room does in their journey through the dungeon, which is how the outline makes the
+  game more cohesive);
 - per connection: what it is (a door, a stair, a collapsed tunnel, which side is
   higher), in a phrase;
-- the dungeon's areas: two or three named groups of rooms at medium and large, which
-  bring region challenges back;
 - key↔challenge pairs by reference: which challenge each planned key answers, and what
   the key is.
 
@@ -359,21 +360,23 @@ so a run shows what polish changed and whether it was kept.
 
 The outline, repair and polish calls each get their own `Task` in `src/llm/models.ts`,
 so their models switch independently. The writer/reviewer combination is a dev flag.
-Three combinations are compared:
+Four combinations are compared:
 
-| Run | Outline + repair | Polish |
-|---|---|---|
-| control | Haiku 4.5 | none |
-| A | Haiku 4.5 | Sonnet 5 |
-| B | Sonnet 5 | Haiku 4.5 |
+| Outline + repair | Polish |
+|---|---|
+| Haiku 4.5 | Haiku 4.5 |
+| Haiku 4.5 | Sonnet 5 |
+| Sonnet 5 | Haiku 4.5 |
+| Sonnet 5 | Sonnet 5 |
 
-The control is there to show whether polish helps at all.
+No run skips polish. Every outline version is logged (see *Polish*), so whether polish
+helps at all shows in each run's draft against its polished version.
 
 ### Measuring
 
 A dev CLI (`src/dev/cli-outline.ts`) runs the outline, repair and polish steps alone,
-with no content pass. It covers 5 seeds × 3 sizes × the three runs above, which is 45
-outlines. For each outline it records:
+with no content pass. It covers 3 seeds at small size only × the four combinations
+above, which is 12 outlines. For each outline it records:
 
 - whether it passed validation on the first try, and which rules failed;
 - the number of repairs;
@@ -382,6 +385,12 @@ outlines. For each outline it records:
 
 It writes each seed's outlines side by side to read. The models table in `models.ts` is
 set from the results, and only then is the content pass wired to the outline.
+
+### To go over in the detailed plan
+
+The specific instructions given to the model on each call: outline, repair and polish,
+and how `content-pass.md` is told to use the outline. This section says what each call
+returns, not what it is told. Go over the wording together before building.
 
 ### Afterwards, each its own decision
 
@@ -394,6 +403,6 @@ set from the results, and only then is the content pass wired to the outline.
 
 - The outline is validated, repaired and polished as above, each call its own step
   request.
-- The 45-outline measurement has been run and the model choice made from it.
+- The 12-outline measurement has been run and the model choice made from it.
 - Generation runs end to end at each size with the outline in the content pass's prompt.
 - ARCHITECTURE.md §3 describes the new pipeline.

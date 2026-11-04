@@ -162,8 +162,8 @@ export function enumerateChallenges(sd: ChallengeSource): Challenge[] {
   }
 
   // --- regions -------------------------------------------------------------
-  // None until the outline pass names areas. The kind and its key (which charts
-  // the region's rooms) stay in the engine for them.
+  // None at the moment (*Named areas* in docs/ROADMAP.md). The kind and its key
+  // (which charts the region's rooms) stay in the engine for them.
 
   // --- the goal ------------------------------------------------------------
   // Where it is. What it IS cannot be enumerated yet -- see `goal-property`.

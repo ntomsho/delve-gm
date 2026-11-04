@@ -14,6 +14,9 @@ version of `docs/BUILD-PLAN.md` in git history
 
 ## Play
 
+- **Prose discipline.** The game master's prose during play: absolute directions only;
+  positions and shapes that match the plan; no verbatim reuse of a room's description;
+  fewer verbal tics; room names that match their descriptions. Mostly playbook changes.
 - **Spellcasting.** The playbook has no guidance. The rule to write into
   `3-standard.md`: a spell succeeds automatically unless it targets a creature or
   attempts something difficult, and it is exhausted after use, follow-up actions of the
@@ -46,9 +49,10 @@ version of `docs/BUILD-PLAN.md` in git history
 
 ## Generation
 
-- **Prose discipline.** Absolute directions only; positions and shapes that match the
-  plan; no verbatim reuse of a room's description; fewer verbal tics; room names that
-  match their descriptions. Mostly playbook changes.
+- **Named areas.** Cut from the outline pass for now. The outline would name two or
+  three groups of rooms at medium and large, each a region challenge answered by a
+  region key that charts its rooms. Nothing produces a region challenge until then; the
+  key's handling stays in `src/gameplay/mechanics/challenges.ts`.
 - **Room plans.** Hand the model an ASCII plan of a room's cells beside the geometry
   sentence. Measure on a dozen rooms before adopting.
 - **Doors that agree with both rooms.** One content call now writes every room and

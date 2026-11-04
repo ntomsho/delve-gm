@@ -67,9 +67,9 @@ const commit = (over: Partial<Commit> = {}): Commit => ({
 });
 
 /**
- * A region, as the outline pass's areas will produce one. Nothing generates
- * them until then (docs/BUILD-PLAN.md, phase 2), but the key that charts one is
- * still in the engine, so it is tested against a hand-made one.
+ * A region, built by hand. Nothing generates them at the moment (*Named areas*
+ * in docs/ROADMAP.md), but the key that charts one is still in the engine, so it
+ * is tested against this.
  */
 function aRegion(world: World): Challenge {
   const roomIds = world.entities.rooms.slice(1, 4).map((r) => r.id);

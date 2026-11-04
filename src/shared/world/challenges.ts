@@ -45,7 +45,7 @@ export interface Challenge {
   /**
    * The id from stocking (the generation step that fills rooms): a
    * `MobileEntity.id`, a `StockedConnector.id` or a `RoomStock.roomId`. For an
-   * area target it is the area's id (areas come with the outline pass).
+   * area target it is the area's id (nothing produces one yet: *Named areas*, ROADMAP).
    */
   targetId: string;
   /**
