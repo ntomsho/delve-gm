@@ -25,8 +25,8 @@ history     What the place was for, what happened to it, and how it came to hold
 goal        You are given a Dungeon Reward and a Mission. Resolve them into ONE
             objective -- take one, discard the other, or fuse them, whichever
             reads best. Then write it twice:
-              summary: one line the player is told before they go in.
-              spec:    what actually counts as achieving it, for the game master.
+              goalSummary: one line the player is told before they go in.
+              goalSpec:    what actually counts as achieving it, for the game master.
                        Concrete enough to adjudicate: what must be found, done,
                        taken, or ended. This decides when the run is won, so do
                        not leave it to taste.

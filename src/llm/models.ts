@@ -79,13 +79,13 @@ export const MODELS: Record<Task, string> = {
  * response: a 12-room dungeon used about 9,000 output tokens (seed 1005).
  */
 export const MAX_TOKENS: Record<Task, number> = {
-  // Doubled when this task began to think (see THINKING_TASKS).
-  "dungeon-pass": 8192,
-  // Room for thinking plus a page of notes. A higher cap only lets runaway thinking
-  // run longer: Haiku 5.5 used all of 32000 at `high` and answered nothing. A reply
-  // cut off here is retried by force, which is quick.
-  "outline": 16000,
-  "outline-polish": 16000,
+  // Thinking counts. It uses 5,000-8,000 at `medium`, and 8192 cut answers off.
+  "dungeon-pass": 16000,
+  // Room for thinking plus a page of notes. At 16000 even `medium` was cut off, and
+  // the retry is forced, so the outline got written without any thinking and read
+  // weaker for it. A reply cut off here is paid for and thrown away.
+  "outline": 32000,
+  "outline-polish": 32000,
   "content-pass": 16384,
   // A few objects, two sentences each, plus a short list of the goal's
   // properties. A small output.
@@ -122,9 +122,9 @@ export const THINKING_TASKS: ReadonlySet<Task> = new Set<Task>([
 ]);
 
 /**
- * How hard a thinking task thinks. On trial at `medium`: at `high`, Haiku 5.5's
- * thinking ran away and hit the cap. Sonnet 5.5 skipped thinking altogether at
- * `medium`, so raise this if a task moves to Sonnet.
+ * How hard a thinking task thinks. At `high`, Haiku 5.5's thinking runs away: 9 of 10
+ * dungeon passes hit a 16000 cap, against 5,000-8,000 tokens at `medium`. Sonnet 5.5
+ * skipped thinking altogether at `medium`, so raise this if a task moves to Sonnet.
  */
 export const THINKING_EFFORT = "medium";
 

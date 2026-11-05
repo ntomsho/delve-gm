@@ -60,7 +60,8 @@ import type { StockedDungeon } from "./content/types.ts";
 import { addUsage, callForJson, type FailedAttempt, type Usage } from "../llm/client.ts";
 import {
   contentPassSchema,
-  dungeonPassSchema,
+  dungeonPassToolSchema,
+  fromDungeonPassTool,
   keysPassSchema,
 } from "./content/passes/schemas.ts";
 import { deriveSeeds, shapeFor, type RunSeeds } from "./seeds.ts";
@@ -275,15 +276,16 @@ export async function generateStructure(opts: GenerateOptions): Promise<Generate
     const payload = buildDungeonPassPayload(blueprint);
     report({ stage: "history" });
     const prompt = renderDungeonPassPrompt(payload);
-    const { value, usage } = await callForJson({
+    const { value: answer, usage } = await callForJson({
       task: "dungeon-pass",
-      schema: dungeonPassSchema,
+      schema: dungeonPassToolSchema,
       toolName: "establish_dungeon",
       toolDescription: "Record the dungeon's name, theme, history, goal, opening prose, and the standing identity of each inhabitant group.",
       messages: [{ role: "user", content: prompt }],
       signal,
       onAttemptFailed: reportFailure(journal, "dungeon-pass"),
     });
+    const value = fromDungeonPassTool(answer);
     // The dungeon is written exactly once and cannot be re-examined by playing
     // differently, so what was asked for is worth keeping.
     journal.log({ kind: "generation", pass: "dungeon-pass", prompt, response: value, usage });

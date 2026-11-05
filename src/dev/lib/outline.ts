@@ -23,7 +23,7 @@ import { renderOutlineForReview, renderOutlinePrompt } from "../../generation/co
 import { changedFiction, type Outline, type PolishEdit } from "../../generation/content/passes/outline/response.ts";
 import { rollOutline, type OutlineDraft } from "../../generation/content/passes/outline/roll.ts";
 import { polishOutline, writeOutline } from "../../generation/content/passes/outline/run.ts";
-import { dungeonPassSchema } from "../../generation/content/passes/schemas.ts";
+import { dungeonPassToolSchema, fromDungeonPassTool } from "../../generation/content/passes/schemas.ts";
 import { blockPlanValid, roomSizes } from "../../generation/floorplan/blockplan.ts";
 import { generateBlueprint } from "../../generation/floorplan/graph.ts";
 import { deriveSeeds, shapeFor } from "../../generation/seeds.ts";
@@ -253,6 +253,7 @@ async function main(): Promise<void> {
       before: async () => {},
       after: async ({ model, usage }) => {
         spent += textCost(model, usage);
+        console.error(`    call: ${usage.outputTokens} tokens out`);
       },
     },
   });
@@ -267,13 +268,14 @@ async function main(): Promise<void> {
     const spentBefore = spent;
     let pass: DungeonPassResponse;
     try {
-      ({ value: pass } = await callForJson({
+      const answer = await callForJson({
         task: "dungeon-pass",
-        schema: dungeonPassSchema,
+        schema: dungeonPassToolSchema,
         toolName: "establish_dungeon",
         toolDescription: "Record the dungeon's name, theme, history, goal, opening prose, and the standing identity of each inhabitant group.",
         messages: [{ role: "user", content: renderDungeonPassPrompt(payload) }],
-      }));
+      });
+      pass = fromDungeonPassTool(answer.value);
     } catch (e) {
       console.error(`  dungeon pass FAILED, skipping this seed: ${e instanceof Error ? e.message : String(e)}`);
       dungeonPassCost += spent - spentBefore;

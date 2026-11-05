@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 import { applyContentPass } from "./content/passes/content-pass/apply.ts";
 import { renderContentPassPrompt } from "./content/passes/content-pass/prompt.ts";
 import {
@@ -47,6 +48,9 @@ import { deriveSeeds, shapeFor } from "./seeds.ts";
 import {
   contentPassSchema,
   dungeonPassSchema,
+  dungeonPassToolSchema,
+  fromDungeonPassTool,
+  toDungeonPassTool,
   keysPassSchema,
 } from "./content/passes/schemas.ts";
 import { ResponseFormatError, validate } from "../llm/json.ts";
@@ -212,6 +216,18 @@ describe("dungeon pass", () => {
 // ===========================================================================
 // THE STANDING FICTION
 // ===========================================================================
+
+describe("what the model answers the dungeon pass with", () => {
+  it("has nothing nested to write as a string", () => {
+    const flat = Object.values(dungeonPassToolSchema.shape).filter((f) => f instanceof z.ZodObject);
+    expect(flat).toEqual([]);
+  });
+
+  it("comes back to the shape the rest of the pipeline reads", () => {
+    const res = fakeDungeonPass(["g1"]);
+    expect(fromDungeonPassTool(toDungeonPassTool(res))).toEqual(res);
+  });
+});
 
 describe("dungeonContext", () => {
   // 1008 rather than the usual 1005: this block and the next one need a dungeon
@@ -1029,7 +1045,7 @@ describe("generation split across requests", () => {
       // that already exists, so those ids are fixed and a table works.
       if (tool === "establish_dungeon") {
         const ids = [...new Set(prompt.match(UUID) ?? [])];
-        return { ok: true, json: async () => toolReply(tool, fakeDungeonPass(ids)) };
+        return { ok: true, json: async () => toolReply(tool, toDungeonPassTool(fakeDungeonPass(ids))) };
       }
 
       // The keys payload addresses entities that only exist once the content
