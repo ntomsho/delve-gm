@@ -104,8 +104,11 @@ export interface OutlineDraft {
 const ROLL_TRIES = 12;
 /** Rerolls of the mandatory set before generation fails, which no measured seed needs. */
 const MANDATORY_TRIES = 50;
-/** Keys to plan, per size class of dungeon. Today's placement averages 1.6 at small. */
-const KEY_RANGE = { small: [1, 3], larger: [2, 4] } as const;
+/**
+ * Keys to plan, by dungeon size. Generous: what the goal needs is a key too, and the
+ * player has to engage with the world to get each one.
+ */
+const KEY_RANGE = { small: [1, 6], larger: [2, 8] } as const;
 
 /** Can every mandatory fiction have a room of its own? A plain bipartite matching. */
 export function mandatoryFit(mandatory: readonly FictionCandidate[], rooms: readonly OutlineRoom[]): boolean {

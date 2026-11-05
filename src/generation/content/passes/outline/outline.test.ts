@@ -15,6 +15,7 @@ import {
   outlineSchema,
   outlineViolations,
   polishSchema,
+  refLeaks,
   type Outline,
   type PolishEdit,
 } from "./response.ts";
@@ -94,9 +95,9 @@ function validOutline(d: OutlineDraft): Outline {
       };
     }),
     ways: d.ways.map((w) => ({ ref: w.ref, form: "a low arch" })),
-    objective: { type: "Item", form: "a steel die" },
+    objective: { type: "Item", form: "a steel die", person: "none" },
     clues: d.cards.filter((c) => c.clue).map((c) => ({ card: c.ref, pointsAt: "objective" })),
-    keys: [{ challenge: location.ref, key: "a torn map" }],
+    keys: [{ challenge: location.ref, kind: "object", key: "a torn map", room: d.entrance, gotBy: "Searching the desk." }],
     fictionChanges: [],
   };
 }
@@ -111,6 +112,9 @@ const edit = (e: Partial<PolishEdit> & Pick<PolishEdit, "op">): PolishEdit => ({
   way: "none",
   field: "none",
   group: "none",
+  challenge: "none",
+  keyKind: "none",
+  gotBy: "none",
   text: "none",
   why: "It helps.",
   ...e,
@@ -244,8 +248,54 @@ describe("the rules an outline answers to", () => {
   it("insists a key answers where the objective is", () => {
     const o = clean();
     const other = d.challenges.find((c) => c.challenge.kind !== "goal-location")!;
-    o.keys = [{ challenge: other.ref, key: "a note" }];
+    o.keys = [{ challenge: other.ref, kind: "object", key: "a note", room: d.entrance, gotBy: "Looking." }];
     expect(outlineViolations(d, o).map((v) => v.message).join()).toContain("where the objective is");
+  });
+
+  it("takes as many keys as the goal needs, of either kind", () => {
+    const o = clean();
+    o.keys = [
+      ...o.keys,
+      { challenge: "goal", kind: "information", key: "the sealing word", room: normal[0]!, gotBy: "Overhearing the chant." },
+      { challenge: "goal", kind: "object", key: "a rubbing", room: normal[1]!, gotBy: "Getting past the smoke." },
+    ];
+    expect(outlineViolations(d, o)).toEqual([]);
+  });
+
+  it("refuses a key in no real room", () => {
+    const o = clean();
+    o.keys[0]!.room = "room_99";
+    expect(outlineViolations(d, o).map((v) => v.message).join()).toContain("not a room");
+  });
+
+  it("refuses a key that can only be reached through the way it opens", () => {
+    const dd = draftOf(1007);
+    const behind = dd.rooms.find((r) => r.isDeadEnd && r.ways.some((ref) => dd.ways.find((w) => w.ref === ref)!.connector.gated))!;
+    const way = dd.ways.find((w) => behind.ways.includes(w.ref) && w.connector.gated)!;
+    const lock = dd.challenges.find((c) => c.challenge.targetId === way.connector.id)!;
+    const o = validOutline(dd);
+    o.keys = [...o.keys, { challenge: lock.ref, kind: "object", key: "the key", room: behind.ref, gotBy: "Looking." }];
+    expect(outlineViolations(dd, o).map((v) => v.message).join()).toContain("the way it opens");
+  });
+
+  it("lets a key sit in the room of its own lock, on the near side", () => {
+    const dd = draftOf(1007);
+    const way = dd.ways.find((w) => w.connector.gated)!;
+    const lock = dd.challenges.find((c) => c.challenge.targetId === way.connector.id)!;
+    const near = dd.rooms.find((r) => r.ways.includes(way.ref) && !r.isDeadEnd)!;
+    const o = validOutline(dd);
+    o.keys = [...o.keys, { challenge: lock.ref, kind: "object", key: "the key", room: near.ref, gotBy: "Hidden behind the loose stone." }];
+    expect(outlineViolations(dd, o)).toEqual([]);
+  });
+
+  it("finds a ref left in prose, and lets ordinary words alone", () => {
+    const o = clean();
+    expect(refLeaks(o)).toEqual([]);
+    o.rooms[0]!.journey = "The ledger (K11) lies here.";
+    o.ways[0]!.form = "a stair; room_1 is higher";
+    const text = refLeaks(o).map((v) => v.message).join();
+    expect(text).toContain('"K11"');
+    expect(text).toContain('"room_1"');
   });
 
   it("holds the number of keys to the range", () => {
@@ -282,7 +332,7 @@ describe("a repair", () => {
 
   it("can take a key away, because its list replaces the old one whole", () => {
     const o = validOutline(d);
-    o.keys = [...o.keys, { challenge: "K1", key: "extra" }];
+    o.keys = [...o.keys, { challenge: "K1", kind: "information", key: "extra", room: d.entrance, gotBy: "Asking." }];
     const patched = mergeOutline(o, { rooms: [], objective: o.objective, ways: [], clues: [], keys: o.keys.slice(0, 1), fictionChanges: [] });
     expect(patched.keys).toHaveLength(1);
   });
@@ -318,6 +368,18 @@ describe("polish edits", () => {
     const o = validOutline(d);
     const out = applyPolish(o, [edit({ op: "change_fiction", field: "history", text: "New.", why: "Better." })])!;
     expect(out.fictionChanges).toEqual([{ field: "history", group: "none", text: "New.", why: "Better." }]);
+  });
+
+  it("adds a key, and replaces a challenge's key rather than doubling it", () => {
+    const o = validOutline(d);
+    const held = o.keys[0]!;
+    const out = applyPolish(o, [
+      edit({ op: "set_key", challenge: "goal", keyKind: "information", text: "the word", roomA: o.rooms[0]!.ref, gotBy: "Asking." }),
+      edit({ op: "set_key", challenge: held.challenge, keyKind: "object", text: "a better map", roomA: o.rooms[0]!.ref, gotBy: "Searching." }),
+    ])!;
+    expect(out.keys).toHaveLength(2);
+    expect(out.keys.find((k) => k.challenge === held.challenge)!.key).toBe("a better map");
+    expect(out.keys.find((k) => k.challenge === "goal")!.kind).toBe("information");
   });
 
   it("gives up on an edit with no new text, rather than writing the word none", () => {
@@ -413,7 +475,7 @@ describe("the calls", () => {
     await writeOutline(d, pass, { model: HAIKU });
     expect(sent[0]!.body.tool_choice).toEqual({ type: "auto", disable_parallel_tool_use: true });
     expect(sent[0]!.body.system).toContain("write_outline");
-    expect(sent[0]!.body.output_config).toEqual({ effort: "high" });
+    expect(sent[0]!.body.output_config).toEqual({ effort: "medium" });
     expect(sent[0]!.body.fallbacks).toBeUndefined();
   });
 

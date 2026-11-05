@@ -79,7 +79,7 @@ function roomLine(draft: OutlineDraft, r: OutlineRoom): string {
   });
   return [
     r.ref,
-    r.role === "entrance" ? "ENTRANCE (pre-assigned: no card)" : r.role === "goal" ? "GOAL ROOM (pre-assigned)" : "",
+    r.role === "entrance" ? "ENTRANCE (no card, but choose a fiction)" : r.role === "goal" ? "GOAL ROOM (choose a fiction; a card is optional)" : "",
     r.passage ? `PASSAGE, already a ${r.identity}${r.detail ? ` (${r.detail})` : ""}` : "",
     r.entranceFeature ? `the way in: ${r.entranceFeature}` : "",
     r.sizeClass ?? "",
@@ -118,7 +118,9 @@ function cardLine(draft: OutlineDraft, c: ContentCard): string {
     : groupRef
       ? `${m.minion ?? "outpost"} of ${groupRef}`
       : "unaffiliated";
-  const what = m.monster ? monsterLine(m.monster) : m.npc ? npcLine(m.npc) : "";
+  const group = m.groupIndex !== undefined ? draft.blueprint.inhabitants[m.groupIndex] : undefined;
+  const people = m.isBase && group?.kind === "people" ? `people here: ${group.npcs.map((n) => n.name).join(", ")}` : "";
+  const what = m.monster ? monsterLine(m.monster) : m.npc ? npcLine(m.npc) : people;
   return `${c.ref} creature, ${who}${what ? `: ${what}` : ""}; ${m.activity}; ${m.disposition}${tail}`;
 }
 
@@ -173,9 +175,9 @@ export function renderOutlineForReview(o: Outline): string {
     L.push(`  story: ${r.story}`, `  journey: ${r.journey}`, `  story feature: ${r.storyFeature}`);
   }
   L.push("Ways:", ...o.ways.map((w) => `  ${w.ref}: ${w.form}`));
-  L.push(`Objective: ${o.objective.type}, ${o.objective.form}`);
+  L.push(`Objective: ${o.objective.type}, ${o.objective.form}${o.objective.person !== "none" ? ` (${o.objective.person} stands there)` : ""}`);
   if (o.clues.length) L.push("Clues:", ...o.clues.map((c) => `  ${c.card} points at ${c.pointsAt}`));
-  L.push("Keys:", ...o.keys.map((k) => `  ${k.challenge}: ${k.key}`));
+  L.push("Keys:", ...o.keys.map((k) => `  ${k.challenge} (${k.kind}, ${k.room}): ${k.key}. Got by: ${k.gotBy}`));
   if (o.fictionChanges.length) {
     L.push("Changes to the fiction:", ...o.fictionChanges.map((c) => `  ${c.field}${c.group !== "none" ? ` ${c.group}` : ""}: ${c.text} (${c.why})`));
   }

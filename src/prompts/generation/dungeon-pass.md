@@ -115,3 +115,5 @@ HARD RULES
 7. The opening tells the player what they were TOLD, not what is true. Theme and
    history are the facts, and they are for the game master. What reached the player
    is allowed to be partial, and should be.
+8. The opening never says what the player is carrying. Their gear is on their sheet,
+   and it may not match.

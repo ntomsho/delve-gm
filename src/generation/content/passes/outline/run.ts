@@ -20,6 +20,7 @@ import {
   outlineSchema,
   outlineViolations,
   polishSchema,
+  refLeaks,
   type Outline,
   type PolishEdit,
 } from "./response.ts";
@@ -57,7 +58,7 @@ export async function writeOutline(
     ...(opts.onAttemptFailed ? { onAttemptFailed: opts.onAttemptFailed } : {}),
     check: (o) => {
       latest = o;
-      return outlineViolations(draft, o);
+      return [...outlineViolations(draft, o), ...refLeaks(o)];
     },
     repair: {
       ask: (missing) => renderOutlineRepair(draft, latest!, missing),

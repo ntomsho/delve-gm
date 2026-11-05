@@ -34,12 +34,15 @@ import { HAIKU, SONNET } from "../../llm/models.ts";
 const SIZE = 1;
 /** A plain goal, a social goal with only monsters here, and one with people. */
 const DEFAULT_SEEDS = [1005, 1007, 1025];
-const COMBINATIONS = [
-  { writer: HAIKU, reviewer: HAIKU },
+const CHOSEN = [{ writer: HAIKU, reviewer: HAIKU }];
+/** `--compare`: every pairing measured for the model choice. */
+const ALL_PAIRINGS = [
+  ...CHOSEN,
   { writer: HAIKU, reviewer: SONNET },
   { writer: SONNET, reviewer: HAIKU },
   { writer: SONNET, reviewer: SONNET },
 ];
+const COMBINATIONS = process.argv.includes("--compare") ? ALL_PAIRINGS : CHOSEN;
 const SHORT: Record<string, string> = { [HAIKU]: "Haiku 5.5", [SONNET]: "Sonnet 5.5" };
 
 function die(message: string): never {
@@ -190,7 +193,7 @@ function renderSeed(seed: number, draft: OutlineDraft, pass: DungeonPassResponse
     if (r.proposed.length) {
       L.push("", "### Edits proposed", "");
       for (const e of r.proposed) {
-        const named = [e.roomA, e.roomB, e.fiction, e.way, e.field, e.group].filter((v) => v !== "none");
+        const named = [e.roomA, e.roomB, e.fiction, e.way, e.field, e.group, e.challenge].filter((v) => v !== "none");
         L.push(`- ${e.op} ${named.join(" ")}: ${e.why}${e.text !== "none" ? `\n  > ${e.text}` : ""}`);
       }
     }

@@ -10,12 +10,24 @@ edits:
 - rewrite_way: what a way physically is (way, text)
 - change_fiction: the dungeon's theme, history, opening, or a group's name or base
   (field, group if it is about a group, and the whole new text)
+- set_key: add a key or replace one (challenge, keyKind, text for what it is, roomA for
+  where it is, gotBy)
 
 Change the fiction only to work rooms in better or make the story more engaging.
 Never change the goal, and never make it seem strange or leave things around it not
 making sense.
 
-Ask:
+AUDIT FIRST. Check each of these in turn, and fix what fails:
+- What the goal and history say the player must learn or find: is each one a key?
+- Each key: is it placed, and does the player have to engage with the world to get it?
+  Is it one thing? Is it clear of the way it opens?
+- Each gated or concealed way: how does it open, and is what lies behind it worth it?
+- The opening: does anything in the outline contradict it?
+- Every note: does it agree with the ways, keys and other notes?
+- Is there any way you could make this dungeon more interesting, more unique, or more
+  fun to play through?
+
+Then ask:
 1. Does each room fit the concept of the dungeon, including mandatory rooms?
 2. Are dangers signposted, and are exploration and clever thinking rewarded?
 3. Do routes to the goal ask different things of the player?
@@ -34,6 +46,7 @@ You cannot remove a mandatory fiction or change anything pre-assigned.
 
 HOW TO ANSWER
 Call the tool once. Every edit fills in every field: op, roomA, roomB, fiction, way,
-field, group, text and why, with "none" for any that does not apply to that op. Rooms,
+field, group, challenge, keyKind, gotBy, text and why, with "none" for any that does
+not apply to that op. Rooms,
 fictions, ways and groups go by ref, like room_3, F2, W1 or G1. New wording goes in
 text, and only there. why is one real sentence on why the edit helps.

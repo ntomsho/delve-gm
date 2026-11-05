@@ -17,6 +17,10 @@ import type { OutlineDraft } from "./roll.ts";
 // ---------------------------------------------------------------------------
 
 const fictionFields = ["theme", "history", "opening", "groupName", "groupBase"] as const;
+const keyKinds = ["object", "information"] as const;
+
+/** The `challenge` of a key the goal needs, which answers no rolled challenge. */
+export const GOAL_KEY = "goal";
 
 const fictionChange = z.object({
   field: z.enum(fictionFields),
@@ -54,9 +58,25 @@ export const outlineSchema = z.object({
     })
   ),
   ways: z.array(z.object({ ref: nonEmpty, form: nonEmpty })),
-  objective: z.object({ type: z.enum(["Item", "RoomFeature", "Creature"]), form: nonEmpty }),
+  objective: z.object({
+    type: z.enum(["Item", "RoomFeature", "Creature"]),
+    form: nonEmpty,
+    /** a named person who stands in the goal room for it, or "none" */
+    person: nonEmpty,
+  }),
   clues: z.array(z.object({ card: nonEmpty, pointsAt: nonEmpty })),
-  keys: z.array(z.object({ challenge: nonEmpty, key: nonEmpty })),
+  keys: z.array(
+    z.object({
+      /** a challenge's ref, or "goal" for something the goal needs */
+      challenge: nonEmpty,
+      kind: z.enum(keyKinds),
+      key: nonEmpty,
+      /** where it is, by ref */
+      room: nonEmpty,
+      /** what the player has to do to get it */
+      gotBy: nonEmpty,
+    })
+  ),
   fictionChanges: z.array(fictionChange),
 });
 
@@ -77,6 +97,7 @@ export const polishSchema = z.object({
         "set_story_feature",
         "rewrite_way",
         "change_fiction",
+        "set_key",
       ]),
       // Every edit fills in all of these, with "none" where one does not apply.
       // Optional fields get left out: Haiku 5.5 put an edit's new text in `why`.
@@ -86,6 +107,9 @@ export const polishSchema = z.object({
       way: nonEmpty,
       field: z.enum([...fictionFields, NONE]),
       group: nonEmpty,
+      challenge: nonEmpty,
+      keyKind: z.enum([...keyKinds, NONE]),
+      gotBy: nonEmpty,
       text: nonEmpty,
       why: nonEmpty,
     })
@@ -216,9 +240,20 @@ export function outlineViolations(draft: OutlineDraft, o: Outline): ValidationIs
   }
   const keyed = new Set<string>();
   for (const k of o.keys) {
-    if (!challengeOf.has(k.challenge)) bad("keys", `${k.challenge} is not a challenge you were given`);
+    if (!roomOf.has(k.room)) bad("keys", `the key "${k.key}" is in ${k.room}, which is not a room`);
+    if (k.challenge === GOAL_KEY) continue;
+    const answers = challengeOf.get(k.challenge);
+    if (!answers) {
+      bad("keys", `${k.challenge} is not a challenge you were given`);
+      continue;
+    }
     if (keyed.has(k.challenge)) bad("keys", `two keys answer ${k.challenge}`);
     keyed.add(k.challenge);
+    // Never behind the thing it opens (ARCHITECTURE section 8.2).
+    const way = draft.ways.find((w) => w.connector.id === answers.targetId);
+    if (way && roomOf.has(k.room) && !reachableWithout(draft, way.ref).has(k.room)) {
+      bad("keys", `the key "${k.key}" in ${k.room} can only be reached through ${way.ref}, the way it opens`);
+    }
   }
   const location = draft.challenges.find((c) => c.challenge.kind === "goal-location");
   if (location && !keyed.has(location.ref)) {
@@ -233,6 +268,49 @@ export function outlineViolations(draft: OutlineDraft, o: Outline): ValidationIs
     }
   }
 
+  return out;
+}
+
+/** Every room reachable from the entrance without passing one way. */
+function reachableWithout(draft: OutlineDraft, wayRef: string): Set<string> {
+  const seen = new Set([draft.entrance]);
+  const queue = [draft.entrance];
+  for (let at = queue.shift(); at !== undefined; at = queue.shift()) {
+    for (const w of draft.ways) {
+      if (w.ref === wayRef) continue;
+      const next = w.a === at ? w.b : w.b === at ? w.a : undefined;
+      if (next !== undefined && !seen.has(next)) {
+        seen.add(next);
+        queue.push(next);
+      }
+    }
+  }
+  return seen;
+}
+
+const REF = /\b(?:room_\d+|[CFKWG]\d+)\b/;
+
+/**
+ * Refs written into prose. They mean nothing to whoever writes the room from this,
+ * and may get copied into what the player reads. Asked of a written outline only: it
+ * is not worth throwing a whole polish away for one.
+ */
+export function refLeaks(o: Outline): ValidationIssue[] {
+  const out: ValidationIssue[] = [];
+  const check = (where: string, text: string) => {
+    const hit = text.match(REF)?.[0];
+    if (hit) out.push({ path: where, message: `${where} says "${hit}"; call it what it is, not by its ref` });
+  };
+  for (const r of o.rooms) {
+    check(`the story of room ${r.ref}`, r.story);
+    check(`the journey of room ${r.ref}`, r.journey);
+    check(`the story feature of room ${r.ref}`, r.storyFeature);
+  }
+  for (const w of o.ways) check(`way ${w.ref}`, w.form);
+  for (const k of o.keys) {
+    check(`the key for ${k.challenge}`, k.key);
+    check(`how to get the key for ${k.challenge}`, k.gotBy);
+  }
   return out;
 }
 
@@ -283,6 +361,7 @@ export function applyPolish(o: Outline, edits: readonly PolishEdit[]): Outline |
   const rooms = o.rooms.map((r) => ({ ...r }));
   const ways = o.ways.map((w) => ({ ...w }));
   const fictionChanges = [...o.fictionChanges];
+  const keys = [...o.keys];
   const room = (ref: string | undefined) => rooms.find((r) => r.ref === ref);
 
   for (const e of edits) {
@@ -325,9 +404,18 @@ export function applyPolish(o: Outline, edits: readonly PolishEdit[]): Outline |
         if (e.field === NONE || !has(e.text)) return undefined;
         fictionChanges.push({ field: e.field, group: e.group, text: e.text, why: e.why });
         break;
+      case "set_key": {
+        if (e.keyKind === NONE || !has(e.challenge) || !has(e.text) || !has(e.gotBy) || !has(e.roomA)) return undefined;
+        const key = { challenge: e.challenge, kind: e.keyKind, key: e.text, room: e.roomA, gotBy: e.gotBy };
+        // A challenge has one key; the goal can need several.
+        const held = e.challenge === GOAL_KEY ? -1 : keys.findIndex((k) => k.challenge === e.challenge);
+        if (held >= 0) keys[held] = key;
+        else keys.push(key);
+        break;
+      }
     }
   }
-  return { ...o, rooms, ways, fictionChanges };
+  return { ...o, rooms, ways, keys, fictionChanges };
 }
 
 // ---------------------------------------------------------------------------
