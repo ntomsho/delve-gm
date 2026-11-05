@@ -53,7 +53,10 @@ FOR EACH ROOM, choose
   Prison), work it into the story by adding lore explaining its presence (the
   warden was fixated on making prisoners perform plays he wrote), or by making
   the room a slight variation on the concept (the "theater" was actually for
-  viewing executions). You will leave some optional fictions unused. A room
+  viewing executions). A fiction marked WHAT THIS PLACE WAS BUILT AS is what makes
+  the dungeon what it is, so it is that room plainly, not a variation: whatever else
+  it has become, a Theater has a stage and seats. You will leave some optional
+  fictions unused. A room
   marked PASSAGE already has its identity: explain it and tie it to the rooms it
   joins. It can still hold a card and a story feature.
 - a card: what is in the room now. Every card is used exactly once. A group's BASE

@@ -41,6 +41,8 @@ export interface FictionCandidate {
   fits: SizeClass[];
   /** the model must use it. The first `ceil(V / 3)` candidates, marked by code. */
   mandatory: boolean;
+  /** the room that makes this place what it was built as (`ORIGIN_ROOMS`) */
+  signature?: boolean;
 }
 
 export interface OutlineRoom {
@@ -110,6 +112,40 @@ const MANDATORY_TRIES = 50;
  */
 const KEY_RANGE = { small: [1, 6], larger: [2, 8] } as const;
 
+/**
+ * The room an origin cannot be itself without: a theater with no theater in it is not
+ * a theater. Rolled fictions gave none of the three measured dungeons one. Where there
+ * are several, any of them will do.
+ *
+ * MOST ORIGINS ARE NOT HERE, ON PURPOSE. A hideout needs nothing to be a hideout, and
+ * nearly anything rolled works in a prison. Keyed on the rolled result, so a Theater
+ * reached through the building tables gets one too.
+ */
+export const ORIGIN_ROOMS: Readonly<Record<string, readonly string[]>> = {
+  Arena: ["Fighting pit"],
+  Asylum: ["Prison", "Physician"],
+  Aviary: ["Aviary"],
+  Bank: ["Vault"],
+  Baths: ["Baths"],
+  Casino: ["Gambling hall"],
+  Court: ["Courthouse"],
+  Forge: ["Forge"],
+  Hotel: ["Bed chamber"],
+  Laboratory: ["Laboratory"],
+  Library: ["Library"],
+  Market: ["Marketplace"],
+  Mine: ["Mine shaft"],
+  Monastery: ["Chapel"],
+  Museum: ["Museum"],
+  Palace: ["Throne room"],
+  Ship: ["Bridge"],
+  Temple: ["Temple"],
+  Theater: ["Theater"],
+  University: ["Classroom", "Library"],
+  Vault: ["Vault"],
+  Zoo: ["Zoo"],
+};
+
 /** Can every mandatory fiction have a room of its own? A plain bipartite matching. */
 export function mandatoryFit(mandatory: readonly FictionCandidate[], rooms: readonly OutlineRoom[]): boolean {
   const chambers = rooms.filter((r) => !r.passage);
@@ -140,6 +176,29 @@ function rollFiction(ref: string, sizes: ReadonlySet<SizeClass>, rng: Rng, manda
     ...(rng.chance(0.5) ? { detail: roll(DUNGEON_ROOM_DETAILS, rng) } : {}),
     fits: CLASSES.filter((c) => sizeAllows(identity, c)),
     mandatory,
+  };
+}
+
+/**
+ * The origin's own room, if it has one. It takes the first mandatory slot, so the
+ * number of fictions does not change.
+ *
+ * What it is matters more than how big it is: where no chamber is big enough for a
+ * Theater, the dungeon gets a cramped one, not none.
+ */
+function signatureFiction(form: Rolled, sizes: ReadonlySet<SizeClass>, rng: Rng): FictionCandidate | undefined {
+  const options = ORIGIN_ROOMS[form];
+  if (!options) return undefined;
+  const identity = rng.pick(options);
+  const fits = CLASSES.filter((c) => sizeAllows(identity, c));
+  const suits = sizes.size === 0 || fits.some((c) => sizes.has(c));
+  return {
+    ref: "F1",
+    identity,
+    ...(rng.chance(0.5) ? { detail: roll(DUNGEON_ROOM_DETAILS, rng) } : {}),
+    fits: suits ? fits : [...CLASSES],
+    mandatory: true,
+    signature: true,
   };
 }
 
@@ -215,10 +274,11 @@ export function rollOutline(
   const wanted = Math.ceil(1.5 * chambers.length);
   const mandatoryCount = Math.min(Math.ceil(rooms.length / 3), chambers.length);
 
+  const signature = signatureFiction(blueprint.purpose.form, chamberSizes, rng);
   let mandatory: FictionCandidate[] = [];
   for (let t = 0; ; t++) {
     mandatory = Array.from({ length: mandatoryCount }, (_, i) =>
-      rollFiction(`F${i + 1}`, chamberSizes, rng, true)
+      i === 0 && signature ? signature : rollFiction(`F${i + 1}`, chamberSizes, rng, true)
     );
     if (mandatoryFit(mandatory, rooms)) break;
     if (t >= MANDATORY_TRIES) throw new Error("no set of mandatory fictions fits this dungeon's rooms");

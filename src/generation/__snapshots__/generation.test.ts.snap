@@ -344,7 +344,9 @@ goal        You are given a Dungeon Reward and a Mission. Resolve them into ONE
             NO GOAL HAS ONE SOLUTION. Empowering the player's creativity comes first.
             The spec says what must be TRUE, never the method. Do not write "must be done
             while holding the warrant": any plan that makes it true counts, including one
-            nobody prepared for. Ways to do it are examples, never conditions.
+            nobody prepared for. Ways to do it are examples, never conditions. Reread what
+            you wrote for what counts and cut any line about how it was done, not what is
+            true: "the player must have the leverage in hand" is a method.
 
             A GOAL ABOUT A PERSON OR A RELATIONSHIP (winning an ally, convincing,
             blackmailing, framing, impressing) needs more than a thing to find. Its

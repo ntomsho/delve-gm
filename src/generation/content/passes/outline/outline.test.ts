@@ -5,7 +5,8 @@ import { blockPlanValid, roomSizes } from "../../../floorplan/blockplan.ts";
 import { generateBlueprint } from "../../../floorplan/graph.ts";
 import { deriveSeeds, shapeFor } from "../../../seeds.ts";
 import { generateBlueprintSeed, type Size } from "../../blueprint.ts";
-import { sizeAllows } from "../../../floorplan/room-size.ts";
+import { CLASSES, sizeAllows } from "../../../floorplan/room-size.ts";
+import { DUNGEON_FORMS } from "../../../../rules/maze-rats/tables.ts";
 import type { DungeonPassResponse } from "../dungeon-pass.ts";
 import { renderOutlineForReview, renderOutlinePrompt, renderOutlineRepair, renderPolishPrompt } from "./prompt.ts";
 import {
@@ -22,14 +23,15 @@ import {
   type Outline,
   type PolishEdit,
 } from "./response.ts";
-import { mandatoryFit, rollOutline, type OutlineDraft } from "./roll.ts";
+import { mandatoryFit, ORIGIN_ROOMS, rollOutline, type OutlineDraft } from "./roll.ts";
 import { polishOutline, writeOutline } from "./run.ts";
 
 configureTransport({ baseUrl: "https://model.test" });
 
-function draftOf(seed: number, size: Size = 1): OutlineDraft {
+function draftOf(seed: number, size: Size = 1, form?: string): OutlineDraft {
   const seeds = deriveSeeds(seed);
-  const blueprint = generateBlueprintSeed(size, seeds.blueprintSeed, 1);
+  const rolled = generateBlueprintSeed(size, seeds.blueprintSeed, 1);
+  const blueprint = form ? { ...rolled, purpose: { ...rolled.purpose, form } } : rolled;
   const { dungeon } = generateBlueprint(seeds.graphSeed, shapeFor(size, seeds.graphSeed), true);
   return rollOutline(dungeon, blueprint, {
     seed: seeds.stockSeed,
@@ -133,6 +135,45 @@ describe("what code rolls for the outline", () => {
     expect(d.fictions.slice(0, mandatory).every((f) => f.mandatory)).toBe(true);
     expect(d.fictions.slice(mandatory).some((f) => f.mandatory)).toBe(false);
     expect(mandatoryFit(d.fictions.filter((f) => f.mandatory), d.rooms)).toBe(true);
+  });
+
+  it.each(Object.entries(ORIGIN_ROOMS))("an origin of %s gets its own room, mandatory, in the first slot", (form, rooms) => {
+    const d = draftOf(1005, 1, form);
+    const first = d.fictions[0]!;
+    expect(rooms).toContain(first.identity);
+    expect(first).toMatchObject({ ref: "F1", mandatory: true, signature: true });
+    expect(mandatoryFit(d.fictions.filter((f) => f.mandatory), d.rooms)).toBe(true);
+    expect(d.fictions.filter((f) => f.signature)).toHaveLength(1);
+  });
+
+  it.each(["Hideout", "Prison", "Cave"])("an origin of %s gets no room of its own", (form) => {
+    expect(draftOf(1005, 1, form).fictions.some((f) => f.signature)).toBe(false);
+  });
+
+  it("names only origins that can be rolled", () => {
+    for (const form of Object.keys(ORIGIN_ROOMS)) expect(DUNGEON_FORMS).toContain(form);
+  });
+
+  it("gives a dungeon with no big room a cramped Theater, not none", () => {
+    const d = draftOf(1007, 1, "Theater");
+    const sizes = d.rooms.filter((r) => !r.passage).map((r) => r.sizeClass);
+    expect(sizes).not.toContain("large");
+    expect(d.fictions[0]).toMatchObject({ identity: "Theater", signature: true });
+    expect(d.fictions[0]!.fits).toEqual(CLASSES);
+  });
+
+  it("keeps the size rule where a room can honour it", () => {
+    const form = "Theater";
+    for (const seed of SEEDS) {
+      const d = draftOf(seed, 1, form);
+      const hasLarge = d.rooms.some((r) => !r.passage && r.sizeClass === "large");
+      if (hasLarge) expect(d.fictions[0]!.fits).toEqual(["large"]);
+    }
+  });
+
+  it("tells the model which fiction is what the place was built as", () => {
+    const text = renderOutlinePrompt(draftOf(1005, 1, "Theater"), passOf(draftOf(1005, 1, "Theater")));
+    expect(text).toMatch(/F1 MANDATORY: Theater.*\| WHAT THIS PLACE WAS BUILT AS/);
   });
 
   it.each(SEEDS)("seed %i: a passage keeps a rolled identity, and only passages do", (seed) => {

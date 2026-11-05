@@ -134,6 +134,7 @@ export function renderDraft(draft: OutlineDraft): string {
   for (const f of draft.fictions) {
     L.push(
       `${f.ref}${f.mandatory ? " MANDATORY" : ""}: ${f.identity}${f.detail ? ` (${f.detail})` : ""}` +
+        (f.signature ? " | WHAT THIS PLACE WAS BUILT AS" : "") +
         (f.fits.length < CLASSES.length ? ` | fits only: ${f.fits.join(", ")}` : "")
     );
   }
