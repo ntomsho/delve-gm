@@ -341,6 +341,11 @@ goal        You are given a Dungeon Reward and a Mission. Resolve them into ONE
                        taken, or ended. This decides when the run is won, so do
                        not leave it to taste.
 
+            NO GOAL HAS ONE SOLUTION. Empowering the player's creativity comes first.
+            The spec says what must be TRUE, never the method. Do not write "must be done
+            while holding the warrant": any plan that makes it true counts, including one
+            nobody prepared for. Ways to do it are examples, never conditions.
+
             A GOAL ABOUT A PERSON OR A RELATIONSHIP (winning an ally, convincing,
             blackmailing, framing, impressing) needs more than a thing to find. Its
             spec must say:
@@ -349,17 +354,18 @@ goal        You are given a Dungeon Reward and a Mission. Resolve them into ONE
               WHAT CHANGES: what is true when it is done, in words the game master
                             can check. "Agrees to walk out with the player", not "is
                             won over".
-              HOW:          at least two ways to do it, at least one of them not
-                            force, each possible with what can be found or done
-                            inside this dungeon on one visit. If it needs leverage,
-                            evidence or a witness, that exists here.
+              HOW:          at least two examples of how it could be done, at least
+                            one of them not force, each possible with what can be
+                            found or done inside this dungeon on one visit. Leverage,
+                            evidence or a witness that would help exists here. Other
+                            plans can work too, and the spec says so.
               IF IT GOES WRONG: what happens if they die, refuse or flee. Whether
                             another way remains, or the goal is lost.
             If the mission cannot be done that way, read it differently or set it
             aside. A player should never need the outside world to finish what they
             came for.
 
-            A spec names what is needed, not where it is: "the proof in his own hand",
+            A spec names what would help, not where it is: "the proof in his own hand",
             not "in the box-office strongbox". Rooms are decided later.
 
             THE GOAL HAS ONE CULMINATION: the thing acted upon to complete the objective,

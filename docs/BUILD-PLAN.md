@@ -466,9 +466,10 @@ THE OUTLINE
 Each room has a story note and a journey note, and each connector has a phrase.
 These are decisions already made, so write to them. Make the journey note true
 of the place without ever saying it; the player should feel it, not read it.
-Write any story feature listed as an entity like any other. Do not quote the
-notes or explain the plot. Where a note and the drawing disagree, the drawing
-wins.
+Write any story feature listed as an entity like any other, and keep what the
+outline says it can do, so the game master can let the player use it. Do not
+quote the notes or explain the plot. Where a note and the drawing disagree, the
+drawing wins.
 ```
 
 ### Models

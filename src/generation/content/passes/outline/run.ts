@@ -16,7 +16,7 @@ import {
 import {
   applyPolish,
   fictionShrinks,
-  MAX_POLISH_EDITS,
+  polishIssues,
   mergeOutline,
   outlineSchema,
   outlineViolations,
@@ -91,15 +91,12 @@ export async function polishOutline(
     task: "outline-polish",
     schema: polishSchema,
     toolName: "propose_edits",
-    toolDescription: "List the edits that would clearly make this outline better. An empty list is a real answer.",
+    toolDescription: "List the fixes and improvements for this outline.",
     messages: [{ role: "user", content: renderPolishPrompt(draft, pass, outline) }],
     ...(opts.model ? { model: opts.model } : {}),
     ...(opts.signal ? { signal: opts.signal } : {}),
     ...(opts.onAttemptFailed ? { onAttemptFailed: opts.onAttemptFailed } : {}),
-    check: (p) =>
-      p.edits.length > MAX_POLISH_EDITS
-        ? [{ path: "edits", message: `at most ${MAX_POLISH_EDITS} edits, not ${p.edits.length}` }]
-        : [],
+    check: (p) => polishIssues(outline, p),
   });
 
   const proposed = value.edits;

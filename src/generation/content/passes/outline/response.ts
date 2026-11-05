@@ -53,7 +53,7 @@ export const outlineSchema = z.object({
       card: nonEmpty,
       story: nonEmpty,
       journey: nonEmpty,
-      /** one piece of scenery, or "none" */
+      /** one thing in the room, usually something the player can use, or "none" */
       storyFeature: nonEmpty,
     })
   ),
@@ -83,7 +83,7 @@ export const outlineSchema = z.object({
 export type Outline = z.infer<typeof outlineSchema>;
 export type FictionChange = z.infer<typeof fictionChange>;
 
-export const MAX_POLISH_EDITS = 6;
+export const MAX_POLISH_EDITS = 8;
 
 export const polishSchema = z.object({
   edits: z.array(
@@ -312,6 +312,19 @@ export function refLeaks(o: Outline): ValidationIssue[] {
     check(`how to get the key for ${k.challenge}`, k.gotBy);
   }
   return out;
+}
+
+/**
+ * What sends a polish back: too many edits, or new wording that calls a room by its
+ * ref. The outline going in has passed `refLeaks`, so any it finds came from these edits.
+ * Edits that do not apply are not judged here: `polishOutline` drops those whole.
+ */
+export function polishIssues(outline: Outline, polish: Polish): ValidationIssue[] {
+  if (polish.edits.length > MAX_POLISH_EDITS) {
+    return [{ path: "edits", message: `at most ${MAX_POLISH_EDITS} edits, not ${polish.edits.length}` }];
+  }
+  const applied = applyPolish(outline, polish.edits);
+  return applied ? refLeaks(applied) : [];
 }
 
 /** A change to the fiction may tighten a field. Below this share, it has lost most of it. */

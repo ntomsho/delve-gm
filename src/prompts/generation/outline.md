@@ -26,6 +26,19 @@ A group's named people live at its base. If the goal depends on one of them, eit
 put that base in the goal room or name them as the objective's person, and they stand
 there instead.
 
+THE PLAYER'S CREATIVITY COMES FIRST
+Empowering the player's creativity is the top priority here. It is what makes this game
+special and not just a regular video game: they can try anything.
+- No problem has only one solution. Every danger, guard, lock and need, and the goal
+  itself, can be solved more than one way: by force, talk, stealth, trickery, or using
+  the place itself. Prepare some of those ways, and leave room for ones you did not.
+- What you write are options, never the answer. Say what the player could do, not what
+  they must do.
+- The world works as what it is. Most features should be things the player can use
+  to solve a problem their own way: if there is an old cannon, it can be fired and
+  aimed, at an enemy or a cracked wall. A cannon that is only there to look at is not
+  much of a feature. Not every feature has to work like this, but most should.
+
 YOU MAY CHANGE THE FICTION
 If changing the theme, history, opening or a group would work a room in better
 and make the dungeon more dynamic and its story more engaging, propose it. Return
@@ -47,10 +60,13 @@ FOR EACH ROOM, choose
   card is where that group lives: choose somewhere that fits who they are, what
   they want and the layout. The entrance holds no card.
 - story: how this room came to be as it is, tied to the dungeon's history.
-- journey: what this room does for a player coming through it.
-- a story feature, if it helps: one piece of scenery that ties this room to the
-  story or the journey. Tally marks on a wall, a half-burned order. Scenery only:
-  never a way through, a creature, a hazard, treasure or a key.
+- journey: what this room does for a player coming through it, and what they could
+  try here.
+- a story feature, in most rooms: one thing here that ties this room to the story or
+  the journey and, in most cases, that the player can use: fire it, tip it, flood it,
+  drop it, wake it. Say what it could do. It may give another way past a danger or
+  a gate, but it adds no new route through the map, and it is never a creature,
+  treasure or a key. Invent it from this dungeon.
 
 FOR EACH WAY BETWEEN ROOMS: a phrase for what it physically is, suited to both
 rooms, saying which side is higher if it changes level.
@@ -67,6 +83,8 @@ a creature's weakness or an obstacle can have a key as readily as a door.
   succeed: an object, a word, evidence, a tool, and any rule that can kill them for
   not knowing it. Each of those is a key, with the challenge "goal".
 - One key answers where the objective is.
+- A key is one answer to its challenge, never the only one. A clever player could get
+  past the same challenge some other way.
 - Place every key, so that the player has to engage with the world to get it: search
   the right place, get past a danger, talk to someone, work something out. Never just
   lying in the open. A key may be in the same room as what it answers if it is hidden
@@ -79,7 +97,7 @@ a creature's weakness or an obstacle can have a key as readily as a door.
 CLUES warn of a danger or hint at something hidden. A clue points at the objective
 only if nothing else needs signposting.
 
-A FUN PLAY EXPERIENCE IS YOUR MAIN JOB. Read the routes first, then plan so that:
+A FUN PLAY EXPERIENCE COMES FROM ALL OF THIS. Read the routes first, then plan so that:
 - dangers are properly signposted: a player paying attention gets warning before
   the thing that can kill them;
 - exploration and clever thinking are rewarded: looking around, taking the side
@@ -95,7 +113,7 @@ Call the tool once, with everything in that one call:
     fiction: the fiction's ref alone, like F2. "none" on a PASSAGE.
     card: the card's ref alone, like C1. "none" on the entrance.
     story, journey: your two notes.
-    storyFeature: the scenery, or "none".
+    storyFeature: the feature, or "none".
 - ways: one entry per way. ref, like W1, and form, your phrase.
 - objective: type (Item, RoomFeature or Creature), form, a phrase for what it is, and
   person, the name of whoever stands in the goal room for it, or "none".
@@ -114,8 +132,8 @@ RULES
 4. Notes are plans, one or two sentences each. Do not write the rooms' prose.
 5. Refs like room_3, C1 or K2 go in ref fields only. In notes, ways and keys, call a
    room what it is: "the chapel side is higher".
-6. A story feature is one thing, in one sentence. It is scenery; what the player needs
-   is a key.
+6. A story feature is one thing, in one sentence. What the goal needs is a key, though
+   a feature can offer another way to the same end.
 7. No field is ever empty or a placeholder. Write "none" where these instructions
    allow it.
 
@@ -123,5 +141,7 @@ BEFORE YOU ANSWER, CHECK
 - Whatever the opening states is true. Do not contradict it.
 - Each room goes by one name everywhere. Every note, way and key agrees.
 - Walk each route as a player. What do they learn, and can they get what they need?
+- Take each danger, lock and need in turn. Can you name a second way to solve it? If
+  not, add one.
 - Would one change to the history tie an odd room in better? If so, propose it.
   Fiction changes are in-world text only, with no notes to anyone.

@@ -12,9 +12,11 @@ import {
   applyPolish,
   changedFiction,
   fictionShrinks,
+  MAX_POLISH_EDITS,
   mergeOutline,
   outlineSchema,
   outlineViolations,
+  polishIssues,
   polishSchema,
   refLeaks,
   type Outline,
@@ -358,6 +360,22 @@ describe("polish edits", () => {
     const out = applyPolish(o, [edit({ op: "swap_cards", roomA: a!.ref, roomB: b!.ref, why: "Pacing." })])!;
     expect(out.rooms.find((r) => r.ref === a!.ref)!.card).toBe(b!.card);
     expect(outlineViolations(d, out)).toEqual([]);
+  });
+
+  it("sends back an edit that calls a room by its ref", () => {
+    const o = validOutline(d);
+    const roomA = o.rooms[0]!.ref;
+    const leak = edit({ op: "rewrite_journey", roomA, text: "The tally in room_4 says when.", why: "Link." });
+    expect(polishIssues(o, { edits: [leak] }).map((i) => i.path)).toEqual([`the journey of room ${roomA}`]);
+    const clean = edit({ op: "rewrite_journey", roomA, text: "The tally in the store says when.", why: "Link." });
+    expect(polishIssues(o, { edits: [clean] })).toEqual([]);
+  });
+
+  it("sends back too many edits", () => {
+    const o = validOutline(d);
+    const one = edit({ op: "rewrite_story", roomA: o.rooms[0]!.ref, text: "New.", why: "Better." });
+    expect(polishIssues(o, { edits: Array(MAX_POLISH_EDITS).fill(one) })).toEqual([]);
+    expect(polishIssues(o, { edits: Array(MAX_POLISH_EDITS + 1).fill(one) })).toHaveLength(1);
   });
 
   it("does not touch the outline it was given", () => {
