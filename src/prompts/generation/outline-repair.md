@@ -1,0 +1,17 @@
+These parts of your outline broke a rule:
+{{violations}}
+
+{{mandatory}}
+{{unused}}
+
+A room holds one fiction, so when you move one, say what the room it leaves takes
+instead. Every mandatory fiction must still be used when you are done: give an
+optional fiction up to make room, never another mandatory one.
+
+Call the tool once, with whole entries for only the rooms, ways and clues named
+above, and the objective as it should stand. Leave the other lists empty. If a key
+is named, return your whole list of keys, as it should now stand. Fictions and cards
+go by ref alone, like F2 or C1. In notes, ways and keys, call a room what it is, not
+by its ref. Everything else stands. If a change to the dungeon's
+fiction is the best way to fix one of these, you may propose it, under the same
+rules as before.

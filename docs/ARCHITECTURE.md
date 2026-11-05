@@ -32,7 +32,7 @@ this document explains the design behind them. Planned work is in
   applied, and what the player was told (`composed`) binds later turns and the map.
 - **Cheap to run.** Work done once beats work done per run, work done per dungeon beats
   work done per player, and code beats a model call wherever code can do the job. Every
-  task runs on Haiku 4.5 by default (`src/llm/models.ts`); a pricier option has to earn
+  task runs on Haiku 5.5 by default (`src/llm/models.ts`); a pricier option has to earn
   its place by measurement.
 
 ---

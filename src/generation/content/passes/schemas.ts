@@ -31,6 +31,29 @@ export const dungeonPassSchema = z.object({
     .min(1),
 });
 
+/**
+ * What the model answers with: the same thing with the goal's two fields flat.
+ *
+ * ONE LEVEL OF NESTING WAS TOO MANY. On a long spec, about one call in five on Haiku
+ * 5.5 wrote `goal` as a single string holding broken JSON, strict mode or not, and the
+ * forced retry did it again, which failed the whole generation. Two plain strings
+ * give it nothing to flatten.
+ */
+export const dungeonPassToolSchema = dungeonPassSchema.omit({ goal: true }).extend({
+  goalSummary: nonEmpty,
+  goalSpec: nonEmpty,
+});
+
+type DungeonPassTool = z.infer<typeof dungeonPassToolSchema>;
+
+export function fromDungeonPassTool({ goalSummary, goalSpec, ...rest }: DungeonPassTool): DungeonPassResponse {
+  return { ...rest, goal: { summary: goalSummary, spec: goalSpec } };
+}
+
+export function toDungeonPassTool({ goal, ...rest }: DungeonPassResponse): DungeonPassTool {
+  return { ...rest, goalSummary: goal.summary, goalSpec: goal.spec };
+}
+
 // ---------------------------------------------------------------------------
 // CONTENT PASS
 // ---------------------------------------------------------------------------

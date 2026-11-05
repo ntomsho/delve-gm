@@ -15,6 +15,10 @@ export type Task =
   | "dungeon-pass"
   /** one call for the whole dungeon: every room and everything in it */
   | "content-pass"
+  /** the plan for the dungeon: what goes where, and why. Runs before the rooms are written */
+  | "outline"
+  /** a review of that plan, answered as a short list of edits */
+  | "outline-polish"
   /** one call after that: the keys, once the things they answer have been written */
   | "keys-pass"
   /** one call at the end of a run: how much XP each accomplishment is worth */
@@ -36,34 +40,37 @@ export type Task =
   | "sprite-look";
 
 /**
- * Which model each task uses. All tasks use Haiku 4.5 while the game is in
- * development: it is the cheapest current model ($1 / $5 per million input /
- * output tokens, against Sonnet 5's $3 / $15), and working on prompts means
+ * Which model each task uses. All tasks use Haiku 5.5 while the game is in
+ * development: it is the cheapest current model ($0.10 / $0.50 per million input
+ * / output tokens, against Sonnet 5.5's $2 / $10), and working on prompts means
  * running the same seed many times.
  *
- * Haiku 4.5 has two limits the larger models don't. Neither matters today:
- *   - a 200K-token context, not 1M. A 12-room content-pass prompt is
- *     tens of thousands of tokens at most, so there is plenty of room.
- *   - 64K maximum output tokens, not 128K. That is above every `MAX_TOKENS`
- *     value below.
+ * Haiku 5.5 thinks by default, and thinking counts toward `max_tokens`. Two
+ * things follow:
+ *   - `callForJson` forces its tool call, which skips thinking on this model, so
+ *     the small caps below on those tasks are safe.
+ *   - `callWithTools` (the game master) uses `auto`, so it can think; its caps
+ *     have to leave room for that.
  *
- * Haiku 4.5 is also older than adaptive thinking and the `effort` parameter:
- * it only accepts the older `budget_tokens` form and rejects `effort`. Nothing
- * here uses either, but check this before turning them on.
+ * It rejects `budget_tokens` and non-default sampling parameters. Nothing here
+ * sends either. Set depth with `output_config.effort` (default `medium`) rather
+ * than a budget. It also has no server-side refusal fallback.
  *
  * The first task worth moving to a better model is probably the dungeon pass.
  * It runs once, sets the background every other call builds on, and costs
  * very little next to the content pass.
  */
 export const MODELS: Record<Task, string> = {
-  "dungeon-pass": "claude-haiku-4-5",
-  "content-pass": "claude-haiku-4-5",
-  "keys-pass": "claude-haiku-4-5",
-  "tally-pass": "claude-haiku-4-5",
-  "room-entry": "claude-haiku-4-5",
-  "turn-loop": "claude-haiku-4-5",
-  "illustration-visual": "claude-haiku-4-5",
-  "sprite-look": "claude-haiku-4-5",
+  "dungeon-pass": "claude-haiku-5-5",
+  "content-pass": "claude-haiku-5-5",
+  "outline": "claude-haiku-5-5",
+  "outline-polish": "claude-haiku-5-5",
+  "keys-pass": "claude-haiku-5-5",
+  "tally-pass": "claude-haiku-5-5",
+  "room-entry": "claude-haiku-5-5",
+  "turn-loop": "claude-haiku-5-5",
+  "illustration-visual": "claude-haiku-5-5",
+  "sprite-look": "claude-haiku-5-5",
 };
 
 /**
@@ -72,15 +79,23 @@ export const MODELS: Record<Task, string> = {
  * response: a 12-room dungeon used about 9,000 output tokens (seed 1005).
  */
 export const MAX_TOKENS: Record<Task, number> = {
-  "dungeon-pass": 4096,
+  // Thinking counts. It uses 5,000-8,000 at `medium`, and 8192 cut answers off.
+  "dungeon-pass": 16000,
+  // Room for thinking plus a page of notes. At 16000 even `medium` was cut off, and
+  // the retry is forced, so the outline got written without any thinking and read
+  // weaker for it. A reply cut off here is paid for and thrown away.
+  "outline": 32000,
+  "outline-polish": 32000,
   "content-pass": 16384,
   // A few objects, two sentences each, plus a short list of the goal's
   // properties. A small output.
   "keys-pass": 4096,
   // One line per accomplishment; a long run has about thirty.
   "tally-pass": 4096,
-  "room-entry": 4096,
-  "turn-loop": 4096,
+  // Doubled for Haiku 5.5: the game master can think, and a turn cut off by the
+  // cap reads as a turn that ended without a commit.
+  "room-entry": 8192,
+  "turn-loop": 8192,
   // A sentence for the room and a short phrase for each thing in the picture.
   "illustration-visual": 1024,
   // About thirty words, plus one size word.
@@ -89,6 +104,42 @@ export const MAX_TOKENS: Record<Task, number> = {
 
 export function modelFor(task: Task): string {
   return MODELS[task];
+}
+
+/** For `src/dev/cli-outline.ts`, which compares writers and reviewers. */
+export const HAIKU = "claude-haiku-5-5";
+export const SONNET = "claude-sonnet-5-5";
+
+/**
+ * Tasks whose JSON is worth thinking about before it is written: the goal, and
+ * the plan for the whole dungeon. On Haiku 5.5 a forced tool call skips thinking,
+ * so these ask with `auto` and steer from the prompt instead.
+ */
+export const THINKING_TASKS: ReadonlySet<Task> = new Set<Task>([
+  "dungeon-pass",
+  "outline",
+  "outline-polish",
+]);
+
+/**
+ * How hard a thinking task thinks. At `high`, Haiku 5.5's thinking runs away: 9 of 10
+ * dungeon passes hit a 16000 cap, against 5,000-8,000 tokens at `medium`. Sonnet 5.5
+ * skipped thinking altogether at `medium`, so raise this if a task moves to Sonnet.
+ */
+export const THINKING_EFFORT = "medium";
+
+/** Sonnet 5.5 returns a 400 on a forced `tool_choice`. */
+export function allowsForcedTool(model: string): boolean {
+  return model !== SONNET;
+}
+
+/**
+ * The beta header for the API's refusal fallback, on the models that have one.
+ * Sonnet 5.5's safety classifiers can decline a request; a dungeon has torture
+ * rooms in it. Haiku 5.5 has no such fallback.
+ */
+export function refusalFallbackBeta(model: string): string | undefined {
+  return model === SONNET ? "server-side-fallback-2026-07-01" : undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -111,7 +162,8 @@ export interface TextPrice {
 }
 
 export const TEXT_PRICES: Record<string, TextPrice> = {
-  "claude-haiku-4-5": { input: 1, output: 5, cacheWrite: 1.25, cacheRead: 0.1 },
+  "claude-haiku-5-5": { input: 0.1, output: 0.5, cacheWrite: 0.125, cacheRead: 0.01 },
+  "claude-sonnet-5-5": { input: 2, output: 10, cacheWrite: 2.5, cacheRead: 0.2 },
 };
 
 // ---------------------------------------------------------------------------

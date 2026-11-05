@@ -86,7 +86,9 @@ import { resetMobileIds } from "./ids.ts";
  * rounded. Six rooms or fewer is a coin flip between 0 and 1.
  *
  * Eligibility is **degree >= 2** and nothing else. A corridor connects
- * somewhere, so dead ends are out; the goal room is never one. Dropping every
+ * somewhere, so dead ends are out; the entrance and the goal room are never one.
+ * In a small dungeon the shallow band below holds only the entrance, so without
+ * that rule the entrance was nearly every corridor. Dropping every
  * further degree preference removes the degenerate case -- a graph whose
  * rooms all have three ways has no degree-2 rooms at all, which under
  * "exactly 2" would yield none and under ">= 2" yields all of them.
@@ -95,7 +97,7 @@ import { resetMobileIds } from "./ids.ts";
  * in it. Picks are spread across **depth** bands, because corridors are about
  * rhythm along the path inward.
  */
-function designateCorridors(rooms: RoomStock[], s: Structure, rng: Rng): void {
+export function designateCorridors(rooms: RoomStock[], s: Structure, rng: Rng): void {
   const target =
     rooms.length <= 6
       ? (rng.coin() ? 1 : 0)
@@ -109,7 +111,7 @@ function designateCorridors(rooms: RoomStock[], s: Structure, rng: Rng): void {
   const byIndex = new Map(rooms.map((r) => [r.index, r]));
   const pools: RoomStock[][] = Array.from({ length: BANDS }, () => []);
   for (const r of rooms) {
-    if (r.degree < 2 || r.role === "goal") continue;
+    if (r.degree < 2 || r.role !== "normal") continue;
     pools[bandOf(r)].push(r);
   }
 

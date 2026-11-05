@@ -47,6 +47,9 @@ import GENERATION_CONNECTOR_HEIGHT_MD from "./generation/connector-height.md?raw
 import GENERATION_GOAL_MD from "./generation/goal.md?raw";
 import GENERATION_CONTENT_PASS_MD from "./generation/content-pass.md?raw";
 import GENERATION_CONTENT_PASS_SCHEMA_MD from "./generation/content-pass.schema.md?raw";
+import GENERATION_OUTLINE_MD from "./generation/outline.md?raw";
+import GENERATION_OUTLINE_REPAIR_MD from "./generation/outline-repair.md?raw";
+import GENERATION_OUTLINE_POLISH_MD from "./generation/outline-polish.md?raw";
 import GENERATION_KEYS_PASS_MD from "./generation/keys-pass.md?raw";
 import GENERATION_KEYS_PASS_SCHEMA_MD from "./generation/keys-pass.schema.md?raw";
 import TALLY_TALLY_MD from "./tally/tally.md?raw";
@@ -177,6 +180,16 @@ export const GOAL_INSTRUCTION = text(GENERATION_GOAL_MD);
 export const CONTENT_PASS_TEMPLATE = text(GENERATION_CONTENT_PASS_MD);
 
 export const CONTENT_PASS_SCHEMA = text(GENERATION_CONTENT_PASS_SCHEMA_MD);
+
+/**
+ * The outline's instructions, each with `{{placeholders}}` for what code knows.
+ * Filled in `src/generation/content/passes/outline/prompt.ts`.
+ */
+export const OUTLINE_TEMPLATE = text(GENERATION_OUTLINE_MD);
+
+export const OUTLINE_REPAIR_TEMPLATE = text(GENERATION_OUTLINE_REPAIR_MD);
+
+export const OUTLINE_POLISH_TEMPLATE = text(GENERATION_OUTLINE_POLISH_MD);
 
 export const KEYS_PASS_INSTRUCTIONS = text(GENERATION_KEYS_PASS_MD);
 

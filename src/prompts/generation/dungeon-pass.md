@@ -25,11 +25,45 @@ history     What the place was for, what happened to it, and how it came to hold
 goal        You are given a Dungeon Reward and a Mission. Resolve them into ONE
             objective -- take one, discard the other, or fuse them, whichever
             reads best. Then write it twice:
-              summary: one line the player is told before they go in.
-              spec:    what actually counts as achieving it, for the game master.
+              goalSummary: one line the player is told before they go in.
+              goalSpec:    what actually counts as achieving it, for the game master.
                        Concrete enough to adjudicate: what must be found, done,
                        taken, or ended. This decides when the run is won, so do
                        not leave it to taste.
+
+            NO GOAL HAS ONE SOLUTION. Empowering the player's creativity comes first.
+            The spec says what must be TRUE, never the method. Do not write "must be done
+            while holding the warrant": any plan that makes it true counts, including one
+            nobody prepared for. Ways to do it are examples, never conditions. Reread what
+            you wrote for what counts and cut any line about how it was done, not what is
+            true: "the player must have the leverage in hand" is a method.
+
+            A GOAL ABOUT A PERSON OR A RELATIONSHIP (winning an ally, convincing,
+            blackmailing, framing, impressing) needs more than a thing to find. Its
+            spec must say:
+              WHO:          one particular person or being who is in this dungeon.
+                            They need not be one of the rolled groups.
+              WHAT CHANGES: what is true when it is done, in words the game master
+                            can check. "Agrees to walk out with the player", not "is
+                            won over".
+              HOW:          at least two examples of how it could be done, at least
+                            one of them not force, each possible with what can be
+                            found or done inside this dungeon on one visit. Leverage,
+                            evidence or a witness that would help exists here. Other
+                            plans can work too, and the spec says so.
+              IF IT GOES WRONG: what happens if they die, refuse or flee. Whether
+                            another way remains, or the goal is lost.
+            If the mission cannot be done that way, read it differently or set it
+            aside. A player should never need the outside world to finish what they
+            came for.
+
+            A spec names what would help, not where it is: "the proof in his own hand",
+            not "in the box-office strongbox". Rooms are decided later.
+
+            THE GOAL HAS ONE CULMINATION: the thing acted upon to complete the objective,
+            before the player has to escape the dungeon. It all happens in one room, the
+            goal room, with the goal entity. That is a room the player has to reach, so
+            write nothing that puts it at the way in or spreads it across the place.
 
 opening     Everything the player knows walking in. Second person, present
             tense, three or four short paragraphs, and the ONLY briefing they
@@ -97,3 +131,5 @@ HARD RULES
 7. The opening tells the player what they were TOLD, not what is true. Theme and
    history are the facts, and they are for the game master. What reached the player
    is allowed to be partial, and should be.
+8. The opening never says what the player is carrying. Their gear is on their sheet,
+   and it may not match.

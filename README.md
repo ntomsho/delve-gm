@@ -64,7 +64,7 @@ The recording is Stilton's Chamber in *The Frozen Chancel*.
 
 TypeScript throughout. React 19 and Tailwind in the browser; vanilla Zustand for game
 state. Hono on a single Vercel function; Supabase for Postgres, auth and image storage.
-Claude Haiku 4.5 for everything the model writes; GPT Image 2 and FLUX.2 through fal for
+Claude Haiku 5.5 for everything the model writes; GPT Image 2 and FLUX.2 through fal for
 the illustrations. Vitest for about 2,000 tests.
 
 The code is organised in layers, each importing only from the layers below it.

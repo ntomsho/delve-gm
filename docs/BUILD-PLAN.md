@@ -252,65 +252,183 @@ routes become:
 
 ## Phase 2: the outline pass
 
+**Status.** Build 1 is built and measured: seeds 1005, 1007 and 1025 pass at `medium` effort, Haiku 5.5
+writing and reviewing, at 86-112s and about $0.014 an outline. An outline's first call uses 15,000-17,500
+tokens, so its cap is 32000; at `high` thinking runs away. Build 2 is next.
+
+**Watch the cost of Haiku 5.5.** Every task moved to it from Haiku 4.5. It is a tenth of the
+price per token, but it thinks by default and thinking bills as output. Compare the first live
+runs against the $0.04 a turn measured on Haiku 4.5 (`src/server/allowance.ts`). If it costs a
+lot more, go back to Haiku 4.5.
+
 The pipeline after this phase:
 
 ```
 dungeon pass (LLM) ─┐
 graph + block plan ─┘   seed advances until the layout exists; every room has a size class
-  → roll candidates (code)
+  → roll candidate fictions and content cards (code)
   → outline (LLM) → repair ×≤2 (LLM) → polish ×1–2 (LLM, optional)
-  → stocking steps 5–8 on the assigned rooms, then rewards and keys (code)
+  → the rest of stocking on the assigned rooms, then rewards and keys (code)
   → content pass (LLM, with the outline in front of it) → keys pass (LLM; may be removed)
 ```
 
+The dungeon pass stays its own call and writes the theme, history, goal and inhabitants
+first. That is the dungeon the outline is building, and the outline's instructions present it
+that way. The outline, repair and polish calls may propose changes back to it (see *Changes to
+the fiction*).
+
+### The two builds
+
+**Build 1: the outline alone, with no change to live generation.**
+
+- New pure functions roll the candidates and cards.
+- New `outline` and `outline-polish` tasks in `src/llm/models.ts`, with zod schemas, `check`
+  and the prompts below in `src/prompts/generation/`.
+- Sonnet 5.5 support in `callForJson`: it returns a 400 on a forced `tool_choice`, so a task
+  can ask for `auto` plus `strict` and a prompt instruction. A missing tool call already
+  takes the existing retry. Add its price to `TEXT_PRICES` ($2 / $10), and send the refusal
+  fallback (`fallbacks: "default"`) on it. Haiku 5.5 has no such fallback.
+- The outline and polish tasks use `auto` on both models. On Haiku 5.5 a forced call skips
+  thinking, which would make the comparison unfair and hurt the planning. Effort `medium`,
+  `max_tokens` 16000.
+- `src/dev/cli-outline.ts` runs the measurement below.
+
+**Build 2: after the outlines have been read.**
+
+- Split `stockDungeon` around the outline, and run the entities pass after it. Entity ids
+  are random, so the settled dungeon is saved once and not rebuilt.
+- Add the outline steps to `STEPS`, and a stage to the loading screen. Repair runs inside the
+  outline step, as it does in the content pass, and shares its `Task`; split it out only if timing
+  requires it.
+- Give the content pass the outline, and set the models from the results.
+- Update ARCHITECTURE.md §3.
+
 ### What code rolls
 
-`V` is the room count.
+`V` is the room count. A *chamber* is an ordinary room. A *passage* is a room stocking marked
+`isCorridor`: it is drawn long, takes its identity from `DUNGEON_CORRIDORS` and can only hold the
+fixtures that fit a passage. Neither the entrance nor the goal room is ever a passage.
 
-- **Room fictions: `ceil(1.5 × V)` candidates.** Each is an identity plus its features
-  if it has any, along with the size classes it fits (`sizeAllows`). Rolled with the
+- **Room fictions.** `ceil(1.5 × chambers)` chamber candidates. Each is an identity plus a room
+  detail if it rolled one, along with the size classes it fits (`sizeAllows`). Rolled with the
   layout's size classes in hand, so every candidate fits at least one room.
-- **Mandatory fictions: the first `ceil(V / 3)` candidates.** Code marks them; the model
-  does not choose which are mandatory. They must all fit at once: there is an assignment
-  of mandatory fictions to distinct rooms that `sizeAllows`. If not, reroll the mandatory
-  set.
-- **Headlines: exactly `V`.** The required ones go first: the entrance's `none`, the
-  goal's `special`, and a `creature` headline for each inhabitant group's base room. The
-  rest follow stocking's existing quota (step 3) for the target mix. Code rolls the mix
-  and the model only places headlines, so the distribution holds with nothing to enforce.
-- **Pre-assigned.** Whatever code already places is written into the payload, not left
-  to the model: the entrance's and goal's headlines, and the goal entity.
+- **A passage's identity is rolled, not chosen.** Each passage gets one from `DUNGEON_CORRIDORS`,
+  pre-assigned, and the model explains it and ties it to its neighbours. In every other way a
+  passage is a room: it holds a card, a detail and a story feature.
+- **Mandatory fictions: the first `ceil(V / 3)` chamber candidates.** Code marks them; the
+  model does not choose which are mandatory. They must all fit at once: there is an
+  assignment of mandatory fictions to distinct rooms that `sizeAllows`. If not, reroll the
+  mandatory set.
+- **Content cards.** A card is a headline with its contents already rolled, so
+  the model places a concrete thing and not the word "creature". There is one for every room
+  except the entrance and the goal room. Placing a card does not write it: the dungeon pass has
+  already written each inhabitant group's name and base, which go on its cards, and the content
+  pass still writes the encounter (the mass, any named person or elite, and any wanderer). Generated
+  in this order:
+  1. the quota, from stocking's existing mix (`computeQuota`), which says how many of each
+     kind, so the distribution holds with nothing to enforce;
+  2. one *group base* card per inhabitant group (`makeGroupMobile`);
+  3. the rest of the creature budget (`makeMinionOrWanderer`), with activity and disposition;
+  4. `special` cards (`rollSpecial`): a hazard, a trap or an obstacle;
+  5. `quiet` cards: a clue half the time, otherwise a breather;
+  6. the challenges each card raises (`enumerateChallenges`), listed by card, so key pairs can
+     answer any of them. Today most challenges don't exist until step 5.
+
+  Rolled on seed 1005, a card reads like this:
+
+  ```
+  C1 creature, BASE of G1 "{name from the dungeon pass}": {base from the dungeon pass}
+     Rolled: ethereal, furred, extra eyes; camouflaging, gaze weapon, teleporting; demands
+     duels; bored; hunting; hostile.
+     Raises: weak to phylactery, weak to flowers, its three abilities.
+  C2 creature, thralls of G1: elephant-like, antlered, regenerating; repairing; neutral.
+  C3 special, obstacle: writing, which scries. Raises: the obstacle.
+  C4 quiet, clue: a smell. You say what it points at.
+  ```
+
+  Counts, hit dice and stats are not on a card. They are rolled afterwards, and the model never
+  writes a number.
+- **Corridors stay in code.** `designateCorridors` runs before the drawing, because the layout
+  needs to know which rooms are passages, and the outline reads the size classes that come out.
+- **Pre-assigned.** Whatever code already places is written into the payload, not left to the
+  model: the entrance and its feature, and which room is the goal room. **Every group base is
+  placed by the model**, including a goal-implicated group, which code forces into the goal
+  room today. The payload gives each group's relationship to the goal.
 
 Stocking step 4 (headline placement by depth fit plus local swaps) is replaced by the
-outline. Steps 5–8 run afterwards on the rooms as assigned.
+outline, and so is a clue's target. Stacking, danger and rewards run afterwards on the rooms as
+assigned.
+
+### The goal
+
+The goal room stays the deepest room (`chooseGoal`), because the graph's route checks are about
+it. What changes:
+
+- **The outline decides what the objective physically is**: its type (item, feature or creature)
+  and a phrase. The content pass writes it from that, where today the content pass decides alone.
+  Otherwise the outline can't place a guardian around a thing nobody has decided on. If the
+  objective is a person, that person is in the goal room, which answers the roadmap's *The goal
+  names what is in the goal room*.
+- **The goal room holds the objective and at most one card.** Code no longer overwrites its
+  headline. A card placed there leaves one other room empty, which is a breather.
+- **A goal-location key states the goal, not the raw roll.** Today its fact is "where {reward}
+  lies" from the rolled reward, even when the dungeon pass discarded that reward. Build 2 words it from the goal the dungeon pass wrote.
+- **The goal's summary and spec are locked after the dungeon pass**, so they have to be solid when
+  they are written. Social goals are the weak spot: many rolls are about a person or a relationship
+  (Blackmail, Convince; Faction ally), and many roll alongside only monsters, like seed 1007's
+  Prophecy + Blackmail. Marital ally and Threaten are gone from the tables as too strange to work
+  in a dungeon, and the user will review the rest. Build 1 adds the goal
+  instruction below to `dungeon-pass.md`, and lets that call think (`auto`, not a forced tool),
+  since a forced call skips thinking on Haiku 5.5.
 
 ### The outline call
 
 **Payload**, one entry per room in graph order, each complete on its own line so nothing
-needs looking up elsewhere: id, size class, depth from the entrance, dead end or on a
-loop, its neighbours, and anything pre-assigned. Then the candidate fictions (mandatory
-ones marked), the headlines, the inhabitant groups and their goals from the dungeon pass,
-and the challenges a key could answer.
+needs looking up elsewhere: id, size class, chamber or passage, depth from the entrance, dead
+end or on a loop, its neighbours, and anything pre-assigned. Then, first in the prompt, the
+dungeon pass's theme, history, opening, goal and groups as the dungeon being built. Then the
+routes from the entrance to the goal (`routesOf`), the candidate fictions (mandatory ones
+marked), the cards, and the challenges a key could answer.
 
 **Response**, references and short prose only, never a number:
 
-- per room: a fiction ref, a headline ref, and a short note on the room's part in two
-  stories: the dungeon's (how it got to its current state) and the player's (what this
-  room does in their journey through the dungeon, which is how the outline makes the
-  game more cohesive);
-- per connection: what it is (a door, a stair, a collapsed tunnel, which side is
-  higher), in a phrase;
-- key↔challenge pairs by reference: which challenge each planned key answers, and what
-  the key is.
+- per room: a fiction ref, a card ref, a story note, a journey note, and at most one story
+  feature;
+- what the objective is: its type and a phrase;
+- what each clue card points at, by reference;
+- any changes to the dungeon's fiction, each with one line on why;
+- per connection: what it is (a door, a stair, a collapsed tunnel, which side is higher), in
+  a phrase;
+- keys, each one object or one piece of information: what it answers (a challenge's ref, or
+  "goal" for something the goal needs), the room it is in, and what the player has to do to get
+  it. One to six at small and two to eight above it (`KEY_RANGE`). A key may sit by its own lock
+  if it is hidden or guarded, but never behind the way it opens. Not every route has to reach
+  every key.
+
+**Story features** let the model tie a room in better: tally marks on a wall, a
+half-burned order, claw marks at shoulder height. A feature is scenery with no mechanics. It
+is written by the content pass like any other feature, and it is not a way through, a
+creature, a hazard, treasure or a key. So the rolled budget of danger and reward holds.
+
+**Changes to the fiction.** The outline, repair and polish calls may each propose changes to
+the theme, history, opening and group names and bases, to work rooms into the dungeon and make
+its story more engaging. A change returns the field's whole new text. The goal's summary and spec
+stay as written, and the rolled facts stand: what the place is, what lives here and the goal seed. Each version is journalled. Build 1 shows them beside the outline to read; Build 2
+rebuilds `dungeonContext` from the result once, before the content pass, after which it never
+changes (§3.3's rule, moved later).
 
 **Validation** (zod, then a `check`):
 
 - every room assigned exactly once;
-- no fiction or headline used twice;
-- every mandatory fiction and required headline present;
-- every fiction fits its room's size class;
+- no fiction or card used twice; the goal room holds at most one card and the entrance none;
+- every card used;
+- every clue points at something real;
+- a fiction change names a real field or group, with non-empty text;
+- every mandatory fiction present;
+- every fiction fits its room's size class and kind;
 - every connection described;
 - pre-assigned values unchanged;
+- at most one story feature per room;
 - every key pair references a real challenge.
 
 Code then places each planned key in a room still reachable from the entrance without
@@ -318,91 +436,91 @@ passing the thing it opens (§8.2's rule, unchanged).
 
 ### Repair
 
-Repair is required and narrow. On a validation failure, code sends back only the
-violations (for example, "fiction F7 is used twice: rooms C and K") and asks for
-replacement values for the rooms and connections they name. Code merges the replacements
-and validates again. **At most two repair calls, then the generation fails.** A pass
-still never produces partial content.
+Repair is required and narrow. On a validation failure, code sends back only the violations
+and asks for replacement values for the rooms and connections they name. Code merges the
+replacements and validates again. **At most two repair calls, then the generation fails.** A
+pass still never produces partial content.
 
-The mechanism exists: the `repair` option on `callForJson`, built for the content pass
-in phase 1 (see *Passes*). The outline pass supplies its own `ask` and `merge`, keyed
-by room and connection.
+The mechanism exists: the `repair` option on `callForJson`, built for the content pass in
+phase 1 (see *Passes*). The outline pass supplies its own `ask` and `merge`, keyed by room and
+connection.
 
 ### Polish
 
-Polish is optional and runs only on an outline that has passed validation. The reviewer
-gets the dungeon pass, the full outline and the payload, and answers with **a list of
-at most k edits**, not a rewrite: swap two rooms' fictions, swap two rooms' headlines,
-swap in an unused optional fiction, rewrite a room's story line, rewrite a connection's
-nature. It cannot remove a mandatory fiction or touch anything pre-assigned. Code applies
-the edits and validates again. **If the result fails, keep the version from before the
-polish.** One or two rounds, set by a flag.
+Polish is optional and runs only on an outline that has passed validation. The reviewer gets
+the dungeon pass, the full outline and the payload, and answers with **a list of at most 6
+edits**, not a rewrite. It cannot remove a mandatory fiction or touch anything pre-assigned.
+Code applies the edits and validates again. **If the result fails, keep the version from
+before the polish.** One round in the measurement; one or two afterwards, set by a flag.
 
-The reviewer's criteria, in the prompt as questions:
+Every outline version (draft, each repair, each polish round) is logged in the journal, so a
+run shows what polish changed and whether it was kept.
 
-1. **Does each room fit the dungeon's concept?** A mandatory oddity should be worked in,
-   not smoothed away. Its strangeness is why it is mandatory.
-2. **Do the routes to the goal feel different, and ask different things of the player?**
-   Two paths through the same kind of challenge count as one route.
-3. **Does each creature's placement fit its group's goals and the layout?** Guards stand
-   where something is worth guarding, a lair is somewhere defensible, a patrol is on a
-   through route.
-4. **Are the challenges well paced?** No early death traps or easy windfalls near the
-   entrance, and no easy stretches or useless finds deep in the dungeon. Depth is in the
-   payload for this question.
-5. **Do the rooms tell the dungeon's story?** Walking any route, the player should piece
-   together the history the dungeon pass wrote.
+### The instructions
 
-Every outline version (draft, each repair, each polish round) is logged in the journal,
-so a run shows what polish changed and whether it was kept.
+In `src/prompts/generation/`: `outline.md`, `outline-repair.md` and `outline-polish.md`, gone over
+together and tuned on live runs. Still to add, in Build 2, to `content-pass.md`:
+
+```
+THE OUTLINE
+Each room has a story note and a journey note, and each connector has a phrase.
+These are decisions already made, so write to them. Make the journey note true
+of the place without ever saying it; the player should feel it, not read it.
+Write any story feature listed as an entity like any other, and keep what the
+outline says it can do, so the game master can let the player use it. Do not
+quote the notes or explain the plot. Where a note and the drawing disagree, the
+drawing wins.
+```
 
 ### Models
 
-The outline, repair and polish calls each get their own `Task` in `src/llm/models.ts`,
-so their models switch independently. The writer/reviewer combination is a dev flag.
-Four combinations are compared:
+The outline and polish calls each get their own `Task` in `src/llm/models.ts`, so their models
+switch independently. The CLI passes the writer and reviewer per call. Four combinations are
+compared:
 
 | Outline + repair | Polish |
 |---|---|
-| Haiku 4.5 | Haiku 4.5 |
-| Haiku 4.5 | Sonnet 5 |
-| Sonnet 5 | Haiku 4.5 |
-| Sonnet 5 | Sonnet 5 |
+| Haiku 5.5 | Haiku 5.5 |
+| Haiku 5.5 | Sonnet 5.5 |
+| Sonnet 5.5 | Haiku 5.5 |
+| Sonnet 5.5 | Sonnet 5.5 |
 
-No run skips polish. Every outline version is logged (see *Polish*), so whether polish
-helps at all shows in each run's draft against its polished version.
+No run skips polish. Every outline version is logged (see *Polish*), so whether polish helps
+at all shows in each run's draft against its polished version.
+
+**Decided: Haiku 5.5 writes and reviews.** Measured on 2026-11-04: about $0.016 an outline against $0.083
+for Sonnet writing and Haiku reviewing. Sonnet's outlines were richer, but about 124s against 77s was not
+worth five times the cost.
 
 ### Measuring
 
-A dev CLI (`src/dev/cli-outline.ts`) runs the outline, repair and polish steps alone,
-with no content pass. It covers 3 seeds at small size only × the four combinations
-above, which is 12 outlines. For each outline it records:
+A dev CLI (`src/dev/cli-outline.ts`) runs the outline, repair and polish steps alone, with no
+content pass. It covers three seeds at small size × the four combinations above, which is 12
+outlines: 1005 (Jewels + Deface, a plain goal), 1007 (Prophecy + Blackmail, with only monsters)
+and 1025 (Lost formula + Convince, with an opposed people group). The two social ones test the
+goal instruction; read each goal's spec along with its outline. Each seed's dungeon pass runs once,
+so all four combinations outline the same dungeon. It calls the model, so it waits for a go-ahead.
+For each outline it records:
 
 - whether it passed validation on the first try, and which rules failed;
-- the number of repairs;
+- the number of repairs, and any refusals;
 - how many polish edits were proposed, accepted and rolled back;
+- every proposed change to the fiction;
 - tokens, cost and seconds.
 
-It writes each seed's outlines side by side to read. The models table in `models.ts` is
-set from the results, and only then is the content pass wired to the outline.
-
-### To go over in the detailed plan
-
-The specific instructions given to the model on each call: outline, repair and polish,
-and how `content-pass.md` is told to use the outline. This section says what each call
-returns, not what it is told. Go over the wording together before building.
+It writes each seed's outlines side by side to read. The models table in `models.ts` is set
+from the results, and only then is the content pass wired to the outline.
 
 ### Afterwards, each its own decision
 
 - **The keys pass.** If the content pass, given the outline's key pairs, writes good keys
   together with their challenges, remove the keys pass.
-- **Polish on the dungeon pass and the content pass.** Same edit-list shape. Add it for
-  the content pass last, because it has the largest output.
+- **Polish on the dungeon pass and the content pass.** Same edit-list shape. Add it for the
+  content pass last, because it has the largest output.
 
 ### Done when
 
-- The outline is validated, repaired and polished as above, each call its own step
-  request.
+- The outline is validated, repaired and polished as above.
 - The 12-outline measurement has been run and the model choice made from it.
 - Generation runs end to end at each size with the outline in the content pass's prompt.
 - ARCHITECTURE.md §3 describes the new pipeline.

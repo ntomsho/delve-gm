@@ -107,7 +107,7 @@ The exception is a move that **costs** something — a fall, a wound taken squee
 The action is complete. Before looping, check three things:
 
 - **Is the player still alive?** If their hit points are **0 or below**, they have been slain and the run is over — `nextStage: "dead"`.
-- **Did this turn accomplish the dungeon's goal?** Then set **`goalMet: true`** on the commit. The run does **not** end: they are holding it, not home with it, and the walk back out is the rest of the game. It latches, so you never have to say it twice.
+- **Did this turn accomplish the dungeon's goal?** By any means, prepared or not: what counts is that what the goal describes is now true. Then set **`goalMet: true`** on the commit. The run does **not** end: they are holding it, not home with it, and the walk back out is the rest of the game. It latches, so you never have to say it twice.
 - **Did they just walk out through the way marked OUT OF THE DUNGEON?** Then the run is over — `nextStage: "departed"`. Do not say whether it was a win; that is settled from the flag, not from you.
 
 If none, the turn ends. Return to the start of the loop and await the player's next chat input.
