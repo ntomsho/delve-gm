@@ -252,9 +252,9 @@ routes become:
 
 ## Phase 2: the outline pass
 
-**Status.** Build 1 is built, except its live measurement, which calls the model and waits for a
-go-ahead. Build 2 waits for the outlines to be read. Content cards, model-placed group bases and
-story features are decided.
+**Status.** Build 1 is built and measured: seeds 1005, 1007 and 1025 pass at `medium` effort, Haiku 5.5
+writing and reviewing, at 86-112s and about $0.014 an outline. An outline's first call uses 15,000-17,500
+tokens, so its cap is 32000; at `high` thinking runs away. Build 2 is next.
 
 **Watch the cost of Haiku 5.5.** Every task moved to it from Haiku 4.5. It is a tenth of the
 price per token, but it thinks by default and thinking bills as output. Compare the first live
