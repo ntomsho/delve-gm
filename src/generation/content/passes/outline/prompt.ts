@@ -162,8 +162,13 @@ export function renderOutlinePrompt(draft: OutlineDraft, pass: DungeonPassRespon
 
 export function renderOutlineRepair(draft: OutlineDraft, outline: Outline, missing: readonly ValidationIssue[]): string {
   const unused = unusedRefs(draft, outline);
+  const holder = (ref: string) => outline.rooms.find((r) => r.fiction === ref)?.ref;
+  const mandatory = draft.fictions
+    .filter((f) => f.mandatory)
+    .map((f) => `${f.ref} (${f.identity}) ${holder(f.ref) ? `is in ${holder(f.ref)}` : "is not used yet"}`);
   return fill(OUTLINE_REPAIR_TEMPLATE, {
     violations: missing.map((m) => `- ${m.message}`).join("\n"),
+    mandatory: `Mandatory fictions: ${mandatory.join("; ")}.`,
     unused: `Still unused: fictions ${unused.fictions.join(", ") || "none"}; cards ${unused.cards.join(", ") || "none"}.`,
   });
 }

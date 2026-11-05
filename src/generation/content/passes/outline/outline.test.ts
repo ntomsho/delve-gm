@@ -342,6 +342,8 @@ describe("a repair", () => {
     const text = renderOutlineRepair(d, o, [{ path: "x", message: "fiction F7 is used twice: rooms C and K" }]);
     expect(text).toContain("fiction F7 is used twice");
     expect(text).toContain("Still unused: fictions");
+    // So that placing one does not knock out another.
+    for (const f of d.fictions.filter((x) => x.mandatory)) expect(text).toContain(`${f.ref} (${f.identity}) is in room_`);
     expect(text).not.toMatch(/\{\{\w+\}\}/);
   });
 });
@@ -475,7 +477,7 @@ describe("the calls", () => {
     await writeOutline(d, pass, { model: HAIKU });
     expect(sent[0]!.body.tool_choice).toEqual({ type: "auto", disable_parallel_tool_use: true });
     expect(sent[0]!.body.system).toContain("write_outline");
-    expect(sent[0]!.body.output_config).toEqual({ effort: "medium" });
+    expect(sent[0]!.body.output_config).toEqual({ effort: "high" });
     expect(sent[0]!.body.fallbacks).toBeUndefined();
   });
 
@@ -497,10 +499,16 @@ describe("the calls", () => {
     );
     const out = await writeOutline(d, pass);
     expect(out.attempts).toBe(2);
-    // The first answer may think; the repair is forced, on a model that allows it.
-    expect(sent[1]!.body.tool_choice).toEqual({ type: "tool", name: "write_outline" });
+    // A repair gets to think too: fixing one thing without breaking another takes it.
+    expect(sent[1]!.body.tool_choice).toEqual({ type: "auto", disable_parallel_tool_use: true });
     expect(outlineViolations(d, out.outline)).toEqual([]);
     expect(JSON.stringify(sent[1]!.body.messages)).toContain(`way ${lost.ref} is not described`);
+  });
+
+  it("forces the call after a malformed answer, with nothing to keep", async () => {
+    const sent = stub(reply("write_outline", { rooms: "not a list" }), reply("write_outline", validOutline(d)));
+    await writeOutline(d, pass);
+    expect(sent[1]!.body.tool_choice).toEqual({ type: "tool", name: "write_outline" });
   });
 
   it("stays on auto for a repair on Sonnet 5.5, which refuses a forced call", async () => {

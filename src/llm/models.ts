@@ -121,11 +121,11 @@ export const THINKING_TASKS: ReadonlySet<Task> = new Set<Task>([
 ]);
 
 /**
- * How hard a thinking task thinks. On trial at `medium` to shorten the wait; Haiku
- * took about two minutes an outline at `high`. Sonnet 5.5 skipped thinking at
- * `medium` and wrote "x" for a story feature, so raise it for Sonnet.
+ * How hard a thinking task thinks. `medium` saved Haiku only 10-20% of an outline's
+ * two minutes, and one outline of three failed its repairs at it. Sonnet 5.5 skipped
+ * thinking altogether at `medium`.
  */
-export const THINKING_EFFORT = "medium";
+export const THINKING_EFFORT = "high";
 
 /** Sonnet 5.5 returns a 400 on a forced `tool_choice`. */
 export function allowsForcedTool(model: string): boolean {

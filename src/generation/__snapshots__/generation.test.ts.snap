@@ -359,6 +359,9 @@ goal        You are given a Dungeon Reward and a Mission. Resolve them into ONE
             aside. A player should never need the outside world to finish what they
             came for.
 
+            A spec names what is needed, not where it is: "the proof in his own hand",
+            not "in the box-office strongbox". Rooms are decided later.
+
 opening     Everything the player knows walking in. Second person, present
             tense, three or four short paragraphs, and the ONLY briefing they
             get -- they cannot see the theme, the history, or the goal spec, and

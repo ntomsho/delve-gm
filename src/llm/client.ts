@@ -477,10 +477,12 @@ export async function callForJson<T>(opts: JsonCallOptions<T>): Promise<JsonResu
 
   const model = opts.model ?? modelFor(opts.task);
   const thinks = THINKING_TASKS.has(opts.task);
-  // A thinking task's first answer is asked for, so the model can think. A retry
-  // or a repair is forced where the model allows it: it has the answer's problems
-  // in front of it, and a forced call is the one that has never come back malformed.
-  const forcedOn = (attempt: number) => (!thinks || attempt > 1) && allowsForcedTool(model);
+  // A thinking task is asked rather than forced, so the model can think, repairs
+  // included: fixing one thing without breaking another takes thought. Only an answer
+  // that came back malformed, with nothing to keep, is asked for again by force,
+  // because a forced call is the one that has never come back malformed.
+  const forcedNow = (attempt: number) =>
+    allowsForcedTool(model) && (!thinks || (attempt > 1 && kept === undefined));
   const beta = refusalFallbackBeta(model);
   // Nothing forces the call any more, so the prompt has to ask for it.
   const steer = `Give your answer by calling the ${opts.toolName} tool, once.`;
@@ -527,7 +529,7 @@ export async function callForJson<T>(opts: JsonCallOptions<T>): Promise<JsonResu
           },
         ],
         // One call, or the model may split its answer across several.
-        tool_choice: forcedOn(attempt)
+        tool_choice: forcedNow(attempt)
           ? { type: "tool", name: opts.toolName }
           : { type: "auto", disable_parallel_tool_use: true },
       },

@@ -1,7 +1,12 @@
 These parts of your outline broke a rule:
 {{violations}}
 
+{{mandatory}}
 {{unused}}
+
+A room holds one fiction, so when you move one, say what the room it leaves takes
+instead. Every mandatory fiction must still be used when you are done: give an
+optional fiction up to make room, never another mandatory one.
 
 Call the tool once, with whole entries for only the rooms, ways and clues named
 above, and the objective as it should stand. Leave the other lists empty. If a key

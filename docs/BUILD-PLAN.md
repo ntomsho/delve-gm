@@ -399,9 +399,11 @@ marked), the cards, and the challenges a key could answer.
 - any changes to the dungeon's fiction, each with one line on why;
 - per connection: what it is (a door, a stair, a collapsed tunnel, which side is higher), in
   a phrase;
-- key↔challenge pairs by reference: which challenge each planned key answers, and what the
-  key is. One to three at small and two to four above it (`KEY_RANGE`), for now: today's
-  placement averages 1.6 at small, and the roadmap's *placed-key spread* still has to decide this.
+- keys, each one object or one piece of information: what it answers (a challenge's ref, or
+  "goal" for something the goal needs), the room it is in, and what the player has to do to get
+  it. One to six at small and two to eight above it (`KEY_RANGE`). A key may sit by its own lock
+  if it is hidden or guarded, but never behind the way it opens. Not every route has to reach
+  every key.
 
 **Story features** let the model tie a room in better: tally marks on a wall, a
 half-burned order, claw marks at shoulder height. A feature is scenery with no mechanics. It
@@ -454,140 +456,10 @@ before the polish.** One round in the measurement; one or two afterwards, set by
 Every outline version (draft, each repair, each polish round) is logged in the journal, so a
 run shows what polish changed and whether it was kept.
 
-### The instructions (draft, under review)
+### The instructions
 
-**Addition to `dungeon-pass.md`, under `goal`**
-
-```
-A GOAL ABOUT A PERSON OR A RELATIONSHIP (winning an ally, convincing, blackmailing,
-framing, impressing) needs more than a thing to find. Its spec must say:
-  WHO:        one particular person or being who is in this dungeon. They need not
-              be one of the rolled groups.
-  WHAT CHANGES: what is true when it is done, in words the game master can check.
-              "Agrees to walk out with the player", not "is won over".
-  HOW:        at least two ways to do it, at least one of them not force, each possible
-              with what can be found or done inside this dungeon on one visit. If it
-              needs leverage, evidence or a witness, that exists here.
-  IF IT GOES WRONG: what happens if they die, refuse or flee. Whether another way
-              remains, or the goal is lost.
-If the mission cannot be done that way, read it differently or set it aside. A player
-should never need the outside world to finish what they came for.
-```
-
-**Outline**
-
-```
-You are outlining a dungeon before any of its rooms are written.
-
-THE DUNGEON YOU ARE BUILDING
-{{theme, history, opening and groups}}
-
-This is the place. Everything you decide has to serve it. The map is drawn and
-its contents are rolled, and you decide what goes where, so that it reads as one
-place and is fun to play through.
-
-THE PLAYER'S GOAL
-{{goal summary and spec}}
-
-This is why the player is here, and everything leads to it. Whatever you place
-or change, the goal must stay intuitive: a player who has read the opening should
-understand what they are after and why it is here, and everything around it
-should make sense. The goal room is {{room}}. Decide what the objective physically
-is: an item, a feature or a creature. If it is a person, they are in that room. If
-a creature or group belongs with it, because it guards or wants the objective, put
-its card there. If nothing does, leave that room to the objective alone.
-
-YOU MAY CHANGE THE FICTION
-If changing the theme, history, opening or a group would work a room in better
-and make the dungeon more dynamic and its story more engaging, propose it. Return
-the field's whole new text and one line on why. If you change something the
-opening mentions, change the opening too. Do not change what the place is, what
-lives here or the goal, and make no change that would make the goal seem strange
-or leave things around it not making sense.
-
-FOR EACH ROOM, choose
-- a fiction: what the place was built as. Fictions marked MANDATORY must all be
-  used. If a room is an odd fit for the dungeon's concept (a Theater in a
-  Prison), work it into the story by adding lore explaining its presence (the
-  warden was fixated on making prisoners perform plays he wrote), or by making
-  the room a slight variation on the concept (the "theater" was actually for
-  viewing executions). You will leave some optional fictions unused. A room
-  marked PASSAGE already has its identity: explain it and tie it to the rooms it
-  joins. It can still hold a card and a story feature.
-- a card: what is in the room now. Every card is used exactly once. A group's BASE
-  card is where that group lives: choose somewhere that fits who they are, what
-  they want and the layout. A clue card needs you to say what it points at.
-- story: how this room came to be as it is, tied to the dungeon's history.
-- journey: what this room does for a player coming through it.
-- a story feature, if it helps: one piece of scenery that ties this room to the
-  story or the journey. Tally marks on a wall, a half-burned order. Scenery only:
-  never a way through, a creature, a hazard, treasure or a key.
-
-FOR EACH CONNECTION: a phrase for what it physically is, suited to both rooms,
-saying which side is higher if it changes level.
-
-FOR EACH KEY: which challenge it answers and what the object is.
-
-A FUN PLAY EXPERIENCE IS YOUR MAIN JOB. Read the routes first, then plan so that:
-- dangers are properly signposted: a player paying attention gets warning before
-  the thing that can kill them;
-- exploration and clever thinking are rewarded: looking around, taking the side
-  route or using something found earlier pays off;
-- an interesting backstory is told through environmental storytelling: the player
-  pieces it together from what they see, not from being told.
-Different routes to the goal should ask different things of the player.
-
-RULES
-1. Use refs exactly as given. Anything marked pre-assigned stays as it is.
-2. A fiction must fit its room's listed sizes and kind.
-3. Never write a number, count, distance or statistic.
-4. Notes are plans, one or two sentences each. Do not write the rooms' prose.
-```
-
-**Repair** (code fills in the violations and what is unused)
-
-```
-These parts of your outline broke a rule:
-- fiction F7 is used twice: rooms C and K
-
-Still unused: fictions F2, F5; cards H3.
-
-Return replacements for only the rooms and connections named above. Everything
-else stands. If a change to the dungeon's fiction is the best way to fix one of
-these, you may propose it, under the same rules as before.
-```
-
-**Polish**
-
-```
-You are reviewing a finished outline. Change only what clearly makes the
-dungeon better. If it is already good, return no edits. At most 6 edits: swap
-two rooms' fictions, swap two rooms' cards, swap in an unused optional fiction,
-rewrite a room's story or journey note, add or rewrite a story feature, rewrite
-a connection, or change the dungeon's fiction. Change the fiction only to work
-rooms in better or make the story more engaging. Never change the goal, and never
-make it seem strange or leave things around it not making sense.
-
-Ask:
-1. Does each room fit the concept of the dungeon, including mandatory rooms?
-2. Are dangers signposted, and are exploration and clever thinking rewarded?
-3. Do routes to the goal ask different things of the player?
-4. Does each creature's placement fit its group's goals and the layout? Guards
-   stand where something is worth guarding, a lair is somewhere defensible, a
-   patrol is on a through route.
-5. Is it well paced: no early death traps or windfalls near the entrance, no easy
-   stretches or useless finds deep in?
-6. Can the player piece together a part of the dungeon's history from what they
-   find here?
-7. Are all the important aspects of the dungeon's history represented in at least
-   one room?
-8. Is the goal still intuitive, and does everything around it make sense?
-
-Say in one line why each edit helps. You cannot remove a mandatory fiction or
-change anything pre-assigned.
-```
-
-**Addition to `content-pass.md`** (Build 2)
+In `src/prompts/generation/`: `outline.md`, `outline-repair.md` and `outline-polish.md`, gone over
+together and tuned on live runs. Still to add, in Build 2, to `content-pass.md`:
 
 ```
 THE OUTLINE
