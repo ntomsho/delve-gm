@@ -615,6 +615,10 @@ compared:
 No run skips polish. Every outline version is logged (see *Polish*), so whether polish helps
 at all shows in each run's draft against its polished version.
 
+**Decided: Haiku 5.5 writes and reviews.** Measured on 2026-11-04: about $0.016 an outline against $0.083
+for Sonnet writing and Haiku reviewing. Sonnet's outlines were richer, but about 124s against 77s was not
+worth five times the cost.
+
 ### Measuring
 
 A dev CLI (`src/dev/cli-outline.ts`) runs the outline, repair and polish steps alone, with no
