@@ -15,6 +15,7 @@ import {
 } from "./prompt.ts";
 import {
   applyPolish,
+  fictionShrinks,
   MAX_POLISH_EDITS,
   mergeOutline,
   outlineSchema,
@@ -58,7 +59,7 @@ export async function writeOutline(
     ...(opts.onAttemptFailed ? { onAttemptFailed: opts.onAttemptFailed } : {}),
     check: (o) => {
       latest = o;
-      return [...outlineViolations(draft, o), ...refLeaks(o)];
+      return [...outlineViolations(draft, o), ...refLeaks(o), ...fictionShrinks(draft, pass, o)];
     },
     repair: {
       ask: (missing) => renderOutlineRepair(draft, latest!, missing),
@@ -106,7 +107,7 @@ export async function polishOutline(
   if (!applied) {
     return { outline, proposed, kept: false, rolledBack: "an edit named something that does not exist", usage };
   }
-  const violations = outlineViolations(draft, applied);
+  const violations = [...outlineViolations(draft, applied), ...fictionShrinks(draft, pass, applied)];
   if (violations.length > 0) {
     return { outline, proposed, kept: false, rolledBack: violations.map((v) => v.message).join("; "), usage };
   }

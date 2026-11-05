@@ -7,10 +7,11 @@ import { deriveSeeds, shapeFor } from "../../../seeds.ts";
 import { generateBlueprintSeed, type Size } from "../../blueprint.ts";
 import { sizeAllows } from "../../../floorplan/room-size.ts";
 import type { DungeonPassResponse } from "../dungeon-pass.ts";
-import { renderOutlinePrompt, renderOutlineRepair, renderPolishPrompt } from "./prompt.ts";
+import { renderOutlineForReview, renderOutlinePrompt, renderOutlineRepair, renderPolishPrompt } from "./prompt.ts";
 import {
   applyPolish,
   changedFiction,
+  fictionShrinks,
   mergeOutline,
   outlineSchema,
   outlineViolations,
@@ -416,6 +417,38 @@ describe("changes to the fiction", () => {
   });
 });
 
+describe("a change that guts the fiction", () => {
+  const d = draftOf(1005);
+  const pass = passOf(d);
+  const long = "Every word of this opening matters to the player reading it. ".repeat(6);
+  const withOpening = { ...pass, openingProse: long };
+  const change = (text: string) => ({ ...validOutline(d), fictionChanges: [{ field: "opening" as const, group: "none", text, why: "Better." }] });
+
+  it("is refused when it keeps only part of the field", () => {
+    expect(fictionShrinks(d, withOpening, change(long.slice(0, 60))).map((v) => v.message).join()).toContain("whole new text");
+  });
+
+  it("is allowed when it only tightens the field", () => {
+    expect(fictionShrinks(d, withOpening, change(long.slice(0, Math.ceil(long.length * 0.8))))).toEqual([]);
+  });
+
+  it("leaves a group's new name alone, which has no length to keep", () => {
+    const o = { ...validOutline(d), fictionChanges: [{ field: "groupName" as const, group: "G1", text: "X", why: "Better." }] };
+    expect(fictionShrinks(d, pass, o)).toEqual([]);
+  });
+
+  it("can be put right by a repair, which replaces it rather than adding to it", () => {
+    const merged = mergeOutline(change("Short."), { ...change(long), rooms: [], ways: [], clues: [], keys: [] });
+    expect(merged.fictionChanges).toHaveLength(1);
+    expect(merged.fictionChanges[0]!.text).toBe(long);
+  });
+
+  it("does not put its reason where a reader takes it for part of the text", () => {
+    const text = renderOutlineForReview(change("New text."));
+    expect(text).toContain("New text.\n    Why this change: Better.");
+  });
+});
+
 describe("the prompts", () => {
   const d = draftOf(1005);
   const pass = passOf(d);
@@ -428,6 +461,7 @@ describe("the prompts", () => {
     expect(goal).toBeGreaterThan(dungeon);
     expect(text).toContain(pass.history);
     expect(text).toContain(pass.goal.spec);
+    expect(text).toContain("culmination");
     expect(text).not.toMatch(/\{\{\w+\}\}/);
   });
 
@@ -477,7 +511,7 @@ describe("the calls", () => {
     await writeOutline(d, pass, { model: HAIKU });
     expect(sent[0]!.body.tool_choice).toEqual({ type: "auto", disable_parallel_tool_use: true });
     expect(sent[0]!.body.system).toContain("write_outline");
-    expect(sent[0]!.body.output_config).toEqual({ effort: "high" });
+    expect(sent[0]!.body.output_config).toEqual({ effort: "medium" });
     expect(sent[0]!.body.fallbacks).toBeUndefined();
   });
 

@@ -362,6 +362,11 @@ goal        You are given a Dungeon Reward and a Mission. Resolve them into ONE
             A spec names what is needed, not where it is: "the proof in his own hand",
             not "in the box-office strongbox". Rooms are decided later.
 
+            THE GOAL HAS ONE CULMINATION: the thing acted upon to complete the objective,
+            before the player has to escape the dungeon. It all happens in one room, the
+            goal room, with the goal entity. That is a room the player has to reach, so
+            write nothing that puts it at the way in or spreads it across the place.
+
 opening     Everything the player knows walking in. Second person, present
             tense, three or four short paragraphs, and the ONLY briefing they
             get -- they cannot see the theme, the history, or the goal spec, and

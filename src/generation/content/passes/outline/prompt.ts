@@ -184,7 +184,7 @@ export function renderOutlineForReview(o: Outline): string {
   if (o.clues.length) L.push("Clues:", ...o.clues.map((c) => `  ${c.card} points at ${c.pointsAt}`));
   L.push("Keys:", ...o.keys.map((k) => `  ${k.challenge} (${k.kind}, ${k.room}): ${k.key}. Got by: ${k.gotBy}`));
   if (o.fictionChanges.length) {
-    L.push("Changes to the fiction:", ...o.fictionChanges.map((c) => `  ${c.field}${c.group !== "none" ? ` ${c.group}` : ""}: ${c.text} (${c.why})`));
+    L.push("Changes to the fiction:", ...o.fictionChanges.flatMap((c) => [`  ${c.field}${c.group !== "none" ? ` ${c.group}` : ""}: ${c.text}`, `    Why this change: ${c.why}`]));
   }
   return L.join("\n");
 }

@@ -81,10 +81,11 @@ export const MODELS: Record<Task, string> = {
 export const MAX_TOKENS: Record<Task, number> = {
   // Doubled when this task began to think (see THINKING_TASKS).
   "dungeon-pass": 8192,
-  // Room for thinking plus a page of notes. Both models hit 24000 at `high`, and a
-  // reply cut off at the cap is paid for and thrown away.
-  "outline": 32000,
-  "outline-polish": 32000,
+  // Room for thinking plus a page of notes. A higher cap only lets runaway thinking
+  // run longer: Haiku 5.5 used all of 32000 at `high` and answered nothing. A reply
+  // cut off here is retried by force, which is quick.
+  "outline": 16000,
+  "outline-polish": 16000,
   "content-pass": 16384,
   // A few objects, two sentences each, plus a short list of the goal's
   // properties. A small output.
@@ -121,11 +122,11 @@ export const THINKING_TASKS: ReadonlySet<Task> = new Set<Task>([
 ]);
 
 /**
- * How hard a thinking task thinks. `medium` saved Haiku only 10-20% of an outline's
- * two minutes, and one outline of three failed its repairs at it. Sonnet 5.5 skipped
- * thinking altogether at `medium`.
+ * How hard a thinking task thinks. On trial at `medium`: at `high`, Haiku 5.5's
+ * thinking ran away and hit the cap. Sonnet 5.5 skipped thinking altogether at
+ * `medium`, so raise this if a task moves to Sonnet.
  */
-export const THINKING_EFFORT = "high";
+export const THINKING_EFFORT = "medium";
 
 /** Sonnet 5.5 returns a 400 on a forced `tool_choice`. */
 export function allowsForcedTool(model: string): boolean {

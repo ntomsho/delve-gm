@@ -314,6 +314,39 @@ export function refLeaks(o: Outline): ValidationIssue[] {
   return out;
 }
 
+/** A change to the fiction may tighten a field. Below this share, it has lost most of it. */
+const FICTION_KEEPS = 0.6;
+
+/**
+ * A change that guts what it changes. It returns the field's whole new text, and one
+ * outline replaced a 2,100-character opening with its last 500 characters, which would
+ * have deleted the player's briefing, goal included.
+ */
+export function fictionShrinks(draft: OutlineDraft, pass: DungeonPassResponse, o: Outline): ValidationIssue[] {
+  const out: ValidationIssue[] = [];
+  const groupIds = draft.blueprint.inhabitants.map((g) => g.id);
+  for (const c of o.fictionChanges) {
+    const group = pass.groups.find((g) => g.id === groupIds[Number(c.group.slice(1)) - 1]);
+    const was =
+      c.field === "theme"
+        ? pass.theme
+        : c.field === "history"
+          ? pass.history
+          : c.field === "opening"
+            ? pass.openingProse
+            : c.field === "groupBase"
+              ? group?.base
+              : undefined;
+    if (was && c.text.length < was.length * FICTION_KEEPS) {
+      out.push({
+        path: "fictionChanges",
+        message: `your change to ${c.field} keeps only part of it; return its whole new text, with everything that should stay`,
+      });
+    }
+  }
+  return out;
+}
+
 /** What a repair can still reach for, because no room holds it yet. */
 export function unusedRefs(draft: OutlineDraft, o: Outline): { fictions: string[]; cards: string[] } {
   const fictions = new Set(o.rooms.map((r) => r.fiction));
@@ -344,7 +377,8 @@ export function mergeOutline(whole: Outline, patch: Outline): Outline {
     clues: mergeBy(whole.clues, patch.clues, (c) => c.card),
     // Whole, or a repair could never take a key away.
     keys: patch.keys.length > 0 ? patch.keys : whole.keys,
-    fictionChanges: [...whole.fictionChanges, ...patch.fictionChanges],
+    // By field, or a change sent back for repair could never be put right.
+    fictionChanges: mergeBy(whole.fictionChanges, patch.fictionChanges, (c) => `${c.field}:${c.group}`),
   };
 }
 
@@ -402,7 +436,12 @@ export function applyPolish(o: Outline, edits: readonly PolishEdit[]): Outline |
       }
       case "change_fiction":
         if (e.field === NONE || !has(e.text)) return undefined;
-        fictionChanges.push({ field: e.field, group: e.group, text: e.text, why: e.why });
+        {
+          const change = { field: e.field, group: e.group, text: e.text, why: e.why };
+          const held = fictionChanges.findIndex((c) => c.field === e.field && c.group === e.group);
+          if (held >= 0) fictionChanges[held] = change;
+          else fictionChanges.push(change);
+        }
         break;
       case "set_key": {
         if (e.keyKind === NONE || !has(e.challenge) || !has(e.text) || !has(e.gotBy) || !has(e.roomA)) return undefined;

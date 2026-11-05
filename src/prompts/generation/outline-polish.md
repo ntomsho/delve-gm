@@ -9,7 +9,8 @@ edits:
 - set_story_feature: add or rewrite a room's scenery (roomA, text)
 - rewrite_way: what a way physically is (way, text)
 - change_fiction: the dungeon's theme, history, opening, or a group's name or base
-  (field, group if it is about a group, and the whole new text)
+  (field, group if it is about a group, and the field's whole new text, not only the
+  part you changed)
 - set_key: add a key or replace one (challenge, keyKind, text for what it is, roomA for
   where it is, gotBy)
 
@@ -18,6 +19,8 @@ Never change the goal, and never make it seem strange or leave things around it 
 making sense.
 
 AUDIT FIRST. Check each of these in turn, and fix what fails:
+- The goal's culmination, the thing acted upon to complete the objective: is it in the
+  goal room with the goal entity?
 - What the goal and history say the player must learn or find: is each one a key?
 - Each key: is it placed, and does the player have to engage with the world to get it?
   Is it one thing? Is it clear of the way it opens?

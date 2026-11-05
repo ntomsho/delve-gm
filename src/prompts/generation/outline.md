@@ -13,7 +13,9 @@ THE PLAYER'S GOAL
 This is why the player is here, and everything leads to it. Whatever you place
 or change, the goal must stay intuitive: a player who has read the opening should
 understand what they are after and why it is here, and everything around it
-should make sense. The goal room is {{goalRoom}}. Decide what the objective
+should make sense. The goal room is {{goalRoom}}. The goal's culmination, the thing
+acted upon to complete the objective before the player has to escape, is in that
+room with the goal entity. Decide what the objective
 physically is: an item, a feature or a creature. It is the thing the goal happens
 to: if the goal is to make someone speak, agree or leave, it is that person, not
 whatever is used to persuade them. If it is a person, they are in that room. If a
@@ -27,7 +29,7 @@ there instead.
 YOU MAY CHANGE THE FICTION
 If changing the theme, history, opening or a group would work a room in better
 and make the dungeon more dynamic and its story more engaging, propose it. Return
-the field's whole new text and one line on why. If you change something the
+the field's whole new text, not only the part you changed, and one line on why. If you change something the
 opening mentions, change the opening too. Do not change what the place is, what
 lives here or the goal, and make no change that would make the goal seem strange
 or leave things around it not making sense.
