@@ -45,7 +45,7 @@ import {
 } from "../../../shared/world/entities.ts";
 import type { EntityPassResult } from "../../../shared/world/entities.ts";
 import type { ReserveEntry } from "../../../shared/world/challenges.ts";
-import type { StockedDungeon } from "../types.ts";
+import type { PlannedKeyWords, StockedDungeon } from "../types.ts";
 import { KEYS_PASS_INSTRUCTIONS, KEYS_PASS_SCHEMA } from "../../../prompts/loader.ts";
 
 // ===========================================================================
@@ -101,6 +101,8 @@ export interface KeyBrief {
   roomBase: string;
   /** set when the key is carried rather than lying about */
   carriedBy?: string;
+  /** what the outline decided this key is and what getting it takes */
+  plan?: PlannedKeyWords;
   target: KeyTargetBrief;
   /** blocked ways only: the connector whose `conditional` may be rewritten */
   lockRef?: string;
@@ -209,17 +211,14 @@ export function buildKeysPassPayload(
 
       // A region and the goal's location are both answered by a PLACE, and the
       // room is the only entity here guaranteed to have been written.
+      // Something the goal needs, as the outline planned it, is answered there too.
       case "region":
-      case "goal-location": {
+      case "goal-location":
+      case "goal-property": {
         const room = roomById.get(c.roomId);
         if (!room || !room.base) return undefined;
         return { ...common, name: room.name, base: room.base };
       }
-
-      // Minted BY this pass, so there is never one to write a key for on the
-      // way in. They go to the reserve and are drawn in play.
-      case "goal-property":
-        return undefined;
     }
   };
 
@@ -244,6 +243,7 @@ export function buildKeysPassPayload(
         roomName: room?.name ?? "",
         roomBase: room?.base ?? "",
         ...(carried ? { carriedBy: resolveName(carried, ep.registry) } : {}),
+        ...(rw.plan ? { plan: rw.plan } : {}),
         target: t,
         ...(c.kind === "blocked-way" ? { lockRef: c.targetId } : {}),
       });
@@ -364,7 +364,11 @@ export function renderKeysPassPrompt(p: KeysPassPayload): string {
     if (k.carriedBy) L.push(`carried by ${k.carriedBy}, not lying in the open.`);
     L.push(`IT ANSWERS ${k.target.label.toUpperCase()}: "${k.target.name}"`);
     L.push(`  which is: ${oneLine(k.target.base)}`);
-    L.push(`  THE FACT IT MUST CARRY, exactly: "${k.target.fact}"`);
+    if (k.plan) {
+      L.push(`  THE OUTLINE DECIDED IT IS (${k.plan.kind}): ${k.plan.key}`);
+      L.push(`  what the player has to do to get it, which the description must allow: ${k.plan.gotBy}`);
+    }
+    L.push(`  THE FACT IT ANSWERS, in the game's shorthand: "${k.target.fact}"`);
     if (k.target.condition) L.push(`  the lock as it currently reads: ${oneLine(k.target.condition)}`);
     if (k.lockRef) {
       L.push(
@@ -419,6 +423,45 @@ export function keysPassOmissions(payload: KeysPassPayload, res: KeysPassRespons
       path: `keys.${k.ref}`,
       message: `key ${k.ref} (in ${k.roomName}, answering "${k.target.fact}") was listed and is not in the response`,
     }));
+}
+
+/** The shapes only code writes: "where X lies", "the way is blocked", "subject, which trick". */
+const SHORTHAND = /^where .+ lies$|^the way is |^.+, which /i;
+
+/**
+ * Game shorthand copied into what the player reads, like a ledger saying "where Magic
+ * item lies". A weakness like "flowers" can fairly appear in prose, so this looks only
+ * for the shapes code writes.
+ */
+export function keysPassLeaks(payload: KeysPassPayload, res: KeysPassResponse): Omission[] {
+  const out: Omission[] = [];
+  const brief = new Map(payload.keys.map((k) => [k.ref, k]));
+  for (const k of res.keys ?? []) {
+    const fact = brief.get(k.ref)?.target.fact;
+    const text = `${k.name} ${k.base}`;
+    const quotesFact = !!fact && SHORTHAND.test(fact) && text.toLowerCase().includes(fact.toLowerCase());
+    if (quotesFact || /\bwhere [A-Z][a-z]+(?: [a-z]+)* lies\b/.test(text)) {
+      out.push({
+        path: `keys.${k.ref}`,
+        message: `key ${k.ref} uses the game's shorthand${quotesFact ? ` "${fact}"` : ""}; say what it means in the object's own words, naming the actual thing or place`,
+      });
+    }
+  }
+  return out;
+}
+
+/** What a repair asks for: the keys that came back wrong, each complete. */
+export function askForKeys(missing: readonly { path: string }[]): string {
+  const refs = [...new Set(missing.map((m) => /^keys\.(.+)/.exec(m.path)?.[1]).filter(Boolean))];
+  return `Call \`write_keys\` again with ONLY these keys: ${refs.join(", ")}. Write each of them complete.`;
+}
+
+/** The kept answer with the keys that came back put in place of their first versions. */
+export function mergeKeys(whole: KeysPassResponse, patch: KeysPassResponse): KeysPassResponse {
+  const fresh = new Map(patch.keys.map((k) => [k.ref, k]));
+  const keys = whole.keys.map((k) => fresh.get(k.ref) ?? k);
+  for (const k of patch.keys) if (!whole.keys.some((w) => w.ref === k.ref)) keys.push(k);
+  return { ...whole, keys };
 }
 
 // ===========================================================================

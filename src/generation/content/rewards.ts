@@ -60,7 +60,7 @@ import {
 import { STANDARD_EQUIPMENT, type EquipmentKey } from "../../rules/knave/equipment.ts";
 import type { Challenge, ReserveEntry } from "../../shared/world/challenges.ts";
 import { isGoalChallenge } from "./challenges.ts";
-import type {
+import type { PlannedKeyWords,
   EquipmentDraw,
   EquipmentRow,
   MobileEntity,
@@ -164,6 +164,18 @@ export interface PlacementInput {
   challenges: Challenge[];
   maxDepth: number;
   rng: Rng;
+  /**
+   * The keys the outline planned. When present, these are every placed key: nothing
+   * is keyed at random, and every other challenge goes to the reserve.
+   */
+  plannedKeys?: readonly PlannedKey[];
+}
+
+/** One key the outline decided on: what it answers, where it is, and its words. */
+export interface PlannedKey {
+  challengeId: string;
+  roomId: string;
+  plan: PlannedKeyWords;
 }
 
 // ---------------------------------------------------------------------------
@@ -447,7 +459,7 @@ export function generalBudget(roomCount: number): number {
  * the dungeon rather than to any room.
  */
 export function placeRewards(input: PlacementInput): RewardPlacement {
-  const { rooms, connectors, mobiles, entranceRoomId, goalRoomId, challenges, maxDepth, rng } =
+  const { rooms, connectors, mobiles, entranceRoomId, goalRoomId, challenges, maxDepth, rng, plannedKeys } =
     input;
 
   for (const r of rooms) r.rewards = [];
@@ -534,6 +546,7 @@ export function placeRewards(input: PlacementInput): RewardPlacement {
    * outline pass will choose key pairs itself.)
    */
   const pickChallenge = (room: RoomStock): Challenge | undefined => {
+    if (plannedKeys) return undefined;
     const pool = challenges.filter((c) => {
       if (keyed.has(c.id)) return false;
       if (isGoalChallenge(c)) return false; // step 2 owns these
@@ -557,6 +570,27 @@ export function placeRewards(input: PlacementInput): RewardPlacement {
   const budget = generalBudget(rooms.length);
   let generals = 0;
   let keys = 0;
+
+  // The outline's keys go in the rooms it chose, loose in the room: how each is hidden
+  // or guarded is in `gotBy`, which a carrier rolled here could contradict.
+  for (const k of plannedKeys ?? []) {
+    const room = byId.get(k.roomId);
+    const challenge = challengeById.get(k.challengeId);
+    if (!room || !challenge) continue;
+    keyed.add(challenge.id);
+    room.rewards.push({
+      id: nextId(),
+      roomId: room.roomId,
+      holder: { kind: "room", id: room.roomId },
+      guaranteed: false,
+      kind: "key",
+      challengeId: challenge.id,
+      answers: challenge.property,
+      value: rng.range(...KEY_VALUE_BAND),
+      plan: k.plan,
+    });
+    keys++;
+  }
 
   for (const room of guaranteedRooms) {
     if (generals >= budget) break;
@@ -600,7 +634,7 @@ export function placeRewards(input: PlacementInput): RewardPlacement {
   // properties. The goal ENTITY's properties cannot be reached from here --
   // its form is the content pass's call -- and the keys pass mints those.
   const goalRoom = byId.get(goalRoomId);
-  if (goalRoom) {
+  if (goalRoom && !plannedKeys) {
     const goalChallenges = challenges.filter((c) => c.kind === "goal-location");
     const roomChallenges = challenges.filter(
       (c) => c.roomId === goalRoomId && !isGoalChallenge(c) && !keyed.has(c.id)

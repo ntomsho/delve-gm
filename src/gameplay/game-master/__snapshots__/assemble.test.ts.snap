@@ -31,21 +31,27 @@ Traits: physique Wiry, face Bony, skin Ashen, hair Cropped, clothing Patched, vi
 
 ## The room the player is standing in
 
-[«id-1»] **The Workshop** (NEVER ENCOUNTERED)
-base: A workshop of the drowned mint, its walls pale limestone crusted with mineral scale. Water lies ankle-deep across the floor, still and cold. Nothing has disturbed it in a long time.
+[«id-1»] **The Pool** (NEVER ENCOUNTERED)
+base: A pool of the drowned mint, its walls pale limestone crusted with mineral scale. Water lies ankle-deep across the floor, still and cold. Nothing has disturbed it in a long time.
 
 ### As drawn on the map
-a tiny chamber, about 20 by 15 feet -- oblong, running east-west, irregular, its walls stepping in and out. Ways out: one off the north wall, two off the west wall
+a tiny chamber, about 25 by 10 feet -- long and narrow, running east-west, irregular, its walls stepping in and out. Ways out: two off the north wall, one off the west wall
 The compass here is the MAP's, not the party's: north is north wherever they are facing. Say "the north wall"; never "on your left", which you have no way to know.
 
 ### In it
-- [«id-2»] The hearth — RoomFeature · in a corner (NEVER ENCOUNTERED)
+- [«id-2»] The hearth — RoomFeature · spread through the room (NEVER ENCOUNTERED)
     base: The hearth of the drowned mint, scaled with mineral crust.
+- [«id-3»] The almoner's daybook — Item · in a corner (NEVER ENCOUNTERED)
+    base: A water-stained ledger in a clerk's hand. One entry is underscored twice: "where to find the master die".
+    1 slot, worth 7 cp
+- [«id-4»] The almoner's daybook — Item · along the south wall (NEVER ENCOUNTERED)
+    base: A water-stained ledger in a clerk's hand. One entry is underscored twice: "the die press's iron handle".
+    1 slot, worth 42 cp
 
 ### Ways out
-- [«id-3»] "The mint's stair — out of the dungeon" — A broad flight of worn limestone steps rising out of the water toward the surface. · in the west wall, at the middle · LEADS OUT OF THE DUNGEON — the way they came in, and the way home. Walking through it ENDS THE RUN: commit nextStage "departed"
-- [«id-4»] "A low arch" — a low arch of fitted stone, its keystone dropped an inch · in the west wall, at the middle · leads to [«id-5»], somewhere they have not been
-- [«id-6»] "A barred door" — a plank door swollen with water, barred from the far side · in the north wall, toward the east end · BLOCKED: the bar must be lifted from the other side · leads to [«id-7»], somewhere they have not been
+- [«id-5»] "The mint's stair — out of the dungeon" — A broad flight of worn limestone steps rising out of the water toward the surface. · in the north wall, toward the west end · LEADS OUT OF THE DUNGEON — the way they came in, and the way home. Walking through it ENDS THE RUN: commit nextStage "departed"
+- [«id-6»] "A low arch" — a low arch of fitted stone, its keystone dropped an inch · in the west wall, at the middle · leads to [«id-7»], somewhere they have not been
+- [«id-8»] "A barred door" — a plank door swollen with water, barred from the far side · in the north wall, toward the east end · BLOCKED: the bar must be lifted from the other side · leads to [«id-9»], somewhere they have not been
 
 ### Every other creature in this dungeon
 
@@ -53,10 +59,10 @@ Not in the room with the player. Yours to change — their \`state\`, their
 \`activity\`, where they are heading — and NOT to describe or narrate: the
 player is not there to see any of it.
 
-- [«id-8»] The drowned hands — in [«id-9»] "The Chasm" · 2 rooms away · THE PLAYER HAS NOT BEEN HERE
-  doing: Hunt
-- [«id-10»] The drowned hands — in [«id-11»] "The Cavern" · 2 rooms away · THE PLAYER HAS NOT BEEN HERE
-  doing: Repair
+- [«id-10»] The drowned hands — in [«id-11»] "The Bed chamber" · 2 rooms away · THE PLAYER HAS NOT BEEN HERE
+  doing: Escape
+- [«id-12»] A drowned clerk — in [«id-13»] "The Cavern" · 2 rooms away · THE PLAYER HAS NOT BEEN HERE
+  doing: Unearth
 
 ## What this dungeon still has to give
 
@@ -69,7 +75,7 @@ Most turns should take none of them.
 Quote the fact EXACTLY as written. Invent the object and the moment; never
 the fact.
 
-- [ch:blocked-way:«id-6»] a blocked way, HERE, in this room — as an object they can carry
+- [ch:blocked-way:«id-8»] a blocked way, HERE, in this room — as an object they can carry
   the fact: "the way is blocked"
 - [ch:creature-weakness:mob_6vw_1:0] a creature's weakness, elsewhere in the dungeon — as something they are told
   the fact: "Phylactery"
@@ -81,10 +87,10 @@ the fact.
   the fact: "Gaze weapon"
 - [ch:creature-ability:mob_6vw_1:2] a creature's ability, elsewhere in the dungeon — as something they are told
   the fact: "Teleporting"
-- [ch:blocked-way:«id-12»] a blocked way, elsewhere in the dungeon — as an object they can carry
-  the fact: "the way is blocked"
-- [ch:obstacle:«id-7»] an obstacle, elsewhere in the dungeon — as an object they can carry
-  the fact: "Writing, which scrying"
+- [ch:npc-liability:mob_6vw_2] a person's liability, elsewhere in the dungeon — as something they are told
+  the fact: "Softhearted"
+- [ch:npc-asset:mob_6vw_2] a person's asset, elsewhere in the dungeon — as something they are told
+  the fact: "Calls in favors"
 
 ",
     "role": "user",
@@ -135,21 +141,27 @@ Traits: physique Wiry, face Bony, skin Ashen, hair Cropped, clothing Patched, vi
 
 ## The room the player is standing in
 
-[«id-1»] **The Workshop** (NEVER ENCOUNTERED)
-base: A workshop of the drowned mint, its walls pale limestone crusted with mineral scale. Water lies ankle-deep across the floor, still and cold. Nothing has disturbed it in a long time.
+[«id-1»] **The Pool** (NEVER ENCOUNTERED)
+base: A pool of the drowned mint, its walls pale limestone crusted with mineral scale. Water lies ankle-deep across the floor, still and cold. Nothing has disturbed it in a long time.
 
 ### As drawn on the map
-a tiny chamber, about 20 by 15 feet -- oblong, running east-west, irregular, its walls stepping in and out. Ways out: one off the north wall, two off the west wall
+a tiny chamber, about 25 by 10 feet -- long and narrow, running east-west, irregular, its walls stepping in and out. Ways out: two off the north wall, one off the west wall
 The compass here is the MAP's, not the party's: north is north wherever they are facing. Say "the north wall"; never "on your left", which you have no way to know.
 
 ### In it
-- [«id-2»] The hearth — RoomFeature · in a corner (NEVER ENCOUNTERED)
+- [«id-2»] The hearth — RoomFeature · spread through the room (NEVER ENCOUNTERED)
     base: The hearth of the drowned mint, scaled with mineral crust.
+- [«id-3»] The almoner's daybook — Item · in a corner (NEVER ENCOUNTERED)
+    base: A water-stained ledger in a clerk's hand. One entry is underscored twice: "where to find the master die".
+    1 slot, worth 7 cp
+- [«id-4»] The almoner's daybook — Item · along the south wall (NEVER ENCOUNTERED)
+    base: A water-stained ledger in a clerk's hand. One entry is underscored twice: "the die press's iron handle".
+    1 slot, worth 42 cp
 
 ### Ways out
-- [«id-3»] "The mint's stair — out of the dungeon" — A broad flight of worn limestone steps rising out of the water toward the surface. · in the west wall, at the middle · LEADS OUT OF THE DUNGEON — the way they came in, and the way home. Walking through it ENDS THE RUN: commit nextStage "departed"
-- [«id-4»] "A low arch" — a low arch of fitted stone, its keystone dropped an inch · in the west wall, at the middle · leads to [«id-5»], somewhere they have not been
-- [«id-6»] "A barred door" — a plank door swollen with water, barred from the far side · in the north wall, toward the east end · BLOCKED: the bar must be lifted from the other side · leads to [«id-7»], somewhere they have not been
+- [«id-5»] "The mint's stair — out of the dungeon" — A broad flight of worn limestone steps rising out of the water toward the surface. · in the north wall, toward the west end · LEADS OUT OF THE DUNGEON — the way they came in, and the way home. Walking through it ENDS THE RUN: commit nextStage "departed"
+- [«id-6»] "A low arch" — a low arch of fitted stone, its keystone dropped an inch · in the west wall, at the middle · leads to [«id-7»], somewhere they have not been
+- [«id-8»] "A barred door" — a plank door swollen with water, barred from the far side · in the north wall, toward the east end · BLOCKED: the bar must be lifted from the other side · leads to [«id-9»], somewhere they have not been
 
 ### Every other creature in this dungeon
 
@@ -157,10 +169,10 @@ Not in the room with the player. Yours to change — their \`state\`, their
 \`activity\`, where they are heading — and NOT to describe or narrate: the
 player is not there to see any of it.
 
-- [«id-8»] The drowned hands — in [«id-9»] "The Chasm" · 2 rooms away · THE PLAYER HAS NOT BEEN HERE
-  doing: Hunt
-- [«id-10»] The drowned hands — in [«id-11»] "The Cavern" · 2 rooms away · THE PLAYER HAS NOT BEEN HERE
-  doing: Repair
+- [«id-10»] The drowned hands — in [«id-11»] "The Bed chamber" · 2 rooms away · THE PLAYER HAS NOT BEEN HERE
+  doing: Escape
+- [«id-12»] A drowned clerk — in [«id-13»] "The Cavern" · 2 rooms away · THE PLAYER HAS NOT BEEN HERE
+  doing: Unearth
 
 ## What this dungeon still has to give
 
@@ -173,7 +185,7 @@ Most turns should take none of them.
 Quote the fact EXACTLY as written. Invent the object and the moment; never
 the fact.
 
-- [ch:blocked-way:«id-6»] a blocked way, HERE, in this room — as an object they can carry
+- [ch:blocked-way:«id-8»] a blocked way, HERE, in this room — as an object they can carry
   the fact: "the way is blocked"
 - [ch:creature-weakness:mob_6vw_1:0] a creature's weakness, elsewhere in the dungeon — as something they are told
   the fact: "Phylactery"
@@ -185,10 +197,10 @@ the fact.
   the fact: "Gaze weapon"
 - [ch:creature-ability:mob_6vw_1:2] a creature's ability, elsewhere in the dungeon — as something they are told
   the fact: "Teleporting"
-- [ch:blocked-way:«id-12»] a blocked way, elsewhere in the dungeon — as an object they can carry
-  the fact: "the way is blocked"
-- [ch:obstacle:«id-7»] an obstacle, elsewhere in the dungeon — as an object they can carry
-  the fact: "Writing, which scrying"
+- [ch:npc-liability:mob_6vw_2] a person's liability, elsewhere in the dungeon — as something they are told
+  the fact: "Softhearted"
+- [ch:npc-asset:mob_6vw_2] a person's asset, elsewhere in the dungeon — as something they are told
+  the fact: "Calls in favors"
 
 ",
     "role": "user",
@@ -242,21 +254,27 @@ Traits: physique Wiry, face Bony, skin Ashen, hair Cropped, clothing Patched, vi
 
 ## The room the player is standing in
 
-[«id-1»] **The Workshop** (NEVER ENCOUNTERED)
-base: A workshop of the drowned mint, its walls pale limestone crusted with mineral scale. Water lies ankle-deep across the floor, still and cold. Nothing has disturbed it in a long time.
+[«id-1»] **The Pool** (NEVER ENCOUNTERED)
+base: A pool of the drowned mint, its walls pale limestone crusted with mineral scale. Water lies ankle-deep across the floor, still and cold. Nothing has disturbed it in a long time.
 
 ### As drawn on the map
-a tiny chamber, about 20 by 15 feet -- oblong, running east-west, irregular, its walls stepping in and out. Ways out: one off the north wall, two off the west wall
+a tiny chamber, about 25 by 10 feet -- long and narrow, running east-west, irregular, its walls stepping in and out. Ways out: two off the north wall, one off the west wall
 The compass here is the MAP's, not the party's: north is north wherever they are facing. Say "the north wall"; never "on your left", which you have no way to know.
 
 ### In it
-- [«id-2»] The hearth — RoomFeature · in a corner (NEVER ENCOUNTERED)
+- [«id-2»] The hearth — RoomFeature · spread through the room (NEVER ENCOUNTERED)
     base: The hearth of the drowned mint, scaled with mineral crust.
+- [«id-3»] The almoner's daybook — Item · in a corner (NEVER ENCOUNTERED)
+    base: A water-stained ledger in a clerk's hand. One entry is underscored twice: "where to find the master die".
+    1 slot, worth 7 cp
+- [«id-4»] The almoner's daybook — Item · along the south wall (NEVER ENCOUNTERED)
+    base: A water-stained ledger in a clerk's hand. One entry is underscored twice: "the die press's iron handle".
+    1 slot, worth 42 cp
 
 ### Ways out
-- [«id-3»] "The mint's stair — out of the dungeon" — A broad flight of worn limestone steps rising out of the water toward the surface. · in the west wall, at the middle · LEADS OUT OF THE DUNGEON — the way they came in, and the way home. Walking through it ENDS THE RUN: commit nextStage "departed"
-- [«id-4»] "A low arch" — a low arch of fitted stone, its keystone dropped an inch · in the west wall, at the middle · leads to [«id-5»], somewhere they have not been
-- [«id-6»] "A barred door" — a plank door swollen with water, barred from the far side · in the north wall, toward the east end · BLOCKED: the bar must be lifted from the other side · leads to [«id-7»], somewhere they have not been
+- [«id-5»] "The mint's stair — out of the dungeon" — A broad flight of worn limestone steps rising out of the water toward the surface. · in the north wall, toward the west end · LEADS OUT OF THE DUNGEON — the way they came in, and the way home. Walking through it ENDS THE RUN: commit nextStage "departed"
+- [«id-6»] "A low arch" — a low arch of fitted stone, its keystone dropped an inch · in the west wall, at the middle · leads to [«id-7»], somewhere they have not been
+- [«id-8»] "A barred door" — a plank door swollen with water, barred from the far side · in the north wall, toward the east end · BLOCKED: the bar must be lifted from the other side · leads to [«id-9»], somewhere they have not been
 
 ### Every other creature in this dungeon
 
@@ -264,10 +282,10 @@ Not in the room with the player. Yours to change — their \`state\`, their
 \`activity\`, where they are heading — and NOT to describe or narrate: the
 player is not there to see any of it.
 
-- [«id-8»] The drowned hands — in [«id-9»] "The Chasm" · 2 rooms away · THE PLAYER HAS NOT BEEN HERE
-  doing: Hunt
-- [«id-10»] The drowned hands — in [«id-11»] "The Cavern" · 2 rooms away · THE PLAYER HAS NOT BEEN HERE
-  doing: Repair
+- [«id-10»] The drowned hands — in [«id-11»] "The Bed chamber" · 2 rooms away · THE PLAYER HAS NOT BEEN HERE
+  doing: Escape
+- [«id-12»] A drowned clerk — in [«id-13»] "The Cavern" · 2 rooms away · THE PLAYER HAS NOT BEEN HERE
+  doing: Unearth
 
 ## What this dungeon still has to give
 
@@ -280,7 +298,7 @@ Most turns should take none of them.
 Quote the fact EXACTLY as written. Invent the object and the moment; never
 the fact.
 
-- [ch:blocked-way:«id-6»] a blocked way, HERE, in this room — as an object they can carry
+- [ch:blocked-way:«id-8»] a blocked way, HERE, in this room — as an object they can carry
   the fact: "the way is blocked"
 - [ch:creature-weakness:mob_6vw_1:0] a creature's weakness, elsewhere in the dungeon — as something they are told
   the fact: "Phylactery"
@@ -292,10 +310,10 @@ the fact.
   the fact: "Gaze weapon"
 - [ch:creature-ability:mob_6vw_1:2] a creature's ability, elsewhere in the dungeon — as something they are told
   the fact: "Teleporting"
-- [ch:blocked-way:«id-12»] a blocked way, elsewhere in the dungeon — as an object they can carry
-  the fact: "the way is blocked"
-- [ch:obstacle:«id-7»] an obstacle, elsewhere in the dungeon — as an object they can carry
-  the fact: "Writing, which scrying"
+- [ch:npc-liability:mob_6vw_2] a person's liability, elsewhere in the dungeon — as something they are told
+  the fact: "Softhearted"
+- [ch:npc-asset:mob_6vw_2] a person's asset, elsewhere in the dungeon — as something they are told
+  the fact: "Calls in favors"
 
 ",
     "role": "user",
@@ -359,21 +377,27 @@ Traits: physique Wiry, face Bony, skin Ashen, hair Cropped, clothing Patched, vi
 
 ## The room the player is standing in
 
-[«id-1»] **The Workshop** (NEVER ENCOUNTERED)
-base: A workshop of the drowned mint, its walls pale limestone crusted with mineral scale. Water lies ankle-deep across the floor, still and cold. Nothing has disturbed it in a long time.
+[«id-1»] **The Pool** (NEVER ENCOUNTERED)
+base: A pool of the drowned mint, its walls pale limestone crusted with mineral scale. Water lies ankle-deep across the floor, still and cold. Nothing has disturbed it in a long time.
 
 ### As drawn on the map
-a tiny chamber, about 20 by 15 feet -- oblong, running east-west, irregular, its walls stepping in and out. Ways out: one off the north wall, two off the west wall
+a tiny chamber, about 25 by 10 feet -- long and narrow, running east-west, irregular, its walls stepping in and out. Ways out: two off the north wall, one off the west wall
 The compass here is the MAP's, not the party's: north is north wherever they are facing. Say "the north wall"; never "on your left", which you have no way to know.
 
 ### In it
-- [«id-2»] The hearth — RoomFeature · in a corner (NEVER ENCOUNTERED)
+- [«id-2»] The hearth — RoomFeature · spread through the room (NEVER ENCOUNTERED)
     base: The hearth of the drowned mint, scaled with mineral crust.
+- [«id-3»] The almoner's daybook — Item · in a corner (NEVER ENCOUNTERED)
+    base: A water-stained ledger in a clerk's hand. One entry is underscored twice: "where to find the master die".
+    1 slot, worth 7 cp
+- [«id-4»] The almoner's daybook — Item · along the south wall (NEVER ENCOUNTERED)
+    base: A water-stained ledger in a clerk's hand. One entry is underscored twice: "the die press's iron handle".
+    1 slot, worth 42 cp
 
 ### Ways out
-- [«id-3»] "The mint's stair — out of the dungeon" — A broad flight of worn limestone steps rising out of the water toward the surface. · in the west wall, at the middle · LEADS OUT OF THE DUNGEON — the way they came in, and the way home. Walking through it ENDS THE RUN: commit nextStage "departed"
-- [«id-4»] "A low arch" — a low arch of fitted stone, its keystone dropped an inch · in the west wall, at the middle · leads to [«id-5»], somewhere they have not been
-- [«id-6»] "A barred door" — a plank door swollen with water, barred from the far side · in the north wall, toward the east end · BLOCKED: the bar must be lifted from the other side · leads to [«id-7»], somewhere they have not been
+- [«id-5»] "The mint's stair — out of the dungeon" — A broad flight of worn limestone steps rising out of the water toward the surface. · in the north wall, toward the west end · LEADS OUT OF THE DUNGEON — the way they came in, and the way home. Walking through it ENDS THE RUN: commit nextStage "departed"
+- [«id-6»] "A low arch" — a low arch of fitted stone, its keystone dropped an inch · in the west wall, at the middle · leads to [«id-7»], somewhere they have not been
+- [«id-8»] "A barred door" — a plank door swollen with water, barred from the far side · in the north wall, toward the east end · BLOCKED: the bar must be lifted from the other side · leads to [«id-9»], somewhere they have not been
 
 ### Every other creature in this dungeon
 
@@ -381,10 +405,10 @@ Not in the room with the player. Yours to change — their \`state\`, their
 \`activity\`, where they are heading — and NOT to describe or narrate: the
 player is not there to see any of it.
 
-- [«id-8»] The drowned hands — in [«id-9»] "The Chasm" · 2 rooms away · THE PLAYER HAS NOT BEEN HERE
-  doing: Hunt
-- [«id-10»] The drowned hands — in [«id-11»] "The Cavern" · 2 rooms away · THE PLAYER HAS NOT BEEN HERE
-  doing: Repair
+- [«id-10»] The drowned hands — in [«id-11»] "The Bed chamber" · 2 rooms away · THE PLAYER HAS NOT BEEN HERE
+  doing: Escape
+- [«id-12»] A drowned clerk — in [«id-13»] "The Cavern" · 2 rooms away · THE PLAYER HAS NOT BEEN HERE
+  doing: Unearth
 
 ## What this dungeon still has to give
 
@@ -397,7 +421,7 @@ Most turns should take none of them.
 Quote the fact EXACTLY as written. Invent the object and the moment; never
 the fact.
 
-- [ch:blocked-way:«id-6»] a blocked way, HERE, in this room — as an object they can carry
+- [ch:blocked-way:«id-8»] a blocked way, HERE, in this room — as an object they can carry
   the fact: "the way is blocked"
 - [ch:creature-weakness:mob_6vw_1:0] a creature's weakness, elsewhere in the dungeon — as something they are told
   the fact: "Phylactery"
@@ -409,10 +433,10 @@ the fact.
   the fact: "Gaze weapon"
 - [ch:creature-ability:mob_6vw_1:2] a creature's ability, elsewhere in the dungeon — as something they are told
   the fact: "Teleporting"
-- [ch:blocked-way:«id-12»] a blocked way, elsewhere in the dungeon — as an object they can carry
-  the fact: "the way is blocked"
-- [ch:obstacle:«id-7»] an obstacle, elsewhere in the dungeon — as an object they can carry
-  the fact: "Writing, which scrying"
+- [ch:npc-liability:mob_6vw_2] a person's liability, elsewhere in the dungeon — as something they are told
+  the fact: "Softhearted"
+- [ch:npc-asset:mob_6vw_2] a person's asset, elsewhere in the dungeon — as something they are told
+  the fact: "Calls in favors"
 
 ",
     "role": "user",
@@ -470,21 +494,27 @@ Traits: physique Wiry, face Bony, skin Ashen, hair Cropped, clothing Patched, vi
 
 ## The room the player is standing in
 
-[«id-1»] **The Workshop** (NEVER ENCOUNTERED)
-base: A workshop of the drowned mint, its walls pale limestone crusted with mineral scale. Water lies ankle-deep across the floor, still and cold. Nothing has disturbed it in a long time.
+[«id-1»] **The Pool** (NEVER ENCOUNTERED)
+base: A pool of the drowned mint, its walls pale limestone crusted with mineral scale. Water lies ankle-deep across the floor, still and cold. Nothing has disturbed it in a long time.
 
 ### As drawn on the map
-a tiny chamber, about 20 by 15 feet -- oblong, running east-west, irregular, its walls stepping in and out. Ways out: one off the north wall, two off the west wall
+a tiny chamber, about 25 by 10 feet -- long and narrow, running east-west, irregular, its walls stepping in and out. Ways out: two off the north wall, one off the west wall
 The compass here is the MAP's, not the party's: north is north wherever they are facing. Say "the north wall"; never "on your left", which you have no way to know.
 
 ### In it
-- [«id-2»] The hearth — RoomFeature · in a corner (NEVER ENCOUNTERED)
+- [«id-2»] The hearth — RoomFeature · spread through the room (NEVER ENCOUNTERED)
     base: The hearth of the drowned mint, scaled with mineral crust.
+- [«id-3»] The almoner's daybook — Item · in a corner (NEVER ENCOUNTERED)
+    base: A water-stained ledger in a clerk's hand. One entry is underscored twice: "where to find the master die".
+    1 slot, worth 7 cp
+- [«id-4»] The almoner's daybook — Item · along the south wall (NEVER ENCOUNTERED)
+    base: A water-stained ledger in a clerk's hand. One entry is underscored twice: "the die press's iron handle".
+    1 slot, worth 42 cp
 
 ### Ways out
-- [«id-3»] "The mint's stair — out of the dungeon" — A broad flight of worn limestone steps rising out of the water toward the surface. · in the west wall, at the middle · LEADS OUT OF THE DUNGEON — the way they came in, and the way home. Walking through it ENDS THE RUN: commit nextStage "departed"
-- [«id-4»] "A low arch" — a low arch of fitted stone, its keystone dropped an inch · in the west wall, at the middle · leads to [«id-5»], somewhere they have not been
-- [«id-6»] "A barred door" — a plank door swollen with water, barred from the far side · in the north wall, toward the east end · BLOCKED: the bar must be lifted from the other side · leads to [«id-7»], somewhere they have not been
+- [«id-5»] "The mint's stair — out of the dungeon" — A broad flight of worn limestone steps rising out of the water toward the surface. · in the north wall, toward the west end · LEADS OUT OF THE DUNGEON — the way they came in, and the way home. Walking through it ENDS THE RUN: commit nextStage "departed"
+- [«id-6»] "A low arch" — a low arch of fitted stone, its keystone dropped an inch · in the west wall, at the middle · leads to [«id-7»], somewhere they have not been
+- [«id-8»] "A barred door" — a plank door swollen with water, barred from the far side · in the north wall, toward the east end · BLOCKED: the bar must be lifted from the other side · leads to [«id-9»], somewhere they have not been
 
 ### Every other creature in this dungeon
 
@@ -492,10 +522,10 @@ Not in the room with the player. Yours to change — their \`state\`, their
 \`activity\`, where they are heading — and NOT to describe or narrate: the
 player is not there to see any of it.
 
-- [«id-8»] The drowned hands — in [«id-9»] "The Chasm" · 2 rooms away · THE PLAYER HAS NOT BEEN HERE
-  doing: Hunt
-- [«id-10»] The drowned hands — in [«id-11»] "The Cavern" · 2 rooms away · THE PLAYER HAS NOT BEEN HERE
-  doing: Repair
+- [«id-10»] The drowned hands — in [«id-11»] "The Bed chamber" · 2 rooms away · THE PLAYER HAS NOT BEEN HERE
+  doing: Escape
+- [«id-12»] A drowned clerk — in [«id-13»] "The Cavern" · 2 rooms away · THE PLAYER HAS NOT BEEN HERE
+  doing: Unearth
 
 ## What this dungeon still has to give
 
@@ -508,7 +538,7 @@ Most turns should take none of them.
 Quote the fact EXACTLY as written. Invent the object and the moment; never
 the fact.
 
-- [ch:blocked-way:«id-6»] a blocked way, HERE, in this room — as an object they can carry
+- [ch:blocked-way:«id-8»] a blocked way, HERE, in this room — as an object they can carry
   the fact: "the way is blocked"
 - [ch:creature-weakness:mob_6vw_1:0] a creature's weakness, elsewhere in the dungeon — as something they are told
   the fact: "Phylactery"
@@ -520,10 +550,10 @@ the fact.
   the fact: "Gaze weapon"
 - [ch:creature-ability:mob_6vw_1:2] a creature's ability, elsewhere in the dungeon — as something they are told
   the fact: "Teleporting"
-- [ch:blocked-way:«id-12»] a blocked way, elsewhere in the dungeon — as an object they can carry
-  the fact: "the way is blocked"
-- [ch:obstacle:«id-7»] an obstacle, elsewhere in the dungeon — as an object they can carry
-  the fact: "Writing, which scrying"
+- [ch:npc-liability:mob_6vw_2] a person's liability, elsewhere in the dungeon — as something they are told
+  the fact: "Softhearted"
+- [ch:npc-asset:mob_6vw_2] a person's asset, elsewhere in the dungeon — as something they are told
+  the fact: "Calls in favors"
 
 ",
     "role": "user",
@@ -533,8 +563,10 @@ the fact.
 
 These need writing — nothing else does:
 
-- [«id-1»] The Workshop (Room)
+- [«id-1»] The Pool (Room)
 - [«id-2»] The hearth (RoomFeature)
+- [«id-3»] The almoner's daybook (Item)
+- [«id-4»] The almoner's daybook (Item)
 
 Describe the arrival. Change nothing but \`state\` and \`composed\`.
 

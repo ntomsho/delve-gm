@@ -34,8 +34,15 @@ import { Rng } from "../shared/utils/rng.ts";
 import { blockPlanValid, roomSizes, type BlockPlan } from "../generation/floorplan/blockplan.ts";
 import { runEntitiesPass } from "../generation/content/entities-pass.ts";
 import { siteRooms } from "../generation/floorplan/geometry.ts";
-import { stockDungeon } from "../generation/content/stock/stock.ts";
-import type { StockedDungeon } from "../generation/content/types.ts";
+import type { Outline } from "../generation/content/passes/outline/response.ts";
+import { NONE } from "../generation/content/passes/outline/response.ts";
+import {
+  rollOutline,
+  type FictionCandidate,
+  type OutlineDraft,
+  type OutlineRoom,
+} from "../generation/content/passes/outline/roll.ts";
+import { settleOutline } from "../generation/content/passes/outline/settle.ts";
 import type { AnyItem } from "../shared/world/entities.ts";
 import type { PlayerCharacter } from "../rules/knave/character.ts";
 import type { GeneratedDungeon } from "../generation/generate.ts";
@@ -260,6 +267,54 @@ export function fakeKeysPass(p: KeysPassPayload): KeysPassResponse {
   };
 }
 
+/**
+ * A plan with no thought in it: rooms in order, mandatory fictions first. It takes the
+ * same path a model's outline takes, without having to pass the rules a model is held to.
+ */
+export function fakeOutline(draft: OutlineDraft): Outline {
+  const unused = [...draft.fictions];
+  const take = (room: OutlineRoom): string => {
+    const fits = (f: FictionCandidate) => !room.sizeClass || f.fits.includes(room.sizeClass);
+    const at = Math.max(0, unused.findIndex(fits));
+    return unused.splice(at, 1)[0]?.ref ?? NONE;
+  };
+  const cards = [...draft.cards];
+  const holders = draft.rooms.filter((r) => r.role === "normal");
+  const goalRoom = draft.rooms.find((r) => r.ref === draft.goalRoom)!;
+  const location = draft.challenges.find((c) => c.challenge.kind === "goal-location");
+
+  return {
+    rooms: draft.rooms.map((r) => ({
+      ref: r.ref,
+      fiction: r.passage ? NONE : take(r),
+      card: r.role === "entrance" ? NONE : (holders.includes(r) ? cards.shift()?.ref : undefined) ?? NONE,
+      story: "It was built for the mint, and the water took it.",
+      journey: "Somewhere to stop and look before going deeper.",
+      storyFeature: r.role === "normal" ? "A sluice wheel that can still be turned, flooding the floor" : NONE,
+    })).map((r) => (r.ref === goalRoom.ref && cards.length ? { ...r, card: cards.shift()!.ref } : r)),
+    ways: draft.ways.map((w) => ({ ref: w.ref, form: "a low stone arch" })),
+    objective: { type: "Item", form: "the master die", person: NONE },
+    clues: draft.cards.filter((c) => c.clue).map((c) => ({ card: c.ref, pointsAt: "objective" })),
+    keys: [
+      {
+        challenge: location?.ref ?? "goal",
+        kind: "information",
+        key: "a mint clerk's plan of the lower works",
+        room: draft.entrance,
+        gotBy: "searching the silted shelves",
+      },
+      {
+        challenge: "goal",
+        kind: "object",
+        key: "the die press's iron handle",
+        room: draft.entrance,
+        gotBy: "prying it out of the silt",
+      },
+    ],
+    fictionChanges: [],
+  };
+}
+
 export function generateOffline(seed: number, size: Size): GeneratedDungeon {
   const seeds = deriveSeeds(seed);
   const blueprint = generateBlueprintSeed(size, seeds.blueprintSeed, 1);
@@ -268,17 +323,13 @@ export function generateOffline(seed: number, size: Size): GeneratedDungeon {
   // sometimes missing is worse than one that costs a few more milliseconds.
   let dungeon!: Dungeon;
   let blockplan: BlockPlan | null = null;
-  let stocked!: StockedDungeon;
+  let draft!: OutlineDraft;
   for (let attempt = 0; attempt < 8; attempt++) {
     const graphSeed = attempt === 0 ? seeds.graphSeed : `${seeds.graphSeed}~${attempt}`;
     dungeon = generateBlueprint(graphSeed, shapeFor(size, seeds.graphSeed), true).dungeon;
-    // THE DRAWING RUNS INSIDE STOCKING, as it does in `generate.ts`. Computed
-    // alongside, it would leave `RoomStock.sizeClass` unset offline and
-    // so left `sizeAllows` — the condition that stops a four-cell closet rolling
-    // "Banquet hall" — silently not applying on the dev path.
     let drawn: BlockPlan | null = null;
     const graph = dungeon;
-    stocked = stockDungeon(dungeon, blueprint, {
+    draft = rollOutline(dungeon, blueprint, {
       level: 1,
       seed: seeds.stockSeed,
       layout: (rooms) => {
@@ -290,6 +341,8 @@ export function generateOffline(seed: number, size: Size): GeneratedDungeon {
     blockplan = drawn;
     if (blockplan) break;
   }
+  const outline = fakeOutline(draft);
+  const stocked = settleOutline(draft, outline, { level: 1, seed: seeds.stockSeed });
   const entities = runEntitiesPass(stocked, blueprint, new Rng(stocked.seed));
   const corridors = new Set(stocked.rooms.filter((r) => r.isCorridor).map((r) => r.index));
   const site = blockplan
@@ -326,6 +379,7 @@ export function generateOffline(seed: number, size: Size): GeneratedDungeon {
     graph: dungeon,
     stocked,
     entities,
+    outline,
     // Drawn for real rather than stubbed, so the offline fixture exercises the
     // block plan. Still typed nullable, because a saved run from before this
     // existed comes back without one.

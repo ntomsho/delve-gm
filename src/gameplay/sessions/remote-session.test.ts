@@ -57,7 +57,7 @@ const run = (version: number, stage = "awaiting_action", extra: Record<string, u
 });
 
 /** The happy path through generation, so `begin` can get to a playable run. */
-function wireGeneration(steps = ["content"]) {
+function wireGeneration(steps = ["outline", "polish", "content"]) {
   routes.set("POST /api/dungeons", () => ({ json: { dungeonId: "dungeon_rx", steps } }));
   for (const step of steps) {
     routes.set(`POST /api/dungeons/dungeon_rx/steps/${step}`, () => ({ json: { step, done: true } }));
@@ -78,6 +78,8 @@ describe("generating through the API", () => {
 
     expect(sent.map((s) => `${s.method} ${s.path}`)).toEqual([
       "POST /api/dungeons",
+      "POST /api/dungeons/dungeon_rx/steps/outline",
+      "POST /api/dungeons/dungeon_rx/steps/polish",
       "POST /api/dungeons/dungeon_rx/steps/content",
       "POST /api/dungeons/dungeon_rx/finish",
       "POST /api/runs",
@@ -87,7 +89,7 @@ describe("generating through the API", () => {
     ]);
 
     // Each step names its stage before it runs, and the finish writes the keys.
-    expect(progress.map((p) => p.stage)).toEqual(["layout", "writing", "keys"]);
+    expect(progress.map((p) => p.stage)).toEqual(["layout", "planning", "reviewing", "writing", "keys"]);
   });
 
   it("does not build a second dungeon on a second begin", async () => {

@@ -18,7 +18,10 @@ import { Rng } from "../../shared/utils/rng.ts";
 import { resolveBase } from "../../shared/world/entities.ts";
 import { runEntitiesPass } from "../../generation/content/entities-pass.ts";
 import { siteRooms } from "../../generation/floorplan/geometry.ts";
-import { stockDungeon } from "../../generation/content/stock/stock.ts";
+import { fakeDungeonPass, fakeOutline } from "../../fixtures/offline.ts";
+import { renderOutlinePrompt } from "../../generation/content/passes/outline/prompt.ts";
+import { rollOutline } from "../../generation/content/passes/outline/roll.ts";
+import { settleOutline } from "../../generation/content/passes/outline/settle.ts";
 import type { StockedDungeon } from "../../generation/content/types.ts";
 import { configureTransport } from "../../llm/client.ts";
 import { floorplanLayout, type PlacedThing } from "../../generation/floorplan/map-layout.ts";
@@ -121,12 +124,11 @@ function dryRun(args: Args): void {
 
   const { dungeon } = generateBlueprint(seeds.graphSeed, shapeFor(args.size, seeds.graphSeed), true);
 
-  // THE DRAWING RUNS INSIDE STOCKING, exactly as it does in `generate.ts`. A
-  // dry run that skipped it would render prompts without the "as drawn" line
-  // and without the fixture menu — which is most of what there is to iterate on
-  // now — so this branch has to mirror the live one rather than shortcut it.
+  // THE DRAWING RUNS INSIDE THE ROLL, exactly as it does in `generate.ts`. A dry run
+  // that skipped it would render prompts without the "as drawn" line and without the
+  // fixture menu. The outline here is a stand-in: nothing is called, so nothing plans.
   let plan: BlockPlan | null = null;
-  const sd = stockDungeon(dungeon, bp, {
+  const draft = rollOutline(dungeon, bp, {
     level: args.level,
     seed: seeds.stockSeed,
     layout: (rooms) => {
@@ -135,6 +137,7 @@ function dryRun(args: Args): void {
       return plan ? roomSizes(plan.rooms) : rooms.map(() => undefined);
     },
   });
+  const sd = settleOutline(draft, fakeOutline(draft), { level: args.level, seed: seeds.stockSeed });
   const ep = runEntitiesPass(sd, bp, new Rng(sd.seed));
 
   const drawn = plan as BlockPlan | null;
@@ -153,7 +156,12 @@ function dryRun(args: Args): void {
     "[DUNGEON PASS OUTPUT — theme, history, who lives here, and the goal would be here]";
 
   console.log("\n" + RULE);
-  console.log("CONTENT PASS");
+  console.log("OUTLINE  (with a stand-in dungeon pass)");
+  console.log(RULE);
+  console.log(renderOutlinePrompt(draft, fakeDungeonPass(bp.inhabitants.map((g) => g.id))));
+
+  console.log("\n" + RULE);
+  console.log("CONTENT PASS  (with a stand-in outline)");
   console.log(RULE);
   console.log(renderContentPassPrompt(buildContentPassPayload(sd, bp, ep, placeholder, site)));
 
@@ -227,6 +235,8 @@ const STAGE_LABEL: Record<GenerationProgress["stage"], string> = {
   inhabitants: "Deciding what lives here",
   history: "Writing its history",
   stocking: "Stocking the rooms",
+  planning: "Planning the dungeon",
+  reviewing: "Reviewing the plan",
   writing: "Writing the rooms",
   keys: "Writing the keys",
 };

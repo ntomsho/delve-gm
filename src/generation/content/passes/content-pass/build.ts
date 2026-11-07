@@ -39,6 +39,7 @@ import {
 import { fixtureCap } from "../../../floorplan/fixtures.ts";
 import type {
   MobileEntity,
+  PlannedObjective,
   Reward,
   RoomStock,
   SpecialContent,
@@ -61,7 +62,7 @@ export type TensionBand = "calm" | "uneasy" | "dangerous" | "lethal";
 /** A room-local feature / item / hazard the model must name and write. */
 export interface EntityBrief {
   ref: string;
-  kind: "entrance" | "obstacle" | "clue" | "reward" | "hazard";
+  kind: "entrance" | "obstacle" | "clue" | "reward" | "hazard" | "story";
   entity: "RoomFeature" | "Item" | "Hazard";
   keywords: KW;
   /** resolved context procgen attached, e.g. what a clue points at */
@@ -108,6 +109,8 @@ export interface ConnectorBrief {
    * ref twice.
    */
   wall?: string;
+  /** what the outline decided it physically is */
+  plannedForm?: string;
 }
 
 /** One consolidated body of rank-and-file, count rolled in code. */
@@ -154,7 +157,13 @@ export interface ContentRoomBrief {
   detailCandidates: DetailBrief[];
   connectors: ConnectorBrief[];
   encounters: EncounterBrief[];
-  goal?: { reward: string; mission: string };
+  goal?: { reward: string; mission: string; objective?: PlannedObjective };
+  /** how this room came to be as it is, from the outline */
+  story?: string;
+  /** what this room does for a player coming through it, from the outline */
+  journey?: string;
+  /** keys the outline put here. Written later, but the prose has to leave room for them. */
+  plannedKeys?: { key: string; gotBy: string }[];
   gatedExits: string[];
   openExits: string[];
   /**
@@ -446,6 +455,9 @@ export function buildContentPassPayload(
         case "hazard":
           if (r.special) keywords = hazardKeywords(r.special);
           break;
+        case "story":
+          keywords = r.storyFeature ? { "Story feature": r.storyFeature } : {};
+          break;
         case "reward": {
           // Keys never reach here — `withheld` dropped them above, and the keys
           // pass writes them once their lock exists. What is left is equipment,
@@ -475,6 +487,7 @@ export function buildContentPassPayload(
         gated: l.conn.gated,
         hidden: l.conn.hidden,
         wall: wallOf(r.index, l.conn.id),
+        ...(l.conn.form ? { plannedForm: l.conn.form } : {}),
       }));
 
     // The way out of the dungeon belongs to the entrance room. It is not in
@@ -559,7 +572,23 @@ export function buildContentPassPayload(
       detailCandidates,
       connectors,
       encounters,
-      goal: r.roomId === ep.pendingGoal.roomId ? { reward: ep.pendingGoal.reward, mission: ep.pendingGoal.mission } : undefined,
+      goal:
+        r.roomId === ep.pendingGoal.roomId
+          ? {
+              reward: ep.pendingGoal.reward,
+              mission: ep.pendingGoal.mission,
+              ...(r.goalDirective?.objective ? { objective: r.goalDirective.objective } : {}),
+            }
+          : undefined,
+      ...(r.story ? { story: r.story } : {}),
+      ...(r.journey ? { journey: r.journey } : {}),
+      ...(r.rewards.some((w) => w.kind === "key" && w.plan)
+        ? {
+            plannedKeys: r.rewards.flatMap((w) =>
+              w.kind === "key" && w.plan ? [{ key: w.plan.key, gotBy: w.plan.gotBy }] : []
+            ),
+          }
+        : {}),
       gatedExits: links.filter((l) => l.conn.gated).map((l) => ref(l.other)),
       openExits: links.filter((l) => !l.conn.gated).map((l) => ref(l.other)),
       geometry: geom ? describeGeometry(geom) : undefined,

@@ -58,6 +58,8 @@ import type { PlayerCharacter } from "../../rules/knave/character.ts";
  * step added to `STEPS` does not compile until it has a stage here.
  */
 const STAGE_OF_STEP: Record<GenerationStep, GenerationStage> = {
+  outline: "planning",
+  polish: "reviewing",
   content: "writing",
 };
 

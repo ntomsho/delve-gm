@@ -192,7 +192,10 @@ describe("applying the keys pass", () => {
 
   it("mints the objective's properties as challenges and reserve entries", () => {
     const gd = generateOffline(1005, 2);
-    const minted = gd.stocked.challenges.filter((c) => c.kind === "goal-property");
+    // What the outline planned for the goal is placed; these are the ones this pass minted.
+    const minted = gd.stocked.challenges.filter(
+      (c) => c.kind === "goal-property" && !c.id.includes(":planned:")
+    );
     expect(minted.length).toBeGreaterThan(0);
 
     for (const c of minted) {

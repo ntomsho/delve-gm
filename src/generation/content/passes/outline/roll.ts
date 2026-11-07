@@ -6,8 +6,8 @@
  * placement so the model places a concrete thing and not the word "creature", and
  * so the challenges those contents raise exist for keys to answer.
  *
- * NOT YET PART OF GENERATION. `src/dev/cli-outline.ts` runs this to measure
- * outlines; `stockDungeon` is still the live path (docs/BUILD-PLAN.md, phase 2).
+ * The first half of live stocking: `settle.ts` builds the stocked dungeon from what
+ * the model decides. `src/dev/cli-outline.ts` also runs this to measure outlines.
  *
  * Nothing here is written to a room. A card's creature stands in a placeholder
  * "room" named after the card, so a challenge's `roomId` says which card raised it.
@@ -54,6 +54,7 @@ export interface OutlineRoom {
   passage: boolean;
   sizeClass?: SizeClass;
   depth: number;
+  degree: number;
   isDeadEnd: boolean;
   /** a passage's rolled identity */
   identity?: Rolled;
@@ -100,6 +101,8 @@ export interface OutlineDraft {
   goalRoom: string;
   /** how many keys to plan: [fewest, most] */
   keyRange: readonly [number, number];
+  /** share of creature encounters tied to the roster, as stocking rolls it */
+  cohesion: number;
 }
 
 /** Tries before a roll gives up on suiting a size, as in `stockDungeon`. */
@@ -260,6 +263,7 @@ export function rollOutline(
       passage: r.isCorridor,
       ...(r.sizeClass ? { sizeClass: r.sizeClass } : {}),
       depth: r.depth,
+      degree: r.degree,
       isDeadEnd: r.isDeadEnd,
       ...(r.isCorridor ? { identity: roll(DUNGEON_CORRIDORS, rng) } : {}),
       ...(r.isCorridor && rng.chance(0.5) ? { detail: roll(DUNGEON_ROOM_DETAILS, rng) } : {}),
@@ -369,5 +373,6 @@ export function rollOutline(
     entrance: refOf(s.entrance),
     goalRoom: refOf(s.goal),
     keyRange: rooms.length <= 6 ? KEY_RANGE.small : KEY_RANGE.larger,
+    cohesion,
   };
 }

@@ -70,8 +70,11 @@ A dungeon is completely written before the first turn. `src/generation/generate.
 
 ```
   A: generateBlueprintSeed -> dungeon pass (LLM)                         ┐ concurrent
-  B: generateBlueprint -> stockDungeon (+ block plan) -> entities pass   ┘
+  B: generateBlueprint -> rollOutline (+ block plan)                     ┘
   join, then one step at a time (STEPS):
+     outline: what goes where, and why -> LLM -> zod     [1 call, plus repairs]
+     polish: a review of that plan -> LLM -> zod         [1 call, optional]
+     settleDungeon: settleOutline -> entities pass       [pure, saved once]
      content: buildContentPassPayload -> LLM -> zod      [1 call, every room]
   then finish: applyContentPass -> keys pass (LLM, 1 call)
 ```
@@ -80,8 +83,22 @@ A dungeon is completely written before the first turn. `src/generation/generate.
 
 - **Structure is code.** `generation/floorplan/` builds the room graph and draws a
   *block plan*: every room's cells on a grid, adjacency holding by construction.
-  `generation/content/stock/` stocks it from the Maze Rats tables: room identities,
-  creatures, hazards, obstacles, treasure and the goal.
+  `generation/content/passes/outline/roll.ts` rolls what goes in it from the Maze Rats
+  tables: candidate room identities, and cards holding creatures, hazards, obstacles
+  and clues. Code rolls; the model only places what was rolled.
+- **The outline plans the dungeon** (`generation/content/passes/outline/`). With the
+  whole map and the premise in front of it, the model assigns each room an identity
+  and a card, writes a story note and a journey note, describes each way, decides what
+  the objective physically is, and plans the keys. Code holds the answer to
+  `outlineViolations`, repairs what fails, and fails the generation after two repairs.
+  It may also change the theme, history, opening and groups, but never the goal.
+- **The polish reviews that plan**, as a short list of edits. A review that fails or
+  breaks a rule is dropped whole, and the outline stands.
+- **`settleOutline` turns the plan into rooms**, then stacking, danger, challenges and
+  rewards run on them. Every placed key is one the outline planned; every other
+  challenge goes to the reserve. The result is saved once, because the entities pass
+  gives it random ids that the content pass's answer addresses. `stockDungeon`
+  (`generation/content/stock/`) no longer runs in generation; tests still use it.
 - **The graph is a loop core plus chains** (`graph.ts`): a cycle, then ears joining
   core rooms (an ear with no rooms is a *shortcut*), then the leftover rooms in short
   chains, which are the only dead ends. It is rejected and the seed advanced unless it
@@ -96,15 +113,17 @@ A dungeon is completely written before the first turn. `src/generation/generate.
   reachable without passing a hidden way. Some route to the goal stays open, or the two
   shortest carry different kinds of gate.
 - **The dungeon pass** writes the dungeon's premise, its inhabitants and the opening,
-  from the rolled genome alone, so it runs alongside stocking.
-- **The content pass** writes every room and everything in them in one call. Its
+  from the rolled genome alone, so it runs alongside the rolling.
+- **The content pass** writes every room and everything in them in one call, to the
+  outline's notes and the objective it decided on. Its
   answer is applied in `finishGeneration`, which builds the payload from the unwritten
   entities first and then applies, because applying mutates shared state (`ep.items`,
   `ep.features`, `ep.bindings`, `ep.registry.creatures`).
 - **A connector is written once, by the room with the lower graph index.** The call
   sees both its rooms, so the form can suit both ends.
-- **The keys pass** writes the keys placed to answer challenges, with the key and the
-  challenge's finished text both in front of it (§8).
+- **The keys pass** writes the keys the outline planned, with the key and the
+  challenge's finished text both in front of it (§8). A key that copies the game's
+  shorthand into what the player reads ("where Magic item lies") goes back for repair.
 
 ### 3.2 Validation
 
@@ -514,7 +533,8 @@ One Hono app (`src/server/app.ts`) deployed as a single Vercel function.
   `POST /api/dungeons/:id/steps/:step` once per entry in `STEPS` (`generate.ts`), run in
   order by the client, then `POST /api/dungeons/:id/finish` (apply, then the keys pass).
   Each step's answer is kept unapplied in `generation_steps` and is idempotent: a
-  repeated step keeps the first answer. A turn is one request.
+  repeated step keeps the first answer. The content step first settles the plan, once,
+  onto the dungeon's row. A turn is one request.
 - **The client never asserts a rule.** It sends what the player typed and the run
   version it last saw. The turn machine, the game master, the applier and the dice all
   run on the server, and the client's store is replaced with what comes back.

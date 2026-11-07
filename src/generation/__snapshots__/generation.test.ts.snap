@@ -35,6 +35,15 @@ PER ROOM
   its own entity ONLY if a player would act on it. Most stay as description.
 - Fixtures: up to the number the room gives, off the one menu. See FIXTURES.
 
+THE OUTLINE
+Each room has a story note and a journey note, and each connector may have a phrase.
+These are decisions already made, so write to them. Make the journey note true
+of the place without ever saying it; the player should feel it, not read it.
+Write any story feature listed as an entity like any other, and keep what the
+outline says it can do, so the game master can let the player use it. Do not
+quote the notes or explain the plot. Where a note and the drawing disagree, the
+drawing wins.
+
 THE ROOM AS DRAWN
 Each room has already been drawn on the map. "as drawn" gives you its real size
 in feet, its proportions, whether its outline is square-cornered or broken up,
@@ -506,11 +515,14 @@ player picks up and carries, not a feeling and not a hint.
 FOR EACH KEY
 - name: what the object is called, two to five words. A thing, not a promise:
   "the almoner's daybook", not "the key to the ghoul".
-- base: what it IS and what it tells you, in a sentence or two. THE FACT QUOTED
-  UNDER IT MUST SURVIVE VERBATIM OR NEARLY SO -- that exact wording is what the
-  game later writes onto the thing it is about, and a paraphrase breaks the
-  link. Put it in the object's own voice: what the page says, what the ring is
-  cut to fit, what the vial is labelled.
+- base: what it IS and what it tells you, in a sentence or two, in the object's own
+  voice: what the page says, what the ring is cut to fit, what the vial is labelled.
+  The fact under it is the game's shorthand for what the key must tell the player.
+  Say what that means, in words a person in this place would write. Never copy the
+  shorthand itself and never use a game term: name the actual thing, person or place.
+  If the outline decided what the key is, write that, and describe it so that what the
+  player has to do to get it is possible. Information still needs something that
+  carries it: a page, an inscription, a scrap of a letter.
 - lockRequirement: OFFERED ONLY where the brief says so, and only for a blocked
   way. Rewrite what stands in that way so that it and this key name each other.
   It must still read correctly from both sides, since a player can meet it from
@@ -537,7 +549,7 @@ HARD RULES
 found in "Room room_2" -- A Mess hall, uneasy, at deep depth.
 IT ANSWERS A BLOCKED WAY: "Barred door"
   which is: a plank door, barred from the far side
-  THE FACT IT MUST CARRY, exactly: "the way is blocked"
+  THE FACT IT ANSWERS, in the game's shorthand: "the way is blocked"
   the lock as it currently reads: silted up; the daybook says where the sluice is
   you may return "lockRequirement" for this one to rewrite that lock so it and the key name each other.
 
@@ -545,7 +557,7 @@ IT ANSWERS A BLOCKED WAY: "Barred door"
 found in "Room room_5" -- A Laboratory, dangerous, at middle depth.
 IT ANSWERS WHERE THE OBJECTIVE IS: "Room room_1"
   which is: A Armory, lethal, at furthest depth.
-  THE FACT IT MUST CARRY, exactly: "where Enemy weakness lies"
+  THE FACT IT ANSWERS, in the game's shorthand: "where Enemy weakness lies"
 
 === THE OBJECTIVE ===
 "The master die" (Item) -- A steel coin die.
@@ -566,7 +578,7 @@ Return JSON only, no prose outside it:
     {
       "ref": "<exactly as given>",
       "name": "<what the object is called>",
-      "base": "<what it is and what it tells you, carrying the fact verbatim>",
+      "base": "<what it is and what it tells you, in its own words>",
       "lockRequirement": "<only where offered: the lock, rewritten to name this key>"
     }
   ],

@@ -482,7 +482,7 @@ function configureTransport(opts) {
 	};
 	if (opts.meter) meter = opts.meter;
 }
-var NO_USAGE = {
+var NO_USAGE$1 = {
 	inputTokens: 0,
 	outputTokens: 0,
 	cacheWriteTokens: 0,
@@ -582,6 +582,16 @@ function toolFor(name, description, schema) {
 	};
 }
 /**
+* The answer with every null field removed. Haiku 5.5 writes null where a field does
+* not apply, which means the same as leaving it out, and rejecting it spent whole
+* retries. No schema here uses null to mean anything else.
+*/
+function withoutNulls(v) {
+	if (Array.isArray(v)) return v.map(withoutNulls);
+	if (v === null || typeof v !== "object") return v;
+	return Object.fromEntries(Object.entries(v).filter(([, x]) => x !== null).map(([k, x]) => [k, withoutNulls(x)]));
+}
+/**
 * One request to the model with tools available. It doesn't loop: only the
 * caller knows whether the response finishes the turn.
 */
@@ -634,7 +644,7 @@ async function callForJson(opts) {
 	const messages = [...opts.messages];
 	const schema = toolSchema(opts.schema);
 	const strict = canBeStrict(schema);
-	let usage = NO_USAGE;
+	let usage = NO_USAGE$1;
 	const model = opts.model ?? modelFor(opts.task);
 	const thinks = THINKING_TASKS.has(opts.task);
 	const forcedNow = (attempt) => allowsForcedTool(model) && (!thinks || attempt > 1 && kept === void 0);
@@ -675,7 +685,7 @@ async function callForJson(opts) {
 		try {
 			if (!call) throw new ResponseFormatError(`the model did not call ${opts.toolName} (stop_reason: ${json.stop_reason})`);
 			if (json.stop_reason === "max_tokens") throw new ResponseFormatError("the response was cut off at max_tokens; the object is incomplete");
-			const received = validate$1(opts.schema, call.input);
+			const received = validate$1(opts.schema, withoutNulls(call.input));
 			const value = kept !== void 0 && opts.repair ? opts.repair.merge(kept, received) : received;
 			const lacking = opts.check?.(value) ?? [];
 			if (lacking.length > 0) {
@@ -1004,6 +1014,8 @@ async function findUnfinishedDungeon(owner, dice, sql = db()) {
       from dungeons
      where owner_id = ${owner} and status = 'partial' and copied_from is null
        and seed = ${dice.seed} and size = ${dice.size} and level = ${dice.level}
+       -- One started before planning existed can't be finished by these steps.
+       and (doc ? 'draft' or doc ? 'outline')
      order by created_at desc
      limit 1
   `;
@@ -1065,6 +1077,13 @@ async function listDungeons(owner, sql = db()) {
 * is not the key. Passing `gd` alone would compile and address the wrong
 * column forever.
 */
+async function settleDungeon$1(id, gd, owner, sql = db()) {
+	await sql`
+    update dungeons
+       set doc = ${doc(sql, gd)}, updated_at = now()
+     where id = ${id} and owner_id = ${owner} and status = 'partial' and doc ? 'draft'
+  `;
+}
 async function completeDungeon(id, gd, owner, sql = db()) {
 	return (await sql`
     update dungeons
@@ -1780,6 +1799,7 @@ var repo_exports = /* @__PURE__ */ __exportAll({
 	saveIllustrationWords: () => saveIllustrationWords,
 	saveStep: () => saveStep,
 	setDungeonCover: () => setDungeonCover,
+	settleDungeon: () => settleDungeon$1,
 	statusOf: () => statusOf
 });
 //#endregion
@@ -1826,7 +1846,7 @@ var connector_height_default = "Where it changes level -- a stair, a ladder, a\n
 var goal_default = "Create exactly one entity that embodies the objective. Read the fiction and decide what type it needs to be -- an Item, a RoomFeature, or a Creature -- so that a party acting on it plausibly satisfies the mission. Then name and write it.\n";
 //#endregion
 //#region src/prompts/generation/content-pass.md?raw
-var content_pass_default = "You are writing a whole dungeon: every room in it and everything in them.\n\nWHAT YOU ARE GIVEN\nEvery room, entity, connector, and creature has already been decided by procgen.\nCounts and hit dice are already rolled. Your job is to realise it in prose and\nsettle the few things procgen leaves to you -- not to choose what is there. Each\nline lists the rolled keywords behind it as table=value; those are seeds to\nrealise, not text to echo.\n\nPER ROOM\n- name + base: the room's standing description. base is IMMUTABLE -- only what is\n  true of the place itself, not what a party is doing in it, nothing that changes\n  when its contents change.\n- Each listed entity's name + base, written the same way: fixed identity, concrete\n  to this fiction.\n- Each connector: name + what it physically IS -- a door, a stair, a corridor, a\n  crawl, a short drop, a collapsed arch, whatever separates the two rooms, even if\n  mundane. It is listed once, under one of its two rooms, and the room on its\n  other side is in this same list: make the form suit both. {{connectorNaming}}\n  For a GATED connector also write what blocks it, seen from this room; do not\n  invent the key.\n  {{connectorHeight}}\n- Promotable details: a detail is always part of the room's description. Make it\n  its own entity ONLY if a player would act on it. Most stay as description.\n- Fixtures: up to the number the room gives, off the one menu. See FIXTURES.\n\nTHE ROOM AS DRAWN\nEach room has already been drawn on the map. \"as drawn\" gives you its real size\nin feet, its proportions, whether its outline is square-cornered or broken up,\nand how many ways out are in each wall; each connector says which wall it is in.\n\nWRITE TO THE DRAWING, NOT TO THE IDENTITY. The rolled identity says what the\nplace was built as; the drawing says what it came out as, and where the two\ndisagree the drawing wins. A room rolled \"Banquet hall\" and drawn twenty feet\nsquare is not a long hall -- it is what became of one, or a service room off one,\nor a hall the collapse took most of. Say so. A player looking at the map and\nreading your prose must not be looking at two different rooms.\n\nTwo hard rules about direction:\n- Compass only. North, south, east and west are on the map and are safe. \"Left\",\n  \"right\", \"ahead\", \"behind\" depend on which way the party is facing and you do\n  not know that; a party that walks back through will read them as lies.\n- Do not invent an exit, a window, or a level change that is not listed. The ways\n  out are exactly the connectors given.\n\nAnd two about the ways out, both of them because base is IMMUTABLE and there is\nno later pass that can correct it:\n- DO NOT COUNT THEM IN THE ROOM'S BASE. \"Four ways out: east, south, and two to\n  the west\" stops being true the first time one is opened, barred, collapsed or\n  found, and the description cannot be rewritten to catch up -- so the number goes\n  on being read aloud to the player long after it is wrong. The map draws the ways\n  out and the game lists them fresh every turn. Describe the room; let the\n  counting be done by something that is allowed to change its mind.\n- A CONCEALED way is NOT part of the room's description. Write what it physically\n  is on the connector itself -- that is the text the player reads on FINDING it --\n  and keep it out of the room's base entirely, not even as a hint or a draught. A\n  room whose standing description mentions the crack in the west wall has no\n  secret door in it, because that description is read out on arrival. Where a\n  concealed way is meant to be findable, procgen lists a clue as its own entity.\n\nFeet are given so the prose can be concrete. Round them, compare them to\nsomething, or ignore them -- but do not contradict them.\n\nFIXTURES -- WHAT IS STANDING IN THE ROOM\nThe menu, once. Starred kinds also fit in a passage; the rest need a chamber.\n\n  {{fixtureMenu}}\n\nEach room says how many it may hold. Choose up to that many, or NONE AT ALL --\nan empty room is a real room, and a dungeon of uniformly furnished ones reads as\na catalogue. Pick what the fiction has already earned: a barracks has bunks, a\nshrine has an altar, a collapsed gallery has rubble.\n\nEach fixture gets a \"kind\" from the menu, a \"position\", a name and a base, and is\nwritten exactly like any other feature -- a thing in this dungeon, not a generic\none. Positions, and nothing else: {{positionWords}}.\n\nA fixture is furniture, never a way somewhere. \"stair\" on the menu means steps\nINSIDE the room -- up to a dais, down into water -- that arrive nowhere else. If\nyou want a way between two rooms, it is one of the connectors and it is already\nlisted. See A WAY THROUGH IS NEVER A FEATURE.\n\nDO NOT say how many there are. \"Pillars\" is your decision; six pillars is not --\nthe count is rolled, and the map will draw whatever it rolled. Name them in a way\nthat survives either number, and write the base about what they ARE rather than\nabout how many.\n\nAnything already listed as an entity may ALSO take a \"position\", from the same\nwords, saying where in the room it sits. That is what puts the chest, the clue\nand the hazard on the map alongside the furniture.\n\nNAMING A ROOM\nThe name comes from whatever DOMINATES the room, not from the identity it was\nrolled from. The rolled identity says what the place was built as; the name says\nwhat a party walking in would call it. A kennel whose stalls stand empty, with an\niron bridge over a chasm running through the middle of it, is not the Kennel --\nthe bridge and the chasm are what anyone would remember it by, and what they will\nsay when they mean \"back to the room with the bridge\". So read the room's\nentities and its detail, work out what the biggest thing in there actually is,\nand name it for that. Short, concrete, and sayable out loud.\n\nEVERYTHING IS THERE FOR A REASON\nBefore you write a room or a feature, know why it is in THIS dungeon. Usually the\nanswer is ordinary and needs no room on the page -- a barracks in a fort, a sump\nat the bottom of a mine. But anything that does NOT obviously belong is the first\nthing a party will notice and ask about, and the fiction has to be able to answer.\nA theatre inside a prison must have a story behind it: who built it, for whom, and\nwhat became of it. Put that answer in the base, as a clause, not a lecture. An\nincongruity with a reason behind it is the best thing in a dungeon; one without is\na mistake the player can see from the doorway.\n\nA WAY THROUGH IS NEVER A FEATURE\nIf something you are about to write reads as a way to somewhere else -- a stair,\na shaft, a hole in the wall, a rent in the floor, a tunnel, a door -- it is a\nCONNECTOR, not a RoomFeature and not a promoted detail. Spend the idea on one of\nthe connectors this room already has: each is listed with the room it leads to,\nso pick the one whose far side suits it and write it as that connector's name\nand form. The rooms are joined the way they are joined; you are describing those\njoins, not adding to them.\n\nA player will try to walk through anything that looks like a passage. Written as\na feature it leads nowhere, and they find that out by trying.\n\nThe ONE exception is the connector marked OUT OF THE DUNGEON, which is a real\nway through to no room at all. It is already in your list. Do not invent others.\n\nCREATURES -- CONSOLIDATE\nThe count is already rolled. A mass of one creature type is ONE entity with a\nsingle stat block; do NOT split it into individuals. \"5 x rank-and-file\" is one\nentity you name in the plural (\"Fen-seals\") and write once. Only a specimen\nmarked \"distinct\" -- an elite, a named person -- becomes its own entity alongside\nthe mass. Write the group's shared base once (the mass); write each distinct\nspecimen its own base. Give the mass and each distinct one a one-line current\nactivity fitting the encounter. Stats: you are given the hit-dice spine; return\nonly DEVIATIONS the keywords imply (a heavier die for claws, armour, a morale or\nability shift). Leave stats out for an average body.\n\nBEASTS -- WHAT THE REFERENCE ANIMALS ARE FOR\nA beastlike monster is listed with one reference animal or two. That was decided\nby the roll, not left to you: one means one, two means both. They are the starting\npoint for a body, NOT the description of it. Take the general shape and bearing\nfrom them -- how it stands, how it moves, how much of the room it takes up -- and\nthen write SPECIFIC borrowed parts: the shape of the snout, what it has instead of\nears, the horn or the antler, the set of the eyes, the feet, the hide.\n\nWhat you must not do is name the animal and stop. \"Badger-like\", \"part badger,\npart Pteranodon\", \"resembles a heron\" -- that is the reference showing through\nwhere a creature should be. Name an animal only when the naming does real work\n(\"the flat spade-shaped digging claws of a badger\" both names it and tells you\nsomething); otherwise the player should be able to picture the thing without ever\nlearning what it was built out of.\n\nTHE GOAL\nOne room is marked GOAL. {{goal}}\n\nHARD RULES\n1. Every listed entity, encounter, and connector must appear exactly once, under\n   the room it is listed in. Do not add a creature, hazard, or connector that was\n   not listed.\n2. Keywords are seeds, not labels. Realise them into the place; do not gloss.\n3. Do not contradict the fiction. Material, history, and the state of the ruin are\n   settled.\n4. Depth and tension are tone, never content. A calm room holding a lethal thing\n   still holds it.\n5. A clue must point at what it is said to point at, written as something noticed.\n\nMAKE THEM DISTINCT\nThese rooms are read in sequence. Give each one something the others lack. If two\nwould read the same, change one.\n";
+var content_pass_default = "You are writing a whole dungeon: every room in it and everything in them.\n\nWHAT YOU ARE GIVEN\nEvery room, entity, connector, and creature has already been decided by procgen.\nCounts and hit dice are already rolled. Your job is to realise it in prose and\nsettle the few things procgen leaves to you -- not to choose what is there. Each\nline lists the rolled keywords behind it as table=value; those are seeds to\nrealise, not text to echo.\n\nPER ROOM\n- name + base: the room's standing description. base is IMMUTABLE -- only what is\n  true of the place itself, not what a party is doing in it, nothing that changes\n  when its contents change.\n- Each listed entity's name + base, written the same way: fixed identity, concrete\n  to this fiction.\n- Each connector: name + what it physically IS -- a door, a stair, a corridor, a\n  crawl, a short drop, a collapsed arch, whatever separates the two rooms, even if\n  mundane. It is listed once, under one of its two rooms, and the room on its\n  other side is in this same list: make the form suit both. {{connectorNaming}}\n  For a GATED connector also write what blocks it, seen from this room; do not\n  invent the key.\n  {{connectorHeight}}\n- Promotable details: a detail is always part of the room's description. Make it\n  its own entity ONLY if a player would act on it. Most stay as description.\n- Fixtures: up to the number the room gives, off the one menu. See FIXTURES.\n\nTHE OUTLINE\nEach room has a story note and a journey note, and each connector may have a phrase.\nThese are decisions already made, so write to them. Make the journey note true\nof the place without ever saying it; the player should feel it, not read it.\nWrite any story feature listed as an entity like any other, and keep what the\noutline says it can do, so the game master can let the player use it. Do not\nquote the notes or explain the plot. Where a note and the drawing disagree, the\ndrawing wins.\n\nTHE ROOM AS DRAWN\nEach room has already been drawn on the map. \"as drawn\" gives you its real size\nin feet, its proportions, whether its outline is square-cornered or broken up,\nand how many ways out are in each wall; each connector says which wall it is in.\n\nWRITE TO THE DRAWING, NOT TO THE IDENTITY. The rolled identity says what the\nplace was built as; the drawing says what it came out as, and where the two\ndisagree the drawing wins. A room rolled \"Banquet hall\" and drawn twenty feet\nsquare is not a long hall -- it is what became of one, or a service room off one,\nor a hall the collapse took most of. Say so. A player looking at the map and\nreading your prose must not be looking at two different rooms.\n\nTwo hard rules about direction:\n- Compass only. North, south, east and west are on the map and are safe. \"Left\",\n  \"right\", \"ahead\", \"behind\" depend on which way the party is facing and you do\n  not know that; a party that walks back through will read them as lies.\n- Do not invent an exit, a window, or a level change that is not listed. The ways\n  out are exactly the connectors given.\n\nAnd two about the ways out, both of them because base is IMMUTABLE and there is\nno later pass that can correct it:\n- DO NOT COUNT THEM IN THE ROOM'S BASE. \"Four ways out: east, south, and two to\n  the west\" stops being true the first time one is opened, barred, collapsed or\n  found, and the description cannot be rewritten to catch up -- so the number goes\n  on being read aloud to the player long after it is wrong. The map draws the ways\n  out and the game lists them fresh every turn. Describe the room; let the\n  counting be done by something that is allowed to change its mind.\n- A CONCEALED way is NOT part of the room's description. Write what it physically\n  is on the connector itself -- that is the text the player reads on FINDING it --\n  and keep it out of the room's base entirely, not even as a hint or a draught. A\n  room whose standing description mentions the crack in the west wall has no\n  secret door in it, because that description is read out on arrival. Where a\n  concealed way is meant to be findable, procgen lists a clue as its own entity.\n\nFeet are given so the prose can be concrete. Round them, compare them to\nsomething, or ignore them -- but do not contradict them.\n\nFIXTURES -- WHAT IS STANDING IN THE ROOM\nThe menu, once. Starred kinds also fit in a passage; the rest need a chamber.\n\n  {{fixtureMenu}}\n\nEach room says how many it may hold. Choose up to that many, or NONE AT ALL --\nan empty room is a real room, and a dungeon of uniformly furnished ones reads as\na catalogue. Pick what the fiction has already earned: a barracks has bunks, a\nshrine has an altar, a collapsed gallery has rubble.\n\nEach fixture gets a \"kind\" from the menu, a \"position\", a name and a base, and is\nwritten exactly like any other feature -- a thing in this dungeon, not a generic\none. Positions, and nothing else: {{positionWords}}.\n\nA fixture is furniture, never a way somewhere. \"stair\" on the menu means steps\nINSIDE the room -- up to a dais, down into water -- that arrive nowhere else. If\nyou want a way between two rooms, it is one of the connectors and it is already\nlisted. See A WAY THROUGH IS NEVER A FEATURE.\n\nDO NOT say how many there are. \"Pillars\" is your decision; six pillars is not --\nthe count is rolled, and the map will draw whatever it rolled. Name them in a way\nthat survives either number, and write the base about what they ARE rather than\nabout how many.\n\nAnything already listed as an entity may ALSO take a \"position\", from the same\nwords, saying where in the room it sits. That is what puts the chest, the clue\nand the hazard on the map alongside the furniture.\n\nNAMING A ROOM\nThe name comes from whatever DOMINATES the room, not from the identity it was\nrolled from. The rolled identity says what the place was built as; the name says\nwhat a party walking in would call it. A kennel whose stalls stand empty, with an\niron bridge over a chasm running through the middle of it, is not the Kennel --\nthe bridge and the chasm are what anyone would remember it by, and what they will\nsay when they mean \"back to the room with the bridge\". So read the room's\nentities and its detail, work out what the biggest thing in there actually is,\nand name it for that. Short, concrete, and sayable out loud.\n\nEVERYTHING IS THERE FOR A REASON\nBefore you write a room or a feature, know why it is in THIS dungeon. Usually the\nanswer is ordinary and needs no room on the page -- a barracks in a fort, a sump\nat the bottom of a mine. But anything that does NOT obviously belong is the first\nthing a party will notice and ask about, and the fiction has to be able to answer.\nA theatre inside a prison must have a story behind it: who built it, for whom, and\nwhat became of it. Put that answer in the base, as a clause, not a lecture. An\nincongruity with a reason behind it is the best thing in a dungeon; one without is\na mistake the player can see from the doorway.\n\nA WAY THROUGH IS NEVER A FEATURE\nIf something you are about to write reads as a way to somewhere else -- a stair,\na shaft, a hole in the wall, a rent in the floor, a tunnel, a door -- it is a\nCONNECTOR, not a RoomFeature and not a promoted detail. Spend the idea on one of\nthe connectors this room already has: each is listed with the room it leads to,\nso pick the one whose far side suits it and write it as that connector's name\nand form. The rooms are joined the way they are joined; you are describing those\njoins, not adding to them.\n\nA player will try to walk through anything that looks like a passage. Written as\na feature it leads nowhere, and they find that out by trying.\n\nThe ONE exception is the connector marked OUT OF THE DUNGEON, which is a real\nway through to no room at all. It is already in your list. Do not invent others.\n\nCREATURES -- CONSOLIDATE\nThe count is already rolled. A mass of one creature type is ONE entity with a\nsingle stat block; do NOT split it into individuals. \"5 x rank-and-file\" is one\nentity you name in the plural (\"Fen-seals\") and write once. Only a specimen\nmarked \"distinct\" -- an elite, a named person -- becomes its own entity alongside\nthe mass. Write the group's shared base once (the mass); write each distinct\nspecimen its own base. Give the mass and each distinct one a one-line current\nactivity fitting the encounter. Stats: you are given the hit-dice spine; return\nonly DEVIATIONS the keywords imply (a heavier die for claws, armour, a morale or\nability shift). Leave stats out for an average body.\n\nBEASTS -- WHAT THE REFERENCE ANIMALS ARE FOR\nA beastlike monster is listed with one reference animal or two. That was decided\nby the roll, not left to you: one means one, two means both. They are the starting\npoint for a body, NOT the description of it. Take the general shape and bearing\nfrom them -- how it stands, how it moves, how much of the room it takes up -- and\nthen write SPECIFIC borrowed parts: the shape of the snout, what it has instead of\nears, the horn or the antler, the set of the eyes, the feet, the hide.\n\nWhat you must not do is name the animal and stop. \"Badger-like\", \"part badger,\npart Pteranodon\", \"resembles a heron\" -- that is the reference showing through\nwhere a creature should be. Name an animal only when the naming does real work\n(\"the flat spade-shaped digging claws of a badger\" both names it and tells you\nsomething); otherwise the player should be able to picture the thing without ever\nlearning what it was built out of.\n\nTHE GOAL\nOne room is marked GOAL. {{goal}}\n\nHARD RULES\n1. Every listed entity, encounter, and connector must appear exactly once, under\n   the room it is listed in. Do not add a creature, hazard, or connector that was\n   not listed.\n2. Keywords are seeds, not labels. Realise them into the place; do not gloss.\n3. Do not contradict the fiction. Material, history, and the state of the ruin are\n   settled.\n4. Depth and tension are tone, never content. A calm room holding a lethal thing\n   still holds it.\n5. A clue must point at what it is said to point at, written as something noticed.\n\nMAKE THEM DISTINCT\nThese rooms are read in sequence. Give each one something the others lack. If two\nwould read the same, change one.\n";
 //#endregion
 //#region src/prompts/generation/content-pass.schema.md?raw
 var content_pass_schema_default = "Return JSON only, no prose outside it:\n\n{\n  \"rooms\": [\n    {\n      \"ref\": \"<room ref, exactly as given>\",\n      \"name\": \"<short room name>\",\n      \"base\": \"<the room's standing description>\",\n      \"entities\": [ { \"ref\": \"<entity ref>\", \"name\": \"<name>\", \"base\": \"<identity>\", \"position\": \"<one of the position words>\" } ],\n      \"fixtures\": [ { \"kind\": \"<one from THIS room's menu>\", \"position\": \"<one of the position words>\", \"name\": \"<name>\", \"base\": \"<identity>\" } ],\n      \"promotions\": [ { \"text\": \"<detail text as given>\", \"name\": \"<name>\", \"base\": \"<identity>\", \"hidden\": false, \"position\": \"<one of the position words>\" } ],\n      \"connectors\": [ { \"ref\": \"<connector ref>\", \"name\": \"<what it is, naming neither room>\", \"form\": \"<what it physically is>\", \"requirement\": \"<gated only: what blocks it>\" } ],\n      \"encounters\": [\n        {\n          \"ref\": \"<encounter ref>\",\n          \"group\": { \"name\": \"<plural name>\", \"base\": \"<shared identity>\", \"activity\": \"<one line>\", \"stats\": { \"damage\": \"1d8\" } },\n          \"distinct\": [\n            { \"kind\": \"elite|named\", \"member\": \"<named: person id>\", \"name\": \"<name>\", \"base\": \"<identity>\", \"isLeader\": false, \"activity\": \"<one line>\", \"stats\": { \"armorDefense\": 14 } }\n          ]\n        }\n      ],\n      \"goal\": { \"entityType\": \"Item|RoomFeature|Creature\", \"name\": \"<name>\", \"base\": \"<identity>\", \"position\": \"<one of the position words>\" }\n    }\n  ]\n}\n\nInclude each key only when the room has it; \"group\" only when a mass is listed;\n\"distinct\" only for specimens marked distinct; omit \"goal\" except in the GOAL\nroom. Leave \"stats\" out for an average creature.\n\n\"fixtures\" and every \"position\" are optional and are omitted entirely for a room\nwith no \"as drawn\" line. NEVER put a count, a dimension, or a coordinate in any\nof them: \"kind\" and \"position\" are words off the lists and nothing else.\n";
@@ -1841,10 +1861,10 @@ var outline_repair_default = "These parts of your outline broke a rule:\n{{viola
 var outline_polish_default = "You are reviewing a finished outline of a dungeon. Fix every error, then make it\nbetter to play. At most {{maxEdits}} edits:\n\n- swap_fictions: two rooms trade fictions (roomA, roomB)\n- swap_cards: two rooms trade cards (roomA, roomB)\n- replace_fiction: a room takes an unused optional fiction (roomA, fiction)\n- rewrite_story, rewrite_journey: a room's note (roomA, text)\n- set_story_feature: add or rewrite a room's story feature (roomA, text)\n- rewrite_way: what a way physically is (way, text)\n- change_fiction: the dungeon's theme, history, opening, or a group's name or base\n  (field, group if it is about a group, and the field's whole new text, not only the\n  part you changed)\n- set_key: add a key or replace one (challenge, keyKind, text for what it is, roomA for\n  where it is, gotBy)\n\nChange the fiction only to work rooms in better or make the story more engaging.\nNever change the goal, and never make it seem strange or leave things around it not\nmaking sense.\n\nAUDIT FIRST. Check each of these in turn, and fix what fails:\n- The goal's culmination, the thing acted upon to complete the objective: is it in the\n  goal room with the goal entity?\n- What the goal and history say the player must learn or find: is each one a key?\n- Each key: is it placed, and does the player have to engage with the world to get it?\n  Is it one thing? Is it clear of the way it opens?\n- Each gated or concealed way: how does it open, and is what lies behind it worth it?\n- The opening: does anything in the outline contradict it?\n- Every note: does it agree with the ways, keys and other notes?\n- Each danger, guard, lock and need, and the goal itself: can it be solved more than\n  one way? Does any note read as if one answer were the only one?\n\nThen ask:\n1. Does each room fit the concept of the dungeon, including mandatory rooms?\n2. Are dangers signposted, and are exploration and clever thinking rewarded?\n3. Do routes to the goal ask different things of the player?\n4. Does each creature's placement fit its group's goals and the layout? Guards\n   stand where something is worth guarding, a lair is somewhere defensible, a\n   patrol is on a through route.\n5. Is it well paced: no early death traps or windfalls near the entrance, no easy\n   stretches or useless finds deep in?\n6. Can the player piece together a part of the dungeon's history from what they\n   find here?\n7. Are all the important aspects of the dungeon's history represented in at least\n   one room?\n8. Is the goal still intuitive, and does everything around it make sense?\n\nYou cannot remove a mandatory fiction or change anything pre-assigned.\n\nMAKE IT BETTER TO PLAY. Empowering the player's creativity comes first: it is what makes\nthis game special. A correct outline can still be dull, and still leave the player\nonly one thing to try. First work out:\n- What only this dungeon has: its most unique person, place, theme or story element.\n- What the opening or history sets up that no room pays off.\n- Which room the player would forget by the next one. Could it sit in another dungeon\n  with only the names changed?\n- Which rewards or keys take no exploration, creativity or risk to get.\n- Which features are only there to look at.\n\nThen make at least two improvements, aimed at what you found. Each one does one of\nthese:\n1. A USABLE WORLD: the player can use something in the place to solve a problem their\n   own way. An old cannon can be fired and aimed, at an enemy or a cracked wall.\n   Not every feature has to work like this, but most should.\n2. ANOTHER SOLUTION: a problem with only one answer gets another. A creature's\n   personality, tactic or weakness, or a part of the place, lets a clever player get\n   past a danger or win a key some other way.\n3. THE UNIQUE THING MATTERS: what only this dungeon has becomes something the player\n   can act on, not only hear about.\n4. A REAL CHOICE: two things the player wants conflict, or getting one costs something.\n5. A CONNECTION: something in one room changes what the player understands or can do\n   in another.\n6. A PAYOFF: something the opening or history sets up turns out to be there, and matters.\n7. A HIDDEN REWARD: a detail hints at something a hurried player would miss.\n\nIn why, say what the player can now do, notice or decide that they could not before.\nIf it only adds mood or scenery, it is not an improvement. Invent from this dungeon, not\nfrom these examples. An improvement may take several edits. Keep every note it touches\ntrue. Add no creatures or treasure: a reward can be knowledge, leverage or a new use for\nsomething already here.\n\nHOW TO ANSWER\nCall the tool once. Every edit fills in every field: op, roomA, roomB, fiction, way,\nfield, group, challenge, keyKind, gotBy, text and why, with \"none\" for any that does\nnot apply to that op. Rooms,\nfictions, ways and groups go by ref, like room_3, F2, W1 or G1. New wording goes in\ntext, and only there. why is one real sentence on why the edit helps.\n";
 //#endregion
 //#region src/prompts/generation/keys-pass.md?raw
-var keys_pass_default = "You are writing the keys of a dungeon that is otherwise finished. Every room,\nevery way through and every creature below has already been written and\ncommitted to; nothing about them is yours to change.\n\nA KEY IS AN OBJECT THAT ANSWERS A QUESTION THE DUNGEON ASKS. A journal naming\nwhat drives the ghoul back. A steward's ring the door was cut for. A rubbing of\nthe seal. Half a map. A vial of the acid that eats the fungus. It is a thing a\nplayer picks up and carries, not a feeling and not a hint.\n\nFOR EACH KEY\n- name: what the object is called, two to five words. A thing, not a promise:\n  \"the almoner's daybook\", not \"the key to the ghoul\".\n- base: what it IS and what it tells you, in a sentence or two. THE FACT QUOTED\n  UNDER IT MUST SURVIVE VERBATIM OR NEARLY SO -- that exact wording is what the\n  game later writes onto the thing it is about, and a paraphrase breaks the\n  link. Put it in the object's own voice: what the page says, what the ring is\n  cut to fit, what the vial is labelled.\n- lockRequirement: OFFERED ONLY where the brief says so, and only for a blocked\n  way. Rewrite what stands in that way so that it and this key name each other.\n  It must still read correctly from both sides, since a player can meet it from\n  either.\n\nHARD RULES\n1. Return exactly the keys listed, each once, with its ref exactly as given. Do\n   not add one and do not leave one out: a key with no name is an object the\n   player picks up and is told nothing about.\n2. The key must be findable and useful WITHOUT the thing it answers being\n   present. A player reads the journal in one room and meets the ghoul in\n   another, in either order.\n3. Do not say what the key is worth. Do not give it a price, a weight, or a\n   number of any kind.\n4. Do not describe the room it is in, or the thing it answers. Both are written.\n5. Write prose, not notes.\n";
+var keys_pass_default = "You are writing the keys of a dungeon that is otherwise finished. Every room,\nevery way through and every creature below has already been written and\ncommitted to; nothing about them is yours to change.\n\nA KEY IS AN OBJECT THAT ANSWERS A QUESTION THE DUNGEON ASKS. A journal naming\nwhat drives the ghoul back. A steward's ring the door was cut for. A rubbing of\nthe seal. Half a map. A vial of the acid that eats the fungus. It is a thing a\nplayer picks up and carries, not a feeling and not a hint.\n\nFOR EACH KEY\n- name: what the object is called, two to five words. A thing, not a promise:\n  \"the almoner's daybook\", not \"the key to the ghoul\".\n- base: what it IS and what it tells you, in a sentence or two, in the object's own\n  voice: what the page says, what the ring is cut to fit, what the vial is labelled.\n  The fact under it is the game's shorthand for what the key must tell the player.\n  Say what that means, in words a person in this place would write. Never copy the\n  shorthand itself and never use a game term: name the actual thing, person or place.\n  If the outline decided what the key is, write that, and describe it so that what the\n  player has to do to get it is possible. Information still needs something that\n  carries it: a page, an inscription, a scrap of a letter.\n- lockRequirement: OFFERED ONLY where the brief says so, and only for a blocked\n  way. Rewrite what stands in that way so that it and this key name each other.\n  It must still read correctly from both sides, since a player can meet it from\n  either.\n\nHARD RULES\n1. Return exactly the keys listed, each once, with its ref exactly as given. Do\n   not add one and do not leave one out: a key with no name is an object the\n   player picks up and is told nothing about.\n2. The key must be findable and useful WITHOUT the thing it answers being\n   present. A player reads the journal in one room and meets the ghoul in\n   another, in either order.\n3. Do not say what the key is worth. Do not give it a price, a weight, or a\n   number of any kind.\n4. Do not describe the room it is in, or the thing it answers. Both are written.\n5. Write prose, not notes.\n";
 //#endregion
 //#region src/prompts/generation/keys-pass.schema.md?raw
-var keys_pass_schema_default = "Return JSON only, no prose outside it:\n\n{\n  \"keys\": [\n    {\n      \"ref\": \"<exactly as given>\",\n      \"name\": \"<what the object is called>\",\n      \"base\": \"<what it is and what it tells you, carrying the fact verbatim>\",\n      \"lockRequirement\": \"<only where offered: the lock, rewritten to name this key>\"\n    }\n  ],\n  \"goalProperties\": [\"<a thing that must be learned about the objective>\"]\n}\n";
+var keys_pass_schema_default = "Return JSON only, no prose outside it:\n\n{\n  \"keys\": [\n    {\n      \"ref\": \"<exactly as given>\",\n      \"name\": \"<what the object is called>\",\n      \"base\": \"<what it is and what it tells you, in its own words>\",\n      \"lockRequirement\": \"<only where offered: the lock, rewritten to name this key>\"\n    }\n  ],\n  \"goalProperties\": [\"<a thing that must be learned about the objective>\"]\n}\n";
 //#endregion
 //#region src/prompts/tally/tally.md?raw
 var tally_default = "You are rating a finished delve, after the fact, with the whole record in front\nof you. For each accomplishment below, say how much RISK the player actually\nran in achieving it.\n\n  low        it was never really in doubt. No rolls, or rolls that could not\n             have hurt them: reading a journal, opening a door that was merely\n             stuck, talking to somebody who was never going to fight.\n  moderate   a real chance of it going badly. A fight they were likely to win,\n             a save that would have cost them something, a puzzle with a\n             penalty for getting it wrong.\n  high       it could have killed them, or nearly did. A fight against something\n             at or above their weight, a failed save that cost real hit points,\n             a hazard that took several attempts and left a mark.\n\nRATE WHAT HAPPENED, NOT WHAT IT SOUNDS LIKE. The evidence is the rolls, the\ndamage taken, and the number of turns it took. A ghoul described in three\nterrifying sentences that died to one attack roll was LOW. A stuck door that\ntook four failed saves and cost eight hit points was HIGH.\n\nWEIGH IT AGAINST THE CHARACTER. A level 1 character and a level 5 character\nrunning the same fight did not run the same risk.\n\nGETTING PAST SOMETHING WITHOUT FIGHTING IT COUNTS FULLY. Talked down, deceived,\ndriven off, slipped past — those are solutions, not evasions, and a clever one is\nworth as much as a bloody one. Rate the risk it actually carried.\n\nHARD RULES\n1. Return exactly the accomplishments listed, each once, with its id exactly as\n   given. Do not add one and do not leave one out.\n2. Use only the three words. No numbers anywhere in your response — what these\n   are worth is not yours to decide and is already settled.\n3. \"why\" is ONE short line, and the player will read it. Say what they did, not\n   what you thought of it.\n";
@@ -1868,7 +1888,7 @@ var open_floor_note_default = "The area inside the DOTTED outline in the guide i
 var visual_system_default = "You turn a room's written description into notes for an illustrator who draws in black ink.\n\nWrite only what can be SEEN: materials, shapes, surfaces, condition, light and shadow.\nLeave out sounds, smells, temperature, history, purpose, feelings, and anything a person or creature is doing.\nNever write a number, a size, a distance, a count, or a direction (left, north, far end): where things are is decided elsewhere.\nNever mention people or creatures.\n\n`room` describes only the room's shell — walls, floor, ceiling, air, light, condition — in one sentence of at most 30 words. Do not mention any doorway or any of the listed things in it.\n`things` gives each listed thing a look: a noun phrase of at most 14 words saying what it looks like, with no name, no position and no number.\n";
 //#endregion
 //#region src/prompts/illustrations/setting-system.md?raw
-var setting_system_default = "You turn a dungeon's written theme into one line for an illustrator who draws in black ink.\nWrite one sentence of at most 25 words: what the place is built from or carved out of, its condition, and its light.\nOnly what can be seen. No sounds, smells, history, people or creatures. No numbers.\n";
+var setting_system_default = "You turn a dungeon's written theme into one line for an illustrator who draws in black ink.\nWrite one sentence of at most 25 words about the place itself: its construction materials, its architecture, its condition, its overall look, and its light.\nLeave out anything standing or lying in the rooms: no furniture, furnishings, equipment, tools, containers or other contents, even if the theme mentions them. Each room says what it holds.\nOnly what can be seen. No sounds, smells, history, people or creatures. No numbers.\n";
 //#endregion
 //#region src/prompts/illustrations/exterior-system.md?raw
 var exterior_system_default = "You turn a written description of a dungeon's surroundings and entrance into notes for an illustrator who draws in black ink.\nWrite two or three sentences, at most 60 words, describing what someone approaching would SEE: the landscape, the structure, its condition, and the entrance.\nIf the description gives the time of day, the sky or the weather, open with them in plain words (\"At night, under a full moon, ...\"): they change the whole picture.\nKeep anything it says about how many there are or what is absent (\"a single building, nothing else in sight\"): an illustrator adds what is not ruled out.\nLeave out sounds, smells, history, purpose and feelings. No people or creatures. No numbers.\n";
@@ -1975,7 +1995,7 @@ var CONNECTOR_NAMING = text(connector_naming_default);
 * room in the same call that writes the connectors between them.
 */
 var CONNECTOR_HEIGHT = text(connector_height_default);
-var GOAL_INSTRUCTION = text(goal_default);
+var GOAL_INSTRUCTION$1 = text(goal_default);
 /**
 * The content pass's instructions, with `{{placeholders}}` for values that
 * come from code: the connector rules above, the list of fixtures, the
@@ -1984,9 +2004,13 @@ var GOAL_INSTRUCTION = text(goal_default);
 */
 var CONTENT_PASS_TEMPLATE = text(content_pass_default);
 var CONTENT_PASS_SCHEMA = text(content_pass_schema_default);
-text(outline_default);
-text(outline_repair_default);
-text(outline_polish_default);
+/**
+* The outline's instructions, each with `{{placeholders}}` for what code knows.
+* Filled in `src/generation/content/passes/outline/prompt.ts`.
+*/
+var OUTLINE_TEMPLATE = text(outline_default);
+var OUTLINE_REPAIR_TEMPLATE = text(outline_repair_default);
+var OUTLINE_POLISH_TEMPLATE = text(outline_polish_default);
 var KEYS_PASS_INSTRUCTIONS = text(keys_pass_default);
 var KEYS_PASS_SCHEMA = text(keys_pass_schema_default);
 var TALLY_INSTRUCTIONS = text(tally_default);
@@ -8189,6 +8213,16 @@ function runEntitiesPass(sd, bp, rng = new Rng(sd.seed)) {
 			features.push(f);
 			bind(f.id, r.roomId, "obstacle", kw(r.special.subject, r.special.behaviour));
 		}
+		if (r.storyFeature) {
+			const f = {
+				id: makeId(),
+				name: "",
+				type: "RoomFeature",
+				roomId: r.roomId
+			};
+			features.push(f);
+			bind(f.id, r.roomId, "story", kw(r.storyFeature));
+		}
 		if (r.clue) {
 			const f = {
 				id: makeId(),
@@ -8748,7 +8782,7 @@ function enumerateChallenges(sd) {
 		target: "room",
 		targetId: goal.roomId,
 		roomId: goal.roomId,
-		property: goal.goalDirective ? `where ${goal.goalDirective.reward} lies` : "where the objective lies"
+		property: goal.goalDirective?.objective ? `where to find ${goal.goalDirective.objective.form}` : goal.goalDirective ? `where ${goal.goalDirective.reward} lies` : "where the objective lies"
 	});
 	return out;
 }
@@ -9106,7 +9140,7 @@ function goalItemValue(rewards, rng) {
 * is not a matter of taste: take the edge out, walk the graph, and the rooms
 * that fall off the far side are the rooms the key may not be in.
 */
-function reachableWithout(connectors, entranceRoomId, withoutConnectorId) {
+function reachableWithout$1(connectors, entranceRoomId, withoutConnectorId) {
 	const adj = /* @__PURE__ */ new Map();
 	const link = (a, b) => {
 		const held = adj.get(a);
@@ -9150,7 +9184,7 @@ function generalBudget(roomCount) {
 * the dungeon rather than to any room.
 */
 function placeRewards(input) {
-	const { rooms, connectors, mobiles, entranceRoomId, goalRoomId, challenges, maxDepth, rng } = input;
+	const { rooms, connectors, mobiles, entranceRoomId, goalRoomId, challenges, maxDepth, rng, plannedKeys } = input;
 	for (const r of rooms) r.rewards = [];
 	const total = rollPot(rooms.length, rng);
 	const distributable = total - Math.round(total * ALLOWANCE_SHARE);
@@ -9222,11 +9256,12 @@ function placeRewards(input) {
 	* outline pass will choose key pairs itself.)
 	*/
 	const pickChallenge = (room) => {
+		if (plannedKeys) return void 0;
 		const pool = challenges.filter((c) => {
 			if (keyed.has(c.id)) return false;
 			if (isGoalChallenge(c)) return false;
 			if (c.kind !== "blocked-way") return true;
-			return reachableWithout(connectors, entranceRoomId, c.targetId).has(room.roomId);
+			return reachableWithout$1(connectors, entranceRoomId, c.targetId).has(room.roomId);
 		});
 		if (!pool.length) return void 0;
 		return pool[Math.min(pool.length - 1, Math.floor(rng.next() * pool.length))];
@@ -9237,6 +9272,27 @@ function placeRewards(input) {
 	const budget = generalBudget(rooms.length);
 	let generals = 0;
 	let keys = 0;
+	for (const k of plannedKeys ?? []) {
+		const room = byId.get(k.roomId);
+		const challenge = challengeById.get(k.challengeId);
+		if (!room || !challenge) continue;
+		keyed.add(challenge.id);
+		room.rewards.push({
+			id: nextId(),
+			roomId: room.roomId,
+			holder: {
+				kind: "room",
+				id: room.roomId
+			},
+			guaranteed: false,
+			kind: "key",
+			challengeId: challenge.id,
+			answers: challenge.property,
+			value: rng.range(...KEY_VALUE_BAND),
+			plan: k.plan
+		});
+		keys++;
+	}
 	for (const room of guaranteedRooms) {
 		if (generals >= budget) break;
 		const challenge = rng.chance(KEY_SHARE) ? pickChallenge(room) : void 0;
@@ -9271,7 +9327,7 @@ function placeRewards(input) {
 		weights.splice(i, 1);
 	}
 	const goalRoom = byId.get(goalRoomId);
-	if (goalRoom) {
+	if (goalRoom && !plannedKeys) {
 		const goalChallenges = challenges.filter((c) => c.kind === "goal-location");
 		const roomChallenges = challenges.filter((c) => c.roomId === goalRoomId && !isGoalChallenge(c) && !keyed.has(c.id));
 		const want = rng.range(...GOAL_PROPERTY_KEYS);
@@ -9458,7 +9514,8 @@ function buildKeysPassPayload(sd, ep, dungeonContext) {
 				};
 			}
 			case "region":
-			case "goal-location": {
+			case "goal-location":
+			case "goal-property": {
 				const room = roomById.get(c.roomId);
 				if (!room || !room.base) return void 0;
 				return {
@@ -9467,7 +9524,6 @@ function buildKeysPassPayload(sd, ep, dungeonContext) {
 					base: room.base
 				};
 			}
-			case "goal-property": return;
 		}
 	};
 	const keys = [];
@@ -9487,6 +9543,7 @@ function buildKeysPassPayload(sd, ep, dungeonContext) {
 			roomName: room?.name ?? "",
 			roomBase: room?.base ?? "",
 			...carried ? { carriedBy: resolveName(carried, ep.registry) } : {},
+			...rw.plan ? { plan: rw.plan } : {},
 			target: t,
 			...c.kind === "blocked-way" ? { lockRef: c.targetId } : {}
 		});
@@ -9562,7 +9619,11 @@ function renderKeysPassPrompt(p) {
 		if (k.carriedBy) L.push(`carried by ${k.carriedBy}, not lying in the open.`);
 		L.push(`IT ANSWERS ${k.target.label.toUpperCase()}: "${k.target.name}"`);
 		L.push(`  which is: ${oneLine(k.target.base)}`);
-		L.push(`  THE FACT IT MUST CARRY, exactly: "${k.target.fact}"`);
+		if (k.plan) {
+			L.push(`  THE OUTLINE DECIDED IT IS (${k.plan.kind}): ${k.plan.key}`);
+			L.push(`  what the player has to do to get it, which the description must allow: ${k.plan.gotBy}`);
+		}
+		L.push(`  THE FACT IT ANSWERS, in the game's shorthand: "${k.target.fact}"`);
 		if (k.target.condition) L.push(`  the lock as it currently reads: ${oneLine(k.target.condition)}`);
 		if (k.lockRef) L.push("  you may return \"lockRequirement\" for this one to rewrite that lock so it and the key name each other.");
 		L.push("");
@@ -9590,6 +9651,41 @@ function keysPassOmissions(payload, res) {
 		path: `keys.${k.ref}`,
 		message: `key ${k.ref} (in ${k.roomName}, answering "${k.target.fact}") was listed and is not in the response`
 	}));
+}
+/** The shapes only code writes: "where X lies", "the way is blocked", "subject, which trick". */
+var SHORTHAND = /^where .+ lies$|^the way is |^.+, which /i;
+/**
+* Game shorthand copied into what the player reads, like a ledger saying "where Magic
+* item lies". A weakness like "flowers" can fairly appear in prose, so this looks only
+* for the shapes code writes.
+*/
+function keysPassLeaks(payload, res) {
+	const out = [];
+	const brief = new Map(payload.keys.map((k) => [k.ref, k]));
+	for (const k of res.keys ?? []) {
+		const fact = brief.get(k.ref)?.target.fact;
+		const text = `${k.name} ${k.base}`;
+		const quotesFact = !!fact && SHORTHAND.test(fact) && text.toLowerCase().includes(fact.toLowerCase());
+		if (quotesFact || /\bwhere [A-Z][a-z]+(?: [a-z]+)* lies\b/.test(text)) out.push({
+			path: `keys.${k.ref}`,
+			message: `key ${k.ref} uses the game's shorthand${quotesFact ? ` "${fact}"` : ""}; say what it means in the object's own words, naming the actual thing or place`
+		});
+	}
+	return out;
+}
+/** What a repair asks for: the keys that came back wrong, each complete. */
+function askForKeys(missing) {
+	return `Call \`write_keys\` again with ONLY these keys: ${[...new Set(missing.map((m) => /^keys\.(.+)/.exec(m.path)?.[1]).filter(Boolean))].join(", ")}. Write each of them complete.`;
+}
+/** The kept answer with the keys that came back put in place of their first versions. */
+function mergeKeys(whole, patch) {
+	const fresh = new Map(patch.keys.map((k) => [k.ref, k]));
+	const keys = whole.keys.map((k) => fresh.get(k.ref) ?? k);
+	for (const k of patch.keys) if (!whole.keys.some((w) => w.ref === k.ref)) keys.push(k);
+	return {
+		...whole,
+		keys
+	};
 }
 /**
 * Write the keys onto their items, rewrite the locks that asked for it, and mint
@@ -9981,6 +10077,9 @@ function renderContentPassPrompt(p) {
 		L.push(`headline: ${r.headline}${r.stacked ? ` + ${r.stacked}` : ""}`);
 		L.push(`room keywords: ${kwLine(r.keywords)}`);
 		if (r.geometry) L.push(`as drawn: ${r.geometry}`);
+		if (r.story) L.push(`story note: ${r.story}`);
+		if (r.journey) L.push(`journey note: ${r.journey}`);
+		for (const k of r.plannedKeys ?? []) L.push(`a key is here, written later, so leave room for it and do not write it: ${k.key}. Got by: ${k.gotBy}`);
 		for (const e of r.entities) L.push(`entity [${e.ref}] ${e.kind} (${e.entity})${e.hidden ? " HIDDEN" : ""}: ${kwLine(e.keywords)}` + (e.note ? ` -- ${e.note}` : ""));
 		for (const d of r.detailCandidates) L.push(`promotable detail [${kwLine(d.keywords)}] -- make it an entity only if a player would act on it`);
 		for (const c of r.connectors) {
@@ -9991,7 +10090,8 @@ function renderContentPassPrompt(p) {
 			}
 			const flags = `${c.gated ? " GATED" : ""}${c.hidden ? " CONCEALED" : ""}`;
 			const asks = [c.hidden ? "write it as the thing a person would walk past -- a seam, a draught, a panel that rings hollow -- not as a door" : "say what it physically is", c.gated ? "and what blocks it, from here" : "no barrier"].join("; ");
-			L.push(`connector [${c.ref}]${where} to ${c.toRef} (${c.toIdentity})${flags} -- ${asks}`);
+			const planned = c.plannedForm ? `; the outline says: ${c.plannedForm}` : "";
+			L.push(`connector [${c.ref}]${where} to ${c.toRef} (${c.toIdentity})${flags} -- ${asks}${planned}`);
 		}
 		for (const en of r.encounters) {
 			L.push(`encounter [${en.ref}] ${en.tier}, ${en.affiliation}, currently ${en.activity}, disposition ${en.disposition}`);
@@ -10000,8 +10100,15 @@ function renderContentPassPrompt(p) {
 			for (const line of en.template.split("\n")) L.push(`      ${line}`);
 		}
 		if (r.goal) {
-			L.push(`GOAL HERE: reward "${r.goal.reward}" + mission "${r.goal.mission}".`);
-			L.push(`  ${GOAL_INSTRUCTION}`);
+			const o = r.goal.objective;
+			if (o) {
+				L.push(`GOAL HERE: the outline decided the objective is a ${o.type}: ${o.form}.`);
+				if (o.person) L.push(`  ${o.person} stands here for it.`);
+				L.push(`  Write exactly this as "goal", with entityType ${o.type}. Do not decide it again.`);
+			} else {
+				L.push(`GOAL HERE: reward "${r.goal.reward}" + mission "${r.goal.mission}".`);
+				L.push(`  ${GOAL_INSTRUCTION$1}`);
+			}
 		}
 		if (r.gatedExits.length) L.push(`gated exits: ${r.gatedExits.join(", ")}`);
 		if (r.openExits.length) L.push(`open exits: ${r.openExits.join(", ")}`);
@@ -10016,7 +10123,7 @@ var CONTENT_PASS_INSTRUCTIONS = fill(CONTENT_PASS_TEMPLATE, {
 	connectorHeight: CONNECTOR_HEIGHT,
 	fixtureMenu: fixtureMenu(),
 	positionWords: POSITION_WORDS.join(", "),
-	goal: GOAL_INSTRUCTION
+	goal: GOAL_INSTRUCTION$1
 });
 //#endregion
 //#region src/generation/content/passes/content-pass/response.ts
@@ -10065,6 +10172,10 @@ function contentPassOmissions(payload, res) {
 		if (brief.goal && !rr.goal) out.push({
 			path: `${at}.goal`,
 			message: `this room is the GOAL room and no "goal" was written for it`
+		});
+		if (brief.goal?.objective && rr.goal && rr.goal.entityType !== brief.goal.objective.type) out.push({
+			path: `${at}.goal`,
+			message: `the objective is a ${brief.goal.objective.type} (${brief.goal.objective.form}); "goal" was written as a ${rr.goal.entityType}`
 		});
 		const written = new Map((rr.encounters ?? []).map((e) => [e.ref, e]));
 		for (const en of brief.encounters) {
@@ -10312,6 +10423,9 @@ function buildContentPassPayload(sd, bp, ep, dungeonContext, site) {
 				case "hazard":
 					if (r.special) keywords = hazardKeywords(r.special);
 					break;
+				case "story":
+					keywords = r.storyFeature ? { "Story feature": r.storyFeature } : {};
+					break;
 				case "reward": {
 					const rw = b.rewardId ? rewardById.get(b.rewardId) : void 0;
 					if (rw) keywords = rewardKeywords(rw, itemById.get(b.entityId)?.name ?? "");
@@ -10337,7 +10451,8 @@ function buildContentPassPayload(sd, bp, ep, dungeonContext, site) {
 			toIdentity: l.other.identity,
 			gated: l.conn.gated,
 			hidden: l.conn.hidden,
-			wall: wallOf(r.index, l.conn.id)
+			wall: wallOf(r.index, l.conn.id),
+			...l.conn.form ? { plannedForm: l.conn.form } : {}
 		}));
 		if (r.roomId === sd.entranceRoomId) {
 			const surface = ep.connectors.find((c) => c.endpointB === null && c.endpointA === r.roomId);
@@ -10403,8 +10518,15 @@ function buildContentPassPayload(sd, bp, ep, dungeonContext, site) {
 			encounters,
 			goal: r.roomId === ep.pendingGoal.roomId ? {
 				reward: ep.pendingGoal.reward,
-				mission: ep.pendingGoal.mission
+				mission: ep.pendingGoal.mission,
+				...r.goalDirective?.objective ? { objective: r.goalDirective.objective } : {}
 			} : void 0,
+			...r.story ? { story: r.story } : {},
+			...r.journey ? { journey: r.journey } : {},
+			...r.rewards.some((w) => w.kind === "key" && w.plan) ? { plannedKeys: r.rewards.flatMap((w) => w.kind === "key" && w.plan ? [{
+				key: w.plan.key,
+				gotBy: w.plan.gotBy
+			}] : []) } : {},
 			gatedExits: links.filter((l) => l.conn.gated).map((l) => ref(l.other)),
 			openExits: links.filter((l) => !l.conn.gated).map((l) => ref(l.other)),
 			geometry: geom ? describeGeometry(geom) : void 0,
@@ -10515,6 +10637,570 @@ function renderDungeonContext(res) {
 	L.push("");
 	L.push("THE PLAYER'S GOAL", `  ${res.goal.summary}`, `  Satisfied by: ${res.goal.spec}`);
 	return L.join("\n");
+}
+//#endregion
+//#region src/generation/content/passes/outline/response.ts
+/**
+* WHAT THE OUTLINE ANSWERS: its shape, the rules code holds it to, how a repair
+* merges in, and the polish edits.
+*
+* References and short prose only. The model never writes a number here, and code
+* places nothing until it passes `outlineViolations`.
+*/
+var fictionFields = [
+	"theme",
+	"history",
+	"opening",
+	"groupName",
+	"groupBase"
+];
+var keyKinds = ["object", "information"];
+var fictionChange = z.object({
+	field: z.enum(fictionFields),
+	/** which group, for `groupName` and `groupBase`; otherwise "none" */
+	group: nonEmpty,
+	text: nonEmpty,
+	why: nonEmpty
+});
+/** What the model writes where a room has no fiction, card or story feature. */
+var NONE = "none";
+var has = (v) => !!v && v !== "none";
+/**
+* NOTHING HERE IS OPTIONAL, because models leave optional fields out: Sonnet 5.5
+* omitted every fiction and card from its first outline. "none" says a room has
+* none, and saying so is the model's decision rather than an oversight.
+*
+* The lists may be empty because a repair comes back through this same schema,
+* carrying only what it replaces. `outlineViolations` is what says a whole outline
+* has everything.
+*/
+var outlineSchema = z.object({
+	rooms: z.array(z.object({
+		ref: nonEmpty,
+		/** a fiction's ref, or "none" on a passage, which has its identity already */
+		fiction: nonEmpty,
+		/** a card's ref, or "none" on the entrance and on a room left empty */
+		card: nonEmpty,
+		story: nonEmpty,
+		journey: nonEmpty,
+		/** one thing in the room, usually something the player can use, or "none" */
+		storyFeature: nonEmpty
+	})),
+	ways: z.array(z.object({
+		ref: nonEmpty,
+		form: nonEmpty
+	})),
+	objective: z.object({
+		type: z.enum([
+			"Item",
+			"RoomFeature",
+			"Creature"
+		]),
+		form: nonEmpty,
+		/** a named person who stands in the goal room for it, or "none" */
+		person: nonEmpty
+	}),
+	clues: z.array(z.object({
+		card: nonEmpty,
+		pointsAt: nonEmpty
+	})),
+	keys: z.array(z.object({
+		/** a challenge's ref, or "goal" for something the goal needs */
+		challenge: nonEmpty,
+		kind: z.enum(keyKinds),
+		key: nonEmpty,
+		/** where it is, by ref */
+		room: nonEmpty,
+		/** what the player has to do to get it */
+		gotBy: nonEmpty
+	})),
+	fictionChanges: z.array(fictionChange)
+});
+var polishSchema = z.object({ edits: z.array(z.object({
+	op: z.enum([
+		"swap_fictions",
+		"swap_cards",
+		"replace_fiction",
+		"rewrite_story",
+		"rewrite_journey",
+		"set_story_feature",
+		"rewrite_way",
+		"change_fiction",
+		"set_key"
+	]),
+	roomA: nonEmpty,
+	roomB: nonEmpty,
+	fiction: nonEmpty,
+	way: nonEmpty,
+	field: z.enum([...fictionFields, NONE]),
+	group: nonEmpty,
+	challenge: nonEmpty,
+	keyKind: z.enum([...keyKinds, NONE]),
+	gotBy: nonEmpty,
+	text: nonEmpty,
+	why: nonEmpty
+})) });
+/**
+* Everything wrong with an outline, each naming the parts a repair must replace.
+* Empty means code can use it.
+*/
+function outlineViolations(draft, o) {
+	const out = [];
+	const bad = (path, message) => out.push({
+		path,
+		message
+	});
+	const roomOf = new Map(draft.rooms.map((r) => [r.ref, r]));
+	const fictionOf = new Map(draft.fictions.map((f) => [f.ref, f]));
+	const cardRefs = new Set(draft.cards.map((c) => c.ref));
+	const answered = new Map(o.rooms.map((r) => [r.ref, r]));
+	for (const r of draft.rooms) if (!answered.has(r.ref)) bad(`rooms.${r.ref}`, `room ${r.ref} is missing from the outline`);
+	const seenRooms = /* @__PURE__ */ new Set();
+	for (const r of o.rooms) {
+		if (!roomOf.has(r.ref)) bad(`rooms.${r.ref}`, `${r.ref} is not a room in this dungeon`);
+		if (seenRooms.has(r.ref)) bad(`rooms.${r.ref}`, `room ${r.ref} appears twice`);
+		seenRooms.add(r.ref);
+	}
+	const usedFiction = /* @__PURE__ */ new Map();
+	for (const r of o.rooms) {
+		const room = roomOf.get(r.ref);
+		if (!room || room.passage) continue;
+		if (!has(r.fiction)) {
+			bad(`rooms.${r.ref}.fiction`, `room ${r.ref} has no fiction`);
+			continue;
+		}
+		const f = fictionOf.get(r.fiction);
+		if (!f) {
+			bad(`rooms.${r.ref}.fiction`, `${r.fiction} on room ${r.ref} is not a fiction you were given`);
+			continue;
+		}
+		usedFiction.set(r.fiction, [...usedFiction.get(r.fiction) ?? [], r.ref]);
+		if (room.sizeClass && !f.fits.includes(room.sizeClass)) bad(`rooms.${r.ref}.fiction`, `fiction ${f.ref} (${f.identity}) does not fit room ${r.ref}, which is ${room.sizeClass}`);
+	}
+	for (const [ref, on] of usedFiction) if (on.length > 1) bad(`fictions.${ref}`, `fiction ${ref} is used twice: rooms ${on.join(" and ")}`);
+	for (const f of draft.fictions) if (f.mandatory && !usedFiction.has(f.ref)) bad(`fictions.${f.ref}`, `mandatory fiction ${f.ref} (${f.identity}) is not used`);
+	const usedCard = /* @__PURE__ */ new Map();
+	let empty = [];
+	for (const r of o.rooms) {
+		const room = roomOf.get(r.ref);
+		if (!room) continue;
+		if (room.role === "entrance") {
+			if (has(r.card)) bad(`rooms.${r.ref}.card`, `the entrance ${r.ref} holds no card; move ${r.card}`);
+			continue;
+		}
+		if (!has(r.card)) {
+			if (room.role !== "goal") empty = [...empty, r.ref];
+			continue;
+		}
+		if (!cardRefs.has(r.card)) {
+			bad(`rooms.${r.ref}.card`, `${r.card} on room ${r.ref} is not a card you were given`);
+			continue;
+		}
+		usedCard.set(r.card, [...usedCard.get(r.card) ?? [], r.ref]);
+	}
+	for (const [ref, on] of usedCard) if (on.length > 1) bad(`cards.${ref}`, `card ${ref} is used twice: rooms ${on.join(" and ")}`);
+	for (const c of draft.cards) if (!usedCard.has(c.ref)) bad(`cards.${c.ref}`, `card ${c.ref} is not used`);
+	const goalHolds = has(answered.get(draft.goalRoom)?.card);
+	if (empty.length > (goalHolds ? 1 : 0)) bad(`rooms.${empty[0]}.card`, `rooms ${empty.join(", ")} hold no card; only one room may, and only if the goal room holds one`);
+	const wayRefs = new Set(draft.ways.map((w) => w.ref));
+	const describedWays = new Set(o.ways.map((w) => w.ref));
+	for (const w of draft.ways) if (!describedWays.has(w.ref)) bad(`ways.${w.ref}`, `way ${w.ref} is not described`);
+	for (const w of o.ways) if (!wayRefs.has(w.ref)) bad(`ways.${w.ref}`, `${w.ref} is not a way in this dungeon`);
+	const clueCards = draft.cards.filter((c) => c.clue);
+	const clueOf = new Map(o.clues.map((c) => [c.card, c.pointsAt]));
+	for (const c of clueCards) {
+		const at = clueOf.get(c.ref);
+		if (!at) bad(`clues.${c.ref}`, `clue card ${c.ref} does not say what it points at`);
+		else if (at !== "objective" && !roomOf.has(at) && !cardRefs.has(at)) bad(`clues.${c.ref}`, `clue card ${c.ref} points at ${at}, which is not a room, a card or "objective"`);
+	}
+	const challengeOf = new Map(draft.challenges.map((c) => [c.ref, c.challenge]));
+	const [fewest, most] = draft.keyRange;
+	if (o.keys.length < fewest || o.keys.length > most) bad("keys", `plan between ${fewest} and ${most} keys, not ${o.keys.length}`);
+	const keyed = /* @__PURE__ */ new Set();
+	for (const k of o.keys) {
+		if (!roomOf.has(k.room)) bad("keys", `the key "${k.key}" is in ${k.room}, which is not a room`);
+		if (k.challenge === "goal") continue;
+		const answers = challengeOf.get(k.challenge);
+		if (!answers) {
+			bad("keys", `${k.challenge} is not a challenge you were given`);
+			continue;
+		}
+		if (keyed.has(k.challenge)) bad("keys", `two keys answer ${k.challenge}`);
+		keyed.add(k.challenge);
+		const way = draft.ways.find((w) => w.connector.id === answers.targetId);
+		if (way && roomOf.has(k.room) && !reachableWithout(draft, way.ref).has(k.room)) bad("keys", `the key "${k.key}" in ${k.room} can only be reached through ${way.ref}, the way it opens`);
+	}
+	const location = draft.challenges.find((c) => c.challenge.kind === "goal-location");
+	if (location && !keyed.has(location.ref)) bad("keys", `no key answers where the objective is (${location.ref})`);
+	const groupRefs = new Set(draft.blueprint.inhabitants.map((_, i) => `G${i + 1}`));
+	for (const c of o.fictionChanges) if ((c.field === "groupName" || c.field === "groupBase") && !groupRefs.has(c.group)) bad("fictionChanges", `a change to ${c.field} names no real group: ${c.group}`);
+	return out;
+}
+/** Every room reachable from the entrance without passing one way. */
+function reachableWithout(draft, wayRef) {
+	const seen = /* @__PURE__ */ new Set([draft.entrance]);
+	const queue = [draft.entrance];
+	for (let at = queue.shift(); at !== void 0; at = queue.shift()) for (const w of draft.ways) {
+		if (w.ref === wayRef) continue;
+		const next = w.a === at ? w.b : w.b === at ? w.a : void 0;
+		if (next !== void 0 && !seen.has(next)) {
+			seen.add(next);
+			queue.push(next);
+		}
+	}
+	return seen;
+}
+var REF = /\b(?:room_\d+|[CFKWG]\d+)\b/;
+/**
+* Refs written into prose. They mean nothing to whoever writes the room from this,
+* and may get copied into what the player reads. Asked of a written outline only: it
+* is not worth throwing a whole polish away for one.
+*/
+function refLeaks(o) {
+	const out = [];
+	const check = (where, text) => {
+		const hit = text.match(REF)?.[0];
+		if (hit) out.push({
+			path: where,
+			message: `${where} says "${hit}"; call it what it is, not by its ref`
+		});
+	};
+	for (const r of o.rooms) {
+		check(`the story of room ${r.ref}`, r.story);
+		check(`the journey of room ${r.ref}`, r.journey);
+		check(`the story feature of room ${r.ref}`, r.storyFeature);
+	}
+	for (const w of o.ways) check(`way ${w.ref}`, w.form);
+	for (const k of o.keys) {
+		check(`the key for ${k.challenge}`, k.key);
+		check(`how to get the key for ${k.challenge}`, k.gotBy);
+	}
+	return out;
+}
+/**
+* What sends a polish back: too many edits, or new wording that calls a room by its
+* ref. The outline going in has passed `refLeaks`, so any it finds came from these edits.
+* Edits that do not apply are not judged here: `polishOutline` drops those whole.
+*/
+function polishIssues(outline, polish) {
+	if (polish.edits.length > 8) return [{
+		path: "edits",
+		message: `at most 8 edits, not ${polish.edits.length}`
+	}];
+	const applied = applyPolish(outline, polish.edits);
+	return applied ? refLeaks(applied) : [];
+}
+/** A change to the fiction may tighten a field. Below this share, it has lost most of it. */
+var FICTION_KEEPS = .6;
+/**
+* A change that guts what it changes. It returns the field's whole new text, and one
+* outline replaced a 2,100-character opening with its last 500 characters, which would
+* have deleted the player's briefing, goal included.
+*/
+function fictionShrinks(draft, pass, o) {
+	const out = [];
+	const groupIds = draft.blueprint.inhabitants.map((g) => g.id);
+	for (const c of o.fictionChanges) {
+		const group = pass.groups.find((g) => g.id === groupIds[Number(c.group.slice(1)) - 1]);
+		const was = c.field === "theme" ? pass.theme : c.field === "history" ? pass.history : c.field === "opening" ? pass.openingProse : c.field === "groupBase" ? group?.base : void 0;
+		if (was && c.text.length < was.length * FICTION_KEEPS) out.push({
+			path: "fictionChanges",
+			message: `your change to ${c.field} keeps only part of it; return its whole new text, with everything that should stay`
+		});
+	}
+	return out;
+}
+/** What a repair can still reach for, because no room holds it yet. */
+function unusedRefs(draft, o) {
+	const fictions = new Set(o.rooms.map((r) => r.fiction));
+	const cards = new Set(o.rooms.map((r) => r.card));
+	return {
+		fictions: draft.fictions.filter((f) => !fictions.has(f.ref)).map((f) => f.ref),
+		cards: draft.cards.filter((c) => !cards.has(c.ref)).map((c) => c.ref)
+	};
+}
+/**
+* One entry per key, the patch winning. One entry and not one replacement per entry:
+* a model that listed a room twice would otherwise keep two copies however it was
+* repaired, and the outline could never pass.
+*/
+function mergeBy(whole, patch, key) {
+	const merged = new Map(whole.map((w) => [key(w), w]));
+	for (const p of patch) merged.set(key(p), p);
+	return [...merged.values()];
+}
+/** The outline with a repair's replacements put in. What it does not name stands. */
+function mergeOutline(whole, patch) {
+	return {
+		rooms: mergeBy(whole.rooms, patch.rooms, (r) => r.ref),
+		ways: mergeBy(whole.ways, patch.ways, (w) => w.ref),
+		objective: patch.objective,
+		clues: mergeBy(whole.clues, patch.clues, (c) => c.card),
+		keys: patch.keys.length > 0 ? patch.keys : whole.keys,
+		fictionChanges: mergeBy(whole.fictionChanges, patch.fictionChanges, (c) => `${c.field}:${c.group}`)
+	};
+}
+/**
+* The outline without entries for rooms or ways that do not exist. A repair replaces
+* entries and has no way to take one away, so one the model invented, like a room
+* called "none", would otherwise fail every repair after it.
+*/
+function withoutStrays(draft, o) {
+	const rooms = new Set(draft.rooms.map((r) => r.ref));
+	const ways = new Set(draft.ways.map((w) => w.ref));
+	return {
+		...o,
+		rooms: o.rooms.filter((r) => rooms.has(r.ref)),
+		ways: o.ways.filter((w) => ways.has(w.ref))
+	};
+}
+/**
+* The outline with a reviewer's edits applied, or undefined if an edit does not
+* make sense. The result still has to pass `outlineViolations`; a polish that
+* fails either test is thrown away whole and the draft stands.
+*/
+function applyPolish(o, edits) {
+	const rooms = o.rooms.map((r) => ({ ...r }));
+	const ways = o.ways.map((w) => ({ ...w }));
+	const fictionChanges = [...o.fictionChanges];
+	const keys = [...o.keys];
+	const room = (ref) => rooms.find((r) => r.ref === ref);
+	for (const e of edits) {
+		const a = room(e.roomA);
+		const b = room(e.roomB);
+		switch (e.op) {
+			case "swap_fictions":
+				if (!a || !b) return void 0;
+				[a.fiction, b.fiction] = [b.fiction, a.fiction];
+				break;
+			case "swap_cards":
+				if (!a || !b) return void 0;
+				[a.card, b.card] = [b.card, a.card];
+				break;
+			case "replace_fiction":
+				if (!a || !has(e.fiction)) return void 0;
+				a.fiction = e.fiction;
+				break;
+			case "rewrite_story":
+				if (!a || !has(e.text)) return void 0;
+				a.story = e.text;
+				break;
+			case "rewrite_journey":
+				if (!a || !has(e.text)) return void 0;
+				a.journey = e.text;
+				break;
+			case "set_story_feature":
+				if (!a || !has(e.text)) return void 0;
+				a.storyFeature = e.text;
+				break;
+			case "rewrite_way": {
+				const w = ways.find((x) => x.ref === e.way);
+				if (!w || !has(e.text)) return void 0;
+				w.form = e.text;
+				break;
+			}
+			case "change_fiction":
+				if (e.field === "none" || !has(e.text)) return void 0;
+				{
+					const change = {
+						field: e.field,
+						group: e.group,
+						text: e.text,
+						why: e.why
+					};
+					const held = fictionChanges.findIndex((c) => c.field === e.field && c.group === e.group);
+					if (held >= 0) fictionChanges[held] = change;
+					else fictionChanges.push(change);
+				}
+				break;
+			case "set_key": {
+				if (e.keyKind === "none" || !has(e.challenge) || !has(e.text) || !has(e.gotBy) || !has(e.roomA)) return void 0;
+				const key = {
+					challenge: e.challenge,
+					kind: e.keyKind,
+					key: e.text,
+					room: e.roomA,
+					gotBy: e.gotBy
+				};
+				const held = e.challenge === "goal" ? -1 : keys.findIndex((k) => k.challenge === e.challenge);
+				if (held >= 0) keys[held] = key;
+				else keys.push(key);
+				break;
+			}
+		}
+	}
+	return {
+		...o,
+		rooms,
+		ways,
+		keys,
+		fictionChanges
+	};
+}
+/**
+* The dungeon pass's answer with an outline's changes applied, later ones winning.
+* The goal is not among the fields: its summary and spec are locked once written.
+*/
+function changedFiction(pass, groupIds, changes) {
+	const next = {
+		...pass,
+		groups: pass.groups.map((g) => ({ ...g }))
+	};
+	for (const c of changes) {
+		const id = has(c.group) ? groupIds[Number(c.group.slice(1)) - 1] : void 0;
+		const group = next.groups.find((g) => g.id === id);
+		if (c.field === "theme") next.theme = c.text;
+		else if (c.field === "history") next.history = c.text;
+		else if (c.field === "opening") next.openingProse = c.text;
+		else if (c.field === "groupName" && group) group.name = c.text;
+		else if (c.field === "groupBase" && group) group.base = c.text;
+	}
+	return next;
+}
+//#endregion
+//#region src/generation/content/passes/outline/prompt.ts
+function monsterLine(m) {
+	return [
+		m.animals ? `${m.animals.join(" and ")}-like` : m.humanoidSeed ? `humanoid, ${m.humanoidSeed.result}` : m.silhouette,
+		...m.traitsAndAbilities.map((x) => x.result),
+		...m.featuresAndMutations.map((x) => x.result),
+		`tactic: ${m.tactic}`,
+		`personality: ${m.personality}`
+	].join("; ");
+}
+function npcLine(n) {
+	return [
+		`${n.name}${n.isLeader ? " (leader)" : ""}`,
+		`${n.origin.kind === "role" ? "role" : "background"}: ${n.origin.result}`,
+		`looks: ${n.appearance}`,
+		`personality: ${n.personality}`,
+		`wants: ${n.goal}`
+	].join("; ");
+}
+var GOAL_TIE = {
+	same: "wants the same thing the player does",
+	opposed: "is opposed to the player's goal"
+};
+/** How a group stands toward the goal, for placing its base. */
+function groupLine(g, written, i) {
+	const head = `G${i + 1} "${written?.name ?? "unnamed"}": ${written?.base ?? ""}`;
+	if (g.kind === "monsters") return `${head}\n   rolled: ${monsterLine(g.monster)}`;
+	const goal = GOAL_TIE[g.goalBranch] ?? `has its own goal: ${g.ownGoal}`;
+	return `${head}\n   rolled: ${g.faction}; ${g.traits.join("; ")}; ${goal}\n   people: ${g.npcs.map(npcLine).join(" | ")}`;
+}
+/** The dungeon being built, as the dungeon pass wrote it. The goal has its own section. */
+function renderDungeon(draft, pass) {
+	const groups = draft.blueprint.inhabitants.map((g, i) => groupLine(g, pass.groups.find((w) => w.id === g.id), i));
+	return [
+		`Name: ${pass.name}`,
+		`Theme: ${pass.theme}`,
+		`History: ${pass.history}`,
+		`Opening, as the player reads it: ${pass.openingProse}`,
+		`Who lives here:`,
+		...groups
+	].join("\n");
+}
+function renderGoal(pass) {
+	return `What the player is told: ${pass.goal.summary}\nWhat counts as achieving it: ${pass.goal.spec}`;
+}
+function roomLine(draft, r) {
+	const neighbours = r.ways.map((ref) => {
+		const w = draft.ways.find((x) => x.ref === ref);
+		const flags = `${w.connector.gated ? " GATED" : ""}${w.connector.hidden ? " CONCEALED" : ""}`;
+		return `${ref} to ${w.a === r.ref ? w.b : w.a}${flags}`;
+	});
+	return [
+		r.ref,
+		r.role === "entrance" ? "ENTRANCE (no card, but choose a fiction)" : r.role === "goal" ? "GOAL ROOM (choose a fiction; a card is optional)" : "",
+		r.passage ? `PASSAGE, already a ${r.identity}${r.detail ? ` (${r.detail})` : ""}` : "",
+		r.entranceFeature ? `the way in: ${r.entranceFeature}` : "",
+		r.sizeClass ?? "",
+		`depth ${r.depth}`,
+		r.isDeadEnd ? "dead end" : "",
+		neighbours.join(", ")
+	].filter(Boolean).join(" | ");
+}
+function cardLine(draft, c) {
+	const raises = draft.challenges.filter((x) => x.card === c.ref).map((x) => `${x.ref} ${CHALLENGE_LABEL[x.challenge.kind]}: ${x.challenge.property}`);
+	const tail = raises.length ? `\n   raises: ${raises.join("; ")}` : "";
+	if (c.headline === "special") {
+		const s = c.special;
+		const what = s.kind === "obstacle" ? `obstacle: ${s.subject}, ${s.behaviour}` : s.trapTrigger ? `trap: set off by ${s.trapTrigger}, ${s.trapEffect}` : `hazard: ${s.hazard}`;
+		return `${c.ref} special, ${what}${tail}`;
+	}
+	if (c.headline === "quiet") return c.clue ? `${c.ref} quiet, clue: ${c.clue}. You say what it points at.` : `${c.ref} quiet, nothing here: a breather.`;
+	const m = c.mobile;
+	const groupRef = m.groupIndex !== void 0 ? `G${m.groupIndex + 1}` : void 0;
+	const who = m.isBase ? `BASE of ${groupRef}, where this group lives` : groupRef ? `${m.minion ?? "outpost"} of ${groupRef}` : "unaffiliated";
+	const group = m.groupIndex !== void 0 ? draft.blueprint.inhabitants[m.groupIndex] : void 0;
+	const people = m.isBase && group?.kind === "people" ? `people here: ${group.npcs.map((n) => n.name).join(", ")}` : "";
+	const what = m.monster ? monsterLine(m.monster) : m.npc ? npcLine(m.npc) : people;
+	return `${c.ref} creature, ${who}${what ? `: ${what}` : ""}; ${m.activity}; ${m.disposition}${tail}`;
+}
+/** The map and the dice: everything the outline chooses among. */
+function renderDraft(draft) {
+	const L = [];
+	L.push(`=== ROOMS (${draft.rooms.length}) ===`, ...draft.rooms.map((r) => roomLine(draft, r)), "");
+	L.push("=== ROUTES FROM THE ENTRANCE TO THE GOAL ===");
+	L.push(...draft.routes.map((route) => route.join(" -> ")), "");
+	L.push(`=== ROOM FICTIONS (${draft.fictions.length}) ===`);
+	for (const f of draft.fictions) L.push(`${f.ref}${f.mandatory ? " MANDATORY" : ""}: ${f.identity}${f.detail ? ` (${f.detail})` : ""}` + (f.signature ? " | WHAT THIS PLACE WAS BUILT AS" : "") + (f.fits.length < CLASSES.length ? ` | fits only: ${f.fits.join(", ")}` : ""));
+	L.push("", `=== CARDS (${draft.cards.length}) ===`, ...draft.cards.map((c) => cardLine(draft, c)), "");
+	const other = draft.challenges.filter((c) => !c.card);
+	L.push("=== OTHER CHALLENGES A KEY COULD ANSWER ===");
+	L.push(...other.map((c) => `${c.ref} ${CHALLENGE_LABEL[c.challenge.kind]}: ${c.challenge.property}${wayOf(draft, c.challenge.targetId)}`));
+	return L.join("\n");
+}
+function wayOf(draft, connectorId) {
+	const w = draft.ways.find((x) => x.connector.id === connectorId);
+	return w ? ` (${w.ref})` : "";
+}
+function renderOutlinePrompt(draft, pass) {
+	const [fewest, most] = draft.keyRange;
+	return `${fill(OUTLINE_TEMPLATE, {
+		dungeon: renderDungeon(draft, pass),
+		goal: renderGoal(pass),
+		goalRoom: draft.goalRoom,
+		keyRange: `${fewest} to ${most}`
+	})}\n\n${renderDraft(draft)}`;
+}
+function renderOutlineRepair(draft, outline, missing) {
+	const unused = unusedRefs(draft, outline);
+	const holder = (ref) => outline.rooms.find((r) => r.fiction === ref)?.ref;
+	const mandatory = draft.fictions.filter((f) => f.mandatory).map((f) => `${f.ref} (${f.identity}) ${holder(f.ref) ? `is in ${holder(f.ref)}` : "is not used yet"}`);
+	return fill(OUTLINE_REPAIR_TEMPLATE, {
+		violations: missing.map((m) => `- ${m.message}`).join("\n"),
+		mandatory: `Mandatory fictions: ${mandatory.join("; ")}.`,
+		unused: `Still unused: fictions ${unused.fictions.join(", ") || "none"}; cards ${unused.cards.join(", ") || "none"}.`
+	});
+}
+function renderOutlineForReview(o) {
+	const L = ["=== THE OUTLINE ==="];
+	for (const r of o.rooms) {
+		L.push(`${r.ref}: fiction ${r.fiction} | card ${r.card}`);
+		L.push(`  story: ${r.story}`, `  journey: ${r.journey}`, `  story feature: ${r.storyFeature}`);
+	}
+	L.push("Ways:", ...o.ways.map((w) => `  ${w.ref}: ${w.form}`));
+	L.push(`Objective: ${o.objective.type}, ${o.objective.form}${o.objective.person !== "none" ? ` (${o.objective.person} stands there)` : ""}`);
+	if (o.clues.length) L.push("Clues:", ...o.clues.map((c) => `  ${c.card} points at ${c.pointsAt}`));
+	L.push("Keys:", ...o.keys.map((k) => `  ${k.challenge} (${k.kind}, ${k.room}): ${k.key}. Got by: ${k.gotBy}`));
+	if (o.fictionChanges.length) L.push("Changes to the fiction:", ...o.fictionChanges.flatMap((c) => [`  ${c.field}${c.group !== "none" ? ` ${c.group}` : ""}: ${c.text}`, `    Why this change: ${c.why}`]));
+	return L.join("\n");
+}
+function renderPolishPrompt(draft, pass, outline) {
+	return [
+		fill(OUTLINE_POLISH_TEMPLATE, { maxEdits: String(8) }),
+		"",
+		"=== THE DUNGEON ===",
+		renderDungeon(draft, pass),
+		"",
+		"=== THE PLAYER'S GOAL ===",
+		renderGoal(pass),
+		"",
+		renderDraft(draft),
+		"",
+		renderOutlineForReview(outline)
+	].join("\n");
 }
 //#endregion
 //#region src/generation/floorplan/planarity.ts
@@ -11257,6 +11943,1130 @@ function generateValid(seed, params, maxAttempts = 500) {
 		};
 	}
 	throw new Error(`no valid graph for seed ${seed} in ${maxAttempts} attempts`);
+}
+//#endregion
+//#region src/generation/content/stock/steps.ts
+function buildAdjacency(rooms, edges) {
+	const adj = rooms.map(() => []);
+	for (const e of edges) {
+		adj[e.a].push(e.b);
+		adj[e.b].push(e.a);
+	}
+	return adj;
+}
+function bfsDepth(adj, from) {
+	const dist = new Array(adj.length).fill(-1);
+	dist[from] = 0;
+	const q = [from];
+	for (let i = 0; i < q.length; i++) {
+		const u = q[i];
+		for (const v of adj[u]) if (dist[v] === -1) {
+			dist[v] = dist[u] + 1;
+			q.push(v);
+		}
+	}
+	return dist;
+}
+function structuralPrePass(d, rng) {
+	const adj = buildAdjacency(d.rooms, d.edges);
+	const entrance = d.entrance;
+	const goal = d.goal;
+	const depth = bfsDepth(adj, entrance);
+	const maxDepth = Math.max(...depth);
+	const deadEnds = /* @__PURE__ */ new Set();
+	d.rooms.forEach((r, i) => {
+		if (adj[i].length <= 1 && i !== entrance) deadEnds.add(i);
+	});
+	let secret = null;
+	let secretDepth = -1;
+	for (const i of deadEnds) {
+		if (i === goal) continue;
+		if (depth[i] > secretDepth) {
+			secretDepth = depth[i];
+			secret = i;
+		}
+	}
+	return {
+		entrance,
+		depth,
+		maxDepth,
+		deadEnds,
+		goal,
+		secret,
+		adj
+	};
+}
+/**
+* Gate a share of connectors. Cairn distinguishes "hidden" from "conditional",
+* but they are the same mechanism wearing two hats: a connection that demands
+* something of the player before it can be used. So they share one budget.
+*
+* Cairn gives no number, so: between 1/6 and 1/4 of all connectors, spread
+* more or less evenly rather than clumped.
+*
+* Two structural guards. A room may never have ALL of its connectors gated --
+* that turns a gate into a wall -- with one deliberate exception: the secret
+* room, where being wholly behind a gate is the entire point. And the entrance
+* always keeps an open way in.
+*
+* And three about routes, because gates spread evenly can undo what the graph
+* checked: one gate on each of two routes is two routes on paper and one in
+* play.
+*
+*   - SHORTCUTS FIRST. A shortcut (`Edge.shortcut`, an ear with no rooms) is
+*     where a secret passage belongs: it bypasses something, and hiding it
+*     never cuts anything off, because its rooms already had a way round.
+*   - NEVER HIDDEN-ONLY. The goal is reachable without passing a hidden
+*     connector. Hidden is a reward for looking, never the price of finishing.
+*   - ROUTES DIFFER. Some route to the goal stays open, or the two shortest
+*     carry different kinds of gate. A draw that fails this is drawn again from
+*     the same stream; the last draw stands if none passes.
+*/
+function gateConnectors(d, s, rng) {
+	const routes = routesOf(d.rooms.length, d.edges, s.entrance, s.goal);
+	let drawn = drawGates(d, s, rng);
+	for (let i = 0; i < GATE_DRAWS && !routesDiffer(d, routes, drawn); i++) drawn = drawGates(d, s, rng);
+	return d.edges.map((e, i) => ({
+		id: e.entityId,
+		a: d.rooms[e.a].entityId,
+		b: d.rooms[e.b].entityId,
+		gated: drawn.gated[i],
+		hidden: drawn.hidden[i]
+	}));
+}
+/** How many times a gating that fails ROUTES DIFFER is drawn again. */
+var GATE_DRAWS = 20;
+function drawGates(d, s, rng) {
+	const E = d.edges.length;
+	const chosen = d.edges.map(() => false);
+	const lo = Math.ceil(E / 6);
+	const hi = Math.max(lo, Math.floor(E / 4));
+	const target = rng.range(lo, hi);
+	const incident = d.rooms.map(() => []);
+	d.edges.forEach((e, i) => {
+		incident[e.a].push(i);
+		incident[e.b].push(i);
+	});
+	const ungated = d.rooms.map((_r, i) => incident[i].length);
+	const gatedTouching = d.rooms.map(() => 0);
+	const canGate = (ei) => {
+		const e = d.edges[ei];
+		for (const v of [e.a, e.b]) {
+			if (v === s.secret) continue;
+			if (ungated[v] - 1 < 1) return false;
+		}
+		return true;
+	};
+	const take = (ei) => {
+		const e = d.edges[ei];
+		chosen[ei] = true;
+		ungated[e.a]--;
+		ungated[e.b]--;
+		gatedTouching[e.a]++;
+		gatedTouching[e.b]++;
+	};
+	let placed = 0;
+	for (let i = 0; i < E && placed < target; i++) {
+		if (!d.edges[i].shortcut || !canGate(i) || !rng.chance(.6)) continue;
+		take(i);
+		placed++;
+	}
+	while (placed < target) {
+		let bestIdx = -1;
+		let bestScore = Infinity;
+		for (let i = 0; i < E; i++) {
+			if (chosen[i]) continue;
+			if (!canGate(i)) continue;
+			const e = d.edges[i];
+			const touchesSecret = s.secret !== null && (e.a === s.secret || e.b === s.secret);
+			const score = gatedTouching[e.a] + gatedTouching[e.b] - (touchesSecret ? 5 : 0) + rng.next() * .5;
+			if (score < bestScore) {
+				bestScore = score;
+				bestIdx = i;
+			}
+		}
+		if (bestIdx === -1) break;
+		take(bestIdx);
+		placed++;
+	}
+	const hidden = d.edges.map(() => false);
+	const gated = [...chosen];
+	for (let i = 0; i < E; i++) {
+		if (!chosen[i]) continue;
+		const roll = rng.next();
+		if (d.edges[i].shortcut ? roll < .6 : roll < .25) {
+			hidden[i] = true;
+			gated[i] = false;
+		} else if (!d.edges[i].shortcut && roll < .35) hidden[i] = true;
+	}
+	for (let i = 0; i < E; i++) {
+		if (!hidden[i] || reachableWithoutHidden(d, hidden, s.entrance, s.goal)) continue;
+		hidden[i] = false;
+		gated[i] = true;
+	}
+	return {
+		gated,
+		hidden
+	};
+}
+function reachableWithoutHidden(d, hidden, from, to) {
+	const seen = /* @__PURE__ */ new Set([from]);
+	const q = [from];
+	for (let h = 0; h < q.length; h++) d.edges.forEach((e, i) => {
+		if (hidden[i]) return;
+		const next = e.a === q[h] ? e.b : e.b === q[h] ? e.a : -1;
+		if (next !== -1 && !seen.has(next)) {
+			seen.add(next);
+			q.push(next);
+		}
+	});
+	return seen.has(to);
+}
+/**
+* ROUTES DIFFER: some route to the goal passes no gate, or the two shortest
+* routes carry different kinds of gate. A route's connectors are the ones with
+* both rooms on it; a distinct route (`routesOf`) is a path, so that is exact.
+*/
+function routesDiffer(d, routes, g) {
+	const kindsOn = (route) => {
+		const kinds = /* @__PURE__ */ new Set();
+		d.edges.forEach((e, i) => {
+			if (!route.has(e.a) || !route.has(e.b)) return;
+			if (g.hidden[i]) kinds.add(g.gated[i] ? "hidden and blocked" : "hidden");
+			else if (g.gated[i]) kinds.add("blocked");
+		});
+		return [...kinds].sort().join(",");
+	};
+	const kinds = routes.map(kindsOn);
+	if (kinds.some((k) => k === "")) return true;
+	return kinds.length < 2 || kinds[0] !== kinds[1];
+}
+var BASE_MIX = {
+	creature: .34,
+	special: .33,
+	quiet: .33
+};
+function computeQuota(totalRooms, claimed, unclaimedCount) {
+	const pool = totalRooms - 1;
+	const target = {
+		creature: Math.round(pool * BASE_MIX.creature),
+		special: Math.round(pool * BASE_MIX.special),
+		quiet: Math.round(pool * BASE_MIX.quiet)
+	};
+	const remainder = {
+		creature: Math.max(0, target.creature - claimed.creature),
+		special: Math.max(0, target.special - claimed.special),
+		quiet: Math.max(0, target.quiet - claimed.quiet)
+	};
+	let sum = remainder.creature + remainder.special + remainder.quiet;
+	const order = [
+		"creature",
+		"special",
+		"quiet"
+	];
+	while (sum > unclaimedCount) {
+		const biggest = order.reduce((a, b) => remainder[a] >= remainder[b] ? a : b);
+		if (remainder[biggest] === 0) break;
+		remainder[biggest]--;
+		sum--;
+	}
+	while (sum < unclaimedCount) {
+		remainder.quiet++;
+		sum++;
+	}
+	return remainder;
+}
+function scoreDanger(room, mobiles, maxDepth) {
+	let d = 0;
+	switch (room.headline) {
+		case "creature":
+			d += .5;
+			break;
+		case "special":
+			d += room.special?.kind === "hazard" ? .45 : .2;
+			break;
+		case "quiet":
+			d += .05;
+			break;
+		case "none": return 0;
+	}
+	if (room.stacked === "special") d += .15;
+	if (room.stacked === "creature") d += .2;
+	const here = mobiles.filter((m) => m.locationRoomId === room.roomId);
+	for (const m of here) {
+		const tierBonus = m.tier === "Horde" ? .22 : m.tier === "Band" ? .15 : .1;
+		d += m.isBase ? tierBonus : tierBonus * .6;
+		if (m.disposition === "friendly") d -= .12;
+		if (m.disposition === "neutral") d -= .06;
+	}
+	const depthNorm = maxDepth ? room.depth / maxDepth : 0;
+	d += depthNorm * .35;
+	if (room.role === "goal") d += .25;
+	return Math.max(0, Math.min(1, d));
+}
+//#endregion
+//#region src/generation/content/stock/ids.ts
+/**
+* MOBILE IDS.
+*
+* Mobile ids are derived from the stocking seed and a counter that resets at
+* the top of every stockDungeon() call, so stocking the same seed twice in one
+* process yields the same ids. A bare module-level counter did not: the second
+* run continued from wherever the first stopped, which quietly broke
+* same-seed-twice assertions and any snapshot of a payload carrying mob refs.
+*/
+var mobilePrefix = "mob";
+var mobileCounter = 0;
+function resetMobileIds(seed) {
+	mobilePrefix = `mob_${(seed >>> 0).toString(36)}`;
+	mobileCounter = 0;
+}
+function mobileId() {
+	return `${mobilePrefix}_${(++mobileCounter).toString(36)}`;
+}
+//#endregion
+//#region src/generation/content/stock/tables.ts
+/**
+* THE TABLES ONLY STOCKING ROLLS ON, and the cascade roller over them.
+*
+* This roller is separate from the Maze Rats one in `rules/maze-rats/tables.ts`
+* because its cascade map names a different set of tables. Merging the two is
+* a change to what gets rolled, so it waits for a session that can show the
+* generation snapshots are unchanged.
+*/
+var t = (s) => s.split("|");
+var DUNGEON_ACTIVITIES = t("Besiege|Capture|City Activity|Collect|Construct|Control|Deliver|Demolish|Escape|Feed|Fortify|Guard|Hide|Hunt|Loot|Map|Mine|{Monster} Tactic|Negotiate|Patrol|Perform ritual|Purge|Question|Raid|Repair|Rescue|Research|Revive|Riddle|Scavenge|Seize|Tunnel|Unearth|Vandalize|Wild. Activity|Worship");
+var CAIRN_SPECIAL = t("Books|Bridge|Contraption|Creature|Door|Flames|Furniture|Hole|Liquid|Mirror|Mural|Pool|Shadows|Smoke|Statue|Surface|Treasure|Voices|Wheel|Writing");
+var CAIRN_FEATURE = t("Ages|Alarms|Animates|Attracts|Charges|Closes|Falls|Glows|Grows|Illusion|Levitates|Locks|Opens|Reflects|Repels|Reveals|Shifts|Silences|Teleport|Transforms");
+var CAIRN_CLUE = t("Decay|Decor|Draft|Echoes|Footprints|Leavings|Light|Markings|Moisture|Noise|Paraphernalia|Residue|Scurrying|Signs|Smell|Stains|Tapping|Temperature|Vibrations|Writing");
+var CASCADE_TABLES = {
+	"Building Room": BUILDING_ROOMS,
+	"Dungeon Room": DUNGEON_ROOMS,
+	"L. Cl. Building": LOWER_CLASS_BUILDINGS,
+	"U. Cl. Building": UPPER_CLASS_BUILDINGS,
+	"Treasure Item": TREASURE_ITEMS,
+	"Val. Material": VALUABLE_MATERIALS,
+	"Weapon Item": WEAPON_ITEMS
+};
+/** Entity cascades emit a stub for the LLM instead of recursing. */
+var ENTITY_CASCADES = /* @__PURE__ */ new Set([
+	"Monster",
+	"NPC",
+	"faction",
+	"monster"
+]);
+var MAX_CASCADE_DEPTH = 2;
+function resolveCascades(entry, rng, depth = 0) {
+	return entry.replace(/\{([^}]+)\}/g, (_m, key) => {
+		if (ENTITY_CASCADES.has(key)) return key;
+		const table = CASCADE_TABLES[key];
+		if (!table || depth >= MAX_CASCADE_DEPTH) return key;
+		return resolveCascades(rng.pick(table), rng, depth + 1);
+	});
+}
+function roll(table, rng) {
+	return resolveCascades(rng.pick(table), rng);
+}
+//#endregion
+//#region src/generation/content/stock/creatures.ts
+/**
+* STOCKING'S CREATURES: each inhabitant group as a mobile, its minions, the
+* wanderers, and how each is disposed toward the player.
+*/
+/**
+* A Creature entity is a STACK, not an individual: a statblock template, a
+* count, and a location. Any group of creatures sharing a room and a statline
+* is one entity. It splits when part of the group is sent elsewhere and merges
+* back when they reunite, so entity identity is not stable over play.
+*
+* DEFERRED -- counts and split/merge live in `state` for now rather than being
+* modelled here. Two things to pick up if that stops being good enough:
+*   - merging needs a stable key (same template + same room), so templates want
+*     an id rather than being compared structurally
+*   - a split produces a new entity that shares its parent's immutable `base`
+*     while diverging in `state`; base is template-level, state is stack-level
+*
+* The blueprint already carries the template split this implies: people Hordes
+* get one named leader plus `undefinedUnderlings`, monster Hordes get `monster`
+* (simple minions) alongside `biggerSpecimen` (same silhouette, higher tier).
+* Named NPCs are just count-1 stacks whose stats happen to be unique, so they
+* never merge with anything.
+*/
+function groupLabel(g, gi) {
+	return g.kind === "monsters" ? `Group ${gi + 1} (${g.tier} ${g.monster.silhouette} monsters)` : `Group ${gi + 1} (${g.tier} ${g.faction})`;
+}
+function makeGroupMobile(group, gi, roomId, isBase, rng) {
+	const m = {
+		id: mobileId(),
+		kind: "group-member",
+		name: `${groupLabel(group, gi)}${isBase ? " -- BASE" : " -- outpost"}`,
+		locationRoomId: roomId,
+		groupIndex: gi,
+		groupId: group.id,
+		isBase,
+		tier: group.tier
+	};
+	if (group.kind === "monsters") m.monster = group.monster;
+	return m;
+}
+/**
+* Downgrade a Solo's statline to something a satellite can carry: same creature,
+* fewer moving parts. Matches what genMonster would have produced at "simple"
+* (one trait/ability line, one feature/mutation line).
+*
+* The weakness is deliberately INHERITED rather than trimmed. Young share the
+* parent's flaw, so a party that fights the brood can learn how to kill the
+* thing that spawned it -- which is the same cross-link the knowledge parcels
+* lean on, arrived at from the other direction.
+*/
+function downgradeToSimple(m) {
+	return {
+		...m,
+		complexity: "simple",
+		traitsAndAbilities: m.traitsAndAbilities.slice(0, 1),
+		featuresAndMutations: m.featuresAndMutations.slice(0, 1),
+		weaknesses: m.weaknesses.slice(0, 1)
+	};
+}
+/**
+* A Solo is one creature and cannot literally appear twice, but it can have a
+* minions. For people, that is a handful of hirelings under their command. For
+* monsters, a knot of simple creatures related to it by blood, thrall, or
+* ecology.
+*/
+function makeMinion(group, gi, roomId, rng) {
+	const base = {
+		id: mobileId(),
+		kind: "group-member",
+		name: "",
+		locationRoomId: roomId,
+		groupIndex: gi,
+		groupId: group.id,
+		isBase: false,
+		tier: group.tier
+	};
+	if (group.kind === "people") return {
+		...base,
+		name: `${groupLabel(group, gi)} -- hirelings`,
+		minion: "hirelings",
+		notes: "A handful of hired hands under the Solo's command. Undefined as individuals unless one of them earns a name in play."
+	};
+	const kind = rng.pick([
+		"young",
+		"thrall",
+		"ecology"
+	]);
+	if (kind === "young") return {
+		...base,
+		name: `${groupLabel(group, gi)} -- young`,
+		minion: "young",
+		monster: downgradeToSimple(group.monster),
+		notes: "The Solo's brood. Same creature, scaled down; shares its weakness."
+	};
+	if (kind === "thrall") return {
+		...base,
+		name: `${groupLabel(group, gi)} -- thralls`,
+		minion: "thrall",
+		monster: genMonster("simple", rng),
+		notes: "Simple creatures held under the Solo's control, not its kin."
+	};
+	return {
+		...base,
+		name: `${groupLabel(group, gi)} -- attendant creatures`,
+		minion: "ecology",
+		monster: genMonster("simple", rng),
+		notes: "Tied to the Solo by ecology rather than obedience or blood. Composition pass establishes the relationship (prey, scavenger, symbiote, parasite...)."
+	};
+}
+/**
+* Spend one unit of Creature budget. With probability `cohesion` the encounter
+* belongs to the roster; otherwise it is unaffiliated. Cohesion is rolled once
+* per dungeon, so some dungeons read as tightly populated by their inhabitants
+* and others as a menagerie of unrelated things -- which is its own valid vibe,
+* not a failure mode.
+*
+* Solos now participate, but through minions rather than by duplicating
+* themselves, and they weight lower than Bands and Hordes so they still mostly
+* stay home.
+*/
+function makeMinionOrWanderer(bp, roomId, cohesion, wandererGroups, rng) {
+	const eligible = bp.inhabitants.map((g, gi) => ({
+		g,
+		gi
+	}));
+	if (eligible.length && rng.chance(cohesion)) {
+		const weights = eligible.map(({ g }) => g.tier === "Horde" ? 3 : g.tier === "Band" ? 1.5 : .6);
+		const total = weights.reduce((a, b) => a + b, 0);
+		let x = rng.next() * total;
+		let k = 0;
+		for (; k < eligible.length; k++) {
+			x -= weights[k];
+			if (x <= 0) break;
+		}
+		if (k >= eligible.length) k = eligible.length - 1;
+		const { g, gi } = eligible[k];
+		return g.tier === "Solo" ? makeMinion(g, gi, roomId, rng) : makeGroupMobile(g, gi, roomId, false, rng);
+	}
+	const tier = rng.pick([
+		"Solo",
+		"Band",
+		"Horde"
+	]);
+	if (rng.chance(.5)) {
+		const group = genMonsterGroup(tier, rng);
+		wandererGroups.push(group);
+		return {
+			id: mobileId(),
+			kind: "wanderer-monster",
+			name: "Unaffiliated creature",
+			locationRoomId: roomId,
+			tier,
+			groupId: group.id,
+			monster: group.monster
+		};
+	}
+	const group = genPeopleGroup(tier, rng, "wanderer");
+	wandererGroups.push(group);
+	return {
+		id: mobileId(),
+		kind: "wanderer-npc",
+		name: "Unaffiliated person",
+		locationRoomId: roomId,
+		tier,
+		groupId: group.id,
+		npc: group.npcs[0]
+	};
+}
+/**
+* Disposition is a property of the encounter, not of the category. Inhabitants
+* are usually hostile but genuinely need not be -- a faction whose goal aligns
+* with the party's has obvious reason to parley.
+*/
+function rollDisposition(bp, m, rng) {
+	if (m.groupIndex !== void 0) {
+		const g = bp.inhabitants[m.groupIndex];
+		if (g.kind === "people") {
+			if (g.goalBranch === "opposed") return rng.chance(.85) ? "hostile" : "neutral";
+			if (g.goalBranch === "same") {
+				const r = rng.next();
+				return r < .45 ? "hostile" : r < .8 ? "neutral" : "friendly";
+			}
+			const r = rng.next();
+			return r < .55 ? "hostile" : r < .85 ? "neutral" : "friendly";
+		}
+		return rng.chance(.8) ? "hostile" : "neutral";
+	}
+	const r = rng.next();
+	return r < .6 ? "hostile" : r < .88 ? "neutral" : "friendly";
+}
+function rollSpecial(rng) {
+	if (rng.coin()) {
+		if (rng.coin()) return {
+			kind: "hazard",
+			hazard: roll(DUNGEON_HAZARDS, rng)
+		};
+		return {
+			kind: "hazard",
+			trapTrigger: roll(TRAP_TRIGGERS, rng),
+			trapEffect: roll(TRAP_EFFECTS, rng)
+		};
+	}
+	const useTrick = rng.chance(.4);
+	return {
+		kind: "obstacle",
+		subject: roll(CAIRN_SPECIAL, rng),
+		behaviour: useTrick ? roll(DUNGEON_TRICKS, rng) : roll(CAIRN_FEATURE, rng),
+		behaviourSource: useTrick ? "mr-trick" : "cairn-feature"
+	};
+}
+//#endregion
+//#region src/generation/content/stock/stock.ts
+/**
+* Pick the rooms that are passages rather than places.
+*
+* Count is N-1 / N / N+1 at 25 / 50 / 25 where N is a sixth of the rooms,
+* rounded. Six rooms or fewer is a coin flip between 0 and 1.
+*
+* Eligibility is **degree >= 2** and nothing else. A corridor connects
+* somewhere, so dead ends are out; the entrance and the goal room are never one.
+* In a small dungeon the shallow band below holds only the entrance, so without
+* that rule the entrance was nearly every corridor. Dropping every
+* further degree preference removes the degenerate case -- a graph whose
+* rooms all have three ways has no degree-2 rooms at all, which under
+* "exactly 2" would yield none and under ">= 2" yields all of them.
+*
+* Two corridors are never adjacent: that is one hallway with a pointless door
+* in it. Picks are spread across **depth** bands, because corridors are about
+* rhythm along the path inward.
+*/
+function designateCorridors(rooms, s, rng) {
+	const target = rooms.length <= 6 ? rng.coin() ? 1 : 0 : Math.max(0, Math.round(rooms.length / 6) + rng.pick([
+		-1,
+		0,
+		0,
+		1
+	]));
+	if (target === 0) return;
+	const BANDS = 3;
+	const bandOf = (r) => s.maxDepth > 0 ? Math.min(2, Math.floor(r.depth / s.maxDepth * BANDS)) : 0;
+	const byIndex = new Map(rooms.map((r) => [r.index, r]));
+	const pools = Array.from({ length: BANDS }, () => []);
+	for (const r of rooms) {
+		if (r.degree < 2 || r.role !== "normal") continue;
+		pools[bandOf(r)].push(r);
+	}
+	const taken = new Array(BANDS).fill(0);
+	for (let n = 0; n < target; n++) {
+		let band = -1;
+		for (let b = 0; b < BANDS; b++) {
+			if (!pools[b].some(free)) continue;
+			if (band < 0 || taken[b] < taken[band]) band = b;
+		}
+		if (band < 0) return;
+		const choice = rng.pick(pools[band].filter(free));
+		choice.isCorridor = true;
+		taken[band]++;
+	}
+	function free(r) {
+		return !r.isCorridor && !s.adj[r.index].some((n) => byIndex.get(n)?.isCorridor);
+	}
+}
+//#endregion
+//#region src/generation/content/passes/outline/roll.ts
+/** Tries before a roll gives up on suiting a size, as in `stockDungeon`. */
+var ROLL_TRIES = 12;
+/** Rerolls of the mandatory set before generation fails, which no measured seed needs. */
+var MANDATORY_TRIES = 50;
+/**
+* Keys to plan, by dungeon size. Generous: what the goal needs is a key too, and the
+* player has to engage with the world to get each one.
+*/
+var KEY_RANGE = {
+	small: [1, 6],
+	larger: [2, 8]
+};
+/**
+* The room an origin cannot be itself without: a theater with no theater in it is not
+* a theater. Rolled fictions gave none of the three measured dungeons one. Where there
+* are several, any of them will do.
+*
+* MOST ORIGINS ARE NOT HERE, ON PURPOSE. A hideout needs nothing to be a hideout, and
+* nearly anything rolled works in a prison. Keyed on the rolled result, so a Theater
+* reached through the building tables gets one too.
+*/
+var ORIGIN_ROOMS = {
+	Arena: ["Fighting pit"],
+	Asylum: ["Prison", "Physician"],
+	Aviary: ["Aviary"],
+	Bank: ["Vault"],
+	Baths: ["Baths"],
+	Casino: ["Gambling hall"],
+	Court: ["Courthouse"],
+	Forge: ["Forge"],
+	Hotel: ["Bed chamber"],
+	Laboratory: ["Laboratory"],
+	Library: ["Library"],
+	Market: ["Marketplace"],
+	Mine: ["Mine shaft"],
+	Monastery: ["Chapel"],
+	Museum: ["Museum"],
+	Palace: ["Throne room"],
+	Ship: ["Bridge"],
+	Temple: ["Temple"],
+	Theater: ["Theater"],
+	University: ["Classroom", "Library"],
+	Vault: ["Vault"],
+	Zoo: ["Zoo"]
+};
+/** Can every mandatory fiction have a room of its own? A plain bipartite matching. */
+function mandatoryFit(mandatory, rooms) {
+	const chambers = rooms.filter((r) => !r.passage);
+	const owner = /* @__PURE__ */ new Map();
+	const place = (f, seen) => {
+		for (const r of chambers) {
+			if (seen.has(r.ref)) continue;
+			if (r.sizeClass && !mandatory[f].fits.includes(r.sizeClass)) continue;
+			seen.add(r.ref);
+			const held = owner.get(r.ref);
+			if (held === void 0 || place(held, seen)) {
+				owner.set(r.ref, f);
+				return true;
+			}
+		}
+		return false;
+	};
+	return mandatory.every((_, f) => place(f, /* @__PURE__ */ new Set()));
+}
+function rollFiction(ref, sizes, rng, mandatory) {
+	const suits = (id) => sizes.size === 0 || [...sizes].some((c) => sizeAllows(id, c));
+	let identity = roll(DUNGEON_ROOMS, rng);
+	for (let t = 0; t < ROLL_TRIES && !suits(identity); t++) identity = roll(DUNGEON_ROOMS, rng);
+	return {
+		ref,
+		identity,
+		...rng.chance(.5) ? { detail: roll(DUNGEON_ROOM_DETAILS, rng) } : {},
+		fits: CLASSES.filter((c) => sizeAllows(identity, c)),
+		mandatory
+	};
+}
+/**
+* The origin's own room, if it has one. It takes the first mandatory slot, so the
+* number of fictions does not change.
+*
+* What it is matters more than how big it is: where no chamber is big enough for a
+* Theater, the dungeon gets a cramped one, not none.
+*/
+function signatureFiction(form, sizes, rng) {
+	const options = ORIGIN_ROOMS[form];
+	if (!options) return void 0;
+	const identity = rng.pick(options);
+	const fits = CLASSES.filter((c) => sizeAllows(identity, c));
+	const suits = sizes.size === 0 || fits.some((c) => sizes.has(c));
+	return {
+		ref: "F1",
+		identity,
+		...rng.chance(.5) ? { detail: roll(DUNGEON_ROOM_DETAILS, rng) } : {},
+		fits: suits ? fits : [...CLASSES],
+		mandatory: true,
+		signature: true
+	};
+}
+function rollOutline(dungeon, blueprint, opts) {
+	const rng = new Rng(opts.seed);
+	resetMobileIds(opts.seed);
+	const cohesion = .55 + rng.next() * .35;
+	const s = structuralPrePass(dungeon, rng);
+	const connectors = gateConnectors(dungeon, s, rng);
+	const stock = dungeon.rooms.map((r, i) => ({
+		roomId: r.entityId,
+		index: i,
+		role: i === s.entrance ? "entrance" : i === s.goal ? "goal" : "normal",
+		headline: "quiet",
+		claimed: false,
+		isCorridor: false,
+		identity: "",
+		depth: s.depth[i],
+		degree: s.adj[i].length,
+		isDeadEnd: s.deadEnds.has(i),
+		danger: 0,
+		occupants: [],
+		rewards: []
+	}));
+	designateCorridors(stock, s, rng);
+	const sizes = opts.layout?.(stock);
+	stock.forEach((r, i) => {
+		const size = sizes?.[i];
+		if (size) r.sizeClass = size;
+	});
+	const refOf = (i) => `room_${i}`;
+	const refById = new Map(stock.map((r) => [r.roomId, refOf(r.index)]));
+	const ways = connectors.map((c, i) => ({
+		ref: `W${i + 1}`,
+		connector: c,
+		a: refById.get(c.a),
+		b: refById.get(c.b)
+	}));
+	const rooms = stock.map((r) => {
+		const ref = refOf(r.index);
+		return {
+			ref,
+			index: r.index,
+			roomId: r.roomId,
+			role: r.role,
+			passage: r.isCorridor,
+			...r.sizeClass ? { sizeClass: r.sizeClass } : {},
+			depth: r.depth,
+			degree: r.degree,
+			isDeadEnd: r.isDeadEnd,
+			...r.isCorridor ? { identity: roll(DUNGEON_CORRIDORS, rng) } : {},
+			...r.isCorridor && rng.chance(.5) ? { detail: roll(DUNGEON_ROOM_DETAILS, rng) } : {},
+			...r.role === "entrance" ? { entranceFeature: roll(DUNGEON_ENTRANCES, rng) } : {},
+			ways: ways.filter((w) => w.a === ref || w.b === ref).map((w) => w.ref)
+		};
+	});
+	const chambers = rooms.filter((r) => !r.passage);
+	const chamberSizes = new Set(chambers.flatMap((r) => r.sizeClass ? [r.sizeClass] : []));
+	const wanted = Math.ceil(1.5 * chambers.length);
+	const mandatoryCount = Math.min(Math.ceil(rooms.length / 3), chambers.length);
+	const signature = signatureFiction(blueprint.purpose.form, chamberSizes, rng);
+	let mandatory = [];
+	for (let t = 0;; t++) {
+		mandatory = Array.from({ length: mandatoryCount }, (_, i) => i === 0 && signature ? signature : rollFiction(`F${i + 1}`, chamberSizes, rng, true));
+		if (mandatoryFit(mandatory, rooms)) break;
+		if (t >= MANDATORY_TRIES) throw new Error("no set of mandatory fictions fits this dungeon's rooms");
+	}
+	const fictions = [...mandatory, ...Array.from({ length: wanted - mandatoryCount }, (_, i) => rollFiction(`F${mandatoryCount + i + 1}`, chamberSizes, rng, false))];
+	const bases = blueprint.inhabitants.length;
+	const open = Math.max(0, rooms.length - 2 - bases);
+	const quota = computeQuota(rooms.length, {
+		creature: bases,
+		special: 1,
+		quiet: 0
+	}, open);
+	const cards = [];
+	const add = (card) => {
+		const ref = `C${cards.length + 1}`;
+		if (card.mobile) card.mobile.locationRoomId = ref;
+		cards.push({
+			ref,
+			...card
+		});
+	};
+	const wandererGroups = [];
+	blueprint.inhabitants.forEach((g, gi) => {
+		add({
+			headline: "creature",
+			mobile: makeGroupMobile(g, gi, "", true, rng)
+		});
+	});
+	for (let i = 0; i < quota.creature; i++) add({
+		headline: "creature",
+		mobile: makeMinionOrWanderer(blueprint, "", cohesion, wandererGroups, rng)
+	});
+	for (const c of cards) {
+		const m = c.mobile;
+		if (!m.activity) m.activity = roll(DUNGEON_ACTIVITIES, rng);
+		if (!m.disposition) m.disposition = rollDisposition(blueprint, m, rng);
+	}
+	for (let i = 0; i < quota.special; i++) add({
+		headline: "special",
+		special: rollSpecial(rng)
+	});
+	for (let i = 0; i < quota.quiet; i++) add({
+		headline: "quiet",
+		...rng.chance(.5) ? { clue: roll(CAIRN_CLUE, rng) } : {}
+	});
+	const goal = stock[s.goal];
+	const asRoom = (c) => ({
+		...goal,
+		roomId: c.ref,
+		role: "normal",
+		...c.special ? { special: c.special } : {}
+	});
+	const raised = enumerateChallenges({
+		rooms: [...stock.map((r) => r.index === s.goal ? {
+			...r,
+			goalDirective: {
+				reward: "the objective",
+				mission: "",
+				instruction: ""
+			}
+		} : r), ...cards.filter((c) => c.special).map(asRoom)],
+		mobiles: cards.flatMap((c) => c.mobile ? [c.mobile] : []),
+		connectors,
+		goalRoomId: goal.roomId
+	});
+	const cardRefs = new Set(cards.map((c) => c.ref));
+	const challenges = raised.map((challenge, i) => ({
+		ref: `K${i + 1}`,
+		challenge,
+		...cardRefs.has(challenge.roomId) ? { card: challenge.roomId } : {}
+	}));
+	return {
+		blueprint,
+		rooms,
+		ways,
+		routes: routesOf(rooms.length, dungeon.edges, s.entrance, s.goal).map((route) => [...route].sort((a, b) => s.depth[a] - s.depth[b]).map(refOf)),
+		fictions,
+		cards,
+		wandererGroups,
+		challenges,
+		entrance: refOf(s.entrance),
+		goalRoom: refOf(s.goal),
+		keyRange: rooms.length <= 6 ? KEY_RANGE.small : KEY_RANGE.larger,
+		cohesion
+	};
+}
+//#endregion
+//#region src/generation/content/passes/outline/run.ts
+/**
+* THE OUTLINE'S MODEL CALLS: write one, with narrow repair, then review it.
+*
+* A polish that fails is thrown away whole and the draft stands, so a bad review
+* can't cost a dungeon. A draft that can't be repaired fails the generation, because
+* a pass never produces partial content.
+*/
+async function writeOutline(draft, pass, opts = {}) {
+	let latest;
+	const { value, usage, attempts } = await callForJson({
+		task: "outline",
+		schema: outlineSchema,
+		toolName: "write_outline",
+		toolDescription: "Record the plan for this dungeon: what goes in each room, and why.",
+		messages: [{
+			role: "user",
+			content: renderOutlinePrompt(draft, pass)
+		}],
+		...opts.model ? { model: opts.model } : {},
+		...opts.signal ? { signal: opts.signal } : {},
+		...opts.onAttemptFailed ? { onAttemptFailed: opts.onAttemptFailed } : {},
+		check: (o) => {
+			latest = o;
+			return [
+				...outlineViolations(draft, o),
+				...refLeaks(o),
+				...fictionShrinks(draft, pass, o)
+			];
+		},
+		repair: {
+			ask: (missing) => renderOutlineRepair(draft, latest, missing),
+			merge: (whole, patch) => withoutStrays(draft, mergeOutline(whole, patch))
+		}
+	});
+	return {
+		outline: value,
+		usage,
+		attempts
+	};
+}
+async function polishOutline(draft, pass, outline, opts = {}) {
+	const { value, usage } = await callForJson({
+		task: "outline-polish",
+		schema: polishSchema,
+		toolName: "propose_edits",
+		toolDescription: "List the fixes and improvements for this outline.",
+		messages: [{
+			role: "user",
+			content: renderPolishPrompt(draft, pass, outline)
+		}],
+		...opts.model ? { model: opts.model } : {},
+		...opts.signal ? { signal: opts.signal } : {},
+		...opts.onAttemptFailed ? { onAttemptFailed: opts.onAttemptFailed } : {},
+		check: (p) => polishIssues(outline, p)
+	});
+	const proposed = value.edits;
+	const applied = applyPolish(outline, proposed);
+	if (!applied) return {
+		outline,
+		proposed,
+		kept: false,
+		rolledBack: "an edit named something that does not exist",
+		usage
+	};
+	const violations = [...outlineViolations(draft, applied), ...fictionShrinks(draft, pass, applied)];
+	if (violations.length > 0) return {
+		outline,
+		proposed,
+		kept: false,
+		rolledBack: violations.map((v) => v.message).join("; "),
+		usage
+	};
+	return {
+		outline: applied,
+		proposed,
+		kept: proposed.length > 0,
+		usage
+	};
+}
+//#endregion
+//#region src/generation/content/passes/outline/settle.ts
+/**
+* FROM A PLAN TO A STOCKED DUNGEON.
+*
+* `rollOutline` rolled the dice and the model decided where each thing goes. This
+* builds what the rest of generation reads from those decisions. It does the job of
+* `stockDungeon` from step 4 on: stacking, danger, challenges and rewards still run
+* here, on the rooms as the outline assigned them.
+*
+* Pure and seeded. The caller saves the result once, because the entities built from
+* it have random ids that later steps address.
+*/
+/** Keeps this stream apart from the one that rolled the draft from the same seed. */
+var SETTLE_STREAM = 104729;
+var GOAL_INSTRUCTION = "Write the objective the outline decided on. It must be a thing the party can act on, and reaching or resolving it must plausibly satisfy the mission.";
+var named = (v) => v && v !== "none" ? v : void 0;
+function settleOutline(draft, outline, opts) {
+	const rng = new Rng(opts.seed + SETTLE_STREAM);
+	const answer = new Map(outline.rooms.map((r) => [r.ref, r]));
+	const fictionOf = new Map(draft.fictions.map((f) => [f.ref, f]));
+	const cardOf = new Map(draft.cards.map((c) => [c.ref, c]));
+	const roomIdOf = new Map(draft.rooms.map((r) => [r.ref, r.roomId]));
+	const roomOfCard = new Map(outline.rooms.flatMap((r) => named(r.card) ? [[r.card, r.ref]] : []));
+	const person = named(outline.objective.person);
+	const objective = {
+		type: outline.objective.type,
+		form: outline.objective.form,
+		...person ? { person } : {}
+	};
+	const mobiles = [];
+	const rooms = draft.rooms.map((r) => {
+		const a = answer.get(r.ref);
+		const fiction = a ? fictionOf.get(a.fiction) : void 0;
+		const card = a && named(a.card) ? cardOf.get(a.card) : void 0;
+		const detail = r.detail ?? fiction?.detail;
+		const storyFeature = a ? named(a.storyFeature) : void 0;
+		const headline = r.role === "entrance" ? "none" : card?.headline ?? (r.role === "goal" ? "special" : "quiet");
+		const occupants = [];
+		if (card?.mobile) {
+			const m = {
+				...card.mobile,
+				locationRoomId: r.roomId
+			};
+			mobiles.push(m);
+			occupants.push(m.id);
+		}
+		return {
+			roomId: r.roomId,
+			index: r.index,
+			role: r.role,
+			headline,
+			claimed: r.role !== "normal" || !!card?.mobile?.isBase,
+			isCorridor: r.passage,
+			...r.sizeClass ? { sizeClass: r.sizeClass } : {},
+			identity: r.identity ?? fiction?.identity ?? "",
+			...detail ? { detail } : {},
+			...r.entranceFeature ? { entranceFeature: r.entranceFeature } : {},
+			depth: r.depth,
+			degree: r.degree,
+			isDeadEnd: r.isDeadEnd,
+			danger: 0,
+			...card?.special ? { special: card.special } : {},
+			rewards: [],
+			occupants,
+			...r.role === "goal" ? { goalDirective: {
+				reward: draft.blueprint.goalSeed.reward,
+				mission: draft.blueprint.goalSeed.mission,
+				instruction: GOAL_INSTRUCTION,
+				objective
+			} } : {},
+			...a ? {
+				story: a.story,
+				journey: a.journey
+			} : {},
+			...storyFeature ? { storyFeature } : {}
+		};
+	});
+	const byRef = (ref) => rooms[draft.rooms.findIndex((r) => r.ref === ref)];
+	const entrance = byRef(draft.entrance);
+	const goal = byRef(draft.goalRoom);
+	const maxDepth = Math.max(0, ...draft.rooms.map((r) => r.depth));
+	const formOf = new Map(outline.ways.map((w) => [w.ref, w.form]));
+	const connectors = draft.ways.map((w) => {
+		const form = formOf.get(w.ref);
+		return {
+			...w.connector,
+			...form ? { form } : {}
+		};
+	});
+	const gatedRooms = new Set(connectors.filter((c) => c.gated).flatMap((c) => [c.a, c.b]));
+	const pointsAt = new Map(outline.clues.map((c) => [c.card, c.pointsAt]));
+	for (const r of draft.rooms) {
+		const a = answer.get(r.ref);
+		const card = a && named(a.card) ? cardOf.get(a.card) : void 0;
+		if (!card?.clue) continue;
+		const at = pointsAt.get(card.ref) ?? "objective";
+		const targetRef = at === "objective" ? draft.goalRoom : roomIdOf.has(at) ? at : roomOfCard.get(at);
+		const target = targetRef ? byRef(targetRef) : void 0;
+		const occupant = target?.occupants[0];
+		const clue = {
+			keyword: card.clue,
+			about: at === "objective" || target?.role === "goal" ? "the objective" : target?.special?.kind === "hazard" ? "a hazard in another room" : occupant ? "creatures in another room" : target && gatedRooms.has(target.roomId) ? "a way that is not obvious" : "another room",
+			...target ? { targetRoomId: target.roomId } : {},
+			...occupant ? { targetMobileId: occupant } : {}
+		};
+		byRef(r.ref).clue = clue;
+	}
+	const stackCap = rooms.length >= 18 ? 2 : 1;
+	let stacked = 0;
+	for (const r of rooms) {
+		if (stacked >= stackCap) break;
+		if (r.role === "entrance" || r.special) continue;
+		if ((maxDepth ? r.depth / maxDepth : 0) < .6) continue;
+		if (r.headline === "creature" && rng.chance(.3)) {
+			r.stacked = "special";
+			r.special = rollSpecial(rng);
+			stacked++;
+		}
+	}
+	for (const r of rooms) r.danger = scoreDanger(r, mobiles, maxDepth);
+	const challenges = enumerateChallenges({
+		rooms,
+		mobiles,
+		connectors,
+		goalRoomId: goal.roomId
+	});
+	const plannedKeys = [];
+	outline.keys.forEach((k, i) => {
+		const roomId = roomIdOf.get(k.room);
+		if (!roomId) return;
+		const plan = {
+			kind: k.kind,
+			key: k.key,
+			gotBy: k.gotBy
+		};
+		if (k.challenge === "goal") {
+			const c = {
+				id: `ch:goal-property:planned:${i}`,
+				kind: "goal-property",
+				target: "room",
+				targetId: goal.roomId,
+				roomId: goal.roomId,
+				property: k.key
+			};
+			challenges.push(c);
+			plannedKeys.push({
+				challengeId: c.id,
+				roomId,
+				plan
+			});
+			return;
+		}
+		const drafted = draft.challenges.find((c) => c.ref === k.challenge);
+		const settled = drafted && settledChallenge(drafted.challenge, drafted.card, challenges, (card) => {
+			const ref = roomOfCard.get(card);
+			return ref ? roomIdOf.get(ref) : void 0;
+		});
+		if (settled) plannedKeys.push({
+			challengeId: settled.id,
+			roomId,
+			plan
+		});
+	});
+	const placement = placeRewards({
+		rooms,
+		connectors,
+		mobiles,
+		entranceRoomId: entrance.roomId,
+		goalRoomId: goal.roomId,
+		challenges,
+		maxDepth,
+		rng,
+		plannedKeys
+	});
+	const count = (h) => rooms.filter((r) => r.headline === h).length;
+	return {
+		seed: opts.seed,
+		size: draft.blueprint.size,
+		level: opts.level,
+		entranceRoomId: entrance.roomId,
+		goalRoomId: goal.roomId,
+		maxDepth,
+		rooms,
+		mobiles,
+		wandererGroups: draft.wandererGroups,
+		connectors,
+		cohesion: draft.cohesion,
+		quota: {
+			creature: count("creature"),
+			special: count("special"),
+			quiet: count("quiet"),
+			none: count("none")
+		},
+		challenges,
+		reserve: placement.reserve,
+		pot: placement.pot,
+		rewardBudget: placement.stats
+	};
+}
+/**
+* The drafted challenge as it stands now the rooms are real. A hazard or obstacle was
+* enumerated against its card, so its target is whichever room that card went to.
+* Everything else names a mobile or a connector, which keep their ids.
+*/
+function settledChallenge(drafted, card, settled, roomOfCard) {
+	if (drafted.kind === "goal-location") return settled.find((c) => c.kind === "goal-location");
+	const targetId = card && drafted.target === "room" ? roomOfCard(card) : drafted.targetId;
+	return settled.find((c) => c.kind === drafted.kind && c.targetId === targetId && c.property === drafted.property);
 }
 //#endregion
 //#region src/generation/floorplan/blockplan.ts
@@ -12085,831 +13895,6 @@ function blockPlanValid(graph, isCorridor, seed, attempts = 100) {
 function roomSizes(rooms) {
 	return rooms.map((cells) => classOf(cells.length));
 }
-//#endregion
-//#region src/generation/content/stock/steps.ts
-function buildAdjacency(rooms, edges) {
-	const adj = rooms.map(() => []);
-	for (const e of edges) {
-		adj[e.a].push(e.b);
-		adj[e.b].push(e.a);
-	}
-	return adj;
-}
-function bfsDepth(adj, from) {
-	const dist = new Array(adj.length).fill(-1);
-	dist[from] = 0;
-	const q = [from];
-	for (let i = 0; i < q.length; i++) {
-		const u = q[i];
-		for (const v of adj[u]) if (dist[v] === -1) {
-			dist[v] = dist[u] + 1;
-			q.push(v);
-		}
-	}
-	return dist;
-}
-function structuralPrePass(d, rng) {
-	const adj = buildAdjacency(d.rooms, d.edges);
-	const entrance = d.entrance;
-	const goal = d.goal;
-	const depth = bfsDepth(adj, entrance);
-	const maxDepth = Math.max(...depth);
-	const deadEnds = /* @__PURE__ */ new Set();
-	d.rooms.forEach((r, i) => {
-		if (adj[i].length <= 1 && i !== entrance) deadEnds.add(i);
-	});
-	let secret = null;
-	let secretDepth = -1;
-	for (const i of deadEnds) {
-		if (i === goal) continue;
-		if (depth[i] > secretDepth) {
-			secretDepth = depth[i];
-			secret = i;
-		}
-	}
-	return {
-		entrance,
-		depth,
-		maxDepth,
-		deadEnds,
-		goal,
-		secret,
-		adj
-	};
-}
-/**
-* Gate a share of connectors. Cairn distinguishes "hidden" from "conditional",
-* but they are the same mechanism wearing two hats: a connection that demands
-* something of the player before it can be used. So they share one budget.
-*
-* Cairn gives no number, so: between 1/6 and 1/4 of all connectors, spread
-* more or less evenly rather than clumped.
-*
-* Two structural guards. A room may never have ALL of its connectors gated --
-* that turns a gate into a wall -- with one deliberate exception: the secret
-* room, where being wholly behind a gate is the entire point. And the entrance
-* always keeps an open way in.
-*
-* And three about routes, because gates spread evenly can undo what the graph
-* checked: one gate on each of two routes is two routes on paper and one in
-* play.
-*
-*   - SHORTCUTS FIRST. A shortcut (`Edge.shortcut`, an ear with no rooms) is
-*     where a secret passage belongs: it bypasses something, and hiding it
-*     never cuts anything off, because its rooms already had a way round.
-*   - NEVER HIDDEN-ONLY. The goal is reachable without passing a hidden
-*     connector. Hidden is a reward for looking, never the price of finishing.
-*   - ROUTES DIFFER. Some route to the goal stays open, or the two shortest
-*     carry different kinds of gate. A draw that fails this is drawn again from
-*     the same stream; the last draw stands if none passes.
-*/
-function gateConnectors(d, s, rng) {
-	const routes = routesOf(d.rooms.length, d.edges, s.entrance, s.goal);
-	let drawn = drawGates(d, s, rng);
-	for (let i = 0; i < GATE_DRAWS && !routesDiffer(d, routes, drawn); i++) drawn = drawGates(d, s, rng);
-	return d.edges.map((e, i) => ({
-		id: e.entityId,
-		a: d.rooms[e.a].entityId,
-		b: d.rooms[e.b].entityId,
-		gated: drawn.gated[i],
-		hidden: drawn.hidden[i]
-	}));
-}
-/** How many times a gating that fails ROUTES DIFFER is drawn again. */
-var GATE_DRAWS = 20;
-function drawGates(d, s, rng) {
-	const E = d.edges.length;
-	const chosen = d.edges.map(() => false);
-	const lo = Math.ceil(E / 6);
-	const hi = Math.max(lo, Math.floor(E / 4));
-	const target = rng.range(lo, hi);
-	const incident = d.rooms.map(() => []);
-	d.edges.forEach((e, i) => {
-		incident[e.a].push(i);
-		incident[e.b].push(i);
-	});
-	const ungated = d.rooms.map((_r, i) => incident[i].length);
-	const gatedTouching = d.rooms.map(() => 0);
-	const canGate = (ei) => {
-		const e = d.edges[ei];
-		for (const v of [e.a, e.b]) {
-			if (v === s.secret) continue;
-			if (ungated[v] - 1 < 1) return false;
-		}
-		return true;
-	};
-	const take = (ei) => {
-		const e = d.edges[ei];
-		chosen[ei] = true;
-		ungated[e.a]--;
-		ungated[e.b]--;
-		gatedTouching[e.a]++;
-		gatedTouching[e.b]++;
-	};
-	let placed = 0;
-	for (let i = 0; i < E && placed < target; i++) {
-		if (!d.edges[i].shortcut || !canGate(i) || !rng.chance(.6)) continue;
-		take(i);
-		placed++;
-	}
-	while (placed < target) {
-		let bestIdx = -1;
-		let bestScore = Infinity;
-		for (let i = 0; i < E; i++) {
-			if (chosen[i]) continue;
-			if (!canGate(i)) continue;
-			const e = d.edges[i];
-			const touchesSecret = s.secret !== null && (e.a === s.secret || e.b === s.secret);
-			const score = gatedTouching[e.a] + gatedTouching[e.b] - (touchesSecret ? 5 : 0) + rng.next() * .5;
-			if (score < bestScore) {
-				bestScore = score;
-				bestIdx = i;
-			}
-		}
-		if (bestIdx === -1) break;
-		take(bestIdx);
-		placed++;
-	}
-	const hidden = d.edges.map(() => false);
-	const gated = [...chosen];
-	for (let i = 0; i < E; i++) {
-		if (!chosen[i]) continue;
-		const roll = rng.next();
-		if (d.edges[i].shortcut ? roll < .6 : roll < .25) {
-			hidden[i] = true;
-			gated[i] = false;
-		} else if (!d.edges[i].shortcut && roll < .35) hidden[i] = true;
-	}
-	for (let i = 0; i < E; i++) {
-		if (!hidden[i] || reachableWithoutHidden(d, hidden, s.entrance, s.goal)) continue;
-		hidden[i] = false;
-		gated[i] = true;
-	}
-	return {
-		gated,
-		hidden
-	};
-}
-function reachableWithoutHidden(d, hidden, from, to) {
-	const seen = /* @__PURE__ */ new Set([from]);
-	const q = [from];
-	for (let h = 0; h < q.length; h++) d.edges.forEach((e, i) => {
-		if (hidden[i]) return;
-		const next = e.a === q[h] ? e.b : e.b === q[h] ? e.a : -1;
-		if (next !== -1 && !seen.has(next)) {
-			seen.add(next);
-			q.push(next);
-		}
-	});
-	return seen.has(to);
-}
-/**
-* ROUTES DIFFER: some route to the goal passes no gate, or the two shortest
-* routes carry different kinds of gate. A route's connectors are the ones with
-* both rooms on it; a distinct route (`routesOf`) is a path, so that is exact.
-*/
-function routesDiffer(d, routes, g) {
-	const kindsOn = (route) => {
-		const kinds = /* @__PURE__ */ new Set();
-		d.edges.forEach((e, i) => {
-			if (!route.has(e.a) || !route.has(e.b)) return;
-			if (g.hidden[i]) kinds.add(g.gated[i] ? "hidden and blocked" : "hidden");
-			else if (g.gated[i]) kinds.add("blocked");
-		});
-		return [...kinds].sort().join(",");
-	};
-	const kinds = routes.map(kindsOn);
-	if (kinds.some((k) => k === "")) return true;
-	return kinds.length < 2 || kinds[0] !== kinds[1];
-}
-var BASE_MIX = {
-	creature: .34,
-	special: .33,
-	quiet: .33
-};
-function computeQuota(totalRooms, claimed, unclaimedCount) {
-	const pool = totalRooms - 1;
-	const target = {
-		creature: Math.round(pool * BASE_MIX.creature),
-		special: Math.round(pool * BASE_MIX.special),
-		quiet: Math.round(pool * BASE_MIX.quiet)
-	};
-	const remainder = {
-		creature: Math.max(0, target.creature - claimed.creature),
-		special: Math.max(0, target.special - claimed.special),
-		quiet: Math.max(0, target.quiet - claimed.quiet)
-	};
-	let sum = remainder.creature + remainder.special + remainder.quiet;
-	const order = [
-		"creature",
-		"special",
-		"quiet"
-	];
-	while (sum > unclaimedCount) {
-		const biggest = order.reduce((a, b) => remainder[a] >= remainder[b] ? a : b);
-		if (remainder[biggest] === 0) break;
-		remainder[biggest]--;
-		sum--;
-	}
-	while (sum < unclaimedCount) {
-		remainder.quiet++;
-		sum++;
-	}
-	return remainder;
-}
-/** Preferred normalised depth per category. */
-var DEPTH_FIT = {
-	creature: .75,
-	special: .6,
-	quiet: .25
-};
-function placeHeadlines(unclaimed, quota, s, rng) {
-	const norm = (i) => s.maxDepth ? s.depth[i] / s.maxDepth : 0;
-	const pool = [];
-	[
-		"creature",
-		"special",
-		"quiet"
-	].forEach((c) => {
-		for (let i = 0; i < quota[c]; i++) pool.push(c);
-	});
-	const rooms = [...unclaimed].sort((a, b) => norm(a) - norm(b));
-	pool.sort((a, b) => DEPTH_FIT[a] - DEPTH_FIT[b]);
-	const assign = /* @__PURE__ */ new Map();
-	rooms.forEach((r, i) => assign.set(r, pool[i]));
-	const cost = (r, c) => {
-		const fit = Math.abs(norm(r) - DEPTH_FIT[c]);
-		let clash = 0;
-		for (const n of s.adj[r]) if (assign.get(n) === c) clash++;
-		return fit + clash * .45;
-	};
-	for (let pass = 0; pass < 6; pass++) {
-		let improved = false;
-		for (let i = 0; i < rooms.length; i++) for (let j = i + 1; j < rooms.length; j++) {
-			const ri = rooms[i];
-			const rj = rooms[j];
-			const ci = assign.get(ri);
-			const cj = assign.get(rj);
-			if (ci === cj) continue;
-			const before = cost(ri, ci) + cost(rj, cj);
-			assign.set(ri, cj);
-			assign.set(rj, ci);
-			if (cost(ri, cj) + cost(rj, ci) < before) improved = true;
-			else {
-				assign.set(ri, ci);
-				assign.set(rj, cj);
-			}
-		}
-		if (!improved) break;
-	}
-	return assign;
-}
-function scoreDanger(room, mobiles, maxDepth) {
-	let d = 0;
-	switch (room.headline) {
-		case "creature":
-			d += .5;
-			break;
-		case "special":
-			d += room.special?.kind === "hazard" ? .45 : .2;
-			break;
-		case "quiet":
-			d += .05;
-			break;
-		case "none": return 0;
-	}
-	if (room.stacked === "special") d += .15;
-	if (room.stacked === "creature") d += .2;
-	const here = mobiles.filter((m) => m.locationRoomId === room.roomId);
-	for (const m of here) {
-		const tierBonus = m.tier === "Horde" ? .22 : m.tier === "Band" ? .15 : .1;
-		d += m.isBase ? tierBonus : tierBonus * .6;
-		if (m.disposition === "friendly") d -= .12;
-		if (m.disposition === "neutral") d -= .06;
-	}
-	const depthNorm = maxDepth ? room.depth / maxDepth : 0;
-	d += depthNorm * .35;
-	if (room.role === "goal") d += .25;
-	return Math.max(0, Math.min(1, d));
-}
-function resolveClueTargets(rooms, byIndex, s, connectors, mobiles, rng) {
-	const hiddenRoomIds = /* @__PURE__ */ new Set();
-	for (const c of connectors) if (c.gated) {
-		hiddenRoomIds.add(c.a);
-		hiddenRoomIds.add(c.b);
-	}
-	for (const room of rooms) {
-		if (!room.clue) continue;
-		const scored = s.adj[room.index].map((i) => byIndex.get(i)).filter((r) => !!r).map((n) => {
-			let score = .1;
-			if (n.special?.kind === "hazard") score += 1;
-			if (n.headline === "creature") score += .8;
-			if (n.role === "goal") score += 1.2;
-			if (hiddenRoomIds.has(n.roomId)) score += 1;
-			if (n.rewards.length) score += .5;
-			if (n.headline === "quiet" && !n.rewards.length) score -= .05;
-			return {
-				n,
-				score
-			};
-		});
-		scored.sort((a, b) => b.score - a.score);
-		const target = scored.length ? scored[0].n : void 0;
-		if (target) {
-			room.clue.targetRoomId = target.roomId;
-			const occ = mobiles.filter((m) => m.locationRoomId === target.roomId);
-			if (occ.length) room.clue.targetMobileId = rng.pick(occ).id;
-			room.clue.about = target.role === "goal" ? "the objective" : target.special?.kind === "hazard" ? "a hazard in an adjoining room" : occ.length ? "creatures in an adjoining room" : hiddenRoomIds.has(target.roomId) ? "a way that is not obvious" : "an adjoining room";
-		} else room.clue.about = "the dungeon at large";
-	}
-}
-//#endregion
-//#region src/generation/content/stock/ids.ts
-/**
-* MOBILE IDS.
-*
-* Mobile ids are derived from the stocking seed and a counter that resets at
-* the top of every stockDungeon() call, so stocking the same seed twice in one
-* process yields the same ids. A bare module-level counter did not: the second
-* run continued from wherever the first stopped, which quietly broke
-* same-seed-twice assertions and any snapshot of a payload carrying mob refs.
-*/
-var mobilePrefix = "mob";
-var mobileCounter = 0;
-function resetMobileIds(seed) {
-	mobilePrefix = `mob_${(seed >>> 0).toString(36)}`;
-	mobileCounter = 0;
-}
-function mobileId() {
-	return `${mobilePrefix}_${(++mobileCounter).toString(36)}`;
-}
-//#endregion
-//#region src/generation/content/stock/tables.ts
-/**
-* THE TABLES ONLY STOCKING ROLLS ON, and the cascade roller over them.
-*
-* This roller is separate from the Maze Rats one in `rules/maze-rats/tables.ts`
-* because its cascade map names a different set of tables. Merging the two is
-* a change to what gets rolled, so it waits for a session that can show the
-* generation snapshots are unchanged.
-*/
-var t = (s) => s.split("|");
-var DUNGEON_ACTIVITIES = t("Besiege|Capture|City Activity|Collect|Construct|Control|Deliver|Demolish|Escape|Feed|Fortify|Guard|Hide|Hunt|Loot|Map|Mine|{Monster} Tactic|Negotiate|Patrol|Perform ritual|Purge|Question|Raid|Repair|Rescue|Research|Revive|Riddle|Scavenge|Seize|Tunnel|Unearth|Vandalize|Wild. Activity|Worship");
-var CAIRN_SPECIAL = t("Books|Bridge|Contraption|Creature|Door|Flames|Furniture|Hole|Liquid|Mirror|Mural|Pool|Shadows|Smoke|Statue|Surface|Treasure|Voices|Wheel|Writing");
-var CAIRN_FEATURE = t("Ages|Alarms|Animates|Attracts|Charges|Closes|Falls|Glows|Grows|Illusion|Levitates|Locks|Opens|Reflects|Repels|Reveals|Shifts|Silences|Teleport|Transforms");
-var CAIRN_CLUE = t("Decay|Decor|Draft|Echoes|Footprints|Leavings|Light|Markings|Moisture|Noise|Paraphernalia|Residue|Scurrying|Signs|Smell|Stains|Tapping|Temperature|Vibrations|Writing");
-var CASCADE_TABLES = {
-	"Building Room": BUILDING_ROOMS,
-	"Dungeon Room": DUNGEON_ROOMS,
-	"L. Cl. Building": LOWER_CLASS_BUILDINGS,
-	"U. Cl. Building": UPPER_CLASS_BUILDINGS,
-	"Treasure Item": TREASURE_ITEMS,
-	"Val. Material": VALUABLE_MATERIALS,
-	"Weapon Item": WEAPON_ITEMS
-};
-/** Entity cascades emit a stub for the LLM instead of recursing. */
-var ENTITY_CASCADES = /* @__PURE__ */ new Set([
-	"Monster",
-	"NPC",
-	"faction",
-	"monster"
-]);
-var MAX_CASCADE_DEPTH = 2;
-function resolveCascades(entry, rng, depth = 0) {
-	return entry.replace(/\{([^}]+)\}/g, (_m, key) => {
-		if (ENTITY_CASCADES.has(key)) return key;
-		const table = CASCADE_TABLES[key];
-		if (!table || depth >= MAX_CASCADE_DEPTH) return key;
-		return resolveCascades(rng.pick(table), rng, depth + 1);
-	});
-}
-function roll(table, rng) {
-	return resolveCascades(rng.pick(table), rng);
-}
-//#endregion
-//#region src/generation/content/stock/creatures.ts
-/**
-* STOCKING'S CREATURES: each inhabitant group as a mobile, its minions, the
-* wanderers, and how each is disposed toward the player.
-*/
-/**
-* A Creature entity is a STACK, not an individual: a statblock template, a
-* count, and a location. Any group of creatures sharing a room and a statline
-* is one entity. It splits when part of the group is sent elsewhere and merges
-* back when they reunite, so entity identity is not stable over play.
-*
-* DEFERRED -- counts and split/merge live in `state` for now rather than being
-* modelled here. Two things to pick up if that stops being good enough:
-*   - merging needs a stable key (same template + same room), so templates want
-*     an id rather than being compared structurally
-*   - a split produces a new entity that shares its parent's immutable `base`
-*     while diverging in `state`; base is template-level, state is stack-level
-*
-* The blueprint already carries the template split this implies: people Hordes
-* get one named leader plus `undefinedUnderlings`, monster Hordes get `monster`
-* (simple minions) alongside `biggerSpecimen` (same silhouette, higher tier).
-* Named NPCs are just count-1 stacks whose stats happen to be unique, so they
-* never merge with anything.
-*/
-function groupLabel(g, gi) {
-	return g.kind === "monsters" ? `Group ${gi + 1} (${g.tier} ${g.monster.silhouette} monsters)` : `Group ${gi + 1} (${g.tier} ${g.faction})`;
-}
-function makeGroupMobile(group, gi, roomId, isBase, rng) {
-	const m = {
-		id: mobileId(),
-		kind: "group-member",
-		name: `${groupLabel(group, gi)}${isBase ? " -- BASE" : " -- outpost"}`,
-		locationRoomId: roomId,
-		groupIndex: gi,
-		groupId: group.id,
-		isBase,
-		tier: group.tier
-	};
-	if (group.kind === "monsters") m.monster = group.monster;
-	return m;
-}
-/**
-* Downgrade a Solo's statline to something a satellite can carry: same creature,
-* fewer moving parts. Matches what genMonster would have produced at "simple"
-* (one trait/ability line, one feature/mutation line).
-*
-* The weakness is deliberately INHERITED rather than trimmed. Young share the
-* parent's flaw, so a party that fights the brood can learn how to kill the
-* thing that spawned it -- which is the same cross-link the knowledge parcels
-* lean on, arrived at from the other direction.
-*/
-function downgradeToSimple(m) {
-	return {
-		...m,
-		complexity: "simple",
-		traitsAndAbilities: m.traitsAndAbilities.slice(0, 1),
-		featuresAndMutations: m.featuresAndMutations.slice(0, 1),
-		weaknesses: m.weaknesses.slice(0, 1)
-	};
-}
-/**
-* A Solo is one creature and cannot literally appear twice, but it can have a
-* minions. For people, that is a handful of hirelings under their command. For
-* monsters, a knot of simple creatures related to it by blood, thrall, or
-* ecology.
-*/
-function makeMinion(group, gi, roomId, rng) {
-	const base = {
-		id: mobileId(),
-		kind: "group-member",
-		name: "",
-		locationRoomId: roomId,
-		groupIndex: gi,
-		groupId: group.id,
-		isBase: false,
-		tier: group.tier
-	};
-	if (group.kind === "people") return {
-		...base,
-		name: `${groupLabel(group, gi)} -- hirelings`,
-		minion: "hirelings",
-		notes: "A handful of hired hands under the Solo's command. Undefined as individuals unless one of them earns a name in play."
-	};
-	const kind = rng.pick([
-		"young",
-		"thrall",
-		"ecology"
-	]);
-	if (kind === "young") return {
-		...base,
-		name: `${groupLabel(group, gi)} -- young`,
-		minion: "young",
-		monster: downgradeToSimple(group.monster),
-		notes: "The Solo's brood. Same creature, scaled down; shares its weakness."
-	};
-	if (kind === "thrall") return {
-		...base,
-		name: `${groupLabel(group, gi)} -- thralls`,
-		minion: "thrall",
-		monster: genMonster("simple", rng),
-		notes: "Simple creatures held under the Solo's control, not its kin."
-	};
-	return {
-		...base,
-		name: `${groupLabel(group, gi)} -- attendant creatures`,
-		minion: "ecology",
-		monster: genMonster("simple", rng),
-		notes: "Tied to the Solo by ecology rather than obedience or blood. Composition pass establishes the relationship (prey, scavenger, symbiote, parasite...)."
-	};
-}
-/**
-* Spend one unit of Creature budget. With probability `cohesion` the encounter
-* belongs to the roster; otherwise it is unaffiliated. Cohesion is rolled once
-* per dungeon, so some dungeons read as tightly populated by their inhabitants
-* and others as a menagerie of unrelated things -- which is its own valid vibe,
-* not a failure mode.
-*
-* Solos now participate, but through minions rather than by duplicating
-* themselves, and they weight lower than Bands and Hordes so they still mostly
-* stay home.
-*/
-function makeMinionOrWanderer(bp, roomId, cohesion, wandererGroups, rng) {
-	const eligible = bp.inhabitants.map((g, gi) => ({
-		g,
-		gi
-	}));
-	if (eligible.length && rng.chance(cohesion)) {
-		const weights = eligible.map(({ g }) => g.tier === "Horde" ? 3 : g.tier === "Band" ? 1.5 : .6);
-		const total = weights.reduce((a, b) => a + b, 0);
-		let x = rng.next() * total;
-		let k = 0;
-		for (; k < eligible.length; k++) {
-			x -= weights[k];
-			if (x <= 0) break;
-		}
-		if (k >= eligible.length) k = eligible.length - 1;
-		const { g, gi } = eligible[k];
-		return g.tier === "Solo" ? makeMinion(g, gi, roomId, rng) : makeGroupMobile(g, gi, roomId, false, rng);
-	}
-	const tier = rng.pick([
-		"Solo",
-		"Band",
-		"Horde"
-	]);
-	if (rng.chance(.5)) {
-		const group = genMonsterGroup(tier, rng);
-		wandererGroups.push(group);
-		return {
-			id: mobileId(),
-			kind: "wanderer-monster",
-			name: "Unaffiliated creature",
-			locationRoomId: roomId,
-			tier,
-			groupId: group.id,
-			monster: group.monster
-		};
-	}
-	const group = genPeopleGroup(tier, rng, "wanderer");
-	wandererGroups.push(group);
-	return {
-		id: mobileId(),
-		kind: "wanderer-npc",
-		name: "Unaffiliated person",
-		locationRoomId: roomId,
-		tier,
-		groupId: group.id,
-		npc: group.npcs[0]
-	};
-}
-/**
-* Disposition is a property of the encounter, not of the category. Inhabitants
-* are usually hostile but genuinely need not be -- a faction whose goal aligns
-* with the party's has obvious reason to parley.
-*/
-function rollDisposition(bp, m, rng) {
-	if (m.groupIndex !== void 0) {
-		const g = bp.inhabitants[m.groupIndex];
-		if (g.kind === "people") {
-			if (g.goalBranch === "opposed") return rng.chance(.85) ? "hostile" : "neutral";
-			if (g.goalBranch === "same") {
-				const r = rng.next();
-				return r < .45 ? "hostile" : r < .8 ? "neutral" : "friendly";
-			}
-			const r = rng.next();
-			return r < .55 ? "hostile" : r < .85 ? "neutral" : "friendly";
-		}
-		return rng.chance(.8) ? "hostile" : "neutral";
-	}
-	const r = rng.next();
-	return r < .6 ? "hostile" : r < .88 ? "neutral" : "friendly";
-}
-function rollSpecial(rng) {
-	if (rng.coin()) {
-		if (rng.coin()) return {
-			kind: "hazard",
-			hazard: roll(DUNGEON_HAZARDS, rng)
-		};
-		return {
-			kind: "hazard",
-			trapTrigger: roll(TRAP_TRIGGERS, rng),
-			trapEffect: roll(TRAP_EFFECTS, rng)
-		};
-	}
-	const useTrick = rng.chance(.4);
-	return {
-		kind: "obstacle",
-		subject: roll(CAIRN_SPECIAL, rng),
-		behaviour: useTrick ? roll(DUNGEON_TRICKS, rng) : roll(CAIRN_FEATURE, rng),
-		behaviourSource: useTrick ? "mr-trick" : "cairn-feature"
-	};
-}
-//#endregion
-//#region src/generation/content/stock/stock.ts
-/**
-* Pick the rooms that are passages rather than places.
-*
-* Count is N-1 / N / N+1 at 25 / 50 / 25 where N is a sixth of the rooms,
-* rounded. Six rooms or fewer is a coin flip between 0 and 1.
-*
-* Eligibility is **degree >= 2** and nothing else. A corridor connects
-* somewhere, so dead ends are out; the entrance and the goal room are never one.
-* In a small dungeon the shallow band below holds only the entrance, so without
-* that rule the entrance was nearly every corridor. Dropping every
-* further degree preference removes the degenerate case -- a graph whose
-* rooms all have three ways has no degree-2 rooms at all, which under
-* "exactly 2" would yield none and under ">= 2" yields all of them.
-*
-* Two corridors are never adjacent: that is one hallway with a pointless door
-* in it. Picks are spread across **depth** bands, because corridors are about
-* rhythm along the path inward.
-*/
-function designateCorridors(rooms, s, rng) {
-	const target = rooms.length <= 6 ? rng.coin() ? 1 : 0 : Math.max(0, Math.round(rooms.length / 6) + rng.pick([
-		-1,
-		0,
-		0,
-		1
-	]));
-	if (target === 0) return;
-	const BANDS = 3;
-	const bandOf = (r) => s.maxDepth > 0 ? Math.min(2, Math.floor(r.depth / s.maxDepth * BANDS)) : 0;
-	const byIndex = new Map(rooms.map((r) => [r.index, r]));
-	const pools = Array.from({ length: BANDS }, () => []);
-	for (const r of rooms) {
-		if (r.degree < 2 || r.role !== "normal") continue;
-		pools[bandOf(r)].push(r);
-	}
-	const taken = new Array(BANDS).fill(0);
-	for (let n = 0; n < target; n++) {
-		let band = -1;
-		for (let b = 0; b < BANDS; b++) {
-			if (!pools[b].some(free)) continue;
-			if (band < 0 || taken[b] < taken[band]) band = b;
-		}
-		if (band < 0) return;
-		const choice = rng.pick(pools[band].filter(free));
-		choice.isCorridor = true;
-		taken[band]++;
-	}
-	function free(r) {
-		return !r.isCorridor && !s.adj[r.index].some((n) => byIndex.get(n)?.isCorridor);
-	}
-}
-function stockDungeon(dungeon, blueprint, opts = {}) {
-	const level = opts.level ?? blueprint.level ?? 1;
-	const seed = opts.seed ?? blueprint.seed + 7919;
-	const rng = new Rng(seed);
-	resetMobileIds(seed);
-	const cohesion = .55 + rng.next() * .35;
-	const s = structuralPrePass(dungeon, rng);
-	const connectors = gateConnectors(dungeon, s, rng);
-	const rooms = dungeon.rooms.map((r, i) => ({
-		roomId: r.entityId,
-		index: i,
-		role: i === s.entrance ? "entrance" : i === s.goal ? "goal" : "normal",
-		headline: "quiet",
-		claimed: false,
-		isCorridor: false,
-		identity: "",
-		depth: s.depth[i],
-		degree: s.adj[i].length,
-		isDeadEnd: s.deadEnds.has(i),
-		danger: 0,
-		occupants: [],
-		rewards: []
-	}));
-	const byIndex = new Map(rooms.map((r) => [r.index, r]));
-	const mobiles = [];
-	const wandererGroups = [];
-	const entranceRoom = byIndex.get(s.entrance);
-	entranceRoom.headline = "none";
-	entranceRoom.claimed = true;
-	entranceRoom.entranceFeature = roll(DUNGEON_ENTRANCES, rng);
-	const goalRoom = byIndex.get(s.goal);
-	goalRoom.claimed = true;
-	goalRoom.headline = "special";
-	goalRoom.goalDirective = {
-		reward: blueprint.goalSeed.reward,
-		mission: blueprint.goalSeed.mission,
-		instruction: "Create one entity in this room that embodies the dungeon goal. Read the dungeon context and decide what type it needs to be -- a creature, a person, an object, a feature of the room itself, or something else the fiction demands. It must be a thing the party can act on, and reaching or resolving it must plausibly satisfy the mission below."
-	};
-	const groupImplicatesGoal = (g) => g.kind === "people" && (g.goalBranch === "same" || g.goalBranch === "opposed");
-	const available = rooms.filter((r) => r.role !== "entrance").map((r) => r.index);
-	const takenBases = /* @__PURE__ */ new Set();
-	let goalGroupAssigned = false;
-	blueprint.inhabitants.forEach((group, gi) => {
-		let baseIdx;
-		if (!goalGroupAssigned && groupImplicatesGoal(group)) {
-			baseIdx = s.goal;
-			goalGroupAssigned = true;
-		} else {
-			const pool = available.filter((i) => !takenBases.has(i) && i !== s.entrance);
-			baseIdx = pool.length ? rng.pick(pool) : rng.pick(available);
-		}
-		takenBases.add(baseIdx);
-		const baseRoom = byIndex.get(baseIdx);
-		baseRoom.claimed = true;
-		baseRoom.headline = "creature";
-		const m = makeGroupMobile(group, gi, baseRoom.roomId, true, rng);
-		mobiles.push(m);
-		baseRoom.occupants.push(m.id);
-	});
-	designateCorridors(rooms, s, rng);
-	if (opts.layout) {
-		const sizes = opts.layout(rooms);
-		rooms.forEach((r, i) => {
-			r.sizeClass = sizes[i];
-		});
-	}
-	for (const r of rooms) {
-		const table = r.isCorridor ? DUNGEON_CORRIDORS : DUNGEON_ROOMS;
-		let id = roll(table, rng);
-		for (let t = 0; t < 12 && r.sizeClass && !sizeAllows(id, r.sizeClass); t++) id = roll(table, rng);
-		r.identity = id;
-	}
-	const claimedCounts = {
-		creature: 0,
-		special: 0,
-		quiet: 0
-	};
-	for (const r of rooms) {
-		if (!r.claimed || r.headline === "none") continue;
-		claimedCounts[r.headline]++;
-	}
-	const unclaimed = rooms.filter((r) => !r.claimed).map((r) => r.index);
-	const quota = computeQuota(rooms.length, claimedCounts, unclaimed.length);
-	const assignment = placeHeadlines(unclaimed, quota, s, rng);
-	for (const [idx, cat] of assignment) byIndex.get(idx).headline = cat;
-	const stackCap = rooms.length >= 18 ? 2 : 1;
-	let stacked = 0;
-	for (const r of rooms) {
-		if (stacked >= stackCap) break;
-		if (r.role === "entrance") continue;
-		if ((s.maxDepth ? r.depth / s.maxDepth : 0) < .6) continue;
-		if (r.headline === "creature" && rng.chance(.3)) {
-			r.stacked = "special";
-			stacked++;
-		}
-	}
-	for (const r of rooms) {
-		if (r.headline !== "creature" || r.claimed) continue;
-		const m = makeMinionOrWanderer(blueprint, r.roomId, cohesion, wandererGroups, rng);
-		mobiles.push(m);
-		r.occupants.push(m.id);
-	}
-	for (const m of mobiles) {
-		if (!m.activity) m.activity = roll(DUNGEON_ACTIVITIES, rng);
-		if (!m.disposition) m.disposition = rollDisposition(blueprint, m, rng);
-	}
-	for (const r of rooms) {
-		if (!(r.headline === "special" || r.stacked === "special")) continue;
-		if (r.role === "goal" && r.headline === "special" && !r.stacked) continue;
-		r.special = rollSpecial(rng);
-	}
-	for (const r of rooms) {
-		if (r.headline !== "quiet") continue;
-		if (!rng.chance(.5)) continue;
-		r.clue = {
-			keyword: roll(CAIRN_CLUE, rng),
-			about: ""
-		};
-	}
-	for (const r of rooms) if (rng.chance(.5)) r.detail = roll(DUNGEON_ROOM_DETAILS, rng);
-	for (const r of rooms) r.danger = scoreDanger(r, mobiles, s.maxDepth);
-	const challenges = enumerateChallenges({
-		rooms,
-		mobiles,
-		connectors,
-		goalRoomId: goalRoom.roomId
-	});
-	const placement = placeRewards({
-		rooms,
-		connectors,
-		mobiles,
-		entranceRoomId: entranceRoom.roomId,
-		goalRoomId: goalRoom.roomId,
-		challenges,
-		maxDepth: s.maxDepth,
-		rng
-	});
-	resolveClueTargets(rooms, byIndex, s, connectors, mobiles, rng);
-	return {
-		seed,
-		size: blueprint.size,
-		level,
-		entranceRoomId: entranceRoom.roomId,
-		goalRoomId: goalRoom.roomId,
-		maxDepth: s.maxDepth,
-		rooms,
-		mobiles,
-		wandererGroups,
-		connectors,
-		cohesion,
-		quota: {
-			...quota,
-			none: 1
-		},
-		challenges,
-		reserve: placement.reserve,
-		pot: placement.pot,
-		rewardBudget: placement.stats
-	};
-}
 /**
 * What the model answers with: the same thing with the goal's two fields flat.
 *
@@ -13117,8 +14102,11 @@ var NO_LOG = { log() {} };
 *
 *   A: generateBlueprintSeed                                    [pure]
 *      -> Dungeon Pass                                          [1 call]   ─┐
-*   B: generateBlueprint -> stockDungeon -> runEntitiesPass     [pure]     ─┘ concurrent
+*   B: generateBlueprint -> rollOutline                         [pure]     ─┘ concurrent
 *   join
+*   Outline: what goes where, and why                           [1 call, plus repairs]
+*   Outline polish: a review of that plan, optional             [1 call]
+*   settleOutline -> runEntitiesPass                            [pure, saved once]
 *   buildContentPassPayload -> LLM -> applyContentPass          [1 call, the whole dungeon]
 *   buildKeysPassPayload -> LLM -> applyKeysPass                [1 call]
 *
@@ -13130,6 +14118,10 @@ var NO_LOG = { log() {} };
 * `state` and `composed` are NOT written here. Every entity stays unencountered
 * until the player walks in on it; room entry is a runtime pass.
 */
+/** Whether the plan has been turned into rooms yet. */
+function isSettled(d) {
+	return "stocked" in d;
+}
 /**
 * How many graphs to try before giving up on a seed.
 *
@@ -13165,7 +14157,11 @@ function reportFailure(journal, pass) {
 * The model calls between the structure and `finishGeneration`, in the order
 * they run. Each is its own server request, saved unapplied on arrival.
 */
-var STEPS = ["content"];
+var STEPS = [
+	"outline",
+	"polish",
+	"content"
+];
 function isStep(s) {
 	return STEPS.includes(s);
 }
@@ -13193,13 +14189,11 @@ function contentPayload(partial) {
 	return buildContentPassPayload(partial.stocked, partial.blueprint, partial.entities, partial.dungeonContext, siteOf(partial));
 }
 /**
-* Everything knowable before a room is written: the graph, the drawing, the
-* stocking, the entities, and the standing fiction.
+* Everything knowable before the plan: the graph, the drawing, the dice the outline
+* chooses among, and the standing fiction.
 *
-* Comes back as a `GeneratedDungeon` whose entities are UNWRITTEN — no names,
-* no prose. That is a real state now rather than a moment inside a function,
-* because the steps below happen in separate HTTP requests and this is what is
-* persisted between them.
+* That is a real state rather than a moment inside a function, because the steps
+* below happen in separate HTTP requests and this is what is persisted between them.
 */
 async function generateStructure(opts) {
 	const { size, signal } = opts;
@@ -13245,9 +14239,9 @@ async function generateStructure(opts) {
 			const { dungeon } = generateBlueprint(attempt === 0 ? seeds.graphSeed : `${seeds.graphSeed}~${attempt}`, shape, true);
 			report({ stage: "stocking" });
 			let blockplan = null;
-			const stocked = stockDungeon(dungeon, blueprint, {
-				level,
+			const draft = rollOutline(dungeon, blueprint, {
 				seed: seeds.stockSeed,
+				level,
 				layout: (rooms) => {
 					const corridor = new Set(rooms.filter((r) => r.isCorridor).map((r) => r.index));
 					blockplan = blockPlanValid(dungeon, (i) => corridor.has(i), seeds.layoutSeed);
@@ -13259,14 +14253,12 @@ async function generateStructure(opts) {
 			if (plan === null) throw new Error(`no drawable layout for seed ${opts.seed} at size ${size} after ${GRAPH_ATTEMPTS} graphs`);
 			return {
 				dungeon,
-				stocked,
-				entities: runEntitiesPass(stocked, blueprint, new Rng(stocked.seed)),
+				draft,
 				plan
 			};
 		}
 	})();
-	const [{ result: fictionResult, usage }, { dungeon, stocked, entities, plan }] = await Promise.all([fiction, structure]);
-	Object.assign(entities.registry.groups, fictionResult.groups);
+	const [{ result: fictionResult, usage }, { dungeon, draft, plan }] = await Promise.all([fiction, structure]);
 	return {
 		id: blueprint.id,
 		seeds,
@@ -13276,9 +14268,110 @@ async function generateStructure(opts) {
 		pass: fictionResult.pass,
 		blueprint,
 		graph: dungeon,
+		blockplan: plan,
+		draft,
+		usage
+	};
+}
+var NO_USAGE = {
+	inputTokens: 0,
+	outputTokens: 0,
+	cacheWriteTokens: 0,
+	cacheReadTokens: 0
+};
+/** Decide what goes where. An outline that can't be repaired fails the generation. */
+async function generateOutline(planned, opts = {}) {
+	const journal = opts.journal ?? NO_LOG;
+	const { outline, usage } = await writeOutline(planned.draft, planned.pass, {
+		...opts.signal ? { signal: opts.signal } : {},
+		onAttemptFailed: reportFailure(journal, "outline")
+	});
+	journal.log({
+		kind: "generation",
+		pass: "outline",
+		prompt: renderOutlinePrompt(planned.draft, planned.pass),
+		response: outline,
+		usage
+	});
+	return {
+		step: "outline",
+		value: outline,
+		usage
+	};
+}
+/**
+* Review the outline. Optional by design: a review that fails or doesn't hold up is
+* dropped, and the outline stands as written, so a bad review can't cost a dungeon.
+*/
+async function generatePolish(planned, outline, opts = {}) {
+	const journal = opts.journal ?? NO_LOG;
+	try {
+		const { usage, ...value } = await polishOutline(planned.draft, planned.pass, outline, {
+			...opts.signal ? { signal: opts.signal } : {},
+			onAttemptFailed: reportFailure(journal, "outline-polish")
+		});
+		journal.log({
+			kind: "generation",
+			pass: "outline-polish",
+			prompt: renderPolishPrompt(planned.draft, planned.pass, outline),
+			response: value,
+			usage
+		});
+		return {
+			step: "polish",
+			value,
+			usage
+		};
+	} catch (e) {
+		if (opts.signal?.aborted) throw e;
+		const rolledBack = e instanceof Error ? e.message : String(e);
+		journal.log({
+			kind: "error",
+			where: "outline-polish",
+			message: `review dropped: ${rolledBack}`
+		});
+		return {
+			step: "polish",
+			value: {
+				outline,
+				proposed: [],
+				kept: false,
+				rolledBack
+			},
+			usage: NO_USAGE
+		};
+	}
+}
+/**
+* Turn the plan into rooms. Pure, but SAVE THE RESULT ONCE: its entity ids are random,
+* and the content pass's answer addresses them.
+*/
+function settleDungeon(planned, results) {
+	const outlineStep = results.find((r) => r.step === "outline");
+	const polishStep = results.find((r) => r.step === "polish");
+	const outline = polishStep?.step === "polish" ? polishStep.value.outline : outlineStep?.step === "outline" ? outlineStep.value : void 0;
+	if (!outline) throw new Error("cannot settle a dungeon: step outline was never run");
+	const { blueprint, seeds, level, draft: _draft, ...rest } = planned;
+	const groupIds = blueprint.inhabitants.map((g) => g.id);
+	const fiction = applyDungeonPass(changedFiction(planned.pass, groupIds, outline.fictionChanges), buildDungeonPassPayload(blueprint));
+	const stocked = settleOutline(planned.draft, outline, {
+		level,
+		seed: seeds.stockSeed
+	});
+	const entities = runEntitiesPass(stocked, blueprint, new Rng(stocked.seed));
+	Object.assign(entities.registry.groups, fiction.groups);
+	let usage = planned.usage;
+	for (const r of results) if (r.step !== "content") usage = addUsage(usage, r.usage);
+	return {
+		...rest,
+		blueprint,
+		seeds,
+		level,
+		dungeonContext: fiction.dungeonContext,
+		pass: fiction.pass,
 		stocked,
 		entities,
-		blockplan: plan,
+		outline,
 		usage
 	};
 }
@@ -13322,14 +14415,23 @@ async function generateContent(partial, opts = {}) {
 		usage
 	};
 }
-/** Run one named step: what `POST /api/dungeons/:id/steps/:step` calls. */
-async function generateStep(partial, step, opts = {}) {
-	switch (step) {
-		case "content": return {
+/**
+* Run one named step: what `POST /api/dungeons/:id/steps/:step` calls. The rooms need a
+* settled dungeon, and the steps before them need one that isn't yet.
+*/
+async function generateStep(dungeon, step, saved, opts = {}) {
+	if (step === "content") {
+		if (!isSettled(dungeon)) throw new Error("cannot write the rooms: the plan has not been settled");
+		return {
 			step,
-			...await generateContent(partial, opts)
+			...await generateContent(dungeon, opts)
 		};
 	}
+	if (isSettled(dungeon)) throw new Error(`cannot run step ${step}: the plan has already been settled`);
+	if (step === "outline") return generateOutline(dungeon, opts);
+	const written = saved.find((r) => r.step === "outline");
+	if (written?.step !== "outline") throw new Error("cannot review the outline: step outline was never run");
+	return generatePolish(dungeon, written.value, opts);
 }
 /**
 * The saved steps, checked and unpacked for `finishGeneration`. Throws when one
@@ -13339,10 +14441,11 @@ async function generateStep(partial, step, opts = {}) {
 function contentFrom(results) {
 	const missing = STEPS.filter((s) => !results.some((r) => r.step === s));
 	if (missing.length > 0) throw new Error(`cannot finish generation: step ${missing.join(", ")} was never run`);
-	const { value, usage } = results.find((r) => r.step === "content");
+	const content = results.find((r) => r.step === "content");
+	if (content?.step !== "content") throw new Error("cannot finish generation: step content was never run");
 	return {
-		value,
-		usage
+		value: content.value,
+		usage: content.usage
 	};
 }
 /**
@@ -13379,7 +14482,11 @@ async function finishGeneration(partial, content, opts = {}) {
 				content: prompt
 			}],
 			...opts.signal ? { signal: opts.signal } : {},
-			check: (v) => keysPassOmissions(keysPayload, v),
+			check: (v) => [...keysPassOmissions(keysPayload, v), ...keysPassLeaks(keysPayload, v)],
+			repair: {
+				ask: askForKeys,
+				merge: mergeKeys
+			},
 			onAttemptFailed: reportFailure(journal, "keys-pass")
 		});
 		journal.log({
@@ -13399,7 +14506,7 @@ async function finishGeneration(partial, content, opts = {}) {
 	};
 }
 /**
-* The three steps above, composed.
+* The steps above, composed.
 *
 * This is what the browser and the CLI call and what every generation test
 * exercises. The server calls the three separately, because no one Vercel
@@ -13413,9 +14520,13 @@ async function generateDungeon(opts) {
 		...opts.journal ? { journal: opts.journal } : {},
 		...opts.onProgress ? { onProgress: opts.onProgress } : {}
 	};
-	const partial = await generateStructure(opts);
+	const planned = await generateStructure(opts);
+	report({ stage: "planning" });
+	const outline = await generateOutline(planned, pass);
+	report({ stage: "reviewing" });
+	const settled = settleDungeon(planned, [outline, await generatePolish(planned, outline.value, pass)]);
 	report({ stage: "writing" });
-	return finishGeneration(partial, await generateContent(partial, pass), pass);
+	return finishGeneration(settled, await generateContent(settled, pass), pass);
 }
 //#endregion
 //#region src/journal/journal.ts
@@ -13760,16 +14871,27 @@ function dungeonRoutes(app) {
 	*
 	* Idempotent: `saveStep` keeps the first answer, so a retry of a call whose
 	* response already landed costs a model call and changes nothing.
+	*
+	* The plan becomes rooms just before they are written, and is saved once: the
+	* entities have random ids that the rooms' answer addresses.
 	*/
 	app.post("/api/dungeons/:id/steps/:step", async (c) => {
 		const stored = await mustGetDungeon(c.req.param("id"), currentUser(c).id);
 		const step = c.req.param("step");
 		if (!isStep(step)) throw new HTTPException(404, { message: `no step "${step}" in generation` });
-		if ((await listSteps(stored.id)).some((r) => r.step === step)) return c.json({
+		const saved = await listSteps(stored.id);
+		if (saved.some((r) => r.step === step)) return c.json({
 			step,
 			done: true
 		});
-		const result = await journalled(stored.id, (journal) => generateStep(stored.doc, step, { journal }));
+		let dungeon = stored.doc;
+		if (step === "content" && !isSettled(dungeon)) {
+			await settleDungeon$1(stored.id, settleDungeon(dungeon, saved), currentUser(c).id);
+			dungeon = (await mustGetDungeon(stored.id, currentUser(c).id)).doc;
+		}
+		if (step !== "content" && isSettled(dungeon) && !dungeon.outline) throw new HTTPException(409, { message: "this dungeon was started before planning existed; start a new one" });
+		const ready = dungeon;
+		const result = await journalled(stored.id, (journal) => generateStep(ready, step, saved, { journal }));
 		await saveStep(stored.id, result);
 		return c.json({
 			step,
@@ -13789,9 +14911,9 @@ function dungeonRoutes(app) {
 			dungeonId: stored.id,
 			already: true
 		});
-		const results = await listSteps(stored.id);
+		const content = contentFrom(await listSteps(stored.id));
 		const complete = await journalled(stored.id, async (journal) => {
-			const done = await finishGeneration(stored.doc, contentFrom(results), { journal });
+			const done = await finishGeneration(stored.doc, content, { journal });
 			journal.log({
 				kind: "dungeon",
 				dungeon: done
@@ -17680,7 +18802,7 @@ async function call(args) {
 		return turn;
 	} catch (e) {
 		const message = e instanceof Error ? e.message : String(e);
-		logCall(NO_USAGE, message);
+		logCall(NO_USAGE$1, message);
 		journal.log({
 			kind: "error",
 			where: `game master:${step}`,

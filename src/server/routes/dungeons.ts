@@ -12,6 +12,10 @@ import {
   finishGeneration,
   generateStep,
   generateStructure,
+  isSettled,
+  settleDungeon,
+  type GeneratedDungeon,
+  type PlannedDungeon,
   isStep,
   STEPS,
 } from "../../generation/generate.ts";
@@ -114,6 +118,9 @@ export function dungeonRoutes(app: Hono<AuthEnv>): void {
    *
    * Idempotent: `saveStep` keeps the first answer, so a retry of a call whose
    * response already landed costs a model call and changes nothing.
+   *
+   * The plan becomes rooms just before they are written, and is saved once: the
+   * entities have random ids that the rooms' answer addresses.
    */
   app.post("/api/dungeons/:id/steps/:step", async (c) => {
     const stored = await mustGetDungeon(c.req.param("id"), currentUser(c).id);
@@ -124,12 +131,24 @@ export function dungeonRoutes(app: Hono<AuthEnv>): void {
 
     // Already run — a retry of a dungeon that failed somewhere else. The
     // answer is kept, so asking the model again would buy nothing.
-    if ((await repo.listSteps(stored.id)).some((r) => r.step === step)) {
+    const saved = await repo.listSteps(stored.id);
+    if (saved.some((r) => r.step === step)) {
       return c.json({ step, done: true });
     }
 
+    let dungeon = stored.doc as GeneratedDungeon | PlannedDungeon;
+    if (step === "content" && !isSettled(dungeon)) {
+      await repo.settleDungeon(stored.id, settleDungeon(dungeon, saved), currentUser(c).id);
+      // Read back rather than used as built, in case another request saved first.
+      dungeon = (await mustGetDungeon(stored.id, currentUser(c).id)).doc;
+    }
+    if (step !== "content" && isSettled(dungeon) && !dungeon.outline) {
+      throw new HTTPException(409, { message: "this dungeon was started before planning existed; start a new one" });
+    }
+    const ready = dungeon;
+
     const result = await journalled(stored.id, (journal) =>
-      generateStep(stored.doc, step, { journal })
+      generateStep(ready, step, saved, { journal })
     );
     await repo.saveStep(stored.id, result);
 
@@ -148,8 +167,9 @@ export function dungeonRoutes(app: Hono<AuthEnv>): void {
     if (stored.status === "complete") return c.json({ dungeonId: stored.id, already: true });
 
     const results = await repo.listSteps(stored.id);
+    const content = contentFrom(results);
     const complete = await journalled(stored.id, async (journal) => {
-      const done = await finishGeneration(stored.doc, contentFrom(results), { journal });
+      const done = await finishGeneration(stored.doc, content, { journal });
       // The baseline every later diff is a delta from. Written here, once per
       // dungeon rather than once per run: it carries the whole world, and a
       // copy per run is what would fill a 500MB tier.

@@ -407,6 +407,18 @@ export function runEntitiesPass(
       }
     }
 
+    // the outline's story feature: scenery that may be usable, written like any other
+    if (r.storyFeature) {
+      const f: IRoomFeature = {
+        id: makeId(),
+        name: "",
+        type: "RoomFeature",
+        roomId: r.roomId,
+      };
+      features.push(f);
+      bind(f.id, r.roomId, "story", kw(r.storyFeature));
+    }
+
     // clue -- something noticed in the room
     if (r.clue) {
       const f: IRoomFeature = {

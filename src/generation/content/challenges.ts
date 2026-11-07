@@ -175,9 +175,13 @@ export function enumerateChallenges(sd: ChallengeSource): Challenge[] {
       target: "room",
       targetId: goal.roomId,
       roomId: goal.roomId,
-      property: goal.goalDirective
-        ? `where ${goal.goalDirective.reward} lies`
-        : "where the objective lies",
+      // The outline's words for the objective when there are any, because the rolled
+      // reward is a table's category and the player reads this fact in play.
+      property: goal.goalDirective?.objective
+        ? `where to find ${goal.goalDirective.objective.form}`
+        : goal.goalDirective
+          ? `where ${goal.goalDirective.reward} lies`
+          : "where the objective lies",
     });
   }
 

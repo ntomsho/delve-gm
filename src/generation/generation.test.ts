@@ -39,8 +39,12 @@ import {
   contentFrom,
   finishGeneration,
   generateContent,
+  generateOutline,
+  generatePolish,
   generateStep,
   generateStructure,
+  settleDungeon,
+  type PlannedDungeon,
   validateWritten,
   type GeneratedDungeon,
 } from "./generate.ts";
@@ -53,8 +57,9 @@ import {
   toDungeonPassTool,
   keysPassSchema,
 } from "./content/passes/schemas.ts";
+import { fakeOutline } from "../fixtures/offline.ts";
 import { ResponseFormatError, validate } from "../llm/json.ts";
-import { callForJson, configureTransport, type FailedAttempt } from "../llm/client.ts";
+import { callForJson, configureTransport, withoutNulls, type FailedAttempt } from "../llm/client.ts";
 
 // The model client has no default URL. The stubbed `fetch` below answers any.
 configureTransport({ baseUrl: "https://model.test" });
@@ -88,7 +93,7 @@ function fakeKeysPass(p: KeysPassPayload): KeysPassResponse {
     keys: p.keys.map((k) => ({
       ref: k.ref,
       name: "Almoner's daybook",
-      base: `A ledger. One line is underscored: "${k.target.fact}".`,
+      base: "A ledger. One line is underscored, naming where to go.",
       ...(k.lockRef ? { lockRequirement: "silted up; the daybook says where the sluice is" } : {}),
     })),
     ...(p.goal ? { goalProperties: ["whose name is cut on the underside"] } : {}),
@@ -1018,6 +1023,7 @@ describe("generation split across requests", () => {
    */
   let finishing: GeneratedDungeon | undefined;
   let calls: number;
+  let planning: PlannedDungeon | undefined;
 
   const toolReply = (name: string, input: unknown) => ({
     content: [{ type: "tool_use", id: `t${calls}`, name, input }],
@@ -1027,9 +1033,18 @@ describe("generation split across requests", () => {
 
   const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g;
 
+  /** The structure, planned and settled, as the server would have it before the rooms. */
+  async function settled(): Promise<GeneratedDungeon> {
+    planning = await generateStructure({ seed: SEED, size: SIZE, level: 1 });
+    const outline = await generateOutline(planning);
+    const polish = await generatePolish(planning, outline.value);
+    return settleDungeon(planning, [outline, polish]);
+  }
+
   beforeEach(() => {
     answers = new Map();
     finishing = undefined;
+    planning = undefined;
     calls = 0;
 
     vi.stubGlobal("fetch", async (_url: string, init: { body: string }) => {
@@ -1046,6 +1061,15 @@ describe("generation split across requests", () => {
       if (tool === "establish_dungeon") {
         const ids = [...new Set(prompt.match(UUID) ?? [])];
         return { ok: true, json: async () => toolReply(tool, toDungeonPassTool(fakeDungeonPass(ids))) };
+      }
+
+      // The plan is answered against the draft in hand, and the review leaves it alone.
+      if (tool === "write_outline") {
+        if (!planning) throw new Error("the outline ran with no draft in hand");
+        return { ok: true, json: async () => toolReply(tool, fakeOutline(planning!.draft)) };
+      }
+      if (tool === "propose_edits") {
+        return { ok: true, json: async () => toolReply(tool, { edits: [] }) };
       }
 
       // The keys payload addresses entities that only exist once the content
@@ -1101,7 +1125,7 @@ describe("generation split across requests", () => {
   }
 
   it("writes the same dungeon whether or not the partial went through a database", async () => {
-    const partial = await generateStructure({ seed: SEED, size: SIZE, level: 1 });
+    const partial = await settled();
     answerTheRest(partial);
 
     // Before either branch runs, and before anything is applied: this is the
@@ -1137,17 +1161,52 @@ describe("generation split across requests", () => {
   });
 
   it("hands back each step's answer under its name, for the server to keep", async () => {
-    const partial = await generateStructure({ seed: SEED, size: SIZE, level: 1 });
-    answerTheRest(partial);
+    planning = await generateStructure({ seed: SEED, size: SIZE, level: 1 });
 
-    const saved = await generateStep(partial, "content");
+    const outline = await generateStep(planning, "outline", []);
+    expect(outline.step).toBe("outline");
+    const polish = await generateStep(planning, "polish", [outline]);
+    expect(polish.step).toBe("polish");
+
+    const partial = settleDungeon(planning, [outline, polish]);
+    answerTheRest(partial);
+    const saved = await generateStep(partial, "content", [outline, polish]);
     expect(saved.step).toBe("content");
-    expect(contentFrom([saved]).value).toEqual(saved.value);
+    expect(contentFrom([outline, polish, saved]).value).toEqual(saved.value);
+  });
+
+  it("keeps the rooms' step and the plan's steps in their order", async () => {
+    planning = await generateStructure({ seed: SEED, size: SIZE, level: 1 });
+    await expect(generateStep(planning, "content", [])).rejects.toThrow(/not been settled/);
+    await expect(generateStep(planning, "polish", [])).rejects.toThrow(/outline was never run/);
+  });
+
+  it("drops a review that fails, and the outline stands", async () => {
+    planning = await generateStructure({ seed: SEED, size: SIZE, level: 1 });
+    const outline = await generateOutline(planning);
+    vi.stubGlobal("fetch", async () => ({ ok: true, json: async () => toolReply("propose_edits", { edits: "no" }) }));
+    const polish = await generatePolish(planning, outline.value);
+    expect(polish.value.outline).toEqual(outline.value);
+    expect(polish.value.kept).toBe(false);
+  });
+
+  it("reads a null field as a field left out", () => {
+    const parsed = validate(contentPassSchema, withoutNulls({
+      rooms: [{
+        ref: "room_0",
+        name: "A room",
+        base: "A room.",
+        goal: null,
+        connectors: [{ ref: "c1", name: "Arch", form: "an arch", requirement: null }],
+      }],
+    }));
+    expect(parsed.rooms[0]!.goal).toBeUndefined();
+    expect(parsed.rooms[0]!.connectors![0]!.requirement).toBeUndefined();
   });
 
   it("refuses to finish with a step missing", () => {
     // Discovered here, where it can be retried, rather than as an unwritten
     // entity at the end of a pass nobody can rerun.
-    expect(() => contentFrom([])).toThrow(/step content was never run/);
+    expect(() => contentFrom([])).toThrow(/step outline, polish, content was never run/);
   });
 });

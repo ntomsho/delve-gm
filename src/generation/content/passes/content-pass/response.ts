@@ -178,6 +178,12 @@ export function contentPassOmissions(
         message: `this room is the GOAL room and no "goal" was written for it`,
       });
     }
+    if (brief.goal?.objective && rr.goal && rr.goal.entityType !== brief.goal.objective.type) {
+      out.push({
+        path: `${at}.goal`,
+        message: `the objective is a ${brief.goal.objective.type} (${brief.goal.objective.form}); "goal" was written as a ${rr.goal.entityType}`,
+      });
+    }
 
     const written = new Map((rr.encounters ?? []).map((e) => [e.ref, e]));
     for (const en of brief.encounters) {

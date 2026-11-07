@@ -122,6 +122,8 @@ const STAGE_LABEL: Record<GenerationProgress["stage"], string> = {
   inhabitants: "Deciding what lives here",
   history: "Writing its history",
   stocking: "Stocking the rooms",
+  planning: "Planning the dungeon",
+  reviewing: "Reviewing the plan",
   writing: "Writing the rooms",
   keys: "Writing the keys",
 };

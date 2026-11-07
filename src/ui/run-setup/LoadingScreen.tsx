@@ -16,7 +16,7 @@
 import type { GenerationProgress, GenerationStage } from "../../generation/generate.ts";
 
 const ORDER: GenerationStage[] = [
-  "layout", "inhabitants", "history", "stocking", "writing", "keys",
+  "layout", "inhabitants", "history", "stocking", "planning", "reviewing", "writing", "keys",
 ];
 
 const SAYS: Record<GenerationStage, string> = {
@@ -24,6 +24,8 @@ const SAYS: Record<GenerationStage, string> = {
   inhabitants: "Deciding who lives here",
   history: "Working out what happened",
   stocking: "Putting things in the rooms",
+  planning: "Working out how it all fits together",
+  reviewing: "Going back over the plan",
   writing: "Writing it all down",
   keys: "Hiding the answers where they can be found",
 };

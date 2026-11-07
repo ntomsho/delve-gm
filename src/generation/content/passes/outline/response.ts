@@ -374,11 +374,15 @@ export function unusedRefs(draft: OutlineDraft, o: Outline): { fictions: string[
 // REPAIR
 // ---------------------------------------------------------------------------
 
+/**
+ * One entry per key, the patch winning. One entry and not one replacement per entry:
+ * a model that listed a room twice would otherwise keep two copies however it was
+ * repaired, and the outline could never pass.
+ */
 function mergeBy<T>(whole: readonly T[], patch: readonly T[], key: (t: T) => string): T[] {
-  const incoming = new Map(patch.map((p) => [key(p), p]));
-  const kept = whole.map((w) => incoming.get(key(w)) ?? w);
-  const had = new Set(whole.map(key));
-  return [...kept, ...patch.filter((p) => !had.has(key(p)))];
+  const merged = new Map(whole.map((w) => [key(w), w]));
+  for (const p of patch) merged.set(key(p), p);
+  return [...merged.values()];
 }
 
 /** The outline with a repair's replacements put in. What it does not name stands. */
@@ -393,6 +397,17 @@ export function mergeOutline(whole: Outline, patch: Outline): Outline {
     // By field, or a change sent back for repair could never be put right.
     fictionChanges: mergeBy(whole.fictionChanges, patch.fictionChanges, (c) => `${c.field}:${c.group}`),
   };
+}
+
+/**
+ * The outline without entries for rooms or ways that do not exist. A repair replaces
+ * entries and has no way to take one away, so one the model invented, like a room
+ * called "none", would otherwise fail every repair after it.
+ */
+export function withoutStrays(draft: OutlineDraft, o: Outline): Outline {
+  const rooms = new Set(draft.rooms.map((r) => r.ref));
+  const ways = new Set(draft.ways.map((w) => w.ref));
+  return { ...o, rooms: o.rooms.filter((r) => rooms.has(r.ref)), ways: o.ways.filter((w) => ways.has(w.ref)) };
 }
 
 // ---------------------------------------------------------------------------

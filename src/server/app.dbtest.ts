@@ -41,7 +41,17 @@ import type { Hono } from "hono";
 import { closeDb, db } from "./db/connection.ts";
 import * as repo from "./db/repo.ts";
 import type { AuthEnv } from "./auth.ts";
-import { generateOffline, testCharacter } from "../fixtures/offline.ts";
+import {
+  fakeContentPass,
+  fakeDungeonPass,
+  fakeOutline,
+  generateOffline,
+  testCharacter,
+} from "../fixtures/offline.ts";
+import { buildContentPassPayload } from "../generation/content/passes/content-pass/build.ts";
+import { toDungeonPassTool } from "../generation/content/passes/schemas.ts";
+import { siteRooms } from "../generation/floorplan/geometry.ts";
+import { validateWritten } from "../generation/generate.ts";
 import type { PlayerCharacter } from "../rules/knave/character.ts";
 
 const ISSUER = "https://project.dbtest.supabase.co";
@@ -539,6 +549,122 @@ describe("the roster", () => {
  * The rule being held: writing a dungeon plus the first run into it is ONE run;
  * any other run is one run.
  */
+describe("building a dungeon through the routes", () => {
+  /** Stands in for the model, answering each call from the row as it stands. */
+  function stubModel(dungeonOf: () => string | undefined, seen: string[]) {
+    vi.stubGlobal("fetch", async (url: string, init?: { body: string }) => {
+      if (String(url).includes("/.well-known/jwks.json")) {
+        return { ok: true, status: 200, json: async () => jwks, headers: new Headers() };
+      }
+      const body = JSON.parse(init!.body);
+      const prompt = body.messages[0].content as string;
+      const tool = body.tools[0].name as string;
+      seen.push(tool);
+      const stored = async () => (await repo.getDungeon(dungeonOf()!, owner))!.doc as any;
+
+      let input: unknown;
+      if (tool === "establish_dungeon") {
+        const groups = prompt.slice(prompt.indexOf("=== GROUPS YOU MUST WRITE"));
+        const ids = [...new Set(groups.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g) ?? [])];
+        input = toDungeonPassTool(fakeDungeonPass(ids));
+      } else if (tool === "write_outline") {
+        input = fakeOutline((await stored()).draft);
+      } else if (tool === "propose_edits") {
+        input = { edits: [] };
+      } else if (tool === "write_rooms") {
+        const d = await stored();
+        const corridors = new Set(d.stocked.rooms.filter((r: any) => r.isCorridor).map((r: any) => r.index));
+        const site = siteRooms(d.blockplan, d.graph, { isCorridor: (i) => corridors.has(i) });
+        input = fakeContentPass(buildContentPassPayload(d.stocked, d.blueprint, d.entities, d.dungeonContext, site));
+      } else if (tool === "write_keys") {
+        const refs = [...prompt.matchAll(/^--- (\S+) ---$/gm)].map((m) => m[1]);
+        input = { keys: refs.map((ref) => ({ ref, name: "A clerk's plan", base: "A plan of the lower works." })) };
+      } else {
+        throw new Error(`unexpected model call: ${tool}`);
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          content: [{ type: "tool_use", id: "t1", name: tool, input }],
+          stop_reason: "tool_use",
+          usage: { input_tokens: 10, output_tokens: 10 },
+        }),
+      };
+    });
+  }
+
+  it("plans, settles once, writes the rooms and finishes, surviving a repeated step", async () => {
+    let id: string | undefined;
+    const seen: string[] = [];
+    stubModel(() => id, seen);
+    try {
+      const made = await ask("/api/dungeons", { method: "POST", body: { seed: 918273, size: 1, level: 1 } });
+      expect(made.status).toBe(200);
+      const { dungeonId, steps } = (await made.json()) as { dungeonId: string; steps: string[] };
+      id = dungeonId;
+      expect(steps).toEqual(["outline", "polish", "content"]);
+
+      // Unsettled until the rooms are asked for.
+      const planned = (await repo.getDungeon(dungeonId, owner))!.doc as any;
+      expect(planned.draft).toBeDefined();
+      expect(planned.stocked).toBeUndefined();
+
+      // The finish refuses, rather than writing a dungeon with no rooms.
+      expect((await ask(`/api/dungeons/${dungeonId}/finish`, { method: "POST" })).status).toBe(500);
+
+      for (const step of steps) {
+        const res = await ask(`/api/dungeons/${dungeonId}/steps/${step}`, { method: "POST" });
+        expect(res.status).toBe(200);
+      }
+      const settled = (await repo.getDungeon(dungeonId, owner))!.doc as any;
+      expect(settled.outline).toBeDefined();
+      expect(settled.draft).toBeUndefined();
+
+      // A retried step buys nothing and changes nothing: the rooms' answer addresses these ids.
+      const calls = seen.length;
+      for (const step of steps) {
+        expect((await ask(`/api/dungeons/${dungeonId}/steps/${step}`, { method: "POST" })).status).toBe(200);
+      }
+      expect(seen.length).toBe(calls);
+      expect((await repo.getDungeon(dungeonId, owner))!.doc).toEqual(settled);
+
+      const finished = await ask(`/api/dungeons/${dungeonId}/finish`, { method: "POST" });
+      expect(finished.status).toBe(200);
+      const done = await repo.getDungeon(dungeonId, owner);
+      expect(done!.status).toBe("complete");
+      expect(validateWritten(done!.doc)).toEqual([]);
+      expect(seen).toEqual(["establish_dungeon", "write_outline", "propose_edits", "write_rooms", "write_keys"]);
+    } finally {
+      stubJwks(jwks);
+      if (id) await sql`delete from dungeons where id = ${id}`;
+    }
+  });
+
+  it("keeps the first settled dungeon if two requests settle it", async () => {
+    const planned = { ...world, draft: {} } as any;
+    const id = await repo.insertPartialDungeon(planned, owner);
+    try {
+      const first = { ...world, id: "first" };
+      await repo.settleDungeon(id, first, owner);
+      await repo.settleDungeon(id, { ...world, id: "second" }, owner);
+      expect((await repo.getDungeon(id, owner))!.doc.id).toBe("first");
+    } finally {
+      await sql`delete from dungeons where id = ${id}`;
+    }
+  });
+
+  it("does not hand a retry a dungeon started before planning existed", async () => {
+    const { outline: _outline, ...old } = world;
+    const id = await repo.insertPartialDungeon(old, owner);
+    try {
+      const dice = { seed: world.seeds.dungeonSeed, size: world.size, level: world.level };
+      expect((await repo.findUnfinishedDungeon(owner, dice))?.id).not.toBe(id);
+    } finally {
+      await sql`delete from dungeons where id = ${id}`;
+    }
+  });
+});
+
 describe("the daily allowance", () => {
   /** A limited account, a token for it, and a character on it. */
   async function anAccount(guest: boolean) {

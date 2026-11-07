@@ -5,7 +5,7 @@
  */
 
 import type postgres from "postgres";
-import type { GeneratedDungeon, StepResult } from "../../generation/generate.ts";
+import type { GeneratedDungeon, PlannedDungeon, StepResult } from "../../generation/generate.ts";
 import { db, doc } from "./connection.ts";
 
 // ---------------------------------------------------------------------------
@@ -67,7 +67,7 @@ export interface DungeonSummary {
  * what the key split removed.
  */
 export async function insertPartialDungeon(
-  gd: GeneratedDungeon,
+  gd: PlannedDungeon | GeneratedDungeon,
   owner: string,
   sql: postgres.Sql = db()
 ): Promise<string> {
@@ -97,6 +97,8 @@ export async function findUnfinishedDungeon(
       from dungeons
      where owner_id = ${owner} and status = 'partial' and copied_from is null
        and seed = ${dice.seed} and size = ${dice.size} and level = ${dice.level}
+       -- One started before planning existed can't be finished by these steps.
+       and (doc ? 'draft' or doc ? 'outline')
      order by created_at desc
      limit 1
   `;
@@ -172,6 +174,20 @@ export async function listDungeons(
  * is not the key. Passing `gd` alone would compile and address the wrong
  * column forever.
  */
+export async function settleDungeon(
+  id: string,
+  gd: GeneratedDungeon,
+  owner: string,
+  sql: postgres.Sql = db()
+): Promise<void> {
+  // First save wins: its entity ids are the ones the content pass will address.
+  await sql`
+    update dungeons
+       set doc = ${doc(sql, gd)}, updated_at = now()
+     where id = ${id} and owner_id = ${owner} and status = 'partial' and doc ? 'draft'
+  `;
+}
+
 export async function completeDungeon(
   id: string,
   gd: GeneratedDungeon,

@@ -32,6 +32,11 @@ export function renderContentPassPrompt(p: ContentPassPayload): string {
     // together: the identity says what the place was built as and this says
     // what it came out as, and where they disagree the drawing is the fact.
     if (r.geometry) L.push(`as drawn: ${r.geometry}`);
+    if (r.story) L.push(`story note: ${r.story}`);
+    if (r.journey) L.push(`journey note: ${r.journey}`);
+    for (const k of r.plannedKeys ?? []) {
+      L.push(`a key is here, written later, so leave room for it and do not write it: ${k.key}. Got by: ${k.gotBy}`);
+    }
 
     for (const e of r.entities) {
       L.push(`entity [${e.ref}] ${e.kind} (${e.entity})${e.hidden ? " HIDDEN" : ""}: ${kwLine(e.keywords)}` + (e.note ? ` -- ${e.note}` : ""));
@@ -59,7 +64,8 @@ export function renderContentPassPrompt(p: ContentPassPayload): string {
       // The far side is named so the form can suit it -- a kennel wants a gate,
       // a vault wants a door -- and for no other reason. It must not reach the
       // connector's name; see CONNECTOR_NAMING.
-      L.push(`connector [${c.ref}]${where} to ${c.toRef} (${c.toIdentity})${flags} -- ${asks}`);
+      const planned = c.plannedForm ? `; the outline says: ${c.plannedForm}` : "";
+      L.push(`connector [${c.ref}]${where} to ${c.toRef} (${c.toIdentity})${flags} -- ${asks}${planned}`);
     }
     for (const en of r.encounters) {
       L.push(`encounter [${en.ref}] ${en.tier}, ${en.affiliation}, currently ${en.activity}, disposition ${en.disposition}`);
@@ -70,8 +76,15 @@ export function renderContentPassPrompt(p: ContentPassPayload): string {
       for (const line of en.template.split("\n")) L.push(`      ${line}`);
     }
     if (r.goal) {
-      L.push(`GOAL HERE: reward "${r.goal.reward}" + mission "${r.goal.mission}".`);
-      L.push(`  ${GOAL_INSTRUCTION}`);
+      const o = r.goal.objective;
+      if (o) {
+        L.push(`GOAL HERE: the outline decided the objective is a ${o.type}: ${o.form}.`);
+        if (o.person) L.push(`  ${o.person} stands here for it.`);
+        L.push(`  Write exactly this as "goal", with entityType ${o.type}. Do not decide it again.`);
+      } else {
+        L.push(`GOAL HERE: reward "${r.goal.reward}" + mission "${r.goal.mission}".`);
+        L.push(`  ${GOAL_INSTRUCTION}`);
+      }
     }
     if (r.gatedExits.length) L.push(`gated exits: ${r.gatedExits.join(", ")}`);
     if (r.openExits.length) L.push(`open exits: ${r.openExits.join(", ")}`);

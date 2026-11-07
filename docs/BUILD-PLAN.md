@@ -254,7 +254,10 @@ routes become:
 
 **Status.** Build 1 is built and measured: seeds 1005, 1007 and 1025 pass at `medium` effort, Haiku 5.5
 writing and reviewing, at 86-112s and about $0.014 an outline. An outline's first call uses 15,000-17,500
-tokens, so its cap is 32000; at `high` thinking runs away. Build 2 is next.
+tokens, so its cap is 32000; at `high` thinking runs away. Build 2 is built: the steps are `outline`,
+`polish` and `content`, and `settleOutline` replaces `stockDungeon` in generation. Not yet done: a goal
+that is a person still gets a second creature beside the group's copy, which is its own piece of work on
+how creature groups are assigned to rooms.
 
 **Watch the cost of Haiku 5.5.** Every task moved to it from Haiku 4.5. It is a tenth of the
 price per token, but it thinks by default and thinking bills as output. Compare the first live

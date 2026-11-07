@@ -7,8 +7,11 @@
  *
  *   A: generateBlueprintSeed                                    [pure]
  *      -> Dungeon Pass                                          [1 call]   ─┐
- *   B: generateBlueprint -> stockDungeon -> runEntitiesPass     [pure]     ─┘ concurrent
+ *   B: generateBlueprint -> rollOutline                         [pure]     ─┘ concurrent
  *   join
+ *   Outline: what goes where, and why                           [1 call, plus repairs]
+ *   Outline polish: a review of that plan, optional             [1 call]
+ *   settleOutline -> runEntitiesPass                            [pure, saved once]
  *   buildContentPassPayload -> LLM -> applyContentPass          [1 call, the whole dungeon]
  *   buildKeysPassPayload -> LLM -> applyKeysPass                [1 call]
  *
@@ -38,11 +41,19 @@ import {
 } from "./content/passes/dungeon-pass.ts";
 import {
   applyKeysPass,
+  askForKeys,
   buildKeysPassPayload,
+  keysPassLeaks,
   keysPassOmissions,
+  mergeKeys,
   unwritableKeys,
   renderKeysPassPrompt,
 } from "./content/passes/keys-pass.ts";
+import { renderOutlinePrompt, renderPolishPrompt } from "./content/passes/outline/prompt.ts";
+import { changedFiction, type Outline, type PolishEdit } from "./content/passes/outline/response.ts";
+import { rollOutline, type OutlineDraft } from "./content/passes/outline/roll.ts";
+import { polishOutline, writeOutline } from "./content/passes/outline/run.ts";
+import { settleOutline } from "./content/passes/outline/settle.ts";
 import { generateBlueprint, type Dungeon } from "./floorplan/graph.ts";
 import {
   generateBlueprintSeed,
@@ -55,7 +66,6 @@ import { resolveBase } from "../shared/world/entities.ts";
 import { runEntitiesPass } from "./content/entities-pass.ts";
 import type { EntityPassResult } from "../shared/world/entities.ts";
 import { siteRooms } from "./floorplan/geometry.ts";
-import { stockDungeon } from "./content/stock/stock.ts";
 import type { StockedDungeon } from "./content/types.ts";
 import { addUsage, callForJson, type FailedAttempt, type Usage } from "../llm/client.ts";
 import {
@@ -65,7 +75,7 @@ import {
   keysPassSchema,
 } from "./content/passes/schemas.ts";
 import { deriveSeeds, shapeFor, type RunSeeds } from "./seeds.ts";
-import { NO_LOG, type GenerationLog } from "./log.ts";
+import { NO_LOG, type GenerationLog, type GenerationPass } from "./log.ts";
 
 // ---------------------------------------------------------------------------
 // PROGRESS
@@ -82,6 +92,8 @@ export type GenerationStage =
   | "inhabitants"
   | "history"
   | "stocking"
+  | "planning"
+  | "reviewing"
   | "writing"
   | "keys";
 
@@ -124,7 +136,32 @@ export interface GeneratedDungeon {
    * dungeon with no plan is playable.
    */
   blockplan: BlockPlan | null;
+  /** the plan this dungeon was built from. Absent on dungeons from before there was one. */
+  outline?: Outline;
   usage: Usage;
+}
+
+/**
+ * The dungeon before its plan exists: the fiction, the drawing and the dice. What
+ * the server stores between the first request and the outline's answer.
+ */
+export interface PlannedDungeon {
+  id: string;
+  seeds: RunSeeds;
+  size: Size;
+  level: number;
+  readonly dungeonContext: string;
+  pass: DungeonPassResponse;
+  blueprint: DungeonBlueprintSeed;
+  graph: Dungeon;
+  blockplan: BlockPlan | null;
+  draft: OutlineDraft;
+  usage: Usage;
+}
+
+/** Whether the plan has been turned into rooms yet. */
+export function isSettled(d: PlannedDungeon | GeneratedDungeon): d is GeneratedDungeon {
+  return "stocked" in d;
 }
 
 // NO FLOOR AREA FROM CONTENTS. A room's size is capped by the ground its
@@ -164,7 +201,7 @@ const GRAPH_ATTEMPTS = 8;
  */
 function reportFailure(
   journal: GenerationLog,
-  pass: "dungeon-pass" | "content-pass" | "keys-pass"
+  pass: GenerationPass
 ) {
   return (r: FailedAttempt): void => {
     journal.log({
@@ -199,17 +236,26 @@ export interface ContentResult {
   usage: Usage;
 }
 
+/** The review's answer: the outline to use, and what happened to the proposed edits. */
+export interface PolishResult {
+  outline: Outline;
+  proposed: PolishEdit[];
+  kept: boolean;
+  rolledBack?: string;
+}
+
 /**
  * The model calls between the structure and `finishGeneration`, in the order
  * they run. Each is its own server request, saved unapplied on arrival.
  */
-export const STEPS = ["content"] as const;
+export const STEPS = ["outline", "polish", "content"] as const;
 export type Step = (typeof STEPS)[number];
 
 /** One step's answer, as the server keeps it between requests. */
-export interface StepResult extends ContentResult {
-  step: Step;
-}
+export type StepResult =
+  | { step: "outline"; value: Outline; usage: Usage }
+  | { step: "polish"; value: PolishResult; usage: Usage }
+  | ({ step: "content" } & ContentResult);
 
 export function isStep(s: string): s is Step {
   return (STEPS as readonly string[]).includes(s);
@@ -253,15 +299,13 @@ function contentPayload(partial: GeneratedDungeon) {
 // ---------------------------------------------------------------------------
 
 /**
- * Everything knowable before a room is written: the graph, the drawing, the
- * stocking, the entities, and the standing fiction.
+ * Everything knowable before the plan: the graph, the drawing, the dice the outline
+ * chooses among, and the standing fiction.
  *
- * Comes back as a `GeneratedDungeon` whose entities are UNWRITTEN — no names,
- * no prose. That is a real state now rather than a moment inside a function,
- * because the steps below happen in separate HTTP requests and this is what is
- * persisted between them.
+ * That is a real state rather than a moment inside a function, because the steps
+ * below happen in separate HTTP requests and this is what is persisted between them.
  */
-export async function generateStructure(opts: GenerateOptions): Promise<GeneratedDungeon> {
+export async function generateStructure(opts: GenerateOptions): Promise<PlannedDungeon> {
   const { size, signal } = opts;
   const level = opts.level ?? 1;
   const seeds = deriveSeeds(opts.seed);
@@ -321,7 +365,7 @@ export async function generateStructure(opts: GenerateOptions): Promise<Generate
       const { dungeon } = generateBlueprint(graphSeed, shape, true);
       report({ stage: "stocking" });
 
-      // THE DRAWING RUNS INSIDE STOCKING, between the corridors and the fiction.
+      // THE DRAWING RUNS INSIDE THE ROLL, between the corridors and the fiction.
       //
       // It needs the graph and which rooms are passages, and nothing else. Putting
       // it first means each room's size is settled before its identity is rolled,
@@ -329,9 +373,9 @@ export async function generateStructure(opts: GenerateOptions): Promise<Generate
       // be a banquet hall. The alternative, which is what 6a did, is to let the
       // roll demand a size and hope the ground obliges; it usually did not.
       let blockplan: BlockPlan | null = null;
-      const stocked = stockDungeon(dungeon, blueprint, {
-        level,
+      const draft = rollOutline(dungeon, blueprint, {
         seed: seeds.stockSeed,
+        level,
         layout: (rooms) => {
           const corridor = new Set<number>(rooms.filter((r) => r.isCorridor).map((r) => r.index));
           blockplan = blockPlanValid(dungeon, (i) => corridor.has(i), seeds.layoutSeed);
@@ -347,17 +391,12 @@ export async function generateStructure(opts: GenerateOptions): Promise<Generate
         );
       }
 
-      const entities = runEntitiesPass(stocked, blueprint, new Rng(stocked.seed));
-      return { dungeon, stocked, entities, plan };
+      return { dungeon, draft, plan };
     }
   })();
 
-  const [{ result: fictionResult, usage }, { dungeon, stocked, entities, plan }] =
+  const [{ result: fictionResult, usage }, { dungeon, draft, plan }] =
     await Promise.all([fiction, structure]);
-
-  // The Dungeon Pass wrote the inhabitant bases; they belong on the registry,
-  // which is the thing that gets persisted alongside the entities.
-  Object.assign(entities.registry.groups, fictionResult.groups);
 
   return {
     id: blueprint.id,
@@ -368,15 +407,111 @@ export async function generateStructure(opts: GenerateOptions): Promise<Generate
     pass: fictionResult.pass,
     blueprint,
     graph: dungeon,
-    stocked,
-    entities,
     blockplan: plan,
+    draft,
     usage,
   };
 }
 
 // ---------------------------------------------------------------------------
-// STEP 2: THE ROOMS  (one model call, and nothing mutated)
+// STEP 2: THE PLAN  (the outline, then a review of it)
+// ---------------------------------------------------------------------------
+
+const NO_USAGE: Usage = { inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheReadTokens: 0 };
+
+/** Decide what goes where. An outline that can't be repaired fails the generation. */
+export async function generateOutline(
+  planned: PlannedDungeon,
+  opts: PassOptions = {}
+): Promise<Extract<StepResult, { step: "outline" }>> {
+  const journal = opts.journal ?? NO_LOG;
+  const { outline, usage } = await writeOutline(planned.draft, planned.pass, {
+    ...(opts.signal ? { signal: opts.signal } : {}),
+    onAttemptFailed: reportFailure(journal, "outline"),
+  });
+  journal.log({
+    kind: "generation",
+    pass: "outline",
+    prompt: renderOutlinePrompt(planned.draft, planned.pass),
+    response: outline,
+    usage,
+  });
+  return { step: "outline", value: outline, usage };
+}
+
+/**
+ * Review the outline. Optional by design: a review that fails or doesn't hold up is
+ * dropped, and the outline stands as written, so a bad review can't cost a dungeon.
+ */
+export async function generatePolish(
+  planned: PlannedDungeon,
+  outline: Outline,
+  opts: PassOptions = {}
+): Promise<Extract<StepResult, { step: "polish" }>> {
+  const journal = opts.journal ?? NO_LOG;
+  try {
+    const { usage, ...value } = await polishOutline(planned.draft, planned.pass, outline, {
+      ...(opts.signal ? { signal: opts.signal } : {}),
+      onAttemptFailed: reportFailure(journal, "outline-polish"),
+    });
+    journal.log({
+      kind: "generation",
+      pass: "outline-polish",
+      prompt: renderPolishPrompt(planned.draft, planned.pass, outline),
+      response: value,
+      usage,
+    });
+    return { step: "polish", value, usage };
+  } catch (e) {
+    if (opts.signal?.aborted) throw e;
+    const rolledBack = e instanceof Error ? e.message : String(e);
+    journal.log({ kind: "error", where: "outline-polish", message: `review dropped: ${rolledBack}` });
+    return { step: "polish", value: { outline, proposed: [], kept: false, rolledBack }, usage: NO_USAGE };
+  }
+}
+
+/**
+ * Turn the plan into rooms. Pure, but SAVE THE RESULT ONCE: its entity ids are random,
+ * and the content pass's answer addresses them.
+ */
+export function settleDungeon(planned: PlannedDungeon, results: readonly StepResult[]): GeneratedDungeon {
+  const outlineStep = results.find((r) => r.step === "outline");
+  const polishStep = results.find((r) => r.step === "polish");
+  const outline = polishStep?.step === "polish" ? polishStep.value.outline : outlineStep?.step === "outline" ? outlineStep.value : undefined;
+  if (!outline) throw new Error("cannot settle a dungeon: step outline was never run");
+
+  const { blueprint, seeds, level, draft: _draft, ...rest } = planned;
+  const groupIds = blueprint.inhabitants.map((g) => g.id);
+  const fiction = applyDungeonPass(
+    changedFiction(planned.pass, groupIds, outline.fictionChanges),
+    buildDungeonPassPayload(blueprint)
+  );
+
+  const stocked = settleOutline(planned.draft, outline, { level, seed: seeds.stockSeed });
+  const entities = runEntitiesPass(stocked, blueprint, new Rng(stocked.seed));
+  // The Dungeon Pass wrote the inhabitant bases; they belong on the registry,
+  // which is the thing that gets persisted alongside the entities.
+  Object.assign(entities.registry.groups, fiction.groups);
+
+  let usage = planned.usage;
+  for (const r of results) if (r.step !== "content") usage = addUsage(usage, r.usage);
+
+  return {
+    ...rest,
+    blueprint,
+    seeds,
+    level,
+    dungeonContext: fiction.dungeonContext,
+    pass: fiction.pass,
+    stocked,
+    entities,
+    outline,
+    usage,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// STEP 3: THE ROOMS  (one model call, and nothing mutated)
 // ---------------------------------------------------------------------------
 
 /**
@@ -415,16 +550,25 @@ export async function generateContent(
   return { value, usage };
 }
 
-/** Run one named step: what `POST /api/dungeons/:id/steps/:step` calls. */
+/**
+ * Run one named step: what `POST /api/dungeons/:id/steps/:step` calls. The rooms need a
+ * settled dungeon, and the steps before them need one that isn't yet.
+ */
 export async function generateStep(
-  partial: GeneratedDungeon,
+  dungeon: PlannedDungeon | GeneratedDungeon,
   step: Step,
+  saved: readonly StepResult[],
   opts: PassOptions = {}
 ): Promise<StepResult> {
-  switch (step) {
-    case "content":
-      return { step, ...(await generateContent(partial, opts)) };
+  if (step === "content") {
+    if (!isSettled(dungeon)) throw new Error("cannot write the rooms: the plan has not been settled");
+    return { step, ...(await generateContent(dungeon, opts)) };
   }
+  if (isSettled(dungeon)) throw new Error(`cannot run step ${step}: the plan has already been settled`);
+  if (step === "outline") return generateOutline(dungeon, opts);
+  const written = saved.find((r) => r.step === "outline");
+  if (written?.step !== "outline") throw new Error("cannot review the outline: step outline was never run");
+  return generatePolish(dungeon, written.value, opts);
 }
 
 /**
@@ -437,12 +581,13 @@ export function contentFrom(results: readonly StepResult[]): ContentResult {
   if (missing.length > 0) {
     throw new Error(`cannot finish generation: step ${missing.join(", ")} was never run`);
   }
-  const { value, usage } = results.find((r) => r.step === "content")!;
-  return { value, usage };
+  const content = results.find((r) => r.step === "content");
+  if (content?.step !== "content") throw new Error("cannot finish generation: step content was never run");
+  return { value: content.value, usage: content.usage };
 }
 
 // ---------------------------------------------------------------------------
-// STEP 3: APPLY, AND THE KEYS  (one model call)
+// STEP 4: APPLY, AND THE KEYS  (one model call)
 // ---------------------------------------------------------------------------
 
 /**
@@ -496,7 +641,9 @@ export async function finishGeneration(
         "Write the objects that answer this dungeon's questions, and name what must be learned about its objective.",
       messages: [{ role: "user", content: prompt }],
       ...(opts.signal ? { signal: opts.signal } : {}),
-      check: (v) => keysPassOmissions(keysPayload, v),
+      check: (v) => [...keysPassOmissions(keysPayload, v), ...keysPassLeaks(keysPayload, v)],
+      // Game shorthand in what the player reads comes back as a requirement, key by key.
+      repair: { ask: askForKeys, merge: mergeKeys },
       onAttemptFailed: reportFailure(journal, "keys-pass"),
     });
     journal.log({ kind: "generation", pass: "keys-pass", prompt, response: value, usage: keysUsage });
@@ -512,7 +659,7 @@ export async function finishGeneration(
 // ---------------------------------------------------------------------------
 
 /**
- * The three steps above, composed.
+ * The steps above, composed.
  *
  * This is what the browser and the CLI call and what every generation test
  * exercises. The server calls the three separately, because no one Vercel
@@ -527,12 +674,18 @@ export async function generateDungeon(opts: GenerateOptions): Promise<GeneratedD
     ...(opts.onProgress ? { onProgress: opts.onProgress } : {}),
   };
 
-  const partial = await generateStructure(opts);
+  const planned = await generateStructure(opts);
+
+  report({ stage: "planning" });
+  const outline = await generateOutline(planned, pass);
+  report({ stage: "reviewing" });
+  const polish = await generatePolish(planned, outline.value, pass);
+  const settled = settleDungeon(planned, [outline, polish]);
 
   report({ stage: "writing" });
-  const content = await generateContent(partial, pass);
+  const content = await generateContent(settled, pass);
 
-  return finishGeneration(partial, content, pass);
+  return finishGeneration(settled, content, pass);
 }
 
 // ---------------------------------------------------------------------------

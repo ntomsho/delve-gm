@@ -722,6 +722,7 @@ export interface ElementBinding {
     | "hazard"
     | "obstacle"
     | "clue"
+    | "story"
     | "reward"
     | "creature"
     | "connector"

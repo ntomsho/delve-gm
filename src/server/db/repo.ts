@@ -42,6 +42,7 @@ export {
   duplicateDungeon,
   saveStep,
   listSteps,
+  settleDungeon,
 } from "./dungeons.ts";
 export {
   appendDungeonEvents,

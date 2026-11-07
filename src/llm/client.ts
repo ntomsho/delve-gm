@@ -322,6 +322,19 @@ export interface ToolTurn {
 }
 
 /**
+ * The answer with every null field removed. Haiku 5.5 writes null where a field does
+ * not apply, which means the same as leaving it out, and rejecting it spent whole
+ * retries. No schema here uses null to mean anything else.
+ */
+export function withoutNulls(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(withoutNulls);
+  if (v === null || typeof v !== "object") return v;
+  return Object.fromEntries(
+    Object.entries(v).filter(([, x]) => x !== null).map(([k, x]) => [k, withoutNulls(x)])
+  );
+}
+
+/**
  * One request to the model with tools available. It doesn't loop: only the
  * caller knows whether the response finishes the turn.
  */
@@ -552,7 +565,7 @@ export async function callForJson<T>(opts: JsonCallOptions<T>): Promise<JsonResu
           "the response was cut off at max_tokens; the object is incomplete"
         );
       }
-      const received = validate(opts.schema, call.input);
+      const received = validate(opts.schema, withoutNulls(call.input));
       const value = kept !== undefined && opts.repair ? opts.repair.merge(kept, received) : received;
       const lacking = opts.check?.(value) ?? [];
       if (lacking.length > 0) {

@@ -5,7 +5,7 @@ Return JSON only, no prose outside it:
     {
       "ref": "<exactly as given>",
       "name": "<what the object is called>",
-      "base": "<what it is and what it tells you, carrying the fact verbatim>",
+      "base": "<what it is and what it tells you, in its own words>",
       "lockRequirement": "<only where offered: the lock, rewritten to name this key>"
     }
   ],

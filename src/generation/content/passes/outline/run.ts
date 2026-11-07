@@ -18,6 +18,7 @@ import {
   fictionShrinks,
   polishIssues,
   mergeOutline,
+  withoutStrays,
   outlineSchema,
   outlineViolations,
   polishSchema,
@@ -63,7 +64,7 @@ export async function writeOutline(
     },
     repair: {
       ask: (missing) => renderOutlineRepair(draft, latest!, missing),
-      merge: mergeOutline,
+      merge: (whole, patch) => withoutStrays(draft, mergeOutline(whole, patch)),
     },
   });
   return { outline: value, usage, attempts };

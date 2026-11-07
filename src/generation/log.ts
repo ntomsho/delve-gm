@@ -16,7 +16,7 @@ import type { Usage } from "../llm/client.ts";
 import type { ValidationIssue } from "../llm/validation.ts";
 
 /** Every pass that calls a model. The tally runs at the end of play, but it is the same kind of call. */
-export type GenerationPass = "dungeon-pass" | "content-pass" | "keys-pass" | "tally-pass";
+export type GenerationPass = "dungeon-pass" | "outline" | "outline-polish" | "content-pass" | "keys-pass" | "tally-pass";
 
 export type GenerationRecord =
   /**

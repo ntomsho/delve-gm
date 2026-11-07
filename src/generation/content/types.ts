@@ -64,6 +64,13 @@ interface RewardCommon {
   guaranteed: boolean;
 }
 
+/** The outline's words for one key: what it is, and what getting it takes. */
+export interface PlannedKeyWords {
+  kind: "object" | "information";
+  key: string;
+  gotBy: string;
+}
+
 export type Reward = RewardCommon &
   (
     | {
@@ -73,6 +80,8 @@ export type Reward = RewardCommon &
         /** what the key must answer. The keys pass turns this into an object. */
         answers: Rolled;
         value: number;
+        /** what the outline decided this key is. The keys pass writes it from this. */
+        plan?: PlannedKeyWords;
       }
     | { kind: "equipment"; row: EquipmentRow; draws: EquipmentDraw[] }
     | { kind: "treasure"; row: TreasureRow; content: Rolled; value: number }
@@ -128,6 +137,16 @@ export interface GoalDirective {
   reward: Rolled;
   mission: Rolled;
   instruction: string;
+  /** what the outline decided the objective physically is. The content pass writes this. */
+  objective?: PlannedObjective;
+}
+
+/** The outline's answer to what the objective physically is. */
+export interface PlannedObjective {
+  type: "Item" | "RoomFeature" | "Creature";
+  form: string;
+  /** who stands in the goal room for it, if anyone */
+  person?: string;
 }
 
 export interface MobileEntity {
@@ -221,6 +240,13 @@ export interface RoomStock {
 
   /** present on exactly one room */
   goalDirective?: GoalDirective;
+
+  /** how this room came to be as it is, from the outline */
+  story?: string;
+  /** what this room does for a player coming through it, from the outline */
+  journey?: string;
+  /** one thing here tied to the story, usually usable. Written like any other feature. */
+  storyFeature?: string;
 }
 
 export interface StockedConnector {
@@ -243,6 +269,8 @@ export interface StockedConnector {
   hidden: boolean;
   /** filled by the composition pass; becomes IRoomConnector.conditional */
   requirement?: string;
+  /** what the outline says it physically is. The content pass writes to this. */
+  form?: string;
 }
 
 export interface StockedDungeon {

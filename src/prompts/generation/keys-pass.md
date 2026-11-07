@@ -10,11 +10,14 @@ player picks up and carries, not a feeling and not a hint.
 FOR EACH KEY
 - name: what the object is called, two to five words. A thing, not a promise:
   "the almoner's daybook", not "the key to the ghoul".
-- base: what it IS and what it tells you, in a sentence or two. THE FACT QUOTED
-  UNDER IT MUST SURVIVE VERBATIM OR NEARLY SO -- that exact wording is what the
-  game later writes onto the thing it is about, and a paraphrase breaks the
-  link. Put it in the object's own voice: what the page says, what the ring is
-  cut to fit, what the vial is labelled.
+- base: what it IS and what it tells you, in a sentence or two, in the object's own
+  voice: what the page says, what the ring is cut to fit, what the vial is labelled.
+  The fact under it is the game's shorthand for what the key must tell the player.
+  Say what that means, in words a person in this place would write. Never copy the
+  shorthand itself and never use a game term: name the actual thing, person or place.
+  If the outline decided what the key is, write that, and describe it so that what the
+  player has to do to get it is possible. Information still needs something that
+  carries it: a page, an inscription, a scrap of a letter.
 - lockRequirement: OFFERED ONLY where the brief says so, and only for a blocked
   way. Rewrite what stands in that way so that it and this key name each other.
   It must still read correctly from both sides, since a player can meet it from
