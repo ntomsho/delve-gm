@@ -16,7 +16,14 @@ export function characterRoutes(app: Hono<AuthEnv>): void {
    * are. Not bare sheets: a sheet alone cannot answer the question the screen
    * asks, which is whether this person can be sent anywhere.
    */
-  app.get("/api/characters", async (c) => c.json(await repo.listRoster(currentUser(c).id)));
+  app.get("/api/characters", async (c) => {
+    const owner = currentUser(c).id;
+    // A new account's first look at the roster finds the starter already on it,
+    // so a visitor can go straight into a dungeon. Once per account; see
+    // `grantStarterIfDue`.
+    await repo.grantStarterIfDue(owner);
+    return c.json(await repo.listRoster(owner));
+  });
 
   /**
    * Save a sheet — a new character, or one that has been to the market.

@@ -27,6 +27,7 @@ export {
   saveCharacter,
   carriedOut,
   deleteCharacter,
+  grantStarterIfDue,
 } from "./characters.ts";
 export {
   type StoredDungeon,

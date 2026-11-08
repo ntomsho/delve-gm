@@ -626,6 +626,49 @@ describe("profiles", () => {
   });
 });
 
+describe("the starter character", () => {
+  it("is on a new account's roster the first time it is asked for, and only once", async () => {
+    await inRollback(async (tx) => {
+      const a = await makeUser(tx, "a");
+      expect(await repo.grantStarterIfDue(a, tx)).toBe(true);
+      expect(await repo.grantStarterIfDue(a, tx)).toBe(false);
+      const roster = await repo.listRoster(a, tx);
+      expect(roster).toHaveLength(1);
+      expect(roster[0].sheet).toMatchObject({ level: 1, mode: "normal" });
+    });
+  });
+
+  it("does not come back after it is deleted", async () => {
+    await inRollback(async (tx) => {
+      const a = await makeUser(tx, "a");
+      await repo.grantStarterIfDue(a, tx);
+      const [entry] = await repo.listRoster(a, tx);
+      expect(await repo.deleteCharacter(entry.sheet.id, a, tx)).toBe(true);
+      expect(await repo.grantStarterIfDue(a, tx)).toBe(false);
+      expect(await repo.listRoster(a, tx)).toEqual([]);
+    });
+  });
+
+  it("is not given to an account that has already had it", async () => {
+    await inRollback(async (tx) => {
+      const a = await makeUser(tx, "a");
+      // What the migration does to every account that existed before it.
+      await tx`update profiles set starter_granted = true where id = ${a}`;
+      expect(await repo.grantStarterIfDue(a, tx)).toBe(false);
+      expect(await repo.listRoster(a, tx)).toEqual([]);
+    });
+  });
+
+  it("lands on its own account and nobody else's", async () => {
+    await inRollback(async (tx) => {
+      const a = await makeUser(tx, "a");
+      const b = await makeUser(tx, "b");
+      await repo.grantStarterIfDue(a, tx);
+      expect(await repo.listRoster(b, tx)).toEqual([]);
+    });
+  });
+});
+
 // ---------------------------------------------------------------------------
 // ONE RUN AT A TIME, AND WHAT A RUN LEAVES BEHIND
 // ---------------------------------------------------------------------------

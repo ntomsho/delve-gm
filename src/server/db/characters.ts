@@ -4,6 +4,8 @@
 
 import type postgres from "postgres";
 import type { PlayerCharacter } from "../../rules/knave/character.ts";
+import { seedFromText, starterCharacter } from "../../rules/knave/starter.ts";
+import { Rng } from "../../shared/utils/rng.ts";
 import { db, doc } from "./connection.ts";
 import type { RunStatus } from "./runs.ts";
 
@@ -234,6 +236,34 @@ export async function saveCharacter(
  */
 export function carriedOut(pc: PlayerCharacter, earned = 0): PlayerCharacter {
   return { ...pc, hp: { ...pc.hp, current: pc.hp.max }, xp: (pc.xp ?? 0) + earned };
+}
+
+/**
+ * THE STARTER, ONCE PER ACCOUNT.
+ *
+ * Called before the roster is read. The first time, it marks the profile and
+ * saves the starter (`src/rules/knave/starter.ts`) in one transaction; every
+ * time after, the update matches no row and nothing else happens. The flag is
+ * claimed by the update itself, so two roster loads racing on a brand-new
+ * account cannot both win and hand out two.
+ *
+ * Seeded from the account id, so who the starter is depends only on whose
+ * account it is. A guest who links Google keeps the same id, and so keeps the
+ * flag and gets no second one.
+ *
+ * Returns whether a starter was given.
+ */
+export async function grantStarterIfDue(owner: string, sql: postgres.Sql = db()): Promise<boolean> {
+  return sql.begin(async (tx) => {
+    const claimed = await tx`
+      update profiles set starter_granted = true
+       where id = ${owner} and not starter_granted
+      returning id
+    `;
+    if (claimed.length === 0) return false;
+    await saveCharacter(starterCharacter(new Rng(seedFromText(owner))), owner, tx as unknown as postgres.Sql);
+    return true;
+  });
 }
 
 export async function deleteCharacter(
