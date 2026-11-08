@@ -34,6 +34,11 @@ export type Task =
    */
   | "illustration-visual"
   /**
+   * looking at a finished room illustration and moving each button in the
+   * picture onto the thing as it was drawn
+   */
+  | "illustration-place"
+  /**
    * the text for a creature sprite: what the creature looks like, and a size
    * word that code converts to a height in feet
    */
@@ -70,6 +75,9 @@ export const MODELS: Record<Task, string> = {
   "room-entry": "claude-haiku-5-5",
   "turn-loop": "claude-haiku-5-5",
   "illustration-visual": "claude-haiku-5-5",
+  // Measured on four live illustrations: all 15 buttons put on their things,
+  // about $0.0005 and 2-3 s a picture.
+  "illustration-place": "claude-haiku-5-5",
   "sprite-look": "claude-haiku-5-5",
 };
 
@@ -98,6 +106,8 @@ export const MAX_TOKENS: Record<Task, number> = {
   "turn-loop": 8192,
   // A sentence for the room and a short phrase for each thing in the picture.
   "illustration-visual": 1024,
+  // About 60 tokens a button; a crowded room has ten.
+  "illustration-place": 2048,
   // About thirty words, plus one size word.
   "sprite-look": 512,
 };

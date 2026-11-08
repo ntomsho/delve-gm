@@ -474,8 +474,14 @@ for the player and never shown to the model.
 - **A guide image** (`src/illustrations/sketch.ts`) of walls, doorways and tagged
   footprints is sent with the prompt, so the image model draws the room the map has.
 - **Buttons over the illustration** come from the same projection
-  (`src/illustrations/hotspots.ts`), so a door's button sits on the doorway drawn there.
-  Things out of shot keep a button at a corner or the frame's edge.
+  (`src/illustrations/hotspots.ts`), so a door's button sits where the guide marked the
+  doorway. Things out of shot keep a button at a corner or the frame's edge.
+- **Then Haiku moves the buttons onto what was drawn,** since the image model does not
+  always draw a thing where the guide marked it (`src/illustrations/button-placement.ts`).
+  It sees the finished picture and only the buttons in it; corner arrows and dashed
+  buttons stay put and are sent only as spots to keep off. Code keeps the geometry's
+  point for any answer that is missing, off the picture or on a taken spot. A position
+  on a picture is not a game number (§1): nothing is rolled and nothing reaches play.
 - **Creatures are sprites, one per kind**, cut out for free (threshold, close, flood
   the background from the border) and stood on a patch of floor every illustration keeps
   clear, at a height from the camera's own projection (`src/illustrations/figures.ts`).
@@ -493,6 +499,9 @@ for the player and never shown to the model.
   `failed`) means two runs entering one room pay once.
 - Drawing starts on the server the moment a turn puts the player in a new room, so the
   picture is usually ready by the time the page asks.
+- The placed buttons are kept in `plate_words` under `spots:<key>`, written only by the
+  request that drew the picture. A picture without them (drawn earlier, or its placement
+  failed) gets the geometry's buttons. Placement costs about $0.0005 and 2–3 s a picture.
 - Images live in a public Supabase Storage bucket. The Supabase names still say `plates`
   (the table, `plate_words`, the bucket), from before the code said *illustration*.
 - Room interiors and sprites are drawn by GPT Image 2 at low quality with style

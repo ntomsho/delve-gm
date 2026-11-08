@@ -44,6 +44,21 @@ export function oneBitPng(image: Buffer): Promise<Buffer> {
 }
 
 /**
+ * The picture as the player will see it — thresholded, on white paper — as a
+ * JPEG, for Haiku to place the buttons on. White paper because a transparent
+ * one comes out black; JPEG because the PNG can pass the API's 5 MB image limit.
+ */
+export function placementJpeg(image: Buffer): Promise<Buffer> {
+  return sharp(image)
+    .flatten({ background: "#ffffff" })
+    .greyscale()
+    .threshold(ILLUSTRATION_THRESHOLD)
+    .resize(ILLUSTRATION_W, ILLUSTRATION_H)
+    .jpeg({ quality: 85 })
+    .toBuffer();
+}
+
+/**
  * Black ink on NOTHING: what the page gets. The paper is transparent, so the
  * page lays the illustration down as a mask over its own ink colour and the picture's
  * white is the page's paper — no box edge, and the lines are exactly the

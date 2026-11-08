@@ -60,6 +60,7 @@ import ILLUSTRATIONS_PLAIN_GUIDE_NOTE_MD from "./illustrations/plain-guide-note.
 import ILLUSTRATIONS_OPEN_FLOOR_NOTE_MD from "./illustrations/open-floor-note.md?raw";
 import ILLUSTRATIONS_VISUAL_SYSTEM_MD from "./illustrations/visual-system.md?raw";
 import ILLUSTRATIONS_SETTING_SYSTEM_MD from "./illustrations/setting-system.md?raw";
+import ILLUSTRATIONS_PLACE_SYSTEM_MD from "./illustrations/place-system.md?raw";
 import ILLUSTRATIONS_EXTERIOR_SYSTEM_MD from "./illustrations/exterior-system.md?raw";
 import ILLUSTRATIONS_SPRITE_STYLE_MD from "./illustrations/sprite-style.md?raw";
 import ILLUSTRATIONS_SPRITE_FRAME_MD from "./illustrations/sprite-frame.md?raw";
@@ -236,6 +237,12 @@ export const ILLUSTRATION_OPEN_FLOOR_NOTE = text(ILLUSTRATIONS_OPEN_FLOOR_NOTE_M
 export const ILLUSTRATION_VISUAL_SYSTEM = text(ILLUSTRATIONS_VISUAL_SYSTEM_MD);
 
 export const ILLUSTRATION_SETTING_SYSTEM = text(ILLUSTRATIONS_SETTING_SYSTEM_MD);
+
+/**
+ * Moves an illustration's buttons onto the things as drawn, from the finished
+ * picture (`src/illustrations/button-placement.ts`).
+ */
+export const ILLUSTRATION_PLACE_SYSTEM = text(ILLUSTRATIONS_PLACE_SYSTEM_MD);
 
 /** The system prompt for describing an exterior: the place and its entrance, seen from outside. */
 export const ILLUSTRATION_EXTERIOR_SYSTEM = text(ILLUSTRATIONS_EXTERIOR_SYSTEM_MD);

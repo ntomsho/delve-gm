@@ -6,7 +6,13 @@
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 import { generateOffline } from "../../fixtures/offline.ts";
-import { coverDescription, illustrationEntries, illustrationTags, roomIllustration } from "../../illustrations/room-illustration.ts";
+import {
+  coverDescription,
+  illustrationEntries,
+  illustrationSpots,
+  illustrationTags,
+  roomIllustration,
+} from "../../illustrations/room-illustration.ts";
 import type { IllustrationRow } from "../db/repo.ts";
 import { inkPng } from "./image.ts";
 import {
@@ -16,6 +22,7 @@ import {
   illustrationKey,
   serveCover,
   serveIllustration,
+  spotsKey,
   type IllustrationStore,
   type IllustrationWork,
 } from "./serve.ts";
@@ -134,6 +141,37 @@ describe("serveIllustration", () => {
     p.features.forEach((f) => f.presence === "object" && objects.add(f.id));
     const unseen = p.hotspots.filter((h) => h.status !== "shown" && objects.has(h.id));
     expect(spots.filter((s) => s.how !== "shown").map((s) => s.id).sort()).toEqual(unseen.map((h) => h.id).sort());
+  });
+
+  it("serves the buttons Haiku placed on a fresh picture, and keeps them for every later ask", async () => {
+    const m = memoryStore();
+    const { work, calls } = fakeWork();
+    let placeCalls = 0;
+    work.place = async (_p, spots) => {
+      placeCalls++;
+      return spots.map((s) => (s.how === "shown" ? { ...s, x: 0.123, y: 0.456 } : s));
+    };
+    const first = await serveIllustration(d, roomId, entryId, work, m.store);
+    const shown = first.status === "ready" ? (first.spots ?? []).filter((s) => s.how === "shown") : [];
+    expect(shown.length).toBeGreaterThan(0);
+    expect(shown.every((s) => s.how === "shown" && s.x === 0.123 && s.y === 0.456)).toBe(true);
+    const key = illustrationKey(roomIllustration(d, roomId, entryId)!, d.pass.theme, 4);
+    expect(m.words.has(spotsKey(key))).toBe(true);
+    expect(await serveIllustration(d, roomId, entryId, work, m.store)).toEqual(first);
+    expect(calls.draw).toBe(1);
+    expect(placeCalls).toBe(1);
+  });
+
+  it("keeps the geometry's buttons, and the picture, when placing them fails", async () => {
+    const m = memoryStore();
+    const { work } = fakeWork();
+    work.place = async () => {
+      throw new Error("no");
+    };
+    const got = await serveIllustration(d, roomId, entryId, work, m.store);
+    expect(got.status).toBe("ready");
+    expect(got.status === "ready" && got.spots).toEqual(illustrationSpots(roomIllustration(d, roomId, entryId)!));
+    expect([...m.words.keys()].some((k) => k.startsWith("spots:"))).toBe(false);
   });
 
   it("asks for the setting line once per dungeon", async () => {

@@ -18,9 +18,16 @@
  * requests Haiku is sent, the layout and positions, the guide, the style, the
  * model and the references. A copy of the dungeon builds the same key.
  *
- * Three paid calls in one request — the setting line (once per dungeon, then
- * kept in `plate_words`), the room's words, and the image — against the API's
- * usual one. All three together run about 25 s, well inside `maxDuration`.
+ * Four paid calls in one request — the setting line (once per dungeon, then
+ * kept in `plate_words`), the room's words, the image, and Haiku moving the
+ * buttons onto what the image shows — against the API's usual one. All four
+ * together run about 30 s, well inside `maxDuration`.
+ *
+ * THE BUTTONS. Haiku's corrected buttons are kept in `plate_words` under
+ * `spotsKey(key)`, written only by the request that drew the picture, so they
+ * always belong to the picture stored under that key. A picture with none —
+ * drawn before placement existed, or whose placement failed — gets the
+ * geometry's buttons, as every picture did before.
  *
  * A failure is a missing picture, never an error: the answer is `none` and the
  * page closes the space it held.
@@ -55,9 +62,17 @@ import {
   visualSubjects,
   type IllustrationVisual,
 } from "../../illustrations/visual.ts";
-import { coverDescription, illustrationSpots, roomIllustration, type IllustrationAnswer, type RoomIllustration } from "../../illustrations/room-illustration.ts";
+import {
+  coverDescription,
+  illustrationSpots,
+  roomIllustration,
+  type IllustrationAnswer,
+  type IllustrationSpot,
+  type RoomIllustration,
+} from "../../illustrations/room-illustration.ts";
+import { requestButtonPlacement } from "../../illustrations/button-placement.ts";
 import * as repo from "../db/repo.ts";
-import { guidePng, inkPng, ILLUSTRATION_H, ILLUSTRATION_W } from "./image.ts";
+import { guidePng, inkPng, placementJpeg, ILLUSTRATION_H, ILLUSTRATION_W } from "./image.ts";
 import { beforeImage, mayStart, recordImage } from "../spend.ts";
 
 /** An illustration is tried this many times in all, across every run that asks. */
@@ -77,6 +92,11 @@ export interface IllustrationWork {
   visual(p: RoomIllustration): Promise<IllustrationVisual>;
   /** the picture, from the prompt and the guide; the references are the worker's own */
   draw(prompt: string, guide: Buffer): Promise<Buffer>;
+  /**
+   * The buttons moved onto the things as `picture` shows them
+   * (`button-placement.ts`). Absent: the geometry's buttons are kept.
+   */
+  place?(p: RoomIllustration, spots: IllustrationSpot[], picture: Buffer): Promise<IllustrationSpot[]>;
   /** store the finished image at `path` in the bucket: a PNG unless `contentType` says otherwise */
   upload(path: string, png: Buffer, contentType?: string): Promise<void>;
   /** the public URL of a stored path */
@@ -133,16 +153,59 @@ export async function serveIllustration(
   const p = roomIllustration(d, roomId, entryId);
   if (!p) return { status: "none" };
   const theme = d.pass.theme;
-  const answer = await serveKeyed(illustrationKey(p, theme, work.references), ILLUSTRATION_MODEL, p.roomName, work, store, async () => {
+  const key = illustrationKey(p, theme, work.references);
+  // Where the guide put each thing: the buttons until Haiku has seen the picture.
+  const geometry = illustrationSpots(p);
+  // Set only when this request draws the picture.
+  let placed: IllustrationSpot[] | undefined;
+  const answer = await serveKeyed(key, ILLUSTRATION_MODEL, p.roomName, work, store, async () => {
     const sKey = settingKey(theme);
     const setting = (await store.getIllustrationWords(sKey)) ?? (await store.saveIllustrationWords(sKey, await work.setting(theme)));
     const visual = await work.visual(p);
     const prompt = illustrationImagePrompt(p, "marks", setting, visual, undefined, work.references);
-    return work.draw(prompt, await guidePng(p, true));
+    const picture = await work.draw(prompt, await guidePng(p, true));
+    placed = await placeButtons(p, geometry, picture, work, key);
+    return picture;
   });
-  // Recomputed from the dungeon on every ask rather than stored with the image:
-  // the same camera drew the guide, so the buttons land on what it marked.
-  return answer.status === "ready" ? { ...answer, spots: illustrationSpots(p) } : answer;
+  if (answer.status !== "ready") return answer;
+  if (placed) {
+    // After the picture is stored, so a picture that failed to store leaves no buttons behind.
+    await store.saveIllustrationWords(spotsKey(key), JSON.stringify(placed)).catch((e) =>
+      console.error(`[illustration] saving buttons (${key.slice(0, 12)}) failed`, e)
+    );
+  }
+  return { ...answer, spots: placed ?? (await savedSpots(store, key)) ?? geometry };
+}
+
+/** Where an illustration's corrected buttons are kept in `plate_words`. */
+export const spotsKey = (key: string) => `spots:${key}`;
+
+/** Haiku's buttons for a fresh picture; undefined, and logged, when it fails. A failure costs the buttons, never the picture. */
+async function placeButtons(
+  p: RoomIllustration,
+  spots: IllustrationSpot[],
+  picture: Buffer,
+  work: Pick<IllustrationWork, "place">,
+  key: string
+): Promise<IllustrationSpot[] | undefined> {
+  if (!work.place || !spots.some((s) => s.how === "shown")) return undefined;
+  try {
+    return await work.place(p, spots, picture);
+  } catch (e) {
+    console.error(`[illustration] placing buttons (${key.slice(0, 12)}) failed: ${(e as Error).message}`);
+    return undefined;
+  }
+}
+
+async function savedSpots(store: IllustrationStore, key: string): Promise<IllustrationSpot[] | undefined> {
+  const raw = await store.getIllustrationWords(spotsKey(key));
+  if (!raw) return undefined;
+  try {
+    const spots = JSON.parse(raw);
+    return Array.isArray(spots) ? spots : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -271,6 +334,10 @@ export function liveIllustrationWork(): IllustrationWork | undefined {
     references: refFiles.length,
     setting: async (theme) => (await requestIllustrationSetting(theme)).value,
     visual: async (p) => (await requestIllustrationVisual(p)).value,
+    async place(p, spots, picture) {
+      const jpeg = (await placementJpeg(picture)).toString("base64");
+      return (await requestButtonPlacement(p, spots, jpeg, { width: ILLUSTRATION_W, height: ILLUSTRATION_H })).value;
+    },
     mayDraw: mayStart,
     async draw(prompt, guide) {
       await beforeImage();
