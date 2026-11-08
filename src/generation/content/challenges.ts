@@ -241,6 +241,32 @@ function pushNpc(out: Challenge[], m: MobileEntity): void {
   }
 }
 
+/**
+ * The goal's location, reworded by the objective's written name once the content pass
+ * has named it: "where to find the Oracle", not the outline's whole description of it.
+ * The player reads this fact in play, and the reserve keeps its own copy.
+ */
+export function nameGoalLocation(
+  sd: { challenges: Challenge[]; reserve: { challengeId: string; fact: string }[] },
+  name: string,
+  /** a person or creature, whose name is said as it is: "Eldress Gilse Tallow", not "the Eldress" */
+  named = false
+): void {
+  const trimmed = name.trim();
+  if (!trimmed) return;
+  const article = /^(the|a|an)\b/i.test(trimmed)
+    ? trimmed.replace(/^(the|a|an)\b/i, (w) => w.toLowerCase())
+    : named
+      ? trimmed
+      : `the ${trimmed}`;
+  const fact = `where to find ${article}`;
+  for (const c of sd.challenges) {
+    if (c.kind !== "goal-location") continue;
+    c.property = fact;
+    for (const e of sd.reserve) if (e.challengeId === c.id) e.fact = fact;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // FROM A CHALLENGE TO THE THING IN THE ROOM
 // ---------------------------------------------------------------------------

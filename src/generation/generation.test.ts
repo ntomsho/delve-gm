@@ -59,7 +59,7 @@ import {
 } from "./content/passes/schemas.ts";
 import { fakeOutline } from "../fixtures/offline.ts";
 import { ResponseFormatError, validate } from "../llm/json.ts";
-import { callForJson, configureTransport, withoutNulls, type FailedAttempt } from "../llm/client.ts";
+import { callForJson, configureTransport, unwrapJson, withoutNulls, type FailedAttempt } from "../llm/client.ts";
 
 // The model client has no default URL. The stubbed `fetch` below answers any.
 configureTransport({ baseUrl: "https://model.test" });
@@ -1202,6 +1202,13 @@ describe("generation split across requests", () => {
     }));
     expect(parsed.rooms[0]!.goal).toBeUndefined();
     expect(parsed.rooms[0]!.connectors![0]!.requirement).toBeUndefined();
+  });
+
+  it("unpacks a list the model sent as a string of JSON, and leaves prose alone", () => {
+    const rooms = [{ ref: "room_0", name: "A room", base: "[A note] in brackets, which is prose." }];
+    const parsed = validate(contentPassSchema, withoutNulls(unwrapJson({ rooms: JSON.stringify(rooms) })));
+    expect(parsed.rooms[0]!.base).toBe("[A note] in brackets, which is prose.");
+    expect(unwrapJson({ base: "[not json" })).toEqual({ base: "[not json" });
   });
 
   it("refuses to finish with a step missing", () => {

@@ -322,6 +322,33 @@ export interface ToolTurn {
 }
 
 /**
+ * The answer with any field that holds a whole list or object as a string of JSON
+ * unpacked. Haiku 5.5 sometimes sends `rooms` that way, and rejecting it lost a
+ * dungeon twice in a row. Only a string that parses to a list or an object is
+ * touched; prose is left as it is.
+ */
+export function unwrapJson(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(unwrapJson);
+  if (v === null || typeof v !== "object") return v;
+  return Object.fromEntries(
+    Object.entries(v).map(([k, x]) => {
+      if (typeof x === "string") {
+        const t = x.trim();
+        if ((t.startsWith("[") && t.endsWith("]")) || (t.startsWith("{") && t.endsWith("}"))) {
+          try {
+            const parsed: unknown = JSON.parse(t);
+            if (parsed !== null && typeof parsed === "object") return [k, unwrapJson(parsed)];
+          } catch {
+            // Not JSON after all, so it stays the string it was.
+          }
+        }
+      }
+      return [k, unwrapJson(x)];
+    })
+  );
+}
+
+/**
  * The answer with every null field removed. Haiku 5.5 writes null where a field does
  * not apply, which means the same as leaving it out, and rejecting it spent whole
  * retries. No schema here uses null to mean anything else.
@@ -565,7 +592,7 @@ export async function callForJson<T>(opts: JsonCallOptions<T>): Promise<JsonResu
           "the response was cut off at max_tokens; the object is incomplete"
         );
       }
-      const received = validate(opts.schema, withoutNulls(call.input));
+      const received = validate(opts.schema, withoutNulls(unwrapJson(call.input)));
       const value = kept !== undefined && opts.repair ? opts.repair.merge(kept, received) : received;
       const lacking = opts.check?.(value) ?? [];
       if (lacking.length > 0) {

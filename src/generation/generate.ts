@@ -62,7 +62,8 @@ import {
 } from "./content/blueprint.ts";
 import { Rng } from "../shared/utils/rng.ts";
 import { blockPlanValid, roomSizes, type BlockPlan } from "./floorplan/blockplan.ts";
-import { resolveBase } from "../shared/world/entities.ts";
+import { resolveBase, resolveName } from "../shared/world/entities.ts";
+import { nameGoalLocation } from "./content/challenges.ts";
 import { runEntitiesPass } from "./content/entities-pass.ts";
 import type { EntityPassResult } from "../shared/world/entities.ts";
 import { siteRooms } from "./floorplan/geometry.ts";
@@ -609,6 +610,20 @@ export async function finishGeneration(
   // Built before the apply, from unwritten entities; see `contentPayload`.
   const payload = contentPayload(partial);
   applyContentPass(content.value, payload, entities, blueprint, stocked, new Rng(stocked.seed));
+  const objective = entities.goalEntityId
+    ? [...entities.items, ...entities.features, ...entities.creatures].find((e) => e.id === entities.goalEntityId)
+    : undefined;
+  // Only a planned dungeon: an older one's fact came from the rolled reward, and its
+  // keys were placed answering that wording.
+  if (objective && partial.outline) {
+    nameGoalLocation(stocked, resolveName(objective, entities.registry), objective.type === "Creature");
+    for (const r of stocked.rooms) {
+      for (const w of r.rewards) {
+        const c = w.kind === "key" ? stocked.challenges.find((x) => x.id === w.challengeId) : undefined;
+        if (w.kind === "key" && c?.kind === "goal-location") w.answers = c.property;
+      }
+    }
+  }
   let usage = addUsage(partial.usage, content.usage);
 
   // --- the keys: the objects that answer the dungeon's questions ------------

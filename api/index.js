@@ -582,6 +582,26 @@ function toolFor(name, description, schema) {
 	};
 }
 /**
+* The answer with any field that holds a whole list or object as a string of JSON
+* unpacked. Haiku 5.5 sometimes sends `rooms` that way, and rejecting it lost a
+* dungeon twice in a row. Only a string that parses to a list or an object is
+* touched; prose is left as it is.
+*/
+function unwrapJson(v) {
+	if (Array.isArray(v)) return v.map(unwrapJson);
+	if (v === null || typeof v !== "object") return v;
+	return Object.fromEntries(Object.entries(v).map(([k, x]) => {
+		if (typeof x === "string") {
+			const t = x.trim();
+			if (t.startsWith("[") && t.endsWith("]") || t.startsWith("{") && t.endsWith("}")) try {
+				const parsed = JSON.parse(t);
+				if (parsed !== null && typeof parsed === "object") return [k, unwrapJson(parsed)];
+			} catch {}
+		}
+		return [k, unwrapJson(x)];
+	}));
+}
+/**
 * The answer with every null field removed. Haiku 5.5 writes null where a field does
 * not apply, which means the same as leaving it out, and rejecting it spent whole
 * retries. No schema here uses null to mean anything else.
@@ -685,7 +705,7 @@ async function callForJson(opts) {
 		try {
 			if (!call) throw new ResponseFormatError(`the model did not call ${opts.toolName} (stop_reason: ${json.stop_reason})`);
 			if (json.stop_reason === "max_tokens") throw new ResponseFormatError("the response was cut off at max_tokens; the object is incomplete");
-			const received = validate$1(opts.schema, withoutNulls(call.input));
+			const received = validate$1(opts.schema, withoutNulls(unwrapJson(call.input)));
 			const value = kept !== void 0 && opts.repair ? opts.repair.merge(kept, received) : received;
 			const lacking = opts.check?.(value) ?? [];
 			if (lacking.length > 0) {
@@ -8831,6 +8851,21 @@ function pushNpc(out, m) {
 		property: npc.asset
 	});
 }
+/**
+* The goal's location, reworded by the objective's written name once the content pass
+* has named it: "where to find the Oracle", not the outline's whole description of it.
+* The player reads this fact in play, and the reserve keeps its own copy.
+*/
+function nameGoalLocation(sd, name, named = false) {
+	const trimmed = name.trim();
+	if (!trimmed) return;
+	const fact = `where to find ${/^(the|a|an)\b/i.test(trimmed) ? trimmed.replace(/^(the|a|an)\b/i, (w) => w.toLowerCase()) : named ? trimmed : `the ${trimmed}`}`;
+	for (const c of sd.challenges) {
+		if (c.kind !== "goal-location") continue;
+		c.property = fact;
+		for (const e of sd.reserve) if (e.challengeId === c.id) e.fact = fact;
+	}
+}
 function anchorOf(c, src) {
 	const byElement = (roomId, element) => src.bindings.filter((b) => b.roomId === roomId && b.element === element).map((b) => b.entityId);
 	switch (c.kind) {
@@ -14461,6 +14496,18 @@ async function finishGeneration(partial, content, opts = {}) {
 	const { blueprint, stocked, entities } = partial;
 	const payload = contentPayload(partial);
 	applyContentPass(content.value, payload, entities, blueprint, stocked, new Rng(stocked.seed));
+	const objective = entities.goalEntityId ? [
+		...entities.items,
+		...entities.features,
+		...entities.creatures
+	].find((e) => e.id === entities.goalEntityId) : void 0;
+	if (objective && partial.outline) {
+		nameGoalLocation(stocked, resolveName(objective, entities.registry), objective.type === "Creature");
+		for (const r of stocked.rooms) for (const w of r.rewards) {
+			const c = w.kind === "key" ? stocked.challenges.find((x) => x.id === w.challengeId) : void 0;
+			if (w.kind === "key" && c?.kind === "goal-location") w.answers = c.property;
+		}
+	}
 	let usage = addUsage(partial.usage, content.usage);
 	const keysPayload = buildKeysPassPayload(stocked, entities, partial.dungeonContext);
 	const orphaned = unwritableKeys(stocked, entities, keysPayload);

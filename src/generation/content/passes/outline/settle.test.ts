@@ -19,6 +19,7 @@ import {
 import { GOAL_KEY, mergeOutline, withoutStrays, type Outline } from "./response.ts";
 import { rollOutline, type OutlineDraft } from "./roll.ts";
 import { settleOutline } from "./settle.ts";
+import { nameGoalLocation } from "../../challenges.ts";
 
 const SEED = 1005;
 
@@ -150,6 +151,31 @@ describe("repairing an outline that invented something", () => {
     const cleaned = withoutStrays(draft, { ...outline, rooms: [...outline.rooms, stray], ways: [...outline.ways, { ref: "W99", form: "x" }] });
     expect(cleaned.rooms).toEqual(outline.rooms);
     expect(cleaned.ways).toEqual(outline.ways);
+  });
+});
+
+describe("the goal's location, once the objective is named", () => {
+  it.each([
+    ["Oracle", "where to find the Oracle"],
+    ["The Warden", "where to find the Warden"],
+    ["A ledger of debts", "where to find a ledger of debts"],
+    ["Eldress Gilse Tallow", "where to find Eldress Gilse Tallow", true],
+  ] as [string, string, boolean?][])("names %s plainly", (name, fact, named) => {
+    const draft = draftFor(SEED);
+    const sd = settle(draft, fakeOutline(draft));
+    nameGoalLocation(sd, name, named);
+    const location = sd.challenges.find((c) => c.kind === "goal-location")!;
+    expect(location.property).toBe(fact);
+    for (const e of sd.reserve) if (e.challengeId === location.id) expect(e.fact).toBe(fact);
+  });
+
+  it("is the written name in a finished dungeon, and its key answers that", () => {
+    const gd = generateOffline(SEED, 1);
+    const location = gd.stocked.challenges.find((c) => c.kind === "goal-location")!;
+    expect(location.property).toMatch(/^where to find the /);
+    expect(location.property.length).toBeLessThan(60);
+    const key = gd.stocked.rooms.flatMap((r) => r.rewards).find((w) => w.kind === "key" && w.challengeId === location.id);
+    if (key?.kind === "key") expect(key.answers).toBe(location.property);
   });
 });
 
