@@ -464,13 +464,22 @@ export interface JsonCallOptions<T> extends CallOptions {
    *
    * Without this, an answer `check` objects to is asked for again whole, once.
    * With it, the answer is KEPT, the model is told exactly what is missing and
-   * asked for only the parts that hold it, and those parts are merged in. Up to
-   * `tries` times (default 2), then the error is thrown. A shape failure still
-   * takes the ordinary whole retry: there is no answer to keep.
+   * asked for only the parts that hold it, and those parts are merged in.
+   *
+   * It keeps repairing while each repair leaves less missing than the one
+   * before, up to `tries` repairs (default 4). A repair that leaves as much
+   * missing as before is a model that will not supply it, and the error is
+   * thrown then rather than spending the rest. A shape failure still takes the
+   * ordinary whole retry: there is no answer to keep.
    *
    * Seen live on 2026-11-02: a twelve-room content pass left out one entity in
    * one room, and the whole retry left one out again. Asking for twelve rooms
    * to fix one is asking the model to make the same kind of slip twice.
+   *
+   * Why progress rather than a flat two. Seen live on 2026-11-08 (seed 652968):
+   * Haiku 5.5 sometimes stops after two rooms, and does it again when repairing,
+   * so a five-room dungeon needs three or four calls. Each one made progress,
+   * and a flat cap of two stopped it one room short.
    */
   repair?: Repair<T>;
 }
@@ -480,7 +489,7 @@ export interface Repair<T> {
   ask: (missing: ValidationIssue[]) => string;
   /** The answer so far with the parts that came back put in. */
   merge: (whole: T, patch: T) => T;
-  /** repair calls before giving up; default 2 */
+  /** most repair calls, even while each makes progress; default 4 */
   tries?: number;
 }
 
@@ -537,11 +546,13 @@ export async function callForJson<T>(opts: JsonCallOptions<T>): Promise<JsonResu
   // REPAIR STATE. `kept` is the last answer that passed the schema, with every
   // repair merged in; once it exists, what comes back is a patch to it.
   // `missing` is what `check` last said it lacked, which is what the next
-  // repair asks for — even when a patch comes back malformed.
-  const tries = opts.repair?.tries ?? 2;
+  // repair asks for — even when a patch comes back malformed. `stalled` is a
+  // well-formed repair that left as much missing as before: no point asking again.
+  const tries = opts.repair?.tries ?? 4;
   let kept: T | undefined;
   let missing: ValidationIssue[] = [];
   let repairs = 0;
+  let stalled = false;
 
   for (let attempt = 1; ; attempt++) {
     const json = await post(
@@ -597,6 +608,7 @@ export async function callForJson<T>(opts: JsonCallOptions<T>): Promise<JsonResu
       const lacking = opts.check?.(value) ?? [];
       if (lacking.length > 0) {
         if (opts.repair) {
+          stalled = kept !== undefined && lacking.length >= missing.length;
           kept = value;
           missing = lacking;
         }
@@ -609,7 +621,7 @@ export async function callForJson<T>(opts: JsonCallOptions<T>): Promise<JsonResu
       return { value, usage, attempts: attempt };
     } catch (e) {
       const isFormat = e instanceof ResponseFormatError;
-      const repairing = isFormat && kept !== undefined && repairs < tries;
+      const repairing = isFormat && kept !== undefined && repairs < tries && !stalled;
       const willRetry = repairing || (isFormat && retry && attempt <= 1 && kept === undefined);
 
       if (isFormat && opts.onAttemptFailed) {

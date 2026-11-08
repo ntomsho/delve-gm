@@ -113,6 +113,27 @@ export interface ContentPassResponse {
 // ===========================================================================
 
 /**
+ * WHETHER A WRITTEN SPECIMEN ANSWERS A LISTED ONE: same kind, same member.
+ *
+ * An empty member is no member. An elite is listed with no member id, but the
+ * tool schema offers `member` as an optional string and nothing says to leave it
+ * out, so Haiku 5.5 often sends `"member": ""` for it. Compared strictly, `""` is
+ * not `undefined`, and a correctly written elite read as missing. Seen live on
+ * 2026-11-08 (seed 652968): every repair rewrote that room for nothing and ran
+ * out before reaching the rooms that really were missing.
+ *
+ * The one join for both sides: `contentPassOmissions` asks it whether a specimen
+ * came back, and `applyContentPass` asks it which listed specimen's keywords a
+ * written one takes.
+ */
+export function sameSpecimen(
+  a: { kind: string; member?: string },
+  b: { kind: string; member?: string }
+): boolean {
+  return a.kind === b.kind && (a.member?.trim() || undefined) === (b.member?.trim() || undefined);
+}
+
+/**
  * EVERYTHING THE PASS WAS ASKED ABOUT AND DID NOT WRITE.
  *
  * A response answering five of six connectors is valid JSON against a valid
@@ -209,7 +230,7 @@ export function contentPassOmissions(
         // makes to find a specimen's keywords. A specimen returned under a
         // member id that was not asked for loses its rolls as surely as one that
         // never came back at all, so both are worth the retry.
-        const found = (er.distinct ?? []).some((x) => x.kind === d.kind && x.member === d.member);
+        const found = (er.distinct ?? []).some((x) => sameSpecimen(x, d));
         if (found) continue;
         out.push({
           path: `${at}.encounters.${en.ref}.distinct`,

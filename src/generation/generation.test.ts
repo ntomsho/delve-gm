@@ -531,6 +531,29 @@ describe("content pass completeness", () => {
     expect(out[0].message).toContain("has no entry matching it");
   });
 
+  // Seen live on 2026-11-08, seed 652968: an elite is listed with no member id,
+  // and Haiku 5.5 often writes it back with `"member": ""`. That is the elite,
+  // written; reading it as missing spent every repair on a room that was whole.
+  it("takes a specimen written with an empty member as the one listed with none", () => {
+    // This seed's specimens all carry a member, so one is made the elite shape:
+    // listed with none, written back with "".
+    const p = structuredClone(holding((x) => x.rooms.some((r) => r.encounters.some((e) => e.distinct.length > 0))));
+    const room = p.rooms.find((r) => r.encounters.some((e) => e.distinct.length > 0))!;
+    const en = room.encounters.find((e) => e.distinct.length > 0)!;
+    const listed = en.distinct[0];
+
+    const res = fakeContentPass(p);
+    const written = res.rooms.find((r) => r.ref === room.ref)!.encounters!.find((e) => e.ref === en.ref)!;
+    const match = written.distinct!.find((d) => d.kind === listed.kind && d.member === listed.member)!;
+    delete listed.member;
+    match.member = "";
+
+    expect(contentPassOmissions(p, res)).toEqual([]);
+    // And not by accident: a specimen genuinely gone is still named.
+    written.distinct!.splice(written.distinct!.indexOf(match), 1);
+    expect(contentPassOmissions(p, res)).toHaveLength(1);
+  });
+
   // The point of asking early. Stubbed at `fetch`, so the real client, the real
   // schema and the real retry policy are all in the path — what this asserts is
   // that an omission is spent as a retry rather than discovered afterwards.
@@ -736,13 +759,57 @@ describe("content pass completeness", () => {
       expect(objection).toContain(`ONLY these rooms: ${ref}`);
     });
 
-    it("gives up after two repairs that still leave it out", async () => {
+    it("gives up on a repair that leaves as much missing as before", async () => {
       const { res, dropped } = short();
       const same = res.rooms.find((r) => r.ref === roomOf(dropped.ref))!;
       queue.push(answered(res), answered({ rooms: [same] }), answered({ rooms: [same] }));
 
       await expect(repairing()).rejects.toThrow(ResponseFormatError);
-      expect(sent).toHaveLength(3);
+      expect(sent).toHaveLength(2);
+    });
+
+    // Seen live on 2026-11-08, seed 652968: Haiku 5.5 wrote two rooms of five,
+    // and then two rooms per repair. Every repair made progress; a flat cap of
+    // two repairs stopped it one room short.
+    it("keeps repairing while each repair fills something in", async () => {
+      const whole = fakeContentPass(p);
+      expect(whole.rooms.length, "the fixture needs four rooms to drip-feed").toBeGreaterThanOrEqual(4);
+      const one = (i: number) => ({ rooms: [whole.rooms[i]] });
+      queue.push(answered({ rooms: [whole.rooms[0]] }));
+      for (let i = 1; i < whole.rooms.length; i++) queue.push(answered(one(i)));
+
+      const tries = whole.rooms.length - 1;
+      const { value, attempts } = await callForJson({
+        task: "content-pass",
+        schema: contentPassSchema,
+        toolName: "write_rooms",
+        toolDescription: "…",
+        messages: [{ role: "user", content: "[the content payload]" }],
+        check: (v) => contentPassOmissions(p, v),
+        repair: { ask: (missing) => askForRooms("write_rooms", missing), merge: mergeRooms, tries },
+      });
+
+      expect(attempts).toBe(whole.rooms.length);
+      expect(contentPassOmissions(p, value)).toEqual([]);
+    });
+
+    it("stops at the repair cap even while each repair makes progress", async () => {
+      const whole = fakeContentPass(p);
+      queue.push(answered({ rooms: [whole.rooms[0]] }));
+      for (let i = 1; i < whole.rooms.length; i++) queue.push(answered({ rooms: [whole.rooms[i]] }));
+
+      await expect(
+        callForJson({
+          task: "content-pass",
+          schema: contentPassSchema,
+          toolName: "write_rooms",
+          toolDescription: "…",
+          messages: [{ role: "user", content: "[the content payload]" }],
+          check: (v) => contentPassOmissions(p, v),
+          repair: { ask: (missing) => askForRooms("write_rooms", missing), merge: mergeRooms, tries: 1 },
+        })
+      ).rejects.toThrow(ResponseFormatError);
+      expect(sent).toHaveLength(2);
     });
 
     it("still redoes a malformed answer whole, because there is nothing to keep", async () => {

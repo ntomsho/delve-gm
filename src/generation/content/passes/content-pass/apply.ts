@@ -41,6 +41,7 @@ import type {
   RoomResponse,
   StatDeviations,
 } from "./response.ts";
+import { sameSpecimen } from "./response.ts";
 
 // ===========================================================================
 // APPLY
@@ -300,7 +301,7 @@ export function applyContentPass(
         const c = mintDistinct(d, m, group, roomId, sd.level, rng, ep);
         c.count = 1;
         c.activity = d.activity;
-        const dkw = en?.distinct.find((x) => x.kind === d.kind && x.member === d.member)?.keywords ?? {};
+        const dkw = en?.distinct.find((x) => sameSpecimen(x, d))?.keywords ?? {};
         c.keywords = dkw;
         if (d.stats) mergeStats(c.stats, d.stats);
         created.push(c);
