@@ -72,6 +72,7 @@ import {
 } from "../../illustrations/room-illustration.ts";
 import { requestButtonPlacement } from "../../illustrations/button-placement.ts";
 import * as repo from "../db/repo.ts";
+import type { PlateSubject } from "../db/repo.ts";
 import { guidePng, inkPng, placementJpeg, ILLUSTRATION_H, ILLUSTRATION_W } from "./image.ts";
 import { beforeImage, mayStart, recordImage } from "../spend.ts";
 
@@ -144,12 +145,13 @@ export function illustrationKey(p: RoomIllustration, theme: string, references: 
 }
 
 export async function serveIllustration(
-  d: GeneratedDungeon,
+  dungeon: { id: string; doc: GeneratedDungeon },
   roomId: string,
   entryId: string,
   work: IllustrationWork,
   store: IllustrationStore = repo
 ): Promise<IllustrationAnswer> {
+  const d = dungeon.doc;
   const p = roomIllustration(d, roomId, entryId);
   if (!p) return { status: "none" };
   const theme = d.pass.theme;
@@ -158,7 +160,8 @@ export async function serveIllustration(
   const geometry = illustrationSpots(p);
   // Set only when this request draws the picture.
   let placed: IllustrationSpot[] | undefined;
-  const answer = await serveKeyed(key, ILLUSTRATION_MODEL, p.roomName, work, store, async () => {
+  const subject: PlateSubject = { kind: "room", dungeonId: dungeon.id, roomId, entryId, title: p.roomName };
+  const answer = await serveKeyed(key, ILLUSTRATION_MODEL, subject, p.roomName, work, store, async () => {
     const sKey = settingKey(theme);
     const setting = (await store.getIllustrationWords(sKey)) ?? (await store.saveIllustrationWords(sKey, await work.setting(theme)));
     const visual = await work.visual(p);
@@ -242,7 +245,7 @@ export async function serveCover(
 ): Promise<IllustrationAnswer> {
   const description = coverDescription(d);
   if (!description) return { status: "none" };
-  return serveKeyed(key, COVER_MODEL, `${d.pass.name} (cover)`, work, store, async () => {
+  return serveKeyed(key, COVER_MODEL, { kind: "cover" }, `${d.pass.name} (cover)`, work, store, async () => {
     const scene = await work.scene(description);
     return work.drawScene(exteriorIllustrationPrompt({ scene }), d.seeds.dungeonSeed);
   });
@@ -262,6 +265,8 @@ export async function serveCover(
 export async function serveKeyed(
   key: string,
   model: string,
+  /** what the picture is of, kept on the plate so it can be found without its key */
+  subject: PlateSubject,
   label: string,
   work: Pick<IllustrationWork, "upload" | "urlOf" | "mayDraw">,
   store: IllustrationStore,
@@ -276,10 +281,12 @@ export async function serveKeyed(
   // Before the claim, so a closed day costs the picture none of its attempts.
   if (work.mayDraw && !(await work.mayDraw())) return { status: "none" };
 
-  const mine = await store.claimIllustration(key, model, {
-    staleMs: ILLUSTRATION_CLAIM_STALE_MS,
-    maxAttempts: ILLUSTRATION_MAX_ATTEMPTS,
-  });
+  const mine = await store.claimIllustration(
+    key,
+    model,
+    { staleMs: ILLUSTRATION_CLAIM_STALE_MS, maxAttempts: ILLUSTRATION_MAX_ATTEMPTS },
+    subject
+  );
   if (!mine) {
     // Somebody else's claim landed between the read and this. Say whatever it is now.
     const now = await store.getIllustration(key);

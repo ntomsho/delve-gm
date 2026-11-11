@@ -26,7 +26,7 @@ import {
 } from "../illustrations/sprites.ts";
 import { mustGetDungeon, mustGetRun } from "./lookup.ts";
 import * as repo from "../db/repo.ts";
-import { recentShowcase, SHOWCASE_MAX } from "../illustrations/showcase.ts";
+import { pickShowcase, SHOWCASE_MAX } from "../illustrations/showcase.ts";
 
 export function illustrationRoutes(app: Hono<AuthEnv>): void {
   /**
@@ -48,7 +48,7 @@ export function illustrationRoutes(app: Hono<AuthEnv>): void {
     if (!entryId) throw new HTTPException(404, { message: "no illustration for a room this run has not entered" });
     const work = illustrationWorker();
     if (!work) return c.json({ status: "none" } satisfies IllustrationAnswer);
-    const answer = await serveIllustration(dungeon.doc, roomId, entryId, work);
+    const answer = await serveIllustration(dungeon, roomId, entryId, work);
     return c.json(answer, answer.status === "pending" ? 202 : 200);
   });
 
@@ -96,7 +96,7 @@ export function illustrationRoutes(app: Hono<AuthEnv>): void {
 }
 
 /**
- * The landing page's pictures: rooms and covers already drawn in recent runs.
+ * The landing page's pictures: random rooms and covers some run has already drawn.
  * See `showcase.ts`.
  *
  * OUTSIDE THE SIGN-IN GATE, so `app.ts` registers it before the gate. It
@@ -113,12 +113,8 @@ export function showcaseRoutes(app: Hono<AuthEnv>): void {
     if (!illustrations || !sprites) return c.json([]);
     const asked = Math.trunc(Number(c.req.query("limit")));
     const limit = Number.isFinite(asked) ? Math.min(Math.max(asked, 1), SHOWCASE_MAX) : SHOWCASE_MAX;
-    const work = {
-      illustrationReferences: illustrations.references,
-      spriteReferences: sprites.references,
-      urlOf: illustrations.urlOf,
-    };
-    return c.json(await recentShowcase(work, repo, limit));
+    const work = { spriteReferences: sprites.references, urlOf: illustrations.urlOf };
+    return c.json(await pickShowcase(work, repo, limit));
   });
 }
 

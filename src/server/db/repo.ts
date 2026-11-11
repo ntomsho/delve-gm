@@ -60,8 +60,6 @@ export {
   createRun,
   getRun,
   listRuns,
-  type RunArrivals,
-  recentArrivals,
   lockRun,
   releaseRun,
   type CommitResult,
@@ -71,6 +69,10 @@ export {
 } from "./runs.ts";
 export {
   type IllustrationRow,
+  type PlateSubject,
+  type RoomPlate,
+  randomRoomPlates,
+  randomCoverPlates,
   getIllustration,
   claimIllustration,
   finishIllustration,

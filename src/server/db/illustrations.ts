@@ -19,6 +19,16 @@ export interface IllustrationRow {
   ageMs: number;
 }
 
+/**
+ * What a plate is a picture of, written when it is claimed (see the
+ * `plate_subjects` migration). The key says only what it was drawn from, and
+ * that changes with every prompt; this is how the landing page finds rooms.
+ */
+export type PlateSubject =
+  | { kind: "room"; dungeonId: string; roomId: string; entryId: string; title: string }
+  | { kind: "sprite" }
+  | { kind: "cover" };
+
 export async function getIllustration(key: string, sql: postgres.Sql = db()): Promise<IllustrationRow | undefined> {
   const [row] = await sql<IllustrationRow[]>`
     select key, status, path, attempts,
@@ -40,13 +50,22 @@ export async function claimIllustration(
   key: string,
   model: string,
   opts: { staleMs: number; maxAttempts: number },
+  subject?: PlateSubject,
   sql: postgres.Sql = db()
 ): Promise<boolean> {
+  const room = subject?.kind === "room" ? subject : undefined;
   const rows = await sql`
-    insert into plates (key, status, model, attempts) values (${key}, 'pending', ${model}, 1)
+    insert into plates (key, status, model, attempts, kind, dungeon_id, room_id, entry_id, title)
+    values (${key}, 'pending', ${model}, 1, ${subject?.kind ?? null}, ${room?.dungeonId ?? null},
+            ${room?.roomId ?? null}, ${room?.entryId ?? null}, ${room?.title ?? null})
     on conflict (key) do update
        set status = 'pending', model = excluded.model, attempts = plates.attempts + 1,
-           error = null, updated_at = now()
+           error = null, updated_at = now(),
+           kind = coalesce(plates.kind, excluded.kind),
+           dungeon_id = coalesce(plates.dungeon_id, excluded.dungeon_id),
+           room_id = coalesce(plates.room_id, excluded.room_id),
+           entry_id = coalesce(plates.entry_id, excluded.entry_id),
+           title = coalesce(plates.title, excluded.title)
      where (plates.status = 'failed' and plates.attempts < ${opts.maxAttempts})
         or (plates.status = 'pending' and plates.updated_at < now() - make_interval(secs => ${opts.staleMs / 1000}))
     returning key
@@ -96,4 +115,43 @@ export async function illustrationWordsFor(keys: string[], sql: postgres.Sql = d
   if (!keys.length) return new Map();
   const rows = await sql<{ key: string; value: string }[]>`select key, value from plate_words where key in ${sql(keys)}`;
   return new Map(rows.map((r) => [r.key, r.value]));
+}
+
+/** A drawn room, picked for the landing page. Placement is null on a room drawn before plates said where. */
+export interface RoomPlate {
+  key: string;
+  path: string;
+  title: string | null;
+  dungeonId: string | null;
+  roomId: string | null;
+  entryId: string | null;
+  /** the dungeon's name, while that dungeon is still there and complete */
+  dungeonTitle: string | null;
+}
+
+/** Up to `limit` drawn rooms, in random order. */
+export async function randomRoomPlates(limit: number, sql: postgres.Sql = db()): Promise<RoomPlate[]> {
+  return sql<RoomPlate[]>`
+    select p.key, p.path, p.title, p.dungeon_id as "dungeonId", p.room_id as "roomId", p.entry_id as "entryId",
+           d.doc -> 'pass' ->> 'name' as "dungeonTitle"
+      from plates p
+      left join dungeons d on d.id = p.dungeon_id and d.status = 'complete'
+     where p.kind = 'room' and p.status = 'ready' and p.path is not null
+     order by random()
+     limit ${limit}
+  `;
+}
+
+/** Up to `limit` drawn covers, each picture once (a copy shares its source's), in random order. */
+export async function randomCoverPlates(limit: number, sql: postgres.Sql = db()): Promise<{ path: string; dungeonTitle: string }[]> {
+  return sql<{ path: string; dungeonTitle: string }[]>`
+    select path, "dungeonTitle" from (
+      select distinct on (p.key) p.path, d.doc -> 'pass' ->> 'name' as "dungeonTitle"
+        from plates p
+        join dungeons d on d.cover = p.key and d.status = 'complete'
+       where p.status = 'ready' and p.path is not null
+    ) c
+     order by random()
+     limit ${limit}
+  `;
 }

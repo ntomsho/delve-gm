@@ -139,7 +139,11 @@ export function Landing({ onSignIn, onGuest, notice }: Props) {
 
   useEffect(() => {
     let live = true;
-    void recentIllustrations().then((got) => live && setPictures(shuffled(got.length ? got : REFERENCES)));
+    void recentIllustrations().then((got) => {
+      // Each picture once, however many rows point at it.
+      const unique = [...new Map(got.map((p) => [p.url, p])).values()];
+      if (live) setPictures(shuffled(unique.length ? unique : REFERENCES));
+    });
     return () => {
       live = false;
     };
@@ -172,8 +176,9 @@ export function Landing({ onSignIn, onGuest, notice }: Props) {
 
   const door = { busy, error, guest };
   const rooms = pictures.filter((p) => p.kind === "room");
-  // The gallery leads with rooms that have somebody standing in them.
-  const gallery = [...rooms.filter((r) => r.figures.length), ...rooms.filter((r) => !r.figures.length)].slice(0, 4);
+  // The gallery is captioned, so only named rooms; it leads with rooms that have somebody standing in them.
+  const named = rooms.filter((r) => r.roomTitle);
+  const gallery = [...named.filter((r) => r.figures.length), ...named.filter((r) => !r.figures.length)].slice(0, 4);
   const washes = rooms.length ? [rooms[1 % rooms.length], rooms[2 % rooms.length]] : [];
 
   return (
@@ -365,30 +370,43 @@ function Hero({
   );
 }
 
-/** How many pictures a wall column holds before it is doubled, so one loop is taller than the screen. */
-const WALL_MIN = 8;
+/** How many columns the wall deals its pictures into. Two show on a phone, all four wider. */
+const WALL_COLUMNS = 4;
+/**
+ * Fewest pictures a column needs before it drifts. A drifting column is its
+ * list twice over, so the loop is seamless; a shorter list would show its own
+ * copy on screen, so it stands still instead.
+ */
+const WALL_DRIFT_MIN = 6;
 /** Seconds for the first wall column to drift through one loop; each column after it takes `WALL_STEP_S` longer, so they never move in step. */
 const WALL_LOOP_S = 140;
 const WALL_STEP_S = 34;
 
+/** Deal the pictures round the columns like cards: every picture lands in exactly one. */
+export function wallColumns<T>(pictures: T[], columns = WALL_COLUMNS): T[][] {
+  return Array.from({ length: columns }, (_, i) => pictures.filter((_, j) => j % columns === i));
+}
+
 /**
- * Columns of pictures drifting up and down, each its list twice over so the
- * loop is seamless. Two columns on a phone, four wider.
+ * Columns of pictures drifting up and down. The pictures are dealt across the
+ * columns, so no picture is on the wall twice except in its own column's loop.
  */
 function Wall({ pictures }: { pictures: Picture[] }) {
   return (
     <div className="grid h-full grid-cols-2 items-start gap-4 px-4 sm:grid-cols-4">
-      {[0, 1, 2, 3].map((i) => {
-        const turned = [...pictures.slice(i % pictures.length), ...pictures.slice(0, i % pictures.length)];
-        let list = turned;
-        while (list.length < WALL_MIN) list = [...list, ...turned];
+      {wallColumns(pictures).map((list, i) => {
+        const drifts = list.length >= WALL_DRIFT_MIN;
         return (
           <div
             key={i}
             className={`flex-col gap-4 ${i >= 2 ? "hidden sm:flex" : "flex"}`}
-            style={{ animation: `drift ${WALL_LOOP_S + i * WALL_STEP_S}s linear infinite`, animationDirection: i % 2 ? "reverse" : "normal" }}
+            style={
+              drifts
+                ? { animation: `drift ${WALL_LOOP_S + i * WALL_STEP_S}s linear infinite`, animationDirection: i % 2 ? "reverse" : "normal" }
+                : undefined
+            }
           >
-            {[...list, ...list].map((p, j) => (
+            {(drifts ? [...list, ...list] : list).map((p, j) => (
               <div key={j} className="aspect-[3/2] w-full border border-rule bg-paper">
                 <Art picture={p} className="h-full w-full" />
               </div>

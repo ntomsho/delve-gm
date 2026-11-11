@@ -10,7 +10,7 @@ import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createElement as h } from "react";
 import { renderDom, press } from "../test-utils/dom.ts";
-import { Landing } from "./Landing.tsx";
+import { Landing, wallColumns } from "./Landing.tsx";
 import type { ShowcaseIllustration } from "../../api-client/showcase.ts";
 
 const buttons = (page: ReturnType<typeof renderDom>, text: string) =>
@@ -99,6 +99,14 @@ describe("Landing", () => {
     expect(page.one('source[media="(prefers-reduced-motion: reduce)"]')!.getAttribute("srcset")).toBe("/how-a-room-is-drawn.png");
   });
 
+  it("leaves a room with no name out of the captioned gallery", async () => {
+    answering([{ ...ROOM, url: "https://cdn/old.png", roomTitle: undefined, dungeonTitle: "", figures: [] }]);
+    const page = renderDom(h(Landing, { onSignIn: async () => {}, onGuest: async () => {} }));
+    await landed();
+
+    expect(page.container.textContent).not.toContain("Every room, illustrated.");
+  });
+
   it("shows the style references as examples when no run has pictures", async () => {
     answering("down");
     const page = renderDom(h(Landing, { onSignIn: async () => {}, onGuest: async () => {} }));
@@ -107,5 +115,15 @@ describe("Landing", () => {
     expect(page.container.textContent).toContain("Example rooms");
     expect(page.container.textContent).not.toContain("Latest from runs");
     expect(page.one('img[alt="A drawing of Flooded nave"]')).toBeTruthy();
+  });
+});
+
+describe("wallColumns", () => {
+  it("deals every picture into exactly one of the four columns", () => {
+    const pictures = Array.from({ length: 30 }, (_, i) => i);
+    const columns = wallColumns(pictures);
+    expect(columns).toHaveLength(4);
+    expect(columns.flat().sort((a, b) => a - b)).toEqual(pictures);
+    expect(columns.map((c) => c.length)).toEqual([8, 8, 7, 7]);
   });
 });

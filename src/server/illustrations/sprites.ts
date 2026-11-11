@@ -103,6 +103,7 @@ export async function serveSprite(
   const answer = await serveKeyed(
     key,
     SPRITE_MODEL,
+    { kind: "sprite" },
     `${subject.name} (sprite)`,
     work,
     store,

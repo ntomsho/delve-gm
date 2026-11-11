@@ -186,7 +186,7 @@ async function playTurn(
     const entryId = work && illustrationEntryFor(dungeon.doc, r, room);
     if (work && entryId) {
       waitUntil(
-        serveIllustration(dungeon.doc, room, entryId, work).catch((e) => console.error("[illustration] early start failed", e))
+        serveIllustration(dungeon, room, entryId, work).catch((e) => console.error("[illustration] early start failed", e))
       );
     }
     // The creatures in it too, one sprite per kind, for the same reason.
