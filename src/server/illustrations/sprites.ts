@@ -3,41 +3,34 @@
  * ====================================
  *
  * What `GET /api/runs/:id/sprites/:key` does once the route has checked the run
- * may see the creature. The same shape as an illustration (`illustrations.ts`):
+ * may see the creature. The same shape as a room's picture (`serve.ts`): an
+ * `assets` row for `(artRoot, "sprite", spriteId)`, where the sprite id is
+ * `spriteKeyOf` — one per kind of creature in a dungeon, shared by every run
+ * and every copy of it.
  *
- *   1. the subject from the run's entities, and its key
- *   2. ready    → the URL, and the size word
- *      pending  → "ask again"
- *      missing  → claim it; Haiku's look and size (kept in `plate_words`);
- *                 draw; cut out (`sprite-image.ts`); store; the URL
- *      failed   → claim it again while attempts are left; past that, none
- *
- * THE KEY IS A HASH OF WHAT THE SPRITE IS DRAWN FROM — the Haiku request, the
- * image prompt's fixed text, the model, the references — and never of Haiku's
- * answer, which differs every call. A generated creature's base never changes,
- * so every run of a dungeon, and every copy of it, finds the same sprite.
+ *   ready    → the URL, and the size word
+ *   pending  → "ask again"
+ *   missing  → claim it; Haiku's look and size; draw; cut out
+ *              (`sprite-image.ts`); store, with the look and size on the row
+ *   failed   → claim it again while attempts are left; past that, none
+ *   redraw   → drawn again on purpose (`src/dev/redraw.ts`)
  *
  * Two paid calls the first time: the look, then the image. About 20 s.
  *
  * Node only.
  */
 
-import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import sharp from "sharp";
 import { fal } from "@fal-ai/client";
-import {
-  SPRITE_STYLE_VERSION,
-  spriteImagePrompt,
-  spriteLookMessage,
-} from "../../illustrations/sprite-prompt.ts";
-import { SPRITE_LOOK_SYSTEM } from "../../prompts/loader.ts";
+import { spriteImagePrompt } from "../../illustrations/sprite-prompt.ts";
 import type { EntityPassResult } from "../../shared/world/entities.ts";
 import { IMAGE_MODELS, SPRITE_MODEL } from "../../llm/models.ts";
+import { FIGURE_SIZE_FT, type FigureSize } from "../../illustrations/figures.ts";
 import { requestSpriteLook, spriteSubject, type SpriteAnswer, type SpriteLook, type SpriteSubject } from "../../illustrations/sprites.ts";
 import * as repo from "../db/repo.ts";
-import { fetchImage, liveIllustrationWork, serveKeyed, type IllustrationStore, type IllustrationWork } from "./serve.ts";
+import { fetchImage, liveIllustrationWork, serveAsset, type IllustrationStore, type IllustrationWork } from "./serve.ts";
 import { cutOut, spriteMasksPng } from "./sprite-image.ts";
 import { beforeImage, recordImage } from "../spend.ts";
 
@@ -63,60 +56,36 @@ export interface SpriteWork extends Pick<IllustrationWork, "upload" | "urlOf" | 
   references: number;
 }
 
-const sha = (s: string) => createHash("sha256").update(s).digest("hex");
-
-/** What a sprite is drawn from, hashed. See the header for why not Haiku's answer. */
-export function spriteKey(s: SpriteSubject, theme: string, references: number): string {
-  return sha(
-    JSON.stringify({
-      kind: "sprite",
-      style: SPRITE_STYLE_VERSION,
-      model: `${IMAGE_MODELS[SPRITE_MODEL].guided} ${SPRITE_QUALITY} ${SPRITE_DRAW.width}x${SPRITE_DRAW.height}`,
-      references,
-      look: SPRITE_LOOK_SYSTEM + "\n" + spriteLookMessage({ theme, name: s.name, base: s.base, member: s.member }),
-      prompt: spriteImagePrompt("", references),
-    })
-  );
+/** A drawn sprite's size word, from what was kept with it; medium when it says nothing usable. */
+export function spriteSize(meta: Record<string, unknown>): FigureSize {
+  const size = meta.size;
+  return typeof size === "string" && size in FIGURE_SIZE_FT ? (size as FigureSize) : "medium";
 }
 
-/** Where a sprite's look and size are kept, beside the illustrations' words. */
-export const lookKey = (key: string) => `sprite-look:${key}`;
-
-export const parseLook = (text: string | undefined): SpriteLook | undefined => {
-  try {
-    return text ? (JSON.parse(text) as SpriteLook) : undefined;
-  } catch {
-    return undefined;
-  }
-};
-
 export async function serveSprite(
+  dungeon: { artRoot: string; theme: string },
   entities: EntityPassResult,
-  theme: string,
   spriteId: string,
   work: SpriteWork,
   store: IllustrationStore = repo
 ): Promise<SpriteAnswer> {
   const subject = spriteSubject(entities, spriteId);
   if (!subject) return { status: "none" };
-  const key = spriteKey(subject, theme, work.references);
-  const answer = await serveKeyed(
-    key,
+  const answer = await serveAsset(
+    { artRoot: dungeon.artRoot, kind: "sprite", subject: spriteId },
     SPRITE_MODEL,
-    { kind: "sprite" },
     `${subject.name} (sprite)`,
     work,
     store,
     async () => {
-      const kept = parseLook(await store.getIllustrationWords(lookKey(key)));
-      const look = kept ?? parseLook(await store.saveIllustrationWords(lookKey(key), JSON.stringify(await work.look(subject, theme))))!;
-      return work.draw(spriteImagePrompt(look.look, work.references));
+      const look: SpriteLook = await work.look(subject, dungeon.theme);
+      const picture = await work.draw(spriteImagePrompt(look.look, work.references));
+      return { picture, meta: { look: look.look, size: look.size } };
     },
     async (picture) => spriteMasksPng(await cutOut(picture))
   );
   if (answer.status !== "ready") return answer;
-  const look = parseLook(await store.getIllustrationWords(lookKey(key)));
-  return { status: "ready", url: answer.url, size: look?.size ?? "medium" };
+  return { status: "ready", url: answer.url, size: spriteSize(answer.meta) };
 }
 
 /**

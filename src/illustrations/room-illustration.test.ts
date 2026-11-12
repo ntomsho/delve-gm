@@ -10,7 +10,14 @@ import { describe, expect, it } from "vitest";
 import { isSurfaceExit, touches } from "../shared/world/entities.ts";
 import { generateOffline } from "../fixtures/offline.ts";
 import { illustrationSketchSvg } from "./sketch.ts";
-import { illustrationBrief, illustrationEntries, illustrationEntryFor, illustrationTags, roomIllustration } from "./room-illustration.ts";
+import {
+  hasEntered,
+  illustrationBrief,
+  illustrationDoor,
+  illustrationEntries,
+  illustrationTags,
+  roomIllustration,
+} from "./room-illustration.ts";
 
 const SEEDS = [1005, 42, 4201];
 
@@ -125,28 +132,53 @@ describe("roomIllustration", () => {
   });
 });
 
-describe("illustrationEntryFor", () => {
-  const d = generateOffline(1005, 1);
-  const entrance = d.stocked.entranceRoomId;
-  const other = d.graph.rooms.map((r) => r.entityId).find((id) => id !== entrance && illustrationEntries(d, id).length > 1)!;
-  const [first, second] = illustrationEntries(d, other);
+describe("illustrationDoor", () => {
+  for (const seed of SEEDS) {
+    it(`seed ${seed}: the entrance from the surface, every other room from the door nearer the entrance`, () => {
+      const d = generateOffline(seed, 1);
+      const entrance = d.stocked.entranceRoomId;
+      // Steps from the entrance over doors that are not concealed.
+      const steps = new Map([[entrance, 0]]);
+      const queue = [entrance];
+      while (queue.length) {
+        const at = queue.shift()!;
+        for (const c of d.entities.connectors) {
+          if (c.isHidden === true || isSurfaceExit(c) || !touches(c, at)) continue;
+          const next = c.endpointA === at ? c.endpointB! : c.endpointA;
+          if (!steps.has(next)) {
+            steps.set(next, steps.get(at)! + 1);
+            queue.push(next);
+          }
+        }
+      }
+      for (const { entityId: roomId } of d.graph.rooms) {
+        const door = illustrationDoor(d, roomId);
+        const entries = illustrationEntries(d, roomId);
+        if (!entries.length) {
+          expect(door).toBeUndefined();
+          continue;
+        }
+        expect(entries).toContain(door);
+        const c = d.entities.connectors.find((x) => x.id === door)!;
+        if (roomId === entrance && entries.some((id) => isSurfaceExit(d.entities.connectors.find((x) => x.id === id)!))) {
+          expect(isSurfaceExit(c)).toBe(true);
+        } else if (steps.has(roomId) && roomId !== entrance && !isSurfaceExit(c)) {
+          const from = c.endpointA === roomId ? c.endpointB! : c.endpointA;
+          expect(steps.get(from)).toBe(steps.get(roomId)! - 1);
+        }
+        // The same for any copy of the dungeon: it depends on nothing else.
+        expect(illustrationDoor(structuredClone(d), roomId)).toBe(door);
+      }
+    });
+  }
+});
 
-  it("refuses a room the run has not been in", () => {
-    expect(illustrationEntryFor(d, { log: [], currentRoomId: entrance }, other)).toBeUndefined();
-  });
-
-  it("draws from the door the first arrival was logged with", () => {
-    const log = [
-      { kind: "arrival", roomId: other, via: second },
-      { kind: "arrival", roomId: other, via: first },
-    ];
-    expect(illustrationEntryFor(d, { log, currentRoomId: entrance }, other)).toBe(second);
-  });
-
-  it("falls back to arrivedVia, then the way out of the dungeon", () => {
-    expect(illustrationEntryFor(d, { log: [], currentRoomId: other, arrivedVia: second }, other)).toBe(second);
-    const out = illustrationEntryFor(d, { log: [{ kind: "arrival", roomId: entrance }], currentRoomId: other }, entrance)!;
-    expect(isSurfaceExit(d.entities.connectors.find((c) => c.id === out)!)).toBe(true);
+describe("hasEntered", () => {
+  it("is the room they are in, or one an arrival was logged in", () => {
+    const log = [{ kind: "arrival", roomId: "b" }];
+    expect(hasEntered({ log, currentRoomId: "a" }, "a")).toBe(true);
+    expect(hasEntered({ log, currentRoomId: "a" }, "b")).toBe(true);
+    expect(hasEntered({ log, currentRoomId: "a" }, "c")).toBe(false);
   });
 });
 

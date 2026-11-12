@@ -31,8 +31,11 @@ export interface StoredDungeon {
   ownerId: string;
   status: "partial" | "complete";
   doc: GeneratedDungeon;
-  /** the `plates` key of its cover; null for a dungeon finished before covers existed */
-  cover: string | null;
+  /**
+   * The dungeon whose pictures this one uses (`assets.art_root`): its own id,
+   * or for a copy the original it was copied from.
+   */
+  artRoot: string;
 }
 
 /**
@@ -93,7 +96,7 @@ export async function findUnfinishedDungeon(
   sql: postgres.Sql = db()
 ): Promise<StoredDungeon | undefined> {
   const [row] = await sql<StoredDungeon[]>`
-    select id, dungeon_key as "dungeonKey", owner_id as "ownerId", status, doc, cover
+    select id, dungeon_key as "dungeonKey", owner_id as "ownerId", status, doc, coalesce(art_root, id) as "artRoot"
       from dungeons
      where owner_id = ${owner} and status = 'partial' and copied_from is null
        and seed = ${dice.seed} and size = ${dice.size} and level = ${dice.level}
@@ -118,7 +121,7 @@ export async function getDungeon(
   sql: postgres.Sql = db()
 ): Promise<StoredDungeon | undefined> {
   const [row] = await sql<StoredDungeon[]>`
-    select id, dungeon_key as "dungeonKey", owner_id as "ownerId", status, doc, cover
+    select id, dungeon_key as "dungeonKey", owner_id as "ownerId", status, doc, coalesce(art_root, id) as "artRoot"
       from dungeons where id = ${id} and owner_id = ${owner}
   `;
   return row;
@@ -128,18 +131,18 @@ export async function getDungeon(
  * Complete dungeons by row id, whoever owns them, for the landing page's
  * pictures (`server/illustrations/showcase.ts`).
  *
- * A CROSS-OWNER READ OF `doc`, AND IT NEVER LEAVES THE SERVER. The pictures are
- * worked out from the document — which room, drawn from which door — and only
- * the picture's URL and the room's and dungeon's names are sent on, which is
- * what the player who walked in was shown anyway.
+ * A CROSS-OWNER READ OF `doc`, AND IT NEVER LEAVES THE SERVER. The document
+ * says who stands in a drawn room; only the pictures' URLs and the room's and
+ * dungeon's names are sent on, which is what the player who walked in was
+ * shown anyway.
  */
 export async function getCompleteDungeons(
   ids: string[],
   sql: postgres.Sql = db()
-): Promise<Pick<StoredDungeon, "id" | "doc" | "cover">[]> {
+): Promise<Pick<StoredDungeon, "id" | "doc">[]> {
   if (!ids.length) return [];
-  return sql<Pick<StoredDungeon, "id" | "doc" | "cover">[]>`
-    select id, doc, cover from dungeons where status = 'complete' and id in ${sql(ids)}
+  return sql<Pick<StoredDungeon, "id" | "doc">[]>`
+    select id, doc from dungeons where status = 'complete' and id in ${sql(ids)}
   `;
 }
 
@@ -154,9 +157,9 @@ export async function listDungeons(
            coalesce(doc -> 'pass' -> 'goal' ->> 'summary', '')      as objective,
            size, level, seed, d.status,
            d.created_at as "createdAt",
-           p.path as "coverPath"
+           a.path as "coverPath"
       from dungeons d
-      left join plates p on p.key = d.cover and p.status = 'ready'
+      left join assets a on a.art_root = coalesce(d.art_root, d.id) and a.kind = 'cover' and a.subject = ''
      where owner_id = ${owner}
      order by d.created_at desc
   `;
@@ -295,9 +298,9 @@ export async function listLibrary(
            size, level, seed, d.status,
            d.created_at                                            as "createdAt",
            d.created_at::text || '|' || d.id::text                 as "cursor",
-           p.path                                                  as "coverPath"
+           a.path                                                  as "coverPath"
       from dungeons d
-      left join plates p on p.key = d.cover and p.status = 'ready'
+      left join assets a on a.art_root = coalesce(d.art_root, d.id) and a.kind = 'cover' and a.subject = ''
      where d.status = 'complete'
        and owner_id <> ${viewer}
        ${
@@ -390,8 +393,8 @@ export async function duplicateDungeon(
     if (mine) return { id: mine.id, already: true };
 
     const [copy] = await tx<{ id: string }[]>`
-      insert into dungeons (dungeon_key, owner_id, seed, size, level, status, doc, copied_from, cover)
-      select dungeon_key, ${owner}, seed, size, level, status, doc, id, cover
+      insert into dungeons (dungeon_key, owner_id, seed, size, level, status, doc, copied_from, art_root, cover)
+      select dungeon_key, ${owner}, seed, size, level, status, doc, id, coalesce(art_root, id), cover
         from dungeons where id = ${sourceId}
       returning id
     `;

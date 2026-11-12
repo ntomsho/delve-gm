@@ -27,8 +27,8 @@
  * same camera that drew the guide, so the feet land on the floor the illustration was
  * told to draw and the figures behind shrink by the camera's own perspective.
  *
- * ILLUSTRATIONS are the real ones when the bucket has them (fetched by `illustrationKey`),
- * and otherwise drawn here exactly as the server would, without storing them.
+ * ILLUSTRATIONS are drawn here exactly as the server would (from `illustrationDoor`),
+ * without storing them in the bucket.
  * Since the floor was reserved in the game itself, every illustration drawn now keeps
  * the patch; the illustrations under out/sprites/<dungeon>/illustrations/ that do not were
  * drawn before, and are the spike's "before".

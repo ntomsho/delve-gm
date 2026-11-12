@@ -24,7 +24,7 @@ import type { Size } from "../../generation/content/blueprint.ts";
 import * as repo from "../db/repo.ts";
 import { allowanceOf, hasRunLeft, hasTurnLeft, refusal, turnRefusal } from "../allowance.ts";
 import { closed } from "../spend.ts";
-import { coverKey, illustrationUrl } from "../illustrations/serve.ts";
+import { illustrationUrl } from "../illustrations/serve.ts";
 import { mustGetDungeon } from "./lookup.ts";
 
 export function dungeonRoutes(app: Hono<AuthEnv>): void {
@@ -177,11 +177,9 @@ export function dungeonRoutes(app: Hono<AuthEnv>): void {
       return done;
     });
 
+    // Its cover is drawn by the first ask for it — see `GET /api/runs/:id/cover`,
+    // which the client sends as the run starts.
     await repo.completeDungeon(stored.id, complete, currentUser(c).id);
-    // Its cover is named now and drawn by the first ask for it — see
-    // `GET /api/runs/:id/cover`, which the client sends as the run starts.
-    const cover = coverKey(complete);
-    if (cover) await repo.setDungeonCover(stored.id, cover);
     return c.json({ dungeonId: stored.id });
   });
 

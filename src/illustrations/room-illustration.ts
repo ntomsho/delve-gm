@@ -26,6 +26,7 @@ import {
 } from "./view.ts";
 import { featurePresence, type Presence } from "./feature-presence.ts";
 import {
+  farSide,
   isSurfaceExit,
   type ICreature,
   resolveBase,
@@ -288,47 +289,68 @@ export function illustrationBrief(p: RoomIllustration): string {
 }
 
 /**
- * Which way in a run's illustration of `roomId` is drawn from, or undefined when the
- * run has not been there (an illustration of an unentered room shows the player that
- * room) or the room cannot be drawn.
+ * The one door a room's illustration is drawn from, or undefined when the room
+ * cannot be drawn. A pure function of the dungeon, so every run, every copy,
+ * the server and the page all agree on it, whichever way a player came in.
  *
- * The door is the one the FIRST arrival was logged with, since the illustration sits
- * at that arrival. An arrival logged before `via` was kept falls back to the
- * run's `arrivedVia` while they are still in the room, then to the way out of
- * the dungeon if the room has it, then to the first door the plan drew.
+ * The way most players arrive: the entrance room from the surface, and every
+ * other room by the door it is first reached through, walking out from the
+ * entrance over doors that are not concealed. A room reached only through a
+ * concealed door is drawn from the first door the plan drew.
+ *
+ * CHANGING THIS RULE changes how rooms not yet drawn look from then on;
+ * pictures already drawn keep the door they were drawn from (their `meta`), so
+ * the server's buttons stay right, but the page stands creatures by this rule.
+ * Redraw the rooms (`npm run redraw -- --kind room`) when it changes.
  */
-export function illustrationEntryFor(
-  d: GeneratedDungeon,
-  run: { log: { kind: string; roomId?: string; via?: string }[]; currentRoomId: string; arrivedVia?: string },
-  roomId: string
-): string | undefined {
-  const first = run.log.find((e) => e.kind === "arrival" && e.roomId === roomId);
-  const here = run.currentRoomId === roomId;
-  if (!first && !here) return undefined;
+export function illustrationDoor(d: GeneratedDungeon, roomId: string): string | undefined {
   const entries = illustrationEntries(d, roomId);
-  const wanted = first?.via ?? (here ? run.arrivedVia : undefined);
-  if (wanted && entries.includes(wanted)) return wanted;
-  const surface = d.entities.connectors.find((c) => entries.includes(c.id) && isSurfaceExit(c));
-  return surface?.id ?? entries[0];
+  if (!entries.length) return undefined;
+  const entrance = d.stocked.entranceRoomId;
+  if (roomId === entrance) {
+    const surface = d.entities.connectors.find((c) => entries.includes(c.id) && isSurfaceExit(c));
+    if (surface) return surface.id;
+  }
+  const ways = d.entities.connectors.filter((c) => c.isHidden !== true && !isSurfaceExit(c));
+  const reachedBy = new Map<string, string>();
+  const seen = new Set([entrance]);
+  const queue = [entrance];
+  while (queue.length && !reachedBy.has(roomId)) {
+    const at = queue.shift()!;
+    for (const c of ways) {
+      if (!touches(c, at)) continue;
+      const next = farSide(c, at)!;
+      if (seen.has(next)) continue;
+      seen.add(next);
+      reachedBy.set(next, c.id);
+      queue.push(next);
+    }
+  }
+  const door = reachedBy.get(roomId);
+  return door && entries.includes(door) ? door : entries[0];
+}
+
+/** Whether a run has been in `roomId`: an illustration of anywhere else shows the player a room they have not reached. */
+export function hasEntered(run: { log: { kind: string; roomId?: string }[]; currentRoomId: string }, roomId: string): boolean {
+  return run.currentRoomId === roomId || run.log.some((e) => e.kind === "arrival" && e.roomId === roomId);
 }
 
 /**
  * The creatures in a room, stood in its illustration: who stands where, as the page
  * lays the sprites down. Live — from the run's entities as they stand now — so
- * a creature slain is gone and a pack worn down shows fewer. The illustration is the
- * same one the server drew (`illustrationEntryFor`, `roomIllustration`), so the first
- * cluster stands on the floor it kept clear. Empty when the room has no illustration
- * or no one in it.
+ * a creature slain is gone and a pack worn down shows fewer. The illustration is
+ * drawn from `illustrationDoor`, so the first cluster stands on the floor it kept
+ * clear. Empty when the room has no illustration or no one in it.
  */
 export function roomFigures(
   d: GeneratedDungeon,
-  run: Parameters<typeof illustrationEntryFor>[1] & { entities: { creatures: ICreature[] } },
+  run: { entities: { creatures: ICreature[] } },
   roomId: string
 ): IllustrationFigure[] {
   const creatures = drawableCreatures(run.entities.creatures, roomId);
   if (!creatures.length) return [];
-  const entryId = illustrationEntryFor(d, run, roomId);
-  const p = entryId ? roomIllustration(d, roomId, entryId) : undefined;
+  const door = illustrationDoor(d, roomId);
+  const p = door ? roomIllustration(d, roomId, door) : undefined;
   return p ? illustrationFigures(p.input, p.view, roomClusters(creatures)) : [];
 }
 

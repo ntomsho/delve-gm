@@ -67,22 +67,21 @@ export {
   type RunStatus,
   statusOf,
 } from "./runs.ts";
+export { getIllustrationWords, saveIllustrationWords } from "./illustrations.ts";
 export {
-  type IllustrationRow,
-  type PlateSubject,
-  type RoomPlate,
-  randomRoomPlates,
-  randomCoverPlates,
-  getIllustration,
-  claimIllustration,
-  finishIllustration,
-  failIllustration,
-  getIllustrationWords,
-  saveIllustrationWords,
-  setDungeonCover,
-  readyIllustrations,
-  illustrationWordsFor,
-} from "./illustrations.ts";
+  type AssetKind,
+  type AssetRef,
+  type AssetRow,
+  type DrawnRoom,
+  getAsset,
+  claimAsset,
+  finishAsset,
+  failAsset,
+  drawnSprites,
+  randomDrawnRooms,
+  randomDrawnCovers,
+  markForRedraw,
+} from "./assets.ts";
 export {
   type PortraitRow,
   claimPortrait,

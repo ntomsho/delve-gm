@@ -101,6 +101,11 @@ version of `docs/BUILD-PLAN.md` in git history
   stored ink the way creature sprites are; a cap on uploads, and a sweep of
   portraits whose character was never saved.
 - **Figures after a reload.** A room left earlier keeps its creatures only in memory.
+- **Retire the old picture store.** Once production runs the `assets` code, drop the
+  `plates` table and `dungeons.cover`, and sweep bucket files no `assets` row points at
+  (old hash-named files and redrawn pictures' earlier versions).
+- **Redraw from the page.** `npm run redraw` marks pictures from a terminal; an admin
+  control on a room's picture would do the same while playing.
 - **Refinements:** framing (the image model sometimes swaps an angled view for a
   straight-on one), rooms dense with foliage or texture, and a depth-map lock if button
   placement drifts.

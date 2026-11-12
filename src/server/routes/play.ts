@@ -13,7 +13,6 @@ import type { RunState } from "../../gameplay/state/store.ts";
 import { createJournal, runId } from "../../journal/journal.ts";
 import * as repo from "../db/repo.ts";
 import { serveIllustration } from "../illustrations/serve.ts";
-import { illustrationEntryFor } from "../../illustrations/room-illustration.ts";
 import { drawableCreatures, spriteKeyOf } from "../../illustrations/figures.ts";
 import { serveSprite } from "../illustrations/sprites.ts";
 import { waitUntil } from "@vercel/functions";
@@ -183,11 +182,8 @@ async function playTurn(
     if (illustrationStarted.has(room) || r.log.some((e) => e.kind === "arrival" && e.roomId === room)) return;
     illustrationStarted.add(room);
     const work = illustrationWorker();
-    const entryId = work && illustrationEntryFor(dungeon.doc, r, room);
-    if (work && entryId) {
-      waitUntil(
-        serveIllustration(dungeon, room, entryId, work).catch((e) => console.error("[illustration] early start failed", e))
-      );
+    if (work) {
+      waitUntil(serveIllustration(dungeon, room, work).catch((e) => console.error("[illustration] early start failed", e)));
     }
     // The creatures in it too, one sprite per kind, for the same reason.
     const sprites = spriteWorker();
@@ -195,7 +191,7 @@ async function playTurn(
     const keys = new Set(drawableCreatures(r.entities.creatures, room).map(spriteKeyOf));
     for (const key of keys) {
       waitUntil(
-        serveSprite(r.entities, dungeon.doc.pass.theme, key, sprites).catch((e) =>
+        serveSprite({ artRoot: dungeon.artRoot, theme: dungeon.doc.pass.theme }, r.entities, key, sprites).catch((e) =>
           console.error("[sprite] early start failed", e)
         )
       );

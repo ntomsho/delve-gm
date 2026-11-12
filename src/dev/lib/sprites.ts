@@ -21,10 +21,10 @@ import type { Point } from "../../shared/utils/grid.ts";
 import type { GeneratedDungeon } from "../../generation/generate.ts";
 import { callForJson, configureTransport } from "../../llm/client.ts";
 import { IMAGE_MODELS } from "../../llm/models.ts";
-import { illustrationEntries, roomIllustration, type RoomIllustration } from "../../illustrations/room-illustration.ts";
+import { illustrationDoor, roomIllustration, type RoomIllustration } from "../../illustrations/room-illustration.ts";
 import { illustrationImagePrompt } from "../../illustrations/visual.ts";
 import { guidePng, oneBitPng, ILLUSTRATION_H, ILLUSTRATION_THRESHOLD, ILLUSTRATION_W } from "../../server/illustrations/image.ts";
-import { liveIllustrationWork, ILLUSTRATION_REFS_DIR, illustrationKey, illustrationUrl } from "../../server/illustrations/serve.ts";
+import { liveIllustrationWork, ILLUSTRATION_REFS_DIR } from "../../server/illustrations/serve.ts";
 import { SPRITE_FRAME, SPRITE_STYLE } from "../../prompts/loader.ts";
 
 // ---------------------------------------------------------------------------
@@ -973,22 +973,17 @@ async function main() {
       );
     }
 
-    // Illustrations: the stored one if the bucket has it, else drawn here like the server would.
+    // Illustrations: cached on disk, else drawn here like the server would.
     const illustrations = new Map<string, { p: RoomIllustration; png: Buffer; source: string }>();
     await Promise.all(
       rooms.map(async ({ room }) => {
-        const entry = illustrationEntries(d, room.id)[0];
-        const p = entry ? roomIllustration(d, room.id, entry) : undefined;
+        const door = illustrationDoor(d, room.id);
+        const p = door ? roomIllustration(d, room.id, door) : undefined;
         if (!p) return;
         const path = join(dir, "illustrations", `${room.id}.png`);
         let source = "cached";
         if (!existsSync(path)) {
-          const url = illustrationUrl(`${illustrationKey(p, theme, 4)}.png`);
-          const got = url ? await fetch(url) : undefined;
-          if (got?.ok) {
-            write(path, Buffer.from(await got.arrayBuffer()));
-            source = "stored";
-          } else if (work) {
+          if (work) {
             const setting = await work.setting(theme);
             const visual = await work.visual(p);
             write(path, await work.draw(illustrationImagePrompt(p, "marks", setting, visual, undefined, work.references), await guidePng(p, true)));

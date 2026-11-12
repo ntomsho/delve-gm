@@ -1,33 +1,29 @@
 /**
- * ROOM ILLUSTRATIONS — drawing one, once
- * ===============================
+ * ROOM ILLUSTRATIONS AND COVERS — drawing one, once
+ * =================================================
  *
- * What `GET /api/runs/:id/illustrations/:roomId` does once the route has checked the
- * run and found the way in (ARCHITECTURE §10.3):
+ * What `GET /api/runs/:id/illustrations/:roomId` and `/cover` do once the route
+ * has checked the run (ARCHITECTURE §10.3). Every picture is an `assets` row
+ * found by what it shows — `(artRoot, kind, subject)` — never by its prompt:
  *
- *   1. build the illustration from the dungeon as GENERATED (`roomIllustration`), and its key
- *   2. ready      → the URL
- *      pending    → "ask again", unless the claim is stale
- *      missing    → claim it, draw it, store it, return the URL
- *      failed     → claim it again while attempts are left; past that, none
+ *   ready    → the URL
+ *   pending  → "ask again", unless the claim is stale
+ *   missing  → claim it, draw it, store it, return the URL
+ *   failed   → claim it again while attempts are left; past that, none
+ *   redraw   → marked by `npm run redraw`: claim it and draw it again; the old
+ *              picture stays until the new one is stored, and stays for good
+ *              if the redraw fails
  *
- * THE KEY IS A HASH OF WHAT THE ILLUSTRATION IS DRAWN FROM, not of the final prompt.
- * The final prompt carries words Haiku wrote, and Haiku does not answer twice
- * the same way, so a key made from it would never be found again. Everything
- * hashed here is a pure function of the generated dungeon and of code: the
- * requests Haiku is sent, the layout and positions, the guide, the style, the
- * model and the references. A copy of the dungeon builds the same key.
+ * NOTHING IS REDRAWN BECAUSE THE CODE CHANGED. A prompt, guide or style edit
+ * affects pictures not drawn yet; redrawing old ones is a decision someone
+ * makes with `src/dev/redraw.ts`.
  *
- * Four paid calls in one request — the setting line (once per dungeon, then
- * kept in `plate_words`), the room's words, the image, and Haiku moving the
- * buttons onto what the image shows — against the API's usual one. All four
- * together run about 30 s, well inside `maxDuration`.
- *
- * THE BUTTONS. Haiku's corrected buttons are kept in `plate_words` under
- * `spotsKey(key)`, written only by the request that drew the picture, so they
- * always belong to the picture stored under that key. A picture with none —
- * drawn before placement existed, or whose placement failed — gets the
- * geometry's buttons, as every picture did before.
+ * A ROOM HAS ONE PICTURE, drawn from `illustrationDoor`. Four paid calls the
+ * first time — the setting line (once per theme, then kept in `plate_words`),
+ * the room's words, the image, and Haiku moving the buttons onto what the
+ * image shows — about 30 s, well inside `maxDuration`. The placed buttons and
+ * the door are kept on the row (`meta`), so they always belong to the picture
+ * stored there. A picture whose placement failed gets the geometry's buttons.
  *
  * A failure is a missing picture, never an error: the answer is `none` and the
  * page closes the space it held.
@@ -39,31 +35,20 @@ import { createHash } from "node:crypto";
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { fal } from "@fal-ai/client";
-import {
-  exteriorIllustrationPrompt,
-  ILLUSTRATION_STYLE_VERSION,
-  illustrationSettingMessage,
-  illustrationVisualMessage,
-} from "../../illustrations/prompt.ts";
-import {
-  ILLUSTRATION_EXTERIOR_SYSTEM,
-  ILLUSTRATION_SETTING_SYSTEM,
-  ILLUSTRATION_VISUAL_SYSTEM,
-} from "../../prompts/loader.ts";
+import { exteriorIllustrationPrompt, illustrationSettingMessage } from "../../illustrations/prompt.ts";
+import { ILLUSTRATION_SETTING_SYSTEM } from "../../prompts/loader.ts";
 import type { GeneratedDungeon } from "../../generation/generate.ts";
 import { COVER_MODEL, IMAGE_MODELS, ILLUSTRATION_MODEL } from "../../llm/models.ts";
-import { illustrationSketchSvg } from "../../illustrations/sketch.ts";
 import {
   illustrationImagePrompt,
-  rawVisual,
   requestIllustrationExterior,
   requestIllustrationSetting,
   requestIllustrationVisual,
-  visualSubjects,
   type IllustrationVisual,
 } from "../../illustrations/visual.ts";
 import {
   coverDescription,
+  illustrationDoor,
   illustrationSpots,
   roomIllustration,
   type IllustrationAnswer,
@@ -72,7 +57,7 @@ import {
 } from "../../illustrations/room-illustration.ts";
 import { requestButtonPlacement } from "../../illustrations/button-placement.ts";
 import * as repo from "../db/repo.ts";
-import type { PlateSubject } from "../db/repo.ts";
+import type { AssetRef, AssetRow } from "../db/repo.ts";
 import { guidePng, inkPng, placementJpeg, ILLUSTRATION_H, ILLUSTRATION_W } from "./image.ts";
 import { beforeImage, mayStart, recordImage } from "../spend.ts";
 
@@ -118,95 +103,77 @@ export interface IllustrationWork {
 /** The statements, as `repo.ts` has them; a parameter so tests need no database. */
 export type IllustrationStore = Pick<
   typeof repo,
-  "getIllustration" | "claimIllustration" | "finishIllustration" | "failIllustration" | "getIllustrationWords" | "saveIllustrationWords"
+  "getAsset" | "claimAsset" | "finishAsset" | "failAsset" | "getIllustrationWords" | "saveIllustrationWords"
 >;
+
+/** A dungeon as pictures need it: whose art it uses, and the world as generated. */
+export interface ArtDungeon {
+  artRoot: string;
+  doc: GeneratedDungeon;
+}
 
 const sha = (s: string) => createHash("sha256").update(s).digest("hex");
 
 /** The key of the setting line a dungeon's illustrations share. */
 export const settingKey = (theme: string) => `setting:${sha(ILLUSTRATION_SETTING_SYSTEM + "\n" + illustrationSettingMessage(theme))}`;
 
-/** What an illustration is drawn from, hashed. See the header for why not the prompt. */
-export function illustrationKey(p: RoomIllustration, theme: string, references: number): string {
-  const { subjects } = visualSubjects(p);
-  return sha(
-    JSON.stringify({
-      style: ILLUSTRATION_STYLE_VERSION,
-      model: `${IMAGE_MODELS[ILLUSTRATION_MODEL].guided} ${ILLUSTRATION_QUALITY} ${ILLUSTRATION_W}x${ILLUSTRATION_H}`,
-      references,
-      setting: settingKey(theme),
-      visual: ILLUSTRATION_VISUAL_SYSTEM + "\n" + illustrationVisualMessage(p.roomName, p.roomBase, subjects),
-      // The layout half of the prompt, with the fiction uncut standing in for
-      // the words: every position, tag and the style text, and nothing Haiku wrote.
-      layout: illustrationImagePrompt(p, "marks", "", rawVisual(p), undefined, references),
-      guide: illustrationSketchSvg(p, { marks: true }),
-    })
-  );
-}
+/** What a room's `assets.meta` holds: the door it was drawn from, its name, and Haiku's buttons when placement worked. */
+export type RoomMeta = {
+  entryId: string;
+  title: string;
+  spots?: IllustrationSpot[];
+};
 
 export async function serveIllustration(
-  dungeon: { id: string; doc: GeneratedDungeon },
+  dungeon: ArtDungeon,
   roomId: string,
-  entryId: string,
   work: IllustrationWork,
   store: IllustrationStore = repo
 ): Promise<IllustrationAnswer> {
   const d = dungeon.doc;
-  const p = roomIllustration(d, roomId, entryId);
+  const door = illustrationDoor(d, roomId);
+  const p = door ? roomIllustration(d, roomId, door) : undefined;
   if (!p) return { status: "none" };
-  const theme = d.pass.theme;
-  const key = illustrationKey(p, theme, work.references);
-  // Where the guide put each thing: the buttons until Haiku has seen the picture.
-  const geometry = illustrationSpots(p);
-  // Set only when this request draws the picture.
-  let placed: IllustrationSpot[] | undefined;
-  const subject: PlateSubject = { kind: "room", dungeonId: dungeon.id, roomId, entryId, title: p.roomName };
-  const answer = await serveKeyed(key, ILLUSTRATION_MODEL, subject, p.roomName, work, store, async () => {
+  const ref: AssetRef = { artRoot: dungeon.artRoot, kind: "room", subject: roomId };
+  const answer = await serveAsset(ref, ILLUSTRATION_MODEL, p.roomName, work, store, async () => {
+    const theme = d.pass.theme;
     const sKey = settingKey(theme);
     const setting = (await store.getIllustrationWords(sKey)) ?? (await store.saveIllustrationWords(sKey, await work.setting(theme)));
     const visual = await work.visual(p);
     const prompt = illustrationImagePrompt(p, "marks", setting, visual, undefined, work.references);
     const picture = await work.draw(prompt, await guidePng(p, true));
-    placed = await placeButtons(p, geometry, picture, work, key);
-    return picture;
+    const spots = await placeButtons(p, illustrationSpots(p), picture, work);
+    const meta: RoomMeta = { entryId: p.entryId, title: p.roomName, ...(spots ? { spots } : {}) };
+    return { picture, meta };
   });
   if (answer.status !== "ready") return answer;
-  if (placed) {
-    // After the picture is stored, so a picture that failed to store leaves no buttons behind.
-    await store.saveIllustrationWords(spotsKey(key), JSON.stringify(placed)).catch((e) =>
-      console.error(`[illustration] saving buttons (${key.slice(0, 12)}) failed`, e)
-    );
-  }
-  return { ...answer, spots: placed ?? (await savedSpots(store, key)) ?? geometry };
+  return { status: "ready", url: answer.url, spots: roomSpots(d, roomId, answer.meta as Partial<RoomMeta>) };
 }
 
-/** Where an illustration's corrected buttons are kept in `plate_words`. */
-export const spotsKey = (key: string) => `spots:${key}`;
+/**
+ * A drawn room's buttons: Haiku's, kept with the picture, or else the
+ * geometry's from the door the picture was drawn from — which is the door on
+ * its row, not today's `illustrationDoor`, should that rule ever change.
+ */
+function roomSpots(d: GeneratedDungeon, roomId: string, meta: Partial<RoomMeta>): IllustrationSpot[] {
+  if (Array.isArray(meta.spots)) return meta.spots;
+  const door = meta.entryId ?? illustrationDoor(d, roomId);
+  const p = door ? roomIllustration(d, roomId, door) : undefined;
+  return p ? illustrationSpots(p) : [];
+}
 
 /** Haiku's buttons for a fresh picture; undefined, and logged, when it fails. A failure costs the buttons, never the picture. */
 async function placeButtons(
   p: RoomIllustration,
   spots: IllustrationSpot[],
   picture: Buffer,
-  work: Pick<IllustrationWork, "place">,
-  key: string
+  work: Pick<IllustrationWork, "place">
 ): Promise<IllustrationSpot[] | undefined> {
   if (!work.place || !spots.some((s) => s.how === "shown")) return undefined;
   try {
     return await work.place(p, spots, picture);
   } catch (e) {
-    console.error(`[illustration] placing buttons (${key.slice(0, 12)}) failed: ${(e as Error).message}`);
-    return undefined;
-  }
-}
-
-async function savedSpots(store: IllustrationStore, key: string): Promise<IllustrationSpot[] | undefined> {
-  const raw = await store.getIllustrationWords(spotsKey(key));
-  if (!raw) return undefined;
-  try {
-    const spots = JSON.parse(raw);
-    return Array.isArray(spots) ? spots : undefined;
-  } catch {
+    console.error(`[illustration] placing buttons (${p.roomName}) failed: ${(e as Error).message}`);
     return undefined;
   }
 }
@@ -218,94 +185,89 @@ async function savedSpots(store: IllustrationStore, key: string): Promise<Illust
 /**
  * The dungeon from outside: the cover on its library card and above its
  * opening. Klein, prompt only, sparse style — the spike's exterior setup.
- *
- * Keyed like an illustration, by what it is drawn from. The key is written onto the
- * dungeon row (`dungeons.cover`) when the dungeon is finished; a dungeon with
- * no key has no cover and never gets one drawn.
+ * None for a dungeon with no way in from the surface.
  */
-export function coverKey(d: GeneratedDungeon): string | undefined {
-  const description = coverDescription(d);
-  if (!description) return undefined;
-  return sha(
-    JSON.stringify({
-      style: ILLUSTRATION_STYLE_VERSION,
-      model: `${IMAGE_MODELS[COVER_MODEL].unguided} ${ILLUSTRATION_W}x${ILLUSTRATION_H}`,
-      seed: d.seeds.dungeonSeed,
-      scene: ILLUSTRATION_EXTERIOR_SYSTEM + "\n" + description,
-      prompt: exteriorIllustrationPrompt({ scene: "" }),
-    })
-  );
-}
-
 export async function serveCover(
-  d: GeneratedDungeon,
-  key: string,
+  dungeon: ArtDungeon,
   work: IllustrationWork,
   store: IllustrationStore = repo
 ): Promise<IllustrationAnswer> {
+  const d = dungeon.doc;
   const description = coverDescription(d);
   if (!description) return { status: "none" };
-  return serveKeyed(key, COVER_MODEL, { kind: "cover" }, `${d.pass.name} (cover)`, work, store, async () => {
+  const ref: AssetRef = { artRoot: dungeon.artRoot, kind: "cover", subject: "" };
+  const answer = await serveAsset(ref, COVER_MODEL, `${d.pass.name} (cover)`, work, store, async () => {
     const scene = await work.scene(description);
-    return work.drawScene(exteriorIllustrationPrompt({ scene }), d.seeds.dungeonSeed);
+    return { picture: await work.drawScene(exteriorIllustrationPrompt({ scene }), d.seeds.dungeonSeed), meta: {} };
   });
+  return answer.status === "ready" ? { status: "ready", url: answer.url } : answer;
+}
+
+/** A picture's answer before its kind adds what it needs: the URL and what was kept with it. */
+export type AssetAnswer =
+  | { status: "ready"; url: string; meta: Record<string, unknown> }
+  | { status: "pending" }
+  | { status: "none" };
+
+/**
+ * Where a drawing is stored. A new file every time it is drawn, because the
+ * bucket serves files as immutable: a redraw under the old name would go on
+ * showing the old picture from every cache that had it.
+ */
+export function assetPath(ref: AssetRef, at: number = Date.now()): string {
+  return `${ref.kind}/${ref.artRoot}/${sha(ref.subject).slice(0, 16)}-${at.toString(36)}.png`;
 }
 
 /**
- * The claim, the draw and the store, for anything kept in `plates`: room
- * illustrations, covers, and creature sprites (`src/server/illustrations/sprites.ts`).
+ * The claim, the draw and the store, for every picture in `assets`: rooms,
+ * covers and creature sprites (`src/server/illustrations/sprites.ts`). See the
+ * header for the states.
  *
- *   ready    → the URL
- *   pending  → "ask again", unless the claim is stale
- *   missing  → claim it, draw it, store it, return the URL
- *   failed   → claim it again while attempts are left; past that, none
- *
- * Missing or failed on a day whose budget is spent is none, unclaimed.
+ * A day whose budget is spent draws nothing: a missing picture is none, and a
+ * picture marked for a redraw goes on showing the old one.
  */
-export async function serveKeyed(
-  key: string,
+export async function serveAsset(
+  ref: AssetRef,
   model: string,
-  /** what the picture is of, kept on the plate so it can be found without its key */
-  subject: PlateSubject,
   label: string,
   work: Pick<IllustrationWork, "upload" | "urlOf" | "mayDraw">,
   store: IllustrationStore,
-  make: () => Promise<Buffer>,
+  make: () => Promise<{ picture: Buffer; meta: Record<string, unknown> }>,
   /** the model's picture as stored: an illustration's ink by default; a sprite's masks */
   finish: (picture: Buffer) => Promise<Buffer> = inkPng
-): Promise<IllustrationAnswer> {
-  const row = await store.getIllustration(key);
-  if (row?.status === "ready" && row.path) return { status: "ready", url: work.urlOf(row.path) };
+): Promise<AssetAnswer> {
+  const shown = (r: AssetRow): AssetAnswer => ({ status: "ready", url: work.urlOf(r.path!), meta: r.meta });
+  const row = await store.getAsset(ref);
+  if (row?.status === "ready" && row.path) return shown(row);
   if (row?.status === "pending" && row.ageMs < ILLUSTRATION_CLAIM_STALE_MS) return { status: "pending" };
   if (row?.status === "failed" && row.attempts >= ILLUSTRATION_MAX_ATTEMPTS) return { status: "none" };
   // Before the claim, so a closed day costs the picture none of its attempts.
-  if (work.mayDraw && !(await work.mayDraw())) return { status: "none" };
+  if (work.mayDraw && !(await work.mayDraw())) return row?.path ? shown(row) : { status: "none" };
 
-  const mine = await store.claimIllustration(
-    key,
-    model,
-    { staleMs: ILLUSTRATION_CLAIM_STALE_MS, maxAttempts: ILLUSTRATION_MAX_ATTEMPTS },
-    subject
-  );
+  const mine = await store.claimAsset(ref, model, {
+    staleMs: ILLUSTRATION_CLAIM_STALE_MS,
+    maxAttempts: ILLUSTRATION_MAX_ATTEMPTS,
+  });
   if (!mine) {
     // Somebody else's claim landed between the read and this. Say whatever it is now.
-    const now = await store.getIllustration(key);
-    if (now?.status === "ready" && now.path) return { status: "ready", url: work.urlOf(now.path) };
-    return now?.status === "pending" ? { status: "pending" } : { status: "none" };
+    const now = await store.getAsset(ref);
+    if (now?.status === "pending") return { status: "pending" };
+    return now?.path ? shown(now) : { status: "none" };
   }
 
   try {
-    const picture = await make();
-    const path = `${key}.png`;
+    const { picture, meta } = await make();
+    const path = assetPath(ref);
     await work.upload(path, await finish(picture));
-    await store.finishIllustration(key, path);
-    return { status: "ready", url: work.urlOf(path) };
+    await store.finishAsset(ref, path, meta);
+    return { status: "ready", url: work.urlOf(path), meta };
   } catch (e) {
     const body = (e as { body?: unknown }).body;
     const why = `${(e as Error).message}${body ? ` ${JSON.stringify(body).slice(0, 400)}` : ""}`;
-    console.error(`[illustration] ${label} (${key.slice(0, 12)}) failed: ${why}`);
-    await store.failIllustration(key, why);
-    return { status: "none" };
+    console.error(`[illustration] ${label} failed: ${why}`);
+    await store.failAsset(ref, why);
+    // A redraw that failed leaves the old picture showing.
+    return row?.path ? shown(row) : { status: "none" };
   }
 }
 
@@ -379,7 +341,7 @@ export function liveIllustrationWork(): IllustrationWork | undefined {
           authorization: `Bearer ${serviceKey}`,
           apikey: serviceKey,
           "content-type": contentType,
-          // The key changes whenever the picture would, so a file never does.
+          // Every drawing gets a new path (`assetPath`), so a file never changes.
           "cache-control": "max-age=31536000, immutable",
           "x-upsert": "true",
         },

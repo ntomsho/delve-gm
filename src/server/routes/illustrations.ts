@@ -16,7 +16,7 @@ import {
   type IllustrationAnswer,
   type IllustrationWork,
 } from "../illustrations/serve.ts";
-import { illustrationEntryFor } from "../../illustrations/room-illustration.ts";
+import { hasEntered } from "../../illustrations/room-illustration.ts";
 import { drawableCreatures, spriteKeyOf } from "../../illustrations/figures.ts";
 import {
   liveSpriteWork,
@@ -33,8 +33,8 @@ export function illustrationRoutes(app: Hono<AuthEnv>): void {
    * A room's picture, for the arrival in the scrollback. See `illustrations.ts`.
    *
    * Only a room this run has entered: an illustration of anywhere else is a look at a
-   * room the player has not reached. The way in is the run's, read off its
-   * log (`illustrationEntryFor`); the client names only the room.
+   * room the player has not reached. A room has one picture, whichever way the
+   * run came in (`illustrationDoor`).
    *
    * `202` while somebody else's request is drawing it; the page asks again.
    * Not a turn and not locked: it reads the run and writes nothing to it.
@@ -42,13 +42,14 @@ export function illustrationRoutes(app: Hono<AuthEnv>): void {
   app.get("/api/runs/:id/illustrations/:roomId", async (c) => {
     const user = currentUser(c);
     const run = await mustGetRun(c.req.param("id"), user.id);
-    const dungeon = await mustGetDungeon(run.dungeonId, user.id);
     const roomId = c.req.param("roomId");
-    const entryId = illustrationEntryFor(dungeon.doc, run.state, roomId);
-    if (!entryId) throw new HTTPException(404, { message: "no illustration for a room this run has not entered" });
+    if (!hasEntered(run.state, roomId)) {
+      throw new HTTPException(404, { message: "no illustration for a room this run has not entered" });
+    }
+    const dungeon = await mustGetDungeon(run.dungeonId, user.id);
     const work = illustrationWorker();
     if (!work) return c.json({ status: "none" } satisfies IllustrationAnswer);
-    const answer = await serveIllustration(dungeon, roomId, entryId, work);
+    const answer = await serveIllustration(dungeon, roomId, work);
     return c.json(answer, answer.status === "pending" ? 202 : 200);
   });
 
@@ -72,7 +73,7 @@ export function illustrationRoutes(app: Hono<AuthEnv>): void {
     const work = spriteWorker();
     if (!work) return c.json({ status: "none" } satisfies SpriteAnswer);
     const dungeon = await mustGetDungeon(run.dungeonId, user.id);
-    const answer = await serveSprite(run.state.entities, dungeon.doc.pass.theme, spriteId, work);
+    const answer = await serveSprite({ artRoot: dungeon.artRoot, theme: dungeon.doc.pass.theme }, run.state.entities, spriteId, work);
     return c.json(answer, answer.status === "pending" ? 202 : 200);
   });
 
@@ -81,16 +82,16 @@ export function illustrationRoutes(app: Hono<AuthEnv>): void {
    * sends one the moment a run starts — and served from then on.
    *
    * Through the run rather than the dungeon so the caller needs no dungeon id,
-   * and so the owner check is the run's. A dungeon with no cover key (finished
-   * before covers) answers `none` and is never drawn.
+   * and so the owner check is the run's. A dungeon with no way in from the
+   * surface answers `none`.
    */
   app.get("/api/runs/:id/cover", async (c) => {
     const user = currentUser(c);
     const run = await mustGetRun(c.req.param("id"), user.id);
     const dungeon = await mustGetDungeon(run.dungeonId, user.id);
     const work = illustrationWorker();
-    if (!work || !dungeon.cover) return c.json({ status: "none" } satisfies IllustrationAnswer);
-    const answer = await serveCover(dungeon.doc, dungeon.cover, work);
+    if (!work) return c.json({ status: "none" } satisfies IllustrationAnswer);
+    const answer = await serveCover(dungeon, work);
     return c.json(answer, answer.status === "pending" ? 202 : 200);
   });
 }
@@ -108,13 +109,11 @@ export function illustrationRoutes(app: Hono<AuthEnv>): void {
 export function showcaseRoutes(app: Hono<AuthEnv>): void {
   app.get("/api/illustrations/recent", async (c) => {
     const illustrations = illustrationWorker();
-    const sprites = spriteWorker();
     c.header("cache-control", "public, max-age=60, s-maxage=600, stale-while-revalidate=3600");
-    if (!illustrations || !sprites) return c.json([]);
+    if (!illustrations) return c.json([]);
     const asked = Math.trunc(Number(c.req.query("limit")));
     const limit = Number.isFinite(asked) ? Math.min(Math.max(asked, 1), SHOWCASE_MAX) : SHOWCASE_MAX;
-    const work = { spriteReferences: sprites.references, urlOf: illustrations.urlOf };
-    return c.json(await pickShowcase(work, repo, limit));
+    return c.json(await pickShowcase({ urlOf: illustrations.urlOf }, repo, limit));
   });
 }
 
@@ -138,8 +137,7 @@ export function spriteWorker(): SpriteWork | undefined {
 
 /** Some creature carrying this sprite key is in sight in a room the run has entered. */
 function mayDrawSprite(state: RunState, spriteId: string): boolean {
-  const entered = new Set([state.currentRoomId, ...state.log.flatMap((e) => (e.kind === "arrival" && e.roomId ? [e.roomId] : []))]);
-  return [...entered].some((room) =>
-    drawableCreatures(state.entities.creatures, room).some((c) => spriteKeyOf(c) === spriteId)
+  return state.entities.creatures.some(
+    (c) => spriteKeyOf(c) === spriteId && hasEntered(state, c.roomId) && drawableCreatures([c], c.roomId).length > 0
   );
 }

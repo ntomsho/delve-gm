@@ -1120,3 +1120,60 @@ describe("prompt blocks", () => {
     });
   });
 });
+
+describe("pictures", () => {
+  const opts = { staleMs: 180_000, maxAttempts: 3 };
+
+  async function complete(tx: postgres.Sql, owner: string): Promise<string> {
+    const id = await repo.insertPartialDungeon(dungeon(4201), owner, tx);
+    await repo.completeDungeon(id, dungeon(4201), owner, tx);
+    return id;
+  }
+
+  it("belong to the original: a copy, and a copy of the copy, use its art", async () => {
+    await inRollback(async (tx) => {
+      const a = await makeUser(tx, "a");
+      const b = await makeUser(tx, "b");
+      const c = await makeUser(tx, "c");
+      const source = await complete(tx, a);
+      const copy = (await repo.duplicateDungeon(source, b, tx))!.id;
+      const copyOfCopy = (await repo.duplicateDungeon(copy, c, tx))!.id;
+      expect((await repo.getDungeon(source, a, tx))!.artRoot).toBe(source);
+      expect((await repo.getDungeon(copy, b, tx))!.artRoot).toBe(source);
+      expect((await repo.getDungeon(copyOfCopy, c, tx))!.artRoot).toBe(source);
+    });
+  });
+
+  it("are claimed once, kept, redrawn only when marked, and keep the old file if a redraw fails", async () => {
+    await inRollback(async (tx) => {
+      const a = await makeUser(tx, "a");
+      const ref = { artRoot: await complete(tx, a), kind: "room" as const, subject: "room-1" };
+
+      expect(await repo.claimAsset(ref, "m", opts, tx)).toBe(true);
+      expect(await repo.claimAsset(ref, "m", opts, tx)).toBe(false);
+      await repo.finishAsset(ref, "room/x-1.png", { title: "Hall" }, tx);
+      expect(await repo.getAsset(ref, tx)).toMatchObject({ status: "ready", path: "room/x-1.png", draws: 1, meta: { title: "Hall" } });
+      // A drawn picture is never claimed again on its own.
+      expect(await repo.claimAsset(ref, "m", opts, tx)).toBe(false);
+
+      expect(await repo.markForRedraw({ kind: "room", artRoot: ref.artRoot }, tx)).toBe(1);
+      expect(await repo.claimAsset(ref, "m", opts, tx)).toBe(true);
+      await repo.failAsset(ref, "the model said no", tx);
+      expect(await repo.getAsset(ref, tx)).toMatchObject({ status: "ready", path: "room/x-1.png" });
+    });
+  });
+
+  it("show a dungeon's cover on its owner's list and on every copy's", async () => {
+    await inRollback(async (tx) => {
+      const a = await makeUser(tx, "a");
+      const b = await makeUser(tx, "b");
+      const source = await complete(tx, a);
+      const copy = (await repo.duplicateDungeon(source, b, tx))!.id;
+      const ref = { artRoot: source, kind: "cover" as const, subject: "" };
+      await repo.claimAsset(ref, "m", opts, tx);
+      await repo.finishAsset(ref, "cover/x-1.png", {}, tx);
+      expect((await repo.listDungeons(a, tx))[0].coverPath).toBe("cover/x-1.png");
+      expect((await repo.listDungeons(b, tx)).find((s) => s.id === copy)?.coverPath).toBe("cover/x-1.png");
+    });
+  });
+});

@@ -455,9 +455,11 @@ for the player and never shown to the model.
 
 - **An image shows only what the player could know.** Concealed features and connectors
   are filtered out of the prompt, the same filter the room view applies.
-- **Images belong to the dungeon, not the run.** They are drawn from `base`, which never
-  changes, so the first player to enter a room pays and every later player and copy gets
-  it free.
+- **Images belong to the dungeon, not the run.** Each one is stored against the thing it
+  shows: a room, a kind of creature, or the dungeon's cover. The first player to enter a
+  room pays and every later player, and every copy of the dungeon, gets it free.
+- **One picture per room,** always drawn from the same door (`illustrationDoor`), so the
+  picture never depends on which way a run came in.
 - **No image ever blocks a turn.** Prose first, picture when it lands; a failure is a
   missing picture, never an error.
 - **Code makes the style hold.** Every image is thresholded to 1-bit on the server
@@ -488,24 +490,38 @@ for the player and never shown to the model.
 
 ### 10.3 Serving
 
-`GET /api/runs/:id/illustrations/:roomId` and `/sprites/:spriteId`
-(`src/server/illustrations/`).
+`GET /api/runs/:id/illustrations/:roomId`, `/sprites/:spriteId` and `/cover`
+(`src/server/illustrations/`, the table in `src/server/db/assets.ts`).
 
-- **The cache key is a hash of what the image is drawn from:** the requests, the guide,
-  the style version, the model and the references. Not the final prompt, which contains
-  words a model wrote differently each time. A copied dungeon builds the same key and
-  finds the same image.
-- The server refuses a room the run has not entered. A claim row (`pending` → `ready` or
-  `failed`) means two runs entering one room pay once.
+- **An image is found by what it shows.** One `assets` row per
+  `(art_root, kind, subject)`: a room's id, a creature's sprite id (`spriteKeyOf`), or
+  `''` for the cover. `art_root` is the dungeon the art belongs to: a dungeon's own id,
+  or for a copy the original it came from (`dungeons.art_root`, carried by
+  `duplicateDungeon`). Copies therefore share every picture.
+- **Nothing is redrawn because the code changed.** Editing a prompt, the guide, the camera
+  or the style affects only pictures not drawn yet. To redraw on purpose, mark rows with
+  `npm run redraw` (`src/dev/redraw.ts`), choosing a kind, a dungeon or one subject. A
+  marked row (`redraw`) keeps showing its old picture until the next request for it, which
+  draws the new one. A redraw that fails keeps the old picture.
+- **The row is the claim.** `pending` → `ready` or `failed`, inserted in one statement, so
+  two runs entering one room pay once. A `pending` claim older than three minutes is a
+  request that died, and the next ask takes it over.
+- The server refuses a room the run has not entered, and a creature it has not met.
 - Drawing starts on the server the moment a turn puts the player in a new room, so the
   picture is usually ready by the time the page asks.
-- The placed buttons are kept in `plate_words` under `spots:<key>`, written only by the
-  request that drew the picture. A picture without them (drawn earlier, or its placement
-  failed) gets the geometry's buttons. Placement costs about $0.0005 and 2–3 s a picture.
-- Images live in a public Supabase Storage bucket. The Supabase names still say `plates`
-  (the table, `plate_words`, the bucket), from before the code said *illustration*.
+- **What belongs to one picture is kept on its row** (`meta`): a room's placed buttons and
+  the door it was drawn from; a sprite's look and size. A room without placed buttons
+  (placement failed) gets the geometry's buttons.
+- **Files are never overwritten.** Each drawing gets a new path,
+  `<kind>/<art_root>/<subject hash>-<n>.png`, since the bucket serves files as immutable.
+- The setting line, one per dungeon theme, is still kept in `plate_words`. Images live in
+  the public Supabase Storage bucket `plates`. The `plates` table and `dungeons.cover`
+  are the old hash-keyed store, no longer read.
 - Room interiors and sprites are drawn by GPT Image 2 at low quality with style
-  references; dungeon covers by FLUX.2 [klein]. About $0.015 an image.
+  references; dungeon covers by FLUX.2 [klein]. About $0.015 an image. Placement costs
+  about $0.0005 and 2–3 s a picture.
+- The landing page's showcase picks random drawn rooms and covers straight from `assets`
+  (`src/server/illustrations/showcase.ts`).
 - Without `FAL_KEY` and the Supabase service key, every room simply has no
   illustration.
 

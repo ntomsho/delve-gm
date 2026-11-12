@@ -1,17 +1,15 @@
 /**
  * CREATURE SPRITES — the cut-out, and the claim and cache, against an
- * in-memory table and a fake model. No database, no network, no spend.
+ * in-memory `assets` table and a fake model. No database, no network, no spend.
  */
 
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 import { spriteKeyOf } from "../../illustrations/figures.ts";
 import { generateOffline } from "../../fixtures/offline.ts";
-import { spriteSubject } from "../../illustrations/sprites.ts";
-import type { IllustrationRow } from "../db/repo.ts";
-import type { IllustrationStore } from "./serve.ts";
+import { memoryStore } from "./memory-store.ts";
 import { cutOut, SPRITE_STORE_H, spriteMasksPng } from "./sprite-image.ts";
-import { serveSprite, spriteKey, type SpriteWork } from "./sprites.ts";
+import { serveSprite, type SpriteWork } from "./sprites.ts";
 
 /**
  * A figure on white: a thick black ring (its outline, with paper inside), and a
@@ -62,41 +60,6 @@ describe("spriteMasksPng", () => {
   });
 });
 
-function memoryStore() {
-  const rows = new Map<string, IllustrationRow>();
-  const words = new Map<string, string>();
-  const store: IllustrationStore = {
-    async getIllustration(key) {
-      const r = rows.get(key);
-      return r && { ...r, ageMs: 0 };
-    },
-    async claimIllustration(key, _model, opts) {
-      const r = rows.get(key);
-      if (!r) {
-        rows.set(key, { key, status: "pending", path: null, attempts: 1, ageMs: 0 });
-        return true;
-      }
-      if (r.status !== "failed" || r.attempts >= opts.maxAttempts) return false;
-      rows.set(key, { ...r, status: "pending", attempts: r.attempts + 1 });
-      return true;
-    },
-    async finishIllustration(key, path) {
-      rows.set(key, { ...rows.get(key)!, status: "ready", path });
-    },
-    async failIllustration(key) {
-      rows.set(key, { ...rows.get(key)!, status: "failed" });
-    },
-    async getIllustrationWords(key) {
-      return words.get(key);
-    },
-    async saveIllustrationWords(key, value) {
-      if (!words.has(key)) words.set(key, value);
-      return words.get(key)!;
-    },
-  };
-  return { store, rows, words };
-}
-
 function fakeWork(opts: { fail?: boolean } = {}) {
   const calls = { look: 0, draw: 0, prompts: [] as string[], uploads: [] as string[] };
   const work: SpriteWork = {
@@ -122,44 +85,49 @@ function fakeWork(opts: { fail?: boolean } = {}) {
 const d = generateOffline(4201, 1);
 const creature = d.entities.creatures[0];
 const id = spriteKeyOf(creature);
-const theme = d.pass.theme;
+const dungeon = { artRoot: "root-1", theme: d.pass.theme };
 
 describe("serveSprite", () => {
   it("draws once, with the look in the prompt, then serves the stored sprite and its size", async () => {
     const m = memoryStore();
     const { work, calls } = fakeWork();
-    const first = await serveSprite(d.entities, theme, id, work, m.store);
-    expect(first).toEqual({ status: "ready", url: expect.stringMatching(/^https:\/\/cdn\.example\/illustrations\/[0-9a-f]{64}\.png$/), size: "large" });
+    const first = await serveSprite(dungeon, d.entities, id, work, m.store);
+    expect(first).toEqual({
+      status: "ready",
+      url: expect.stringMatching(/^https:\/\/cdn\.example\/illustrations\/sprite\/root-1\/[0-9a-f]{16}-[0-9a-z]+\.png$/),
+      size: "large",
+    });
     expect(calls.prompts[0]).toContain("A stooped figure in a grey robe.");
     expect(calls.prompts[0]).toContain("The 9 images are style references only");
+    expect(m.row({ artRoot: "root-1", kind: "sprite", subject: id })!.meta).toEqual({ look: "A stooped figure in a grey robe.", size: "large" });
 
-    const again = await serveSprite(d.entities, theme, id, work, m.store);
+    const again = await serveSprite(dungeon, d.entities, id, work, m.store);
     expect(again).toEqual(first);
     expect(calls).toMatchObject({ look: 1, draw: 1 });
     expect(calls.uploads).toHaveLength(1);
   });
 
-  it("is keyed by what it is drawn from, so another run of the dungeon finds it", () => {
-    const s = spriteSubject(d.entities, id)!;
+  it("is one sprite for every run of the dungeon, each starting from its own copy of the entities", async () => {
+    const m = memoryStore();
+    const { work, calls } = fakeWork();
+    await serveSprite(dungeon, d.entities, id, work, m.store);
     // Another run starts from its own copy of the dungeon's entities (`newRun`).
-    const another = structuredClone(d.entities);
-    expect(spriteKey(spriteSubject(another, id)!, theme, 9)).toBe(spriteKey(s, theme, 9));
-    expect(spriteKey(s, theme, 8)).not.toBe(spriteKey(s, theme, 9));
+    await serveSprite(dungeon, structuredClone(d.entities), id, work, m.store);
+    expect(calls.draw).toBe(1);
   });
 
-  it("a failed drawing is no sprite, and the look is kept for the retry", async () => {
+  it("a failed drawing is no sprite, tried again on the next ask", async () => {
     const m = memoryStore();
     const { work, calls } = fakeWork({ fail: true });
-    expect(await serveSprite(d.entities, theme, id, work, m.store)).toEqual({ status: "none" });
-    expect(await serveSprite(d.entities, theme, id, work, m.store)).toEqual({ status: "none" });
-    expect(calls.look).toBe(1);
+    expect(await serveSprite(dungeon, d.entities, id, work, m.store)).toEqual({ status: "none" });
+    expect(await serveSprite(dungeon, d.entities, id, work, m.store)).toEqual({ status: "none" });
     expect(calls.draw).toBe(2);
   });
 
   it("a key no creature carries is none, and nothing is drawn", async () => {
     const m = memoryStore();
     const { work, calls } = fakeWork();
-    expect(await serveSprite(d.entities, theme, "no-such-kind", work, m.store)).toEqual({ status: "none" });
+    expect(await serveSprite(dungeon, d.entities, "no-such-kind", work, m.store)).toEqual({ status: "none" });
     expect(calls.draw).toBe(0);
   });
 });
